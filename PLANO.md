@@ -170,6 +170,37 @@ Evolução planejada por fases. Cada fase entrega valor de forma incremental.
 - [ ] Log de auditoria (quem alterou o quê)
 - [ ] Agendamento automático da sincronização com o IXC
 
+## ✅ Módulo Segurança do Trabalho — a APR (entregue)
+
+O papel que o técnico preenche antes de subir no poste, exigido pela NR-35 e
+pela NR-10. Transcrito do formulário impresso da casa, sem tirar nada dele.
+
+- [x] **Catálogo editável pela tela**: os riscos que se marcam, os EPIs que se
+      conferem, as ferramentas e as perguntas do relato situacional. É o que
+      faz o módulo crescer sem release — norma nova e EPI novo não esperam
+      ninguém mexer no código
+- [x] **Formulário por modelo**: o de trabalho em altura nasce com o sistema;
+      outro tipo de trabalho (espaço confinado, poda) entra como outro modelo,
+      copiando os itens do primeiro
+- [x] **Tela única do técnico** (`/campo`): sem barra lateral e sem escolha de
+      módulo. Cinco passos que cabem numa tela de celular, salvando a cada
+      passo — o sinal cai onde se trabalha
+- [x] **Assinatura de cada executante** no próprio aparelho, com a saída para
+      quem não assina de próprio punho (o papel diz qual das duas foi)
+- [x] **Conferência de liberação**: a APR só libera o serviço com norma,
+      atividade, risco e EPI marcados, o relato inteiro respondido e todo mundo
+      assinado. As pendências voltam todas de uma vez
+- [x] **Providência obrigatória** em quem responde "Não" no relato — o único
+      acréscimo ao papel, onde esse "Não" ia embora sem deixar dito o que foi
+      feito
+- [x] **PDF timbrado** gerado do retrato congelado, e arquivado sozinho na
+      pasta da empresa no RH (`Empresa / Análises de Risco (APR) / AAAA-MM`)
+- [x] **Perfil TECNICO**, cujo módulo não se distribui pela tela: ele abre a
+      Segurança do Trabalho e mais nada, sempre
+- [ ] Prazo de validade dos treinamentos (NR-10/NR-35) por funcionário, com
+      recusa de quem está vencido na hora de montar a equipe
+- [ ] Painel de riscos por período: o que mais se marca, onde, com que equipe
+
 ## Notas técnicas / decisões
 
 - **PostgreSQL + Prisma**: valores monetários em `Decimal(14,2)`; migrations

@@ -19,6 +19,7 @@ import { TransferenciasModule } from './transferencias/transferencias.module';
 import { AuthModule } from './auth/auth.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
 import { RhModule } from './rh/rh.module';
+import { AprModule } from './apr/apr.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { ModulosGuard } from './auth/modulos.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -48,6 +49,7 @@ import { HealthController } from './health/health.controller';
     CaixaModule,
     TransferenciasModule,
     RhModule,
+    AprModule,
   ],
   controllers: [HealthController],
   providers: [

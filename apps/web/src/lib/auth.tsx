@@ -12,7 +12,12 @@ import type { Usuario } from './types';
 interface AuthState {
   usuario: Usuario | null;
   carregando: boolean;
-  login: (email: string, senha: string) => Promise<void>;
+  /**
+   * Devolve quem entrou. É o que a tela de login usa para saber para onde
+   * mandar a pessoa — o estado do contexto só chega no render seguinte, e
+   * navegar antes dele levaria todo mundo para o mesmo lugar.
+   */
+  login: (email: string, senha: string) => Promise<Usuario>;
   logout: () => void;
 }
 
@@ -42,6 +47,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     );
     setToken(res.data.accessToken);
     setUsuario(res.data.usuario);
+    return res.data.usuario;
   }
 
   function logout() {

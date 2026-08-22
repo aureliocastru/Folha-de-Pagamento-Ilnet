@@ -17,6 +17,16 @@ enum UserRole {
   ADMIN
   RH
   VISUALIZADOR
+
+  /// O técnico de campo. Existe para a análise de risco: ele abre a APR do
+  /// serviço, colhe a assinatura da equipe e vai trabalhar.
+  ///
+  /// É o único perfil cujo módulo não se distribui pela tela — ele abre a
+  /// Segurança do Trabalho e mais nada, sempre. A lista de módulos é de
+  /// restrição (vazia = todos), e um login de campo criado sem que alguém
+  /// lembrasse de preenchê-la enxergaria a folha de pagamento inteira. Ver o
+  /// `ModulosGuard`.
+  TECNICO
 }
 
 model User {
@@ -130,6 +140,7 @@ model Funcionario {
   itensFerias   ItemPrevisaoFerias[]
   ferias        FeriasMarcada[]
   pastaRh       PastaRh?
+  aprsAssinadas ExecutanteApr[]
 
   @@index([ativo])
   @@index([nome])
@@ -1616,10 +1627,326 @@ model DocumentoRh {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  /// A APR de que este documento é a cópia arquivada, quando é o caso.
+  apr Apr?
+
   @@unique([pastaId, tipo, competencia])
   @@index([pastaId])
   @@index([loteId])
   @@index([tipo])
   @@index([valeAte])
   @@map("documentos_rh")
+}
+
+// ---------------------------------------------------------------------------
+// Segurança do Trabalho — a Análise Preliminar de Risco (APR)
+//
+// O papel que o técnico preenche antes de subir no poste. Ele é exigência da
+// NR-35 e da NR-10, e o que ele vale, no dia em que alguém precisa dele, é
+// exatamente o que estiver escrito nele: quem estava lá, o que se sabia do
+// risco, o que se conferiu antes de começar.
+//
+// Duas metades, e a divisa entre elas é o que faz o módulo crescer sem código
+// novo. O **modelo** é o formulário em branco — os riscos que se marcam, os
+// EPIs que se conferem, as perguntas do relato. A **APR** é uma vez em que ele
+// foi preenchido. Cadastrar um risco novo, ou um formulário inteiro para outro
+// tipo de trabalho, é mexer no modelo pela tela; nada aqui presume que a lista
+// da ILNET de hoje seja a de sempre.
+// ---------------------------------------------------------------------------
+
+/// O que um item do catálogo é dentro do formulário. Cada valor vira um bloco
+/// da tela e uma seção do papel impresso.
+enum CategoriaItemApr {
+  /// As normas envolvidas no processo: NR-10, NR-35, NR-06
+  NORMA
+  /// A atividade a ser executada: construção, manutenção, ativação…
+  ATIVIDADE
+  /// Os riscos da atividade — a grade grande de marcar
+  RISCO
+  /// Máquinas, equipamentos e ferramentas usadas no processo
+  FERRAMENTA
+  /// EPI e EPC de uso obrigatório
+  PROTECAO
+  /// As perguntas do relato situacional, respondidas com Sim / Não / N.A.
+  RELATO
+}
+
+/// Quão grave é o pior que pode acontecer nesta atividade.
+enum GravidadeApr {
+  BAIXA
+  MEDIA
+  ALTA
+}
+
+/// A resposta de uma pergunta do relato situacional.
+enum RespostaRelato {
+  SIM
+  NAO
+  /// Não se aplica — a coluna "NA" do papel
+  NAO_SE_APLICA
+}
+
+enum StatusApr {
+  /// Começou a preencher e ainda não liberou o serviço
+  RASCUNHO
+  /// Preenchida, assinada e valendo: o serviço pode começar
+  LIBERADA
+  /// Aberta por engano, ou o serviço não aconteceu
+  CANCELADA
+}
+
+/// O formulário em branco: o que se pergunta, e o texto fixo que sai impresso.
+///
+/// É cadastro, e não lista fixa no código, porque a análise de risco de uma
+/// atividade não é a de outra. O modelo que nasce com o sistema é o da ILNET
+/// para trabalho em altura (NR-35/NR-10); poda em rede aérea, espaço confinado
+/// ou o que vier depois entram como outro modelo, pela tela, sem release.
+model ModeloApr {
+  id String @id @default(uuid())
+
+  /// Como o modelo é chamado na hora de escolher ("Trabalho em altura").
+  nome String @unique
+
+  /// O que sai no alto do papel, por extenso.
+  titulo String
+
+  /// O tipo de trabalho, impresso junto das normas.
+  tipoTrabalho String @map("tipo_trabalho")
+
+  /// As orientações de segurança e o plano de resgate, em texto corrido.
+  ///
+  /// Não são campos a preencher: são o que a empresa manda fazer, e vão no
+  /// papel para quem assina ter lido. Ficam aqui, editáveis, porque
+  /// procedimento muda — e quando muda, quem escreve a versão nova é a
+  /// segurança do trabalho, não quem tem acesso ao código.
+  orientacoes  String
+  planoResgate String @map("plano_resgate")
+
+  /// Os telefones de emergência, como saem impressos.
+  telefonesEmergencia String @default("") @map("telefones_emergencia")
+
+  /// O modelo que a tela abre quando ninguém escolhe. Só um fica marcado.
+  padrao Boolean @default(false)
+  ativo  Boolean @default(true)
+
+  itens ItemApr[]
+  aprs  Apr[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("modelos_apr")
+}
+
+/// Uma linha do formulário: um risco, um EPI, uma ferramenta, uma pergunta.
+model ItemApr {
+  id String @id @default(uuid())
+
+  modelo   ModeloApr @relation(fields: [modeloId], references: [id], onDelete: Cascade)
+  modeloId String    @map("modelo_id")
+
+  categoria CategoriaItemApr
+  texto     String
+
+  /// A ordem em que aparece dentro da categoria. Sobra espaço entre os valores
+  /// (10, 20, 30…) para caber um item novo no meio sem renumerar a lista toda.
+  ordem Int
+
+  /// Marcar este item abre um campo de texto ("Outros, quais?").
+  pedeDetalhe Boolean @default(false) @map("pede_detalhe")
+
+  /// Só para as perguntas do relato: responder "Não" obriga a escrever o que
+  /// foi feito a respeito.
+  ///
+  /// É o único acréscimo desta versão ao papel — nele a resposta "Não" cabe num
+  /// quadradinho e vai embora. Aqui ela custa uma frase, que é o que
+  /// transforma "a escada não estava afastada da rede" em algo que alguém possa
+  /// ler depois. Desligável item a item, pela tela.
+  exigeProvidencia Boolean @default(true) @map("exige_providencia")
+
+  /// Item desativado some do formulário em branco, mas continua respondendo
+  /// pelas APRs em que já foi marcado — elas guardam o texto que viram.
+  ativo Boolean @default(true)
+
+  respostas RespostaApr[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([modeloId, categoria, texto])
+  @@index([modeloId, categoria, ordem])
+  @@map("itens_apr")
+}
+
+/// Uma APR preenchida: um serviço, um dia, uma equipe.
+///
+/// Quase tudo aqui é retrato congelado — o título do papel, o nome da empresa,
+/// as orientações, o texto de cada item marcado. É de propósito, e é a mesma
+/// regra do recibo da diária: reimprimir a APR de março tem de dar o papel que
+/// a equipe assinou em março, mesmo que a lista de riscos tenha mudado desde
+/// então. Sem isso, editar um item do catálogo reescreveria retroativamente o
+/// que alguém assinou.
+model Apr {
+  id String @id @default(uuid())
+
+  /// O número do documento, para achar esta APR pelo papel. Vem de uma
+  /// sequência do banco — ver a migração — e não se repete.
+  numero Int @unique
+
+  modelo   ModeloApr @relation(fields: [modeloId], references: [id], onDelete: Restrict)
+  modeloId String    @map("modelo_id")
+
+  status StatusApr @default(RASCUNHO)
+
+  // --- O cabeçalho do papel, congelado ---
+  empresaNome  String  @map("empresa_nome")
+  empresaCnpj  String? @map("empresa_cnpj")
+  titulo       String
+  tipoTrabalho String  @map("tipo_trabalho")
+
+  /// Onde o serviço acontece. É o campo que responde "onde eles estavam?".
+  local String
+
+  /// Quem responde pela equipe em campo.
+  coordenador String
+
+  // --- Quando ---
+  /// A previsão de execução: de quando até quando se espera que dure.
+  previsaoInicio DateTime? @map("previsao_inicio") @db.Date
+  previsaoFim    DateTime? @map("previsao_fim") @db.Date
+
+  /// O começo de verdade, com hora. O fim fica vazio até a equipe encerrar.
+  inicioEm DateTime  @map("inicio_em")
+  fimEm    DateTime? @map("fim_em")
+
+  /// 0, 1 ou 2 — as duas prorrogações que o papel prevê.
+  prorrogacoes      Int     @default(0)
+  motivoProrrogacao String? @map("motivo_prorrogacao")
+
+  // --- O serviço ---
+  /// A atividade descrita por etapas, na ordem em que serão feitas.
+  descricaoEtapas String @map("descricao_etapas")
+
+  gravidade GravidadeApr
+
+  // --- O texto fixo, congelado junto ---
+  orientacoes         String
+  planoResgate        String @map("plano_resgate")
+  telefonesEmergencia String @default("") @map("telefones_emergencia")
+
+  // --- Quem abriu ---
+  /// Sem chave estrangeira de propósito: apagar um login não pode levar junto a
+  /// APR que ele abriu, e o nome congelado responde pelo documento mesmo depois
+  /// de a pessoa sair da empresa.
+  criadoPorId   String? @map("criado_por_id")
+  criadoPorNome String  @map("criado_por_nome")
+
+  // --- O supervisor, que confere depois ---
+  supervisorNome       String?   @map("supervisor_nome")
+  supervisorAssinatura String?   @map("supervisor_assinatura")
+  supervisorEm         DateTime? @map("supervisor_em")
+
+  /// Por que foi cancelada. Cancelar sem dizer o motivo é apagar sem apagar.
+  motivoCancelamento String?   @map("motivo_cancelamento")
+  canceladaEm        DateTime? @map("cancelada_em")
+
+  /// O PDF desta APR arquivado na estante do RH.
+  ///
+  /// A APR liberada é um documento da casa, e a casa já tem um lugar onde se
+  /// procura documento: a pasta da empresa, no RH. O papel continua sendo
+  /// gerado sob demanda a partir do retrato congelado — o arquivo de lá é
+  /// cópia, para quem procura pelo caminho de lá.
+  ///
+  /// `SetNull`: quem apagar o documento pela tela do RH não desfaz a APR, só
+  /// desfaz a cópia. A próxima mudança arquiva de novo.
+  documentoRh   DocumentoRh? @relation(fields: [documentoRhId], references: [id], onDelete: SetNull)
+  documentoRhId String?      @unique @map("documento_rh_id")
+
+  respostas   RespostaApr[]
+  executantes ExecutanteApr[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([inicioEm])
+  @@index([criadoPorId])
+  @@map("aprs")
+}
+
+/// O que foi marcado (ou respondido) numa APR, com o texto que estava na tela.
+model RespostaApr {
+  id String @id @default(uuid())
+
+  apr   Apr    @relation(fields: [aprId], references: [id], onDelete: Cascade)
+  aprId String @map("apr_id")
+
+  /// O item do catálogo de onde isto veio. `SetNull`: apagar um risco da lista
+  /// não pode apagar o registro de que ele foi marcado num serviço.
+  item   ItemApr? @relation(fields: [itemId], references: [id], onDelete: SetNull)
+  itemId String?  @map("item_id")
+
+  /// Denormalizados de propósito: são eles que imprimem o papel, e é por eles
+  /// que se pergunta "em quantos serviços marcaram descarga elétrica?" sem
+  /// depender de o item ainda existir.
+  categoria CategoriaItemApr
+  texto     String
+  ordem     Int
+
+  /// Marcado — para norma, atividade, risco, ferramenta e proteção.
+  marcado Boolean @default(false)
+
+  /// A resposta — só para as perguntas do relato situacional.
+  resposta RespostaRelato?
+
+  /// O "quais?" de quem marcou "Outros", e a providência de quem respondeu
+  /// "Não" a uma pergunta do relato.
+  detalhe String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([aprId, categoria, texto])
+  @@index([aprId])
+  @@index([itemId])
+  @@index([categoria])
+  @@map("respostas_apr")
+}
+
+/// Quem executou o serviço, e a assinatura de cada um.
+///
+/// A assinatura é coletada no próprio aparelho, na hora — o mesmo quadro do
+/// recibo da diária. É ela que transforma a APR de um formulário preenchido
+/// numa declaração de quem esteve lá.
+model ExecutanteApr {
+  id String @id @default(uuid())
+
+  apr   Apr    @relation(fields: [aprId], references: [id], onDelete: Cascade)
+  aprId String @map("apr_id")
+
+  /// Quando a pessoa está no cadastro. Vazio é o terceirizado que apareceu no
+  /// serviço: o nome digitado responde por ele.
+  funcionario   Funcionario? @relation(fields: [funcionarioId], references: [id], onDelete: SetNull)
+  funcionarioId String?      @map("funcionario_id")
+
+  nome String
+  cpf  String?
+
+  /// PNG da assinatura, em data URL. Vazio até a pessoa assinar.
+  assinaturaPng String?        @map("assinatura_png")
+  assinadoEm    DateTime?      @map("assinado_em")
+  /// Desenhada com o dedo, ou gerada a partir do nome de quem não assina de
+  /// próprio punho. Sai impresso: um papel que aparenta punho próprio sem ser
+  /// vale menos que um sem assinatura nenhuma.
+  modo          ModoAssinatura @default(DESENHADA)
+
+  /// De onde veio a assinatura, para o caso de alguém contestar.
+  ip        String?
+  userAgent String? @map("user_agent")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([aprId])
+  @@index([funcionarioId])
+  @@map("executantes_apr")
 }

@@ -250,8 +250,16 @@ export function AssinaturaCanvas({ controle, onMudou, disabled }: Props) {
         onPointerUp={terminar}
         onPointerLeave={terminar}
         onPointerCancel={terminar}
-        style={{ height: altura, touchAction: 'none' }}
-        className={`w-full rounded-2xl border-2 border-dashed bg-papel ${
+        /*
+         * Branco nos dois temas, e não `bg-papel`.
+         *
+         * O traço é tinta escura porque é isso que vai impresso no recibo e na
+         * APR — papel é branco. Seguindo o tema, o quadro escurecia junto e a
+         * assinatura virava tinta escura sobre fundo escuro: quem assinava não
+         * via a própria letra, e o "Limpar" era clicado no escuro.
+         */
+        style={{ height: altura, touchAction: 'none', background: '#ffffff' }}
+        className={`w-full rounded-2xl border-2 border-dashed ${
           disabled
             ? 'cursor-not-allowed border-tinta-100'
             : 'cursor-crosshair border-tinta-200'
@@ -260,11 +268,11 @@ export function AssinaturaCanvas({ controle, onMudou, disabled }: Props) {
 
       {/* A linha de assinatura fica sob o dedo, como a de um papel. Não
           intercepta o toque — quem manda no ponteiro é o canvas. */}
-      <div className="pointer-events-none absolute inset-x-8 bottom-12 border-b border-tinta-200" />
+      <div className="pointer-events-none absolute inset-x-8 bottom-12 border-b border-slate-300" />
 
       {!temTraco && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <span className="text-base text-tinta-300">
+          <span className="text-base text-slate-400">
             Assine aqui com o dedo
           </span>
         </div>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { mensagemErro } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { destinoDepoisDoLogin } from '../lib/modulos';
 
 export function Login() {
   const { login } = useAuth();
@@ -16,8 +17,9 @@ export function Login() {
     setErro('');
     setCarregando(true);
     try {
-      await login(email, senha);
-      navigate('/modulos');
+      // Cada perfil cai onde ele trabalha: o técnico de campo, na tela dele;
+      // quem abre um módulo só, direto nele; os demais, na escolha.
+      navigate(destinoDepoisDoLogin(await login(email, senha)));
     } catch (err) {
       setErro(mensagemErro(err));
     } finally {

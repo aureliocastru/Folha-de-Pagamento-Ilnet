@@ -2,7 +2,9 @@ import {
   IconeCaixa,
   IconeCalculo,
   IconeCalendarioVolta,
+  IconeCapacete,
   IconeChave,
+  IconeChecklist,
   IconeDia,
   IconeEngrenagem,
   IconeEtiqueta,
@@ -63,6 +65,9 @@ const folha: Modulo = {
   inicio: 'dashboard',
   icone: IconePessoas,
   tom: 'bg-brand-500/15 text-brand-300',
+  // Exaustivo de propósito: sem esta lista, um perfil novo passaria a enxergar
+  // a folha de pagamento por omissão. Foi o que o TECNICO quase fez.
+  papeis: ['ADMIN', 'RH', 'VISUALIZADOR'],
   menu: [
     { to: 'dashboard', label: 'Dashboard', icone: IconePainel },
     { to: 'funcionarios', label: 'Funcionários', icone: IconePessoas },
@@ -92,6 +97,7 @@ const contasPagar: Modulo = {
   inicio: 'inicio',
   icone: IconeSaida,
   tom: 'bg-emerald-500/15 text-emerald-300',
+  papeis: ['ADMIN', 'RH', 'VISUALIZADOR'],
   menu: [
     { to: 'inicio', label: 'Em aberto', icone: IconeSaida },
     // As duas metades da mesma tabela do IXC, uma ao lado da outra: o que a
@@ -120,6 +126,32 @@ const contasPagar: Modulo = {
 };
 
 /**
+ * Segurança do Trabalho — a análise de risco de cada serviço.
+ *
+ * Este módulo é a visão de quem supervisiona: as APRs do dia, o que cada equipe
+ * marcou, quem assinou, e o formulário em branco que todos preenchem. **Não é
+ * por aqui que o técnico entra** — ele tem uma tela só, em `/campo`, sem menu e
+ * sem escolha de módulo, e é justamente por isso que ele não aparece na lista
+ * de perfis abaixo.
+ */
+const seguranca: Modulo = {
+  id: 'seguranca',
+  nome: 'Segurança do Trabalho',
+  descricao:
+    'As análises de risco dos serviços: o que cada equipe marcou, quem ' +
+    'assinou e o formulário que elas preenchem',
+  base: '/seguranca',
+  inicio: 'aprs',
+  icone: IconeCapacete,
+  tom: 'bg-rose-500/15 text-rose-300',
+  papeis: ['ADMIN', 'RH', 'VISUALIZADOR'],
+  menu: [
+    { to: 'aprs', label: 'Análises de Risco', icone: IconeChecklist },
+    { to: 'formularios', label: 'Formulários', icone: IconeDocumento },
+  ],
+};
+
+/**
  * RH — a estante de documentos da casa.
  *
  * Contrato, exame, advertência, o recibo de pagamento de cada mês. Só ADMIN e
@@ -143,11 +175,21 @@ const rh: Modulo = {
 };
 
 /** A ordem daqui é a ordem dos cartões na tela de módulos. */
-export const MODULOS: Modulo[] = [folha, contasPagar, rh];
+export const MODULOS: Modulo[] = [folha, contasPagar, rh, seguranca];
 
 export const MODULO_FOLHA = folha;
 export const MODULO_CONTAS_PAGAR = contasPagar;
 export const MODULO_RH = rh;
+export const MODULO_SEGURANCA = seguranca;
+
+/**
+ * A tela única do técnico de campo.
+ *
+ * Fica fora de `MODULOS` de propósito: ela não é um módulo, é a única coisa que
+ * um perfil inteiro enxerga do sistema. Quem entra como TECNICO não passa pela
+ * escolha de módulos nem vê barra lateral — cai direto aqui.
+ */
+export const TELA_DO_CAMPO = '/campo';
 
 /**
  * Os módulos que este login abre.
@@ -166,6 +208,11 @@ export function modulosDoUsuario(usuario?: {
   modulos?: string[];
 } | null): Modulo[] {
   if (!usuario) return [];
+  // O técnico não tem módulo nenhum: ele tem a tela do campo, e é para lá que
+  // o login o manda. Devolver a Segurança do Trabalho aqui lhe daria a barra
+  // lateral e a lista de APRs da empresa inteira.
+  if (usuario.role === 'TECNICO') return [];
+
   const lista = usuario.modulos ?? [];
   const semRestricao = usuario.role === 'ADMIN' || lista.length === 0;
 
@@ -177,4 +224,40 @@ export function modulosDoUsuario(usuario?: {
 
 export function caminhoInicial(modulo: Modulo): string {
   return `${modulo.base}/${modulo.inicio}`;
+}
+
+/**
+ * Para onde este login vai depois de entrar.
+ *
+ * O técnico vai para a tela dele. Quem abre um módulo só vai direto para ele —
+ * uma tela de escolha com um cartão único é um clique cobrado sem troco. Os
+ * demais escolhem.
+ */
+export function destinoDepoisDoLogin(usuario?: {
+  role: PerfilUsuario;
+  modulos?: string[];
+} | null): string {
+  if (usuario?.role === 'TECNICO') return TELA_DO_CAMPO;
+
+  const abertos = modulosDoUsuario(usuario);
+  return abertos.length === 1 ? caminhoInicial(abertos[0]) : '/modulos';
+}
+
+/**
+ * Onde fica "Minha conta" para este login.
+ *
+ * A tela mora dentro da folha, e o caminho era fixo lá. Para quem não abre a
+ * folha — o RH que só cuida da estante, e agora o técnico — clicar no próprio
+ * nome levava a um módulo trancado. Cada módulo tem a sua cópia da rota, e a
+ * daqui é a do primeiro que a pessoa abre.
+ */
+export function caminhoDaConta(usuario?: {
+  role: PerfilUsuario;
+  modulos?: string[];
+} | null): string {
+  if (usuario?.role === 'TECNICO') return `${TELA_DO_CAMPO}/minha-conta`;
+
+  const abertos = modulosDoUsuario(usuario);
+  const base = abertos[0]?.base ?? folha.base;
+  return `${base}/minha-conta`;
 }

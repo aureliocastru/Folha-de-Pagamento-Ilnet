@@ -1,8 +1,12 @@
 import type { Tom } from '../components/ui';
 import type {
+  CategoriaItemApr,
   FormaPagamento,
+  GravidadeApr,
   PerfilUsuario,
+  RespostaRelato,
   SentidoVale,
+  StatusApr,
   StatusContaPagar,
   TipoLancamento,
 } from './types';
@@ -71,16 +75,70 @@ export const PERFIL_LABEL: Record<PerfilUsuario, string> = {
   ADMIN: 'Administrador',
   RH: 'RH',
   VISUALIZADOR: 'Visualizador',
+  TECNICO: 'Técnico de campo',
 };
 
 export const PERFIL_DESCRICAO: Record<PerfilUsuario, string> = {
   ADMIN: 'Faz tudo, inclusive criar e remover logins.',
   RH: 'Usa o app inteiro: folha, vales, contas a pagar. Não mexe em logins.',
   VISUALIZADOR: 'Só consulta. Não gera folha nem altera cadastro.',
+  TECNICO:
+    'Abre uma tela só: a análise de risco do serviço dele. Não enxerga folha, ' +
+    'caixa nem documentos de ninguém.',
 };
 
 export const PERFIL_TOM: Record<PerfilUsuario, Tom> = {
   ADMIN: 'marca',
   RH: 'info',
   VISUALIZADOR: 'neutro',
+  TECNICO: 'atencao',
+};
+
+// --- Análise de risco -------------------------------------------------------
+
+export const STATUS_APR_LABEL: Record<StatusApr, string> = {
+  RASCUNHO: 'Rascunho',
+  LIBERADA: 'Liberada',
+  CANCELADA: 'Cancelada',
+};
+
+export const STATUS_APR_TOM: Record<StatusApr, Tom> = {
+  RASCUNHO: 'atencao',
+  LIBERADA: 'pago',
+  CANCELADA: 'neutro',
+};
+
+export const GRAVIDADE_LABEL: Record<GravidadeApr, string> = {
+  BAIXA: 'Baixa',
+  MEDIA: 'Média',
+  ALTA: 'Alta',
+};
+
+export const GRAVIDADE_TOM: Record<GravidadeApr, Tom> = {
+  BAIXA: 'pago',
+  MEDIA: 'atencao',
+  ALTA: 'erro',
+};
+
+/** As respostas do relato, na ordem em que os botões aparecem. */
+export const RESPOSTAS_RELATO: { valor: RespostaRelato; label: string }[] = [
+  { valor: 'SIM', label: 'Sim' },
+  { valor: 'NAO', label: 'Não' },
+  { valor: 'NAO_SE_APLICA', label: 'N.A.' },
+];
+
+/**
+ * O nome de cada bloco do formulário.
+ *
+ * É o titulo do bloco correspondente no formulário impresso, palavra por
+ * palavra. Quem conhece o papel tem de reconhecer a tela sem precisar traduzir
+ * nada — e é o mesmo texto que sai impresso de volta.
+ */
+export const CATEGORIA_APR_LABEL: Record<CategoriaItemApr, string> = {
+  NORMA: 'Normas regulamentadoras envolvidas no processo',
+  ATIVIDADE: 'Atividade a ser executada',
+  RISCO: 'Riscos da atividade',
+  FERRAMENTA: 'Máquinas, equipamentos e ferramentas utilizadas no processo',
+  PROTECAO: 'Equipamentos de proteção individual e coletivos de uso obrigatório',
+  RELATO: 'Relato situacional',
 };

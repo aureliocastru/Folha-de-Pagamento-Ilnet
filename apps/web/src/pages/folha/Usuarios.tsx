@@ -16,7 +16,25 @@ import { MODULOS } from '../../lib/modulos';
 import { PERFIL_DESCRICAO, PERFIL_LABEL, PERFIL_TOM } from '../../lib/status';
 import type { PerfilUsuario, UsuarioAdmin } from '../../lib/types';
 
-const PERFIS: PerfilUsuario[] = ['ADMIN', 'RH', 'VISUALIZADOR'];
+const PERFIS: PerfilUsuario[] = ['ADMIN', 'RH', 'VISUALIZADOR', 'TECNICO'];
+
+/**
+ * O que dizer no lugar dos módulos quando o perfil não os escolhe.
+ *
+ * O técnico de campo não tem lista: ele abre a Segurança do Trabalho e mais
+ * nada, sempre, e é o servidor que garante isso (ver o `ModulosGuard`).
+ * Mostrar-lhe botões de módulo aqui seria oferecer uma escolha que não existe.
+ */
+function SemEscolhaDeModulo() {
+  return (
+    <span
+      className="text-xs text-tinta-400"
+      title="O técnico de campo abre uma tela só, e é sempre a mesma"
+    >
+      só a análise de risco
+    </span>
+  );
+}
 
 export function Usuarios() {
   const qc = useQueryClient();
@@ -245,7 +263,7 @@ export function Usuarios() {
         </Janela>
       )}
 
-      <div className="surgir surgir-3 mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="surgir surgir-3 mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {PERFIS.map((p) => (
           <div key={p} className="card p-5">
             <Selo tom={PERFIL_TOM[p]}>{PERFIL_LABEL[p]}</Selo>
@@ -364,6 +382,9 @@ function NovoUsuario({
           perfil permite, que é o padrão de sempre. */}
       <div className="mt-4">
         <span className="rotulo">Módulos</span>
+        {role === 'TECNICO' ? (
+          <SemEscolhaDeModulo />
+        ) : (
         <div className="flex flex-wrap gap-1.5">
           {MODULOS.map((m) => {
             const ligado = modulos.length === 0 || modulos.includes(m.id);
@@ -394,6 +415,7 @@ function NovoUsuario({
             );
           })}
         </div>
+        )}
       </div>
 
       <div className="mt-5 flex flex-wrap items-center gap-4 border-t border-tinta-100 pt-5">
@@ -441,6 +463,7 @@ function ModulosDoLogin({
       </span>
     );
   }
+  if (usuario.role === 'TECNICO') return <SemEscolhaDeModulo />;
 
   const lista = usuario.modulos ?? [];
   const todos = lista.length === 0;

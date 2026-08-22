@@ -133,8 +133,10 @@ export function Layout({ modulo }: { modulo: Modulo }) {
         </nav>
 
         <div className="m-3 rounded-xl bg-white/[0.04] p-3.5">
+          {/* O caminho é o deste módulo, e não o da folha: quem não abre a
+              folha caía num módulo trancado ao clicar no próprio nome. */}
           <NavLink
-            to="/folha/minha-conta"
+            to={`${modulo.base}/minha-conta`}
             onClick={() => setMenuAberto(false)}
             className="flex items-center gap-2.5 rounded-lg transition hover:opacity-80"
             title="Minha conta"

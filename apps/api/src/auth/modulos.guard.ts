@@ -8,8 +8,19 @@ import { UserRole } from '@prisma/client';
 import type { Request } from 'express';
 
 /** Os módulos do app, como a tela os chama. */
-export const MODULOS = ['folha', 'contas-pagar', 'rh'] as const;
+export const MODULOS = ['folha', 'contas-pagar', 'rh', 'seguranca'] as const;
 export type ModuloId = (typeof MODULOS)[number];
+
+/**
+ * O módulo do técnico de campo, e o único que ele abre.
+ *
+ * A lista de módulos de um login é de restrição — vazia quer dizer "todos" —, e
+ * isso é o que faz os logins antigos continuarem funcionando. Para o perfil
+ * TECNICO essa regra se inverteria contra a casa: um login de campo criado sem
+ * que alguém lembrasse de preencher a lista enxergaria a folha de pagamento
+ * inteira. Por isso o técnico não tem lista: ele tem esta, sempre.
+ */
+const MODULO_DO_TECNICO: ModuloId[] = ['seguranca'];
 
 /**
  * De que módulo é cada rota, pelo primeiro pedaço do caminho.
@@ -28,6 +39,8 @@ export type ModuloId = (typeof MODULOS)[number];
  */
 const MODULO_DA_ROTA: Array<[string, ModuloId[]]> = [
   ['rh', ['rh']],
+
+  ['apr', ['seguranca']],
 
   ['contas-abertas', ['contas-pagar']],
   ['pagamentos-feitos', ['contas-pagar']],
@@ -74,8 +87,19 @@ export class ModulosGuard implements CanActivate {
     if (!usuario?.role) return true;
     // ADMIN distribui o acesso; ele não se restringe.
     if (usuario.role === UserRole.ADMIN) return true;
+
+    /*
+     * O técnico de campo não tem lista: ele tem a Segurança do Trabalho, e é
+     * a única coisa que abre. Ver o comentário de `MODULO_DO_TECNICO` — para
+     * ele, "lista vazia = todos" seria a folha de pagamento inteira aberta por
+     * esquecimento de quem criou o login.
+     */
+    const permitidos: string[] =
+      usuario.role === UserRole.TECNICO
+        ? MODULO_DO_TECNICO
+        : (usuario.modulos ?? []);
+
     // Lista vazia = sem restrição. Ver o comentário da coluna no schema.
-    const permitidos = usuario.modulos ?? [];
     if (permitidos.length === 0) return true;
 
     const exigidos = moduloDaRota(req.path);

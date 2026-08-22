@@ -1,4 +1,4 @@
-export type PerfilUsuario = 'ADMIN' | 'RH' | 'VISUALIZADOR';
+export type PerfilUsuario = 'ADMIN' | 'RH' | 'VISUALIZADOR' | 'TECNICO';
 
 export interface Usuario {
   id: string;
@@ -1600,4 +1600,166 @@ export interface NotaDoTitulo {
   extensao: string;
   data: string | null;
   usuario: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Segurança do Trabalho — a Análise Preliminar de Risco (APR)
+// ---------------------------------------------------------------------------
+
+/** O bloco a que um item do formulário pertence. */
+export type CategoriaItemApr =
+  | 'NORMA'
+  | 'ATIVIDADE'
+  | 'RISCO'
+  | 'FERRAMENTA'
+  | 'PROTECAO'
+  | 'RELATO';
+
+export type GravidadeApr = 'BAIXA' | 'MEDIA' | 'ALTA';
+
+/** A resposta de uma pergunta do relato situacional. */
+export type RespostaRelato = 'SIM' | 'NAO' | 'NAO_SE_APLICA';
+
+export type StatusApr = 'RASCUNHO' | 'LIBERADA' | 'CANCELADA';
+
+// A assinatura de um executante é a mesma coisa que a do recibo da diária,
+// inclusive no modo: ver `ModoAssinatura`, mais acima.
+
+/** O formulário em branco: o que se pergunta e o texto fixo que sai impresso. */
+export interface ModeloApr {
+  id: string;
+  nome: string;
+  titulo: string;
+  tipoTrabalho: string;
+  orientacoes: string;
+  planoResgate: string;
+  telefonesEmergencia: string;
+  padrao: boolean;
+  ativo: boolean;
+}
+
+/** Uma linha do formulário: um risco, um EPI, uma ferramenta, uma pergunta. */
+export interface ItemApr {
+  id: string;
+  modeloId: string;
+  categoria: CategoriaItemApr;
+  texto: string;
+  ordem: number;
+  /** Marcar abre um campo de texto ("Outros, quais?"). */
+  pedeDetalhe: boolean;
+  /** Responder "Não" obriga a dizer o que foi feito a respeito. */
+  exigeProvidencia: boolean;
+  ativo: boolean;
+}
+
+/** O formulário como a tela o desenha: o modelo e os blocos de itens ativos. */
+export interface FormularioApr {
+  modelo: ModeloApr;
+  blocos: { categoria: CategoriaItemApr; itens: ItemApr[] }[];
+}
+
+/** O que foi marcado numa APR, com o texto que estava na tela na hora. */
+export interface RespostaApr {
+  id: string;
+  itemId: string | null;
+  categoria: CategoriaItemApr;
+  texto: string;
+  ordem: number;
+  marcado: boolean;
+  resposta: RespostaRelato | null;
+  detalhe: string | null;
+}
+
+export interface ExecutanteApr {
+  id: string;
+  funcionarioId: string | null;
+  nome: string;
+  cpf: string | null;
+  /** PNG em data URL. Vazio até a pessoa assinar. */
+  assinaturaPng: string | null;
+  assinadoEm: string | null;
+  modo: ModoAssinatura;
+}
+
+/** Uma APR inteira, como a tela de detalhe a recebe. */
+export interface Apr {
+  id: string;
+  numero: number;
+  modeloId: string;
+  modelo: { id: string; nome: string };
+  status: StatusApr;
+
+  empresaNome: string;
+  empresaCnpj: string | null;
+  titulo: string;
+  tipoTrabalho: string;
+
+  local: string;
+  coordenador: string;
+  previsaoInicio: string | null;
+  previsaoFim: string | null;
+  inicioEm: string;
+  fimEm: string | null;
+  prorrogacoes: number;
+  motivoProrrogacao: string | null;
+
+  descricaoEtapas: string;
+  gravidade: GravidadeApr;
+
+  orientacoes: string;
+  planoResgate: string;
+  telefonesEmergencia: string;
+
+  criadoPorId: string | null;
+  criadoPorNome: string;
+
+  supervisorNome: string | null;
+  supervisorAssinatura: string | null;
+  supervisorEm: string | null;
+
+  motivoCancelamento: string | null;
+  canceladaEm: string | null;
+  /** Preenchido = o PDF já está na pasta da empresa, no RH. */
+  documentoRhId: string | null;
+
+  respostas: RespostaApr[];
+  executantes: ExecutanteApr[];
+
+  /** Os riscos marcados, já filtrados — é o que o cabeçalho mostra. */
+  riscos: string[];
+  /** As perguntas respondidas com "Não", com a providência de cada uma. */
+  alertas: { pergunta: string; providencia: string | null }[];
+  /** O que falta para liberar. Vazio quando já foi liberada. */
+  pendencias: string[];
+}
+
+/** A APR na listagem: só o que se lê de relance. */
+export interface AprResumo {
+  id: string;
+  numero: number;
+  status: StatusApr;
+  local: string;
+  coordenador: string;
+  tipoTrabalho: string;
+  gravidade: GravidadeApr;
+  inicioEm: string;
+  fimEm: string | null;
+  prorrogacoes: number;
+  criadoPorNome: string;
+  supervisionada: boolean;
+  arquivadaNoRh: boolean;
+  executantes: string[];
+  assinaturasFaltando: number;
+  riscos: string[];
+  /** Quantas perguntas do relato foram respondidas com "Não". */
+  alertas: number;
+}
+
+/** Quem pode entrar numa equipe. */
+export interface PessoaDaEquipe {
+  id: string;
+  nome: string;
+  apelido: string | null;
+  cpf: string | null;
+  funcao: string | null;
 }

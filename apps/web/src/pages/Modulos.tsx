@@ -1,6 +1,11 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
-import { caminhoInicial, modulosDoUsuario } from '../lib/modulos';
+import {
+  caminhoDaConta,
+  caminhoInicial,
+  modulosDoUsuario,
+  TELA_DO_CAMPO,
+} from '../lib/modulos';
 
 /**
  * A primeira tela depois do login: escolher em qual módulo trabalhar. Fundo
@@ -14,6 +19,13 @@ export function Modulos() {
   function sair() {
     logout();
     navigate('/login');
+  }
+
+  // O técnico de campo não escolhe módulo: ele tem uma tela, e é esta. Chegar
+  // aqui (pelo endereço, ou vindo de um módulo que ele não abre) é ser levado
+  // de volta ao lugar onde ele tem o que fazer.
+  if (usuario?.role === 'TECNICO') {
+    return <Navigate to={TELA_DO_CAMPO} replace />;
   }
 
   return (
@@ -43,7 +55,7 @@ export function Modulos() {
 
         <div className="flex items-center gap-3">
           <Link
-            to="/folha/minha-conta"
+            to={caminhoDaConta(usuario)}
             className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition hover:bg-white/5"
             title="Minha conta"
           >

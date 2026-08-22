@@ -1,7 +1,16 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { useAuth } from './lib/auth';
-import { MODULO_CONTAS_PAGAR, MODULO_FOLHA, MODULO_RH } from './lib/modulos';
+import {
+  MODULO_CONTAS_PAGAR,
+  MODULO_FOLHA,
+  MODULO_RH,
+  MODULO_SEGURANCA,
+  destinoDepoisDoLogin,
+} from './lib/modulos';
+import { Aprs, AprAberta, AprNova } from './pages/apr/Aprs';
+import { Campo, CampoApr, CampoInicio, CampoNova } from './pages/apr/Campo';
+import { Formularios } from './pages/apr/Formularios';
 import { Assinar } from './pages/Assinar';
 import { Login } from './pages/Login';
 import { Modulos } from './pages/Modulos';
@@ -53,6 +62,18 @@ function SomenteAdmin({ children }: { children: ReactNode }) {
   ) : (
     <Navigate to="/folha/dashboard" replace />
   );
+}
+
+/**
+ * Endereço que não existe: de volta para onde este login trabalha.
+ *
+ * Era sempre `/modulos`, e para o técnico de campo isso é uma tela que ele não
+ * abre — ele voltaria para a escolha de módulos, sem módulo nenhum para
+ * escolher.
+ */
+function ParaOnde() {
+  const { usuario } = useAuth();
+  return <Navigate to={destinoDepoisDoLogin(usuario)} replace />;
 }
 
 export default function App() {
@@ -134,6 +155,10 @@ export default function App() {
         <Route path="recorrentes" element={<Recorrentes />} />
         <Route path="categorias" element={<ContasPagarCategorias />} />
         <Route path="fechamento-caixa" element={<FechamentoCaixa />} />
+        {/* A mesma tela de sempre, com o caminho deste módulo. Ela morava só
+            na folha, e quem não abre a folha — o RH que só cuida da estante —
+            caía num módulo trancado ao clicar no próprio nome. */}
+        <Route path="minha-conta" element={<MinhaConta />} />
         {/* Só ADMIN, e ainda pede a senha ao abrir: a tela move saldo entre
             contas sem haver nota nenhuma para conferir depois. O servidor é
             quem recusa de verdade — aqui a rota só some do menu. */}
@@ -155,9 +180,46 @@ export default function App() {
         <Route path="pastas" element={<PastasRh />} />
         <Route path="pastas/:id" element={<PastaRhAberta />} />
         <Route path="recibos" element={<RecibosDaFolha />} />
+        <Route path="minha-conta" element={<MinhaConta />} />
       </Route>
 
-      <Route path="*" element={<Navigate to="/modulos" replace />} />
+      {/* Segurança do Trabalho — a visão de quem supervisiona: as APRs da
+          empresa e o formulário em branco que todas usam. O técnico não entra
+          por aqui; ele tem a tela do campo, logo abaixo. */}
+      <Route
+        path="/seguranca"
+        element={
+          <Protegida>
+            <Layout modulo={MODULO_SEGURANCA} />
+          </Protegida>
+        }
+      >
+        <Route index element={<Navigate to="aprs" replace />} />
+        <Route path="aprs" element={<Aprs />} />
+        <Route path="aprs/nova" element={<AprNova />} />
+        <Route path="aprs/:id" element={<AprAberta />} />
+        <Route path="formularios" element={<Formularios />} />
+        <Route path="minha-conta" element={<MinhaConta />} />
+      </Route>
+
+      {/* A tela do técnico de campo, e a única que ele vê do sistema.
+          Sem barra lateral, sem escolha de módulo: ele entra e já está no
+          lugar onde tem o que fazer. Quem recusa o resto é a API. */}
+      <Route
+        path="/campo"
+        element={
+          <Protegida>
+            <Campo />
+          </Protegida>
+        }
+      >
+        <Route index element={<CampoInicio />} />
+        <Route path="nova" element={<CampoNova />} />
+        <Route path="minha-conta" element={<MinhaConta />} />
+        <Route path=":id" element={<CampoApr />} />
+      </Route>
+
+      <Route path="*" element={<ParaOnde />} />
     </Routes>
   );
 }

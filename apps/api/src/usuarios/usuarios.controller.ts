@@ -28,8 +28,19 @@ function idDoLogado(req: Request): string {
 export class UsuariosController {
   constructor(private readonly usuarios: UsuariosService) {}
 
-  /** Trocar a própria senha vale para qualquer perfil. */
-  @Roles(UserRole.ADMIN, UserRole.RH, UserRole.VISUALIZADOR)
+  /**
+   * Trocar a própria senha vale para qualquer perfil.
+   *
+   * A lista é exaustiva, e não um "todos": um perfil novo que esqueça de entrar
+   * aqui nasce sem conseguir trocar a própria senha — foi o que aconteceu com o
+   * TECNICO.
+   */
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.RH,
+    UserRole.VISUALIZADOR,
+    UserRole.TECNICO,
+  )
   @Post('minha-senha')
   @HttpCode(200)
   trocarSenha(@Req() req: Request, @Body() dto: TrocarSenhaDto) {

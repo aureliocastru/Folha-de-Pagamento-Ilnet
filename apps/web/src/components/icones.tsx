@@ -242,3 +242,74 @@ export function IconeCaixa({ className }: IconeProps) {
   );
 }
 
+
+/**
+ * Capacete de segurança: a Análise de Risco.
+ *
+ * A casca, a aba e a jugular — que é justamente o item que a APR manda
+ * conferir. Nenhum outro objeto diz "trabalho em altura" tão depressa.
+ */
+export function IconeCapacete({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M4.5 15a7.5 7.5 0 0 1 15 0" />
+      <path d="M9.5 8.2V5.4A1.4 1.4 0 0 1 10.9 4h2.2a1.4 1.4 0 0 1 1.4 1.4v2.8" />
+      <path d="M2.8 15h18.4a1 1 0 0 1 0 2H2.8a1 1 0 0 1 0-2Z" />
+      <path d="M7.5 17v1.2a2 2 0 0 0 2 2h5a2 2 0 0 0 2-2V17" />
+    </svg>
+  );
+}
+
+/** Triângulo de atenção: aqui alguém respondeu "não" a uma pergunta de vida. */
+export function IconeAlerta({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M10.3 3.9 2.5 17.4a2 2 0 0 0 1.7 3h15.6a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" />
+      <path d="M12 9v4.5" />
+      <path d="M12 17.2h.01" />
+    </svg>
+  );
+}
+
+export function IconeMais({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M12 5v14" />
+      <path d="M5 12h14" />
+    </svg>
+  );
+}
+
+export function IconeLixeira({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M4 6.5h16" />
+      <path d="M9.5 6.5V4.8a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1.7" />
+      <path d="M6.5 6.5 7.3 19a1.6 1.6 0 0 0 1.6 1.5h6.2a1.6 1.6 0 0 0 1.6-1.5l.8-12.5" />
+      <path d="M10.5 10.5v6M13.5 10.5v6" />
+    </svg>
+  );
+}
+
+/** Prancheta com o visto: o formulário conferido. */
+export function IconeChecklist({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <rect x="4.5" y="4.5" width="15" height="16" rx="2.5" />
+      <path d="M9 4.5V3.6a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v.9" />
+      <path d="m8.5 12 2 2 4-4" />
+      <path d="M8.5 17.5h7" />
+    </svg>
+  );
+}
+
+/** Caneta sobre a linha: assinar. */
+export function IconeAssinatura({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M3.5 19.5h17" />
+      <path d="M6 15.5c2-5.5 3.5-8.5 5-8.5s.5 6 2 6 2.5-3 3.5-3" />
+      <path d="M4.5 16.2c1.2.6 2.4.6 3.6 0" />
+    </svg>
+  );
+}

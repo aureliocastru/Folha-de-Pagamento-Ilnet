@@ -3,13 +3,17 @@
 Sistema de gestão interna da ilnet, **integrado ao IXC Provedor** via API e
 organizado em módulos. Depois do login você escolhe em qual trabalhar:
 
-| Módulo             | Rota             | O que faz                                                    |
-| ------------------ | ---------------- | ------------------------------------------------------------ |
-| Folha de Pagamento | `/folha`         | Funcionários, diaristas, vales, férias, impostos e a folha    |
-| Contas a Pagar     | `/contas-pagar`  | Todas as saídas da empresa (em construção)                    |
+| Módulo                | Rota            | O que faz                                                  |
+| --------------------- | --------------- | ---------------------------------------------------------- |
+| Folha de Pagamento    | `/folha`        | Funcionários, diaristas, vales, férias, impostos e a folha  |
+| Contas a Pagar        | `/contas-pagar` | Todas as saídas da empresa                                  |
+| RH                    | `/rh`           | A estante de documentos: a pasta de cada funcionário        |
+| Segurança do Trabalho | `/seguranca`    | As análises de risco (APR) dos serviços e o formulário      |
+| — (tela do técnico)   | `/campo`        | A APR no celular, para quem trabalha em campo               |
 
 Um módulo novo se declara em `apps/web/src/lib/modulos.ts` — o cartão na tela
-de escolha e a barra lateral saem dali.
+de escolha e a barra lateral saem dali. O `/campo` é a exceção, e de propósito:
+não é um módulo, é a **única** tela que o perfil TECNICO enxerga do sistema.
 
 > **Status:** Fase 1 (fatia vertical) — integração IXC + cadastro de
 > funcionários funcionando ponta a ponta. Veja o roadmap em [PLANO.md](PLANO.md).
@@ -36,8 +40,15 @@ folha-pagamento/
 | `ixc`          | Cliente do webservice do IXC (auth, paginação, parsing)     |
 | `sync`         | Sincroniza funcionários e adiantamentos do IXC (idempotente)|
 | `funcionarios` | API REST do cadastro (listar, detalhar, editar, resumo)     |
+| `rh`           | A estante de documentos: pastas, arquivos e os recibos       |
+| `apr`          | Análise de risco: catálogo, APRs preenchidas e o PDF         |
 | `auth`         | Login JWT; todas as rotas protegidas por padrão             |
 | `prisma`       | Acesso ao PostgreSQL                                         |
+
+**Perfis** — `ADMIN` faz tudo; `RH` usa o app inteiro menos os logins;
+`VISUALIZADOR` só lê; `TECNICO` abre uma tela só, a análise de risco do serviço
+dele. Os três primeiros têm a lista de módulos distribuída pelo administrador
+(vazia = todos); o técnico não tem lista — o `ModulosGuard` fixa a dele.
 
 **Frontend (React)** — `src/pages/Modulos.tsx` é a escolha de módulo; as telas
 de cada módulo ficam em `src/pages/<módulo>/`. O `Layout` recebe o módulo e

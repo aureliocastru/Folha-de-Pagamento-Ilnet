@@ -550,11 +550,13 @@ function porNome(
  * serializado vira "2026-08-03T00:00:00.000Z", e o navegador em Brasília relê
  * isso como o dia 2. Data impressa em papel não tem hora nem fuso.
  */
-function paraTela(d: {
-  emitidoEm: Date | null;
-  valeAte: Date | null;
-  [k: string]: unknown;
-}) {
+// Genérica de propósito: com a assinatura anterior (um índice `[k: string]:
+// unknown`) o tipo de volta perdia todos os campos do documento — quem chamasse
+// isto de outro arquivo não enxergava nem o `id`. Aqui o que entra é o que sai,
+// menos as duas datas, que viram dia ISO.
+function paraTela<T extends { emitidoEm: Date | null; valeAte: Date | null }>(
+  d: T,
+) {
   return {
     ...d,
     emitidoEm: d.emitidoEm ? diaISO(d.emitidoEm) : null,
