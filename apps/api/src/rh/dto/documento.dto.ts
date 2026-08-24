@@ -3,6 +3,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsInt,
   IsOptional,
   IsString,
@@ -106,6 +107,17 @@ export class PastaDto {
   @IsOptional()
   @IsUUID('4', { message: 'Pasta inválida.' })
   paiId?: string;
+
+  /**
+   * Desfaz o nome escrito à mão: o cadastro volta a mandar nesta pasta.
+   *
+   * Só faz sentido renomeando, e só na pasta que veio do cadastro. Sem esta
+   * saída, um administrador que renomeasse a pasta do Fulano fecharia a porta
+   * atrás de si — o nome do IXC nunca mais apareceria ali.
+   */
+  @IsOptional()
+  @IsBoolean()
+  seguirCadastro?: boolean;
 }
 
 /** O PDF de recibos chegando para leitura. */

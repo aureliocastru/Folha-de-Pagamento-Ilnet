@@ -137,7 +137,7 @@ export class DocumentosRhService {
       id: p.id,
       // O cadastro manda no nome: quem trocou de sobrenome no IXC não pode
       // ficar com o nome antigo na estante.
-      nome: p.funcionario?.nome ?? p.nome,
+      nome: p.nomeManual ? p.nome : (p.funcionario?.nome ?? p.nome),
       apelido: p.funcionario?.apelido ?? null,
       funcao: p.funcionario?.funcao ?? null,
       daEmpresa: p.daEmpresa,
@@ -149,8 +149,10 @@ export class DocumentosRhService {
       subpastas: p._count.subpastas,
       /** Pasta de quem já saiu da empresa. */
       inativo: p.funcionario ? !p.funcionario.ativo : false,
-      /** Pasta que não veio do cadastro: só ela se renomeia e se apaga. */
+      /** Pasta que não veio do cadastro: RH também a renomeia e a apaga. */
       avulsa: !p.funcionarioId && !p.daEmpresa,
+      /** O nome foi escrito à mão e o cadastro deixou de mandar nele. */
+      nomeManual: p.nomeManual,
       ...(resumos.get(p.id) ?? vazio()),
       /** O mesmo, contando o que está nas subpastas. */
       naArvore: naArvore.get(p.id) ?? vazio(),
@@ -219,18 +221,35 @@ export class DocumentosRhService {
     const paiId = dto.paiId ?? null;
 
     if (paiId) await this.exigirEspacoNaArvore(paiId);
+    await this.exigirNomeLivre(nome, cpf, paiId);
 
-    /*
-     * O nome só briga com os irmãos.
-     *
-     * Duas pastas "Exames" na estante seriam confusão; uma dentro de cada
-     * funcionário é o desenho normal de uma gaveta. Na estante o CPF também
-     * conta: duas pastas da mesma pessoa é como metade dos documentos some —
-     * eles ficam na outra.
-     */
+    return this.prisma.pastaRh.create({
+      data: { nome, cpf, paiId, criadoPor: usuarioId ?? null },
+    });
+  }
+
+  /**
+   * O nome só briga com os irmãos.
+   *
+   * Duas pastas "Exames" na estante seriam confusão; uma dentro de cada
+   * funcionário é o desenho normal de uma gaveta. Na estante o CPF também
+   * conta: duas pastas da mesma pessoa é como metade dos documentos some —
+   * eles ficam na outra.
+   *
+   * Vale para quem cria e para quem renomeia, inclusive o administrador: a
+   * regra não é de permissão, é do que acontece com o papel depois.
+   */
+  private async exigirNomeLivre(
+    nome: string,
+    cpf: string | null,
+    paiId: string | null,
+    /** A própria pasta, quando é ela que está sendo renomeada. */
+    exceto?: string,
+  ) {
     const igual = await this.prisma.pastaRh.findFirst({
       where: {
         paiId,
+        ...(exceto ? { id: { not: exceto } } : {}),
         ...(cpf && !paiId
           ? { OR: [{ cpf }, { nome: { equals: nome, mode: 'insensitive' } }] }
           : { nome: { equals: nome, mode: 'insensitive' } }),
@@ -245,10 +264,6 @@ export class DocumentosRhService {
             'como metade dos documentos some: eles ficam na outra.',
       );
     }
-
-    return this.prisma.pastaRh.create({
-      data: { nome, cpf, paiId, criadoPor: usuarioId ?? null },
-    });
   }
 
   /**
@@ -301,50 +316,146 @@ export class DocumentosRhService {
   }
 
   /**
-   * Renomeia uma pasta avulsa.
+   * Renomeia uma pasta.
    *
-   * A de funcionário não: o nome dela é o do cadastro, e um nome escrito aqui
-   * sumiria na primeira sincronização, sem ninguém entender por quê.
+   * A avulsa, qualquer um do RH renomeia — ela não tem cadastro atrás. A de
+   * funcionário e a da empresa seguem o nome do cadastro, e um nome escrito
+   * aqui sumiria na primeira sincronização sem ninguém entender por quê: só o
+   * administrador as renomeia, e a pasta fica marcada como escrita à mão para
+   * o nome não sumir depois. O do cadastro continua guardado no funcionário, e
+   * `seguirCadastro` devolve a pasta a ele.
    */
-  async renomearPasta(id: string, dto: PastaDto) {
+  async renomearPasta(id: string, dto: PastaDto, ehAdmin = false) {
     const pasta = await this.exigirPasta(id);
-    if (pasta.funcionarioId || pasta.daEmpresa) {
+    const doCadastro = !!pasta.funcionarioId || pasta.daEmpresa;
+
+    if (doCadastro && !ehAdmin) {
       throw new BadRequestException(
         'Esta pasta é do cadastro; o nome dela vem de lá. Renomeie o ' +
-          'funcionário no IXC e a estante acompanha.',
+          'funcionário no IXC e a estante acompanha — ou peça a um ' +
+          'administrador, que pode escrever o nome à mão aqui.',
       );
     }
+
+    // Voltar a seguir o cadastro. O que está escrito em `nome` fica onde está:
+    // ninguém mais o lê, e ele é o registro do que a pasta já se chamou.
+    if (doCadastro && dto.seguirCadastro) {
+      const volta = await this.prisma.pastaRh.update({
+        where: { id },
+        data: { nomeManual: false },
+      });
+      this.logger.log(`Pasta ${id} voltou a seguir o nome do cadastro.`);
+      return volta;
+    }
+
+    const nome = dto.nome.trim();
+    const cpf = soDigitos(dto.cpf) || null;
+    await this.exigirNomeLivre(nome, cpf, pasta.paiId, id);
+
     return this.prisma.pastaRh.update({
       where: { id },
-      data: { nome: dto.nome.trim(), cpf: soDigitos(dto.cpf) || null },
+      data: {
+        nome,
+        cpf,
+        // Só a pasta que seguia o cadastro tem o que desobedecer; a avulsa
+        // nunca seguiu ninguém, e marcá-la não diria nada.
+        ...(doCadastro ? { nomeManual: true } : {}),
+      },
     });
   }
 
-  /** Apaga uma pasta avulsa e vazia. */
-  async apagarPasta(id: string) {
+  /**
+   * Apaga uma pasta.
+   *
+   * Para o RH, só a avulsa e vazia: apagar uma pasta cheia por engano é perder
+   * o contrato de alguém, e a mensagem que recusa vale mais que o clique que
+   * ela custa. O administrador não tem essa trava — ele apaga o que há dentro
+   * junto, subpastas inclusive, e é por isso que a tela dele conta antes
+   * quantos papéis vão embora.
+   *
+   * A pasta do cadastro apagada volta vazia na próxima abertura da estante: o
+   * funcionário continua lá, e é dele que a pasta nasce. Quem apaga precisa
+   * saber disso antes, e por isso a resposta diz.
+   */
+  async apagarPasta(id: string, ehAdmin = false) {
     const pasta = await this.exigirPasta(id);
-    if (pasta.funcionarioId || pasta.daEmpresa) {
+    const doCadastro = !!pasta.funcionarioId || pasta.daEmpresa;
+
+    if (doCadastro && !ehAdmin) {
       throw new BadRequestException(
-        'Esta pasta é do cadastro e não se apaga por aqui.',
+        'Esta pasta é do cadastro e não se apaga por aqui. Um administrador ' +
+          'pode, mas ela volta vazia enquanto o funcionário existir.',
       );
     }
-    const [dentro, subpastas] = await Promise.all([
-      this.prisma.documentoRh.count({ where: { pastaId: id } }),
-      this.prisma.pastaRh.count({ where: { paiId: id } }),
-    ]);
-    if (dentro > 0) {
-      throw new BadRequestException(
-        `A pasta tem ${dentro} documento(s) dentro. Apague-os primeiro — ou ` +
-          'deixe a pasta onde está, que ela não atrapalha ninguém.',
-      );
+
+    const alvo = await this.deDentroParaFora(id);
+    const documentos = await this.prisma.documentoRh.count({
+      where: { pastaId: { in: alvo } },
+    });
+    const subpastas = alvo.length - 1;
+
+    if (!ehAdmin) {
+      if (documentos > 0) {
+        throw new BadRequestException(
+          `A pasta tem ${documentos} documento(s) dentro. Apague-os primeiro ` +
+            '— ou deixe a pasta onde está, que ela não atrapalha ninguém.',
+        );
+      }
+      if (subpastas > 0) {
+        throw new BadRequestException(
+          `A pasta tem ${subpastas} subpasta(s) dentro. Apague-as primeiro.`,
+        );
+      }
     }
-    if (subpastas > 0) {
-      throw new BadRequestException(
-        `A pasta tem ${subpastas} subpasta(s) dentro. Apague-as primeiro.`,
-      );
+
+    /*
+     * De dentro para fora, e numa transação.
+     *
+     * O `RESTRICT` do banco recusa apagar a pasta de cima antes do que há
+     * nela — é ele que impede um documento de ficar órfão —, então a ordem não
+     * é detalhe de implementação: é a única em que o banco aceita. E ou some a
+     * árvore inteira, ou não some nada: pela metade sobra uma subpasta sem pai,
+     * que não aparece em tela nenhuma.
+     */
+    await this.prisma.$transaction(async (tx) => {
+      await tx.documentoRh.deleteMany({ where: { pastaId: { in: alvo } } });
+      for (const pastaId of alvo) {
+        await tx.pastaRh.delete({ where: { id: pastaId } });
+      }
+    });
+
+    this.logger.warn(
+      `Pasta "${pasta.nome}" apagada com ${documentos} documento(s) e ` +
+        `${subpastas} subpasta(s).`,
+    );
+    return {
+      apagada: true,
+      documentos,
+      subpastas,
+      /** Ela renasce do cadastro, vazia, na próxima abertura da estante. */
+      voltaDoCadastro: doCadastro,
+    };
+  }
+
+  /**
+   * Esta pasta e tudo que está dentro dela, da mais funda para a mais rasa.
+   *
+   * É a ordem em que o banco aceita apagá-las. Desce por nível em vez de
+   * recursão porque a árvore tem teto (ver `NIVEIS`) e cada nível é uma
+   * consulta só, em vez de uma por pasta.
+   */
+  private async deDentroParaFora(id: string): Promise<string[]> {
+    const ordem: string[] = [];
+    let nivel = [id];
+    for (let i = 0; i < NIVEIS && nivel.length > 0; i += 1) {
+      ordem.unshift(...nivel);
+      const filhas = await this.prisma.pastaRh.findMany({
+        where: { paiId: { in: nivel } },
+        select: { id: true },
+      });
+      nivel = filhas.map((f) => f.id);
     }
-    await this.prisma.pastaRh.delete({ where: { id } });
-    return { apagada: true };
+    return ordem;
   }
 
   /** Os documentos de uma pasta, sem os arquivos. */

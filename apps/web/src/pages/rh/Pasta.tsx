@@ -12,6 +12,7 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
 import { formatData } from '../../lib/format';
 import type {
   DocumentoRh,
@@ -37,9 +38,11 @@ export function PastaRhAberta() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { usuario } = useAuth();
   const [termo, setTermo] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [criandoSubpasta, setCriandoSubpasta] = useState(false);
+  const [renomeando, setRenomeando] = useState(false);
   const [editando, setEditando] = useState<DocumentoRh | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [feito, setFeito] = useState<string | null>(null);
@@ -67,6 +70,18 @@ export function PastaRhAberta() {
   /** O caminho até aqui, da estante para dentro. */
   const caminho = trilha(todas, pasta);
 
+  /*
+   * Quem pode mexer na pasta em si.
+   *
+   * O RH cuida da pasta que ele mesmo criou. O administrador mexe em todas —
+   * inclusive na que veio do cadastro e na que tem papel dentro. O servidor
+   * recusa de todo jeito; aqui o botão some, em vez de existir para dar erro.
+   */
+  const ehAdmin = usuario?.role === 'ADMIN';
+  const podeMexerNaPasta = !!pasta && (ehAdmin || pasta.avulsa);
+  /** As pastas que somem junto com esta. */
+  const dentroDela = descendentes(todas, id);
+
   function avisar(texto: string) {
     setFeito(texto);
     setTimeout(() => setFeito(null), 3000);
@@ -88,6 +103,62 @@ export function PastaRhAberta() {
     },
     onError: (e) => setErro(mensagemErro(e)),
   });
+
+  const renomear = useMutation({
+    mutationFn: async (dados: {
+      nome: string;
+      cpf?: string;
+      seguirCadastro?: boolean;
+    }) => (await api.patch<PastaRh>(`/rh/pastas/${id}`, dados)).data,
+    onSuccess: () => {
+      setRenomeando(false);
+      setErro(null);
+      avisar('Nome da pasta trocado.');
+      recarregar();
+    },
+    onError: (e) => setErro(mensagemErro(e)),
+  });
+
+  /*
+   * Apagar a pasta leva junto o que há dentro dela.
+   *
+   * É a ação mais cara desta tela, e a única em que a conta do estrago dá para
+   * fazer antes: a estante já sabe quantos papéis e quantas divisórias estão
+   * ali. A pergunta diz o número — "apagar esta pasta?" não é pergunta quando a
+   * resposta certa depende de haver sete documentos dentro.
+   */
+  const apagarPasta = useMutation({
+    mutationFn: async () =>
+      (await api.delete<{ documentos: number }>(`/rh/pastas/${id}`)).data,
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['rh', 'pastas'] });
+      void qc.invalidateQueries({ queryKey: ['rh', 'documentos'] });
+      navigate(pasta?.paiId ? `/rh/pastas/${pasta.paiId}` : '/rh/pastas');
+    },
+    onError: (e) => setErro(mensagemErro(e)),
+  });
+
+  function pedirParaApagar() {
+    if (!pasta) return;
+    const papeis = pasta.naArvore.qtd;
+    const estrago = [
+      papeis > 0 && `${papeis} documento${papeis > 1 ? 's' : ''}`,
+      dentroDela > 0 && `${dentroDela} pasta${dentroDela > 1 ? 's' : ''}`,
+    ].filter(Boolean);
+
+    const pergunta = [
+      `Apagar a pasta "${pasta.nome}"?`,
+      estrago.length > 0
+        ? `Vai junto o que está dentro dela: ${estrago.join(' e ')}. Os arquivos saem daqui e não voltam.`
+        : 'Ela está vazia.',
+      !pasta.avulsa &&
+        'Esta pasta é do cadastro: ela volta vazia na próxima vez que a estante abrir, porque o funcionário continua lá.',
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+
+    if (confirm(pergunta)) apagarPasta.mutate();
+  }
 
   const guardar = useMutation({
     mutationFn: async (dados: Record<string, unknown>) =>
@@ -124,6 +195,8 @@ export function PastaRhAberta() {
   });
 
   const lista = documentos.data ?? [];
+  const vencidos = lista.filter((d) => d.prazo === 'vencido').length;
+  const aVencer = lista.filter((d) => d.prazo === 'a-vencer').length;
 
   /*
    * Voltar é a tela anterior, e não uma rota fixa.
@@ -158,6 +231,32 @@ export function PastaRhAberta() {
         }
         acoes={
           <div className="flex flex-wrap gap-2">
+            {/* Mexer na pasta em si vem antes do que se faz dentro dela, e por
+                isso fica à esquerda: renomear e apagar são raros, e o botão que
+                fecha a tela continua sendo o último da fila. */}
+            {podeMexerNaPasta && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setErro(null);
+                    setRenomeando(true);
+                  }}
+                  className="btn btn-neutro"
+                >
+                  Renomear
+                </button>
+                <button
+                  type="button"
+                  onClick={pedirParaApagar}
+                  disabled={apagarPasta.isPending}
+                  className="btn btn-perigo"
+                  title="Apaga a pasta e o que estiver dentro dela"
+                >
+                  {apagarPasta.isPending ? 'Apagando…' : 'Apagar pasta'}
+                </button>
+              </>
+            )}
             <button
               type="button"
               onClick={() => {
@@ -203,7 +302,20 @@ export function PastaRhAberta() {
       </nav>
 
       {feito && <Aviso tom="pago">{feito}</Aviso>}
-      {erro && !guardando && !editando && <Aviso tom="erro">{erro}</Aviso>}
+      {erro && !guardando && !editando && !renomeando && (
+        <Aviso tom="erro">{erro}</Aviso>
+      )}
+
+      {/* O que está vencido nesta pasta, antes de a lista começar.
+          A validade é a única coisa aqui que muda sozinha com o tempo: um ASO
+          que valia ontem não vale hoje, e ninguém abre a pasta para conferir
+          data de exame — abre para pegar um papel. Se a pasta não disser, a
+          descoberta vem no dia da fiscalização. */}
+      {(vencidos > 0 || aVencer > 0) && (
+        <Aviso tom={vencidos > 0 ? 'erro' : 'atencao'}>
+          {fraseDoPrazo(vencidos, aVencer)}
+        </Aviso>
+      )}
 
       {subpastas.length > 0 && (
         <div className="surgir mb-6 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
@@ -238,7 +350,7 @@ export function PastaRhAberta() {
                 <tr>
                   <th className="th">Documento</th>
                   <th className="th">Tipo</th>
-                  <th className="th">Datas</th>
+                  <th className="th">Validade</th>
                   <th className="th text-right">Arquivo</th>
                   <th className="th text-right" />
                 </tr>
@@ -267,6 +379,30 @@ export function PastaRhAberta() {
             </table>
           </div>
         </Bloco>
+      )}
+
+      {renomeando && pasta && (
+        <Janela
+          titulo={`Renomear — ${pasta.nome}`}
+          onFechar={() => setRenomeando(false)}
+        >
+          <FormularioDaPasta
+            pasta={pasta}
+            /* Subpasta é divisória, e não pessoa: ali o CPF não quer dizer
+               nada. Na estante ele fica, porque é por ele que o recibo do mês
+               acha a pasta sozinho. */
+            semCpf={!!pasta.paiId}
+            pendente={renomear.isPending}
+            erro={erro}
+            onSalvar={(dados) => renomear.mutate(dados)}
+            onSeguirCadastro={
+              pasta.nomeManual
+                ? () =>
+                    renomear.mutate({ nome: pasta.nome, seguirCadastro: true })
+                : undefined
+            }
+          />
+        </Janela>
       )}
 
       {criandoSubpasta && (
@@ -365,15 +501,8 @@ function LinhaDoDocumento({
           </span>
         )}
       </td>
-      <td className="td whitespace-nowrap text-xs text-tinta-500">
-        {d.emitidoEm && <div>emitido {formatData(d.emitidoEm)}</div>}
-        {d.valeAte && (
-          <div className="flex items-center gap-1.5">
-            vale até {formatData(d.valeAte)}
-            <SeloDoPrazo prazo={d.prazo} />
-          </div>
-        )}
-        {!d.emitidoEm && !d.valeAte && <span className="text-tinta-400">—</span>}
+      <td className="td whitespace-nowrap">
+        <Validade documento={d} />
       </td>
       <td className="td whitespace-nowrap text-right text-xs text-tinta-400">
         <div className="num">{emTamanho(d.arquivoTamanho)}</div>
@@ -408,6 +537,124 @@ function LinhaDoDocumento({
       </td>
     </tr>
   );
+}
+
+/**
+ * A validade, com o peso que ela tem.
+ *
+ * Ela era a terceira linha de um bloco de letra miúda, do mesmo tamanho e do
+ * mesmo cinza da data de emissão — e as duas não valem o mesmo. A data de
+ * emissão é história: diz quando o papel foi feito, e ninguém age por causa
+ * dela. A validade é a única coisa da pasta que muda sozinha com o tempo, e a
+ * única que cobra alguma coisa de quem está olhando: certidão vencida é o mesmo
+ * que certidão nenhuma no dia em que ela é pedida.
+ *
+ * Por isso ela vem em corpo maior, na cor do estado, com a barra à esquerda
+ * marcando a linha — e com quantos dias faltam escrito por extenso, porque "02
+ * de setembro" só quer dizer alguma coisa depois de uma subtração que ninguém
+ * faz de cabeça em vinte linhas seguidas. Quem está em dia continua discreto:
+ * pintar as vinte de verde apagaria as duas que importam.
+ */
+function Validade({ documento: d }: { documento: DocumentoRh }) {
+  const emitido = d.emitidoEm && (
+    <div className="text-[11px] leading-tight text-tinta-400">
+      emitido {formatData(d.emitidoEm)}
+    </div>
+  );
+
+  if (!d.valeAte) {
+    return (
+      <div className="border-l-2 border-transparent pl-2.5">
+        <div className="text-xs text-tinta-400">
+          {d.emitidoEm ? 'não vence' : '—'}
+        </div>
+        {emitido}
+      </div>
+    );
+  }
+
+  const alerta = d.prazo === 'vencido' || d.prazo === 'a-vencer';
+
+  return (
+    <div className={`border-l-2 pl-2.5 ${BARRA_DO_PRAZO[d.prazo]}`}>
+      <div className="flex items-center gap-2">
+        <span
+          className={`num text-[15px] font-semibold leading-tight ${COR_DO_PRAZO[d.prazo]}`}
+        >
+          {formatData(d.valeAte)}
+        </span>
+        <SeloDoPrazo prazo={d.prazo} />
+      </div>
+      <div
+        className={`text-xs leading-tight ${
+          alerta ? COR_DO_PRAZO[d.prazo] : 'text-tinta-400'
+        }`}
+      >
+        {quantoFalta(d.valeAte)}
+      </div>
+      {emitido}
+    </div>
+  );
+}
+
+/* A cor não é decoração: é ela que separa, de relance numa lista de vinte
+   linhas, o papel que precisa ser refeito do que só está guardado. Quem está em
+   dia fica na tinta comum, para não disputar atenção com quem não está. */
+const COR_DO_PRAZO: Record<PrazoDoDocumento, string> = {
+  vencido: 'text-rose-600 dark:text-rose-300',
+  'a-vencer': 'text-amber-700 dark:text-amber-300',
+  'em-dia': 'text-tinta-800',
+  'sem-prazo': 'text-tinta-400',
+};
+
+/* A barra à esquerda leva a cor para fora da célula: numa tabela de linhas
+   altas, é o que faz a linha inteira se destacar sem pintar o fundo dela. */
+const BARRA_DO_PRAZO: Record<PrazoDoDocumento, string> = {
+  vencido: 'border-rose-500',
+  'a-vencer': 'border-amber-400',
+  'em-dia': 'border-emerald-500/30',
+  'sem-prazo': 'border-transparent',
+};
+
+/**
+ * Quantos dias faltam, escrito como se fala.
+ *
+ * Conta em dia de calendário, e não em horas: a validade é o dia impresso no
+ * papel, e um documento que vence hoje não pode aparecer como vencido só porque
+ * são nove da noite.
+ */
+function quantoFalta(valeAte: string): string {
+  const [ano, mes, dia] = valeAte.split('-').map(Number);
+  const agora = new Date();
+  const dias = Math.round(
+    (Date.UTC(ano, mes - 1, dia) -
+      Date.UTC(agora.getFullYear(), agora.getMonth(), agora.getDate())) /
+      86_400_000,
+  );
+
+  if (dias < -1) return `venceu há ${-dias} dias`;
+  if (dias === -1) return 'venceu ontem';
+  if (dias === 0) return 'vence hoje';
+  if (dias === 1) return 'vence amanhã';
+  if (dias < 60) return `faltam ${dias} dias`;
+  const meses = Math.round(dias / 30);
+  return meses < 24 ? `faltam ${meses} meses` : 'falta mais de 2 anos';
+}
+
+/** O que a pasta tem a dizer sobre prazo, antes de a lista começar. */
+function fraseDoPrazo(vencidos: number, aVencer: number): string {
+  const partes = [
+    vencidos > 0 &&
+      `${vencidos} documento${vencidos > 1 ? 's' : ''} vencido${vencidos > 1 ? 's' : ''}`,
+    aVencer > 0 && `${aVencer} vencendo nos próximos 30 dias`,
+  ].filter(Boolean);
+  return `Nesta pasta: ${partes.join(' e ')}.`;
+}
+
+/** Quantas pastas há dentro desta, contando as de dentro delas. */
+function descendentes(pastas: PastaRh[], id: string): number {
+  const filhas = pastas.filter((p) => p.paiId === id);
+  return filhas.reduce((n, f) => n + 1 + descendentes(pastas, f.id), 0);
 }
 
 function SeloDoPrazo({ prazo }: { prazo: PrazoDoDocumento }) {

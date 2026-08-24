@@ -1512,8 +1512,13 @@ export interface PastaRh extends ResumoDaPasta {
   subpastas: number;
   /** Funcionário que já saiu da empresa. A pasta continua. */
   inativo: boolean;
-  /** Criada à mão: só ela se renomeia e se apaga. */
+  /** Criada à mão: o RH também a renomeia e a apaga. O ADMIN mexe em todas. */
   avulsa: boolean;
+  /**
+   * O nome foi escrito à mão e o cadastro deixou de mandar nele. Só o ADMIN
+   * marca isso, e só ele desfaz.
+   */
+  nomeManual: boolean;
   /** O mesmo resumo, contando o que está nas subpastas. */
   naArvore: ResumoDaPasta;
 }

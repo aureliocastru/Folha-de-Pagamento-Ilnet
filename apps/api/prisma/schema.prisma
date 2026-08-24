@@ -1490,6 +1490,16 @@ model PastaRh {
   /// manda; este fica como o que ela era quando nasceu.
   nome String
 
+  /// O nome foi escrito à mão, e o cadastro deixou de mandar nele.
+  ///
+  /// A regra normal é o cadastro ganhar: quem trocou de sobrenome no IXC não
+  /// pode ficar com o nome antigo na estante. Só que a razão social não é como
+  /// a casa chama a pasta ("M A CASTRO", e não o nome inteiro com o CNPJ), e o
+  /// administrador é quem decide isso. Marcada assim, a pasta passa a valer o
+  /// que está em `nome` — e desmarcá-la devolve o nome do cadastro, que
+  /// continuou lá o tempo todo.
+  nomeManual Boolean @default(false) @map("nome_manual")
+
   /// A prateleira da empresa — contrato social, alvará, certidão. Só uma.
   daEmpresa Boolean @default(false) @map("da_empresa")
 

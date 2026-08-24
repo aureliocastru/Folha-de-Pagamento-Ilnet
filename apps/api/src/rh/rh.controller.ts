@@ -30,6 +30,18 @@ function usuarioId(req: Request): string | undefined {
 }
 
 /**
+ * Quem manda na estante inteira.
+ *
+ * O RH cuida do que ele mesmo criou — a pasta avulsa, a divisória da gaveta. O
+ * administrador mexe em qualquer pasta: renomeia a que veio do cadastro e apaga
+ * a que tem papel dentro. É a mesma linha que separa quem opera de quem
+ * responde pelo arquivo, e ela mora no servidor porque é lá que ela vale.
+ */
+function ehAdmin(req: Request): boolean {
+  return (req.user as { role?: UserRole } | undefined)?.role === UserRole.ADMIN;
+}
+
+/**
  * A estante de documentos do RH.
  *
  * O módulo inteiro é de ADMIN e RH — contrato, advertência, exame médico e CPF
@@ -61,13 +73,17 @@ export class RhController {
   }
 
   @Patch('pastas/:id')
-  renomearPasta(@Param('id') id: string, @Body() dto: PastaDto) {
-    return this.documentos.renomearPasta(id, dto);
+  renomearPasta(
+    @Param('id') id: string,
+    @Body() dto: PastaDto,
+    @Req() req: Request,
+  ) {
+    return this.documentos.renomearPasta(id, dto, ehAdmin(req));
   }
 
   @Delete('pastas/:id')
-  apagarPasta(@Param('id') id: string) {
-    return this.documentos.apagarPasta(id);
+  apagarPasta(@Param('id') id: string, @Req() req: Request) {
+    return this.documentos.apagarPasta(id, ehAdmin(req));
   }
 
   // --- Os documentos --------------------------------------------------------
