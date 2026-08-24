@@ -400,6 +400,63 @@ describe('coletar a assinatura de novo', () => {
     expect(gravado.assinadoEm).toBeUndefined();
   });
 
+  /*
+   * O buraco entre "reabri o link" e "consigo assinar".
+   *
+   * Durante a recoleta a assinatura antiga fica de propósito — o recibo dela
+   * pode já ser a nota de um lançamento do caixa —, então `assinado` continua
+   * verdadeiro. A tela pública lia só esse campo e mostrava o comprovante da
+   * assinatura que se queria justamente trocar: o "coletar de novo" gerava link
+   * e não levava a lugar nenhum. É `recoletando` que desempata.
+   */
+  it('recibo em recoleta abre dizendo que espera outra assinatura', async () => {
+    const { service } = montarServico({
+      assinatura: {
+        id: 'a1',
+        diariaId: 'dia1',
+        token: 'tk',
+        expiraEm: new Date('2099-01-01'),
+        assinadoEm: new Date('2026-08-11T10:00:00Z'),
+        recoletandoDesde: new Date('2026-08-12T09:00:00Z'),
+        recoletas: 0,
+        diaria: DIARIA,
+        valor: 290,
+        descricao: 'Roçada do terreno',
+        dataDiaria: DIARIA.data,
+        empresaNome: 'ILNET',
+      },
+    });
+
+    const recibo = await service.abrirPorToken('tk');
+
+    expect(recibo.assinado).toBe(true);
+    expect(recibo.recoletando).toBe(true);
+  });
+
+  it('recibo assinado, sem recoleta, abre como comprovante', async () => {
+    const { service } = montarServico({
+      assinatura: {
+        id: 'a1',
+        diariaId: 'dia1',
+        token: 'tk',
+        expiraEm: new Date('2099-01-01'),
+        assinadoEm: new Date('2026-08-11T10:00:00Z'),
+        recoletandoDesde: null,
+        recoletas: 0,
+        diaria: DIARIA,
+        valor: 290,
+        descricao: 'Roçada do terreno',
+        dataDiaria: DIARIA.data,
+        empresaNome: 'ILNET',
+      },
+    });
+
+    const recibo = await service.abrirPorToken('tk');
+
+    expect(recibo.assinado).toBe(true);
+    expect(recibo.recoletando).toBe(false);
+  });
+
   it('a nova assinatura substitui a antiga e conta a recoleta', async () => {
     const { service, guardado } = montarServico({
       assinatura: {

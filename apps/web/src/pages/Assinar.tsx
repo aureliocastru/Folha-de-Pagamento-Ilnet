@@ -94,8 +94,16 @@ export function Assinar() {
 
   const r = recibo.data!;
 
-  // --- Já assinado: a tela vira o comprovante ---
-  if (r.assinado) {
+  /*
+   * --- Já assinado: a tela vira o comprovante ---
+   *
+   * Menos quando se pediu outra assinatura lá de dentro. Aí os dois são verdade
+   * ao mesmo tempo: a antiga continua guardada — o recibo dela pode já ser a
+   * nota de um lançamento do caixa — e mesmo assim é a prancheta que tem de
+   * aparecer. Era isto que fazia o "coletar de novo" não levar a lugar nenhum:
+   * o link reabria e mostrava o comprovante da assinatura que se queria trocar.
+   */
+  if (r.assinado && !r.recoletando) {
     return (
       <Moldura>
         <div className="text-center">

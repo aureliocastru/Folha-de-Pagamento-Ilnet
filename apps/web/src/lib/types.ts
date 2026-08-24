@@ -641,6 +641,14 @@ export interface ReciboPublico {
   detalhamento: string | null;
   data: string;
   assinado: boolean;
+  /**
+   * Pediram outra assinatura lá de dentro.
+   *
+   * Durante a recoleta este e o `assinado` são verdade ao mesmo tempo — a
+   * antiga fica guardada até a nova chegar —, e é este que decide se a tela
+   * mostra a prancheta ou o comprovante.
+   */
+  recoletando: boolean;
   assinadoEm: string | null;
   assinaturaPng: string | null;
   modo: ModoAssinatura;

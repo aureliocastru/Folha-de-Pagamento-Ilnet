@@ -30,6 +30,15 @@ export interface ReciboPublico {
   data: Date;
   /** Já assinado: a tela vira comprovante em vez de formulário. */
   assinado: boolean;
+  /**
+   * Espera-se outra assinatura, pedida lá de dentro.
+   *
+   * Vale mais que `assinado`: durante a recoleta os dois são verdade ao mesmo
+   * tempo — a antiga continua guardada de propósito, porque o recibo dela pode
+   * já ser a nota de um lançamento do caixa —, e é este que decide se a tela
+   * mostra a prancheta ou o comprovante.
+   */
+  recoletando: boolean;
   assinadoEm: Date | null;
   assinaturaPng: string | null;
   /** Desenhada com o dedo, ou gerada a partir do nome */
@@ -168,6 +177,7 @@ export class AssinaturasService {
       detalhamento: a.detalhamento,
       data: a.dataDiaria,
       assinado: a.assinadoEm !== null,
+      recoletando: a.recoletandoDesde !== null,
       assinadoEm: a.assinadoEm,
       assinaturaPng: a.assinaturaPng,
       modo: a.modo,
