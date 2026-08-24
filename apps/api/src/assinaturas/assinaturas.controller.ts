@@ -9,6 +9,7 @@ import {
   Req,
   Res,
 } from '@nestjs/common';
+import type { AssinaturaDiaria } from '@prisma/client';
 import type { Request, Response } from 'express';
 import { Public } from '../auth/public.decorator';
 import { AssinaturasService } from './assinaturas.service';
@@ -17,6 +18,34 @@ import { gerarReciboPdf } from './recibo.pdf';
 
 function usuarioId(req: Request): string | undefined {
   return (req.user as { id?: string } | undefined)?.id;
+}
+
+/**
+ * O recibo como a janela de quem paga o usa — e o mesmo desenho nas duas rotas.
+ *
+ * As duas devolviam recortes diferentes do mesmo registro, e o de abrir a
+ * coleta era o menor: só token, validade e data da assinatura. A janela grava a
+ * resposta por cima do que tinha em mãos, então pedir um link novo apagava do
+ * cache o nome de quem assinou e o desenho da assinatura — daí o "Assinado por
+ * ␣ em 18/08" que aparecia depois de "Sim, substituir".
+ *
+ * Faltava também o `recoletandoDesde`, e ele é justamente o campo que diz se a
+ * janela mostra o link ou o comprovante: sem sair daqui, o "coletar de novo"
+ * gerava o link e a tela continuava dizendo que já estava assinado. Um recorte
+ * só, num lugar só, é o que impede os dois de divergirem de novo.
+ */
+function paraATela(a: AssinaturaDiaria) {
+  return {
+    token: a.token,
+    expiraEm: a.expiraEm,
+    assinadoEm: a.assinadoEm,
+    /** Preenchido = espera-se outra assinatura; a antiga ainda responde. */
+    recoletandoDesde: a.recoletandoDesde,
+    recoletas: a.recoletas,
+    nomeAssinante: a.nomeAssinante,
+    assinaturaPng: a.assinaturaPng,
+    modo: a.modo,
+  };
 }
 
 /**
@@ -60,22 +89,14 @@ export class AssinaturasController {
     @Req() req: Request,
   ) {
     const a = await this.service.gerarLink(id, usuarioId(req), dto.substituir);
-    return { token: a.token, expiraEm: a.expiraEm, assinadoEm: a.assinadoEm };
+    return paraATela(a);
   }
 
   /** O recibo guardado desta diária (null = ninguém coletou ainda). */
   @Get('diarias/:id/assinatura')
   async doDiaria(@Param('id') id: string) {
     const a = await this.service.doDiaria(id);
-    if (!a) return null;
-    return {
-      token: a.token,
-      expiraEm: a.expiraEm,
-      assinadoEm: a.assinadoEm,
-      nomeAssinante: a.nomeAssinante,
-      assinaturaPng: a.assinaturaPng,
-      modo: a.modo,
-    };
+    return a && paraATela(a);
   }
 
   /** O recibo em PDF, para baixar, imprimir e guardar. */

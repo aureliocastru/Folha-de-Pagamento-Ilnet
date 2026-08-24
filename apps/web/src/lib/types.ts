@@ -624,6 +624,17 @@ export interface AssinaturaDiaria {
   token: string;
   expiraEm: string;
   assinadoEm: string | null;
+  /**
+   * Desde quando se espera outra assinatura, pedida lá de dentro.
+   *
+   * Com este e `assinadoEm` juntos, a assinatura que vale ainda é a antiga —
+   * ela fica guardada até a nova chegar, porque o recibo dela pode já ser a
+   * nota de um lançamento do caixa. Quem decide se a janela mostra o link ou o
+   * comprovante é este campo, e não o outro.
+   */
+  recoletandoDesde: string | null;
+  /** Quantas vezes a assinatura já foi refeita. */
+  recoletas: number;
   nomeAssinante: string | null;
   assinaturaPng: string | null;
   modo: ModoAssinatura;
