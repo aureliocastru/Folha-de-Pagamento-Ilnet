@@ -52,6 +52,14 @@ interface ConsultaDeEntrega {
 const dentro = (d: Date | undefined, faixa: { gte: Date; lte: Date }) =>
   d === undefined || (d >= faixa.gte && d <= faixa.lte);
 
+/** O filtro com que o serviço distingue as duas perguntas de conferência. */
+interface ConsultaDeConferencia {
+  where?: {
+    dataLancamento?: { not?: null; lt?: Date } | null;
+    idLancamentoIxc?: { in: number[] };
+  };
+}
+
 function montarServico(
   opts: {
     lancamentos?: Array<{
@@ -65,6 +73,12 @@ function montarServico(
       idLancamentoIxc: number;
       conferido: boolean;
       qtdNotas?: number;
+      /** Preenchida = a conferência sabe de que dia é o lançamento dela. */
+      dataLancamento?: Date | null;
+      valor?: number | null;
+      historico?: string | null;
+      id?: string;
+      observacao?: string | null;
     }>;
     /** Contas abertas agora, com os acertos que já tiveram. */
     naRua?: Array<Record<string, unknown>>;
@@ -95,11 +109,41 @@ function montarServico(
 
   const prisma = {
     conferenciaCaixa: {
-      findMany: jest.fn().mockResolvedValue(
-        (opts.conferencias ?? []).map((c) => ({
+      /*
+       * Duas perguntas à mesma tabela, distinguidas pelo filtro: as
+       * conferências do recorte (por `idLancamentoIxc`) e as que ficaram para
+       * trás (por `dataLancamento` anterior ao início). Devolver a mesma lista
+       * às duas faria toda conferência do período aparecer também como
+       * atrasada.
+       */
+      findMany: jest.fn(async (args: ConsultaDeConferencia = {}) => {
+        const todas = (opts.conferencias ?? []).map((c) => ({
           _count: { fotos: c.qtdNotas ?? 0 },
           ...c,
-        })),
+        }));
+        const where = args.where ?? {};
+        if (!('dataLancamento' in where)) return todas;
+
+        // `dataLancamento: null` é a busca do retrato que falta; com `lt`, a
+        // das que ficaram para trás. As duas passam por aqui.
+        const filtro = where.dataLancamento;
+        if (filtro === null) {
+          return todas.filter((c) => !c.dataLancamento);
+        }
+        return todas.filter(
+          (c) =>
+            c.conferido !== true &&
+            c.dataLancamento instanceof Date &&
+            c.dataLancamento < (filtro?.lt as Date),
+        );
+      }),
+      update: jest.fn(
+        async ({
+          data,
+        }: {
+          where: { id: string };
+          data: Record<string, unknown>;
+        }) => data,
       ),
       upsert: jest.fn(async ({ create }: { create: Record<string, unknown> }) => ({
         id: 'cf1',
@@ -1410,6 +1454,152 @@ describe('corrigir a contagem de um fechamento', () => {
     const { service } = montarServico({ fechamento: null, ultimo: null });
 
     await expect(service.corrigirContagem('f9', 100)).rejects.toThrow(
+      /não existe/i,
+    );
+  });
+});
+
+/**
+ * O que ficou para trás esperando conferência.
+ *
+ * A nota do acerto da rua chega quando chega: a pessoa levou dinheiro em
+ * agosto, comprou em agosto e trouxe o papel em setembro. O acerto entra pelo
+ * dia em que aconteceu — que é o certo, porque foi aí que a gaveta mudou —, e a
+ * saída que ele cria no IXC nasce com aquela data. Só que a tela olha o recorte
+ * de agora, e aquele dia já passou: a saída ia para a fila de conferir e
+ * ninguém mais a via.
+ */
+describe('saídas atrasadas na fila de conferir', () => {
+  const RECORTE = { de: '2026-08-19', ate: '2026-08-31' };
+
+  it('a saída por conferir de dia anterior ao recorte aparece', async () => {
+    const { service } = montarServico({
+      conferencias: [
+        {
+          id: 'cf-atrasada',
+          idLancamentoIxc: 5001,
+          conferido: false,
+          dataLancamento: new Date('2026-08-17T00:00:00Z'),
+          valor: 45,
+          historico: 'Pag. Monark Pecas',
+          qtdNotas: 1,
+        },
+      ],
+    });
+
+    const extrato = await service.extrato(7, RECORTE.de, RECORTE.ate);
+
+    expect(extrato.atrasados).toHaveLength(1);
+    expect(extrato.atrasados[0]).toMatchObject({
+      idLancamentoIxc: 5001,
+      historico: 'Pag. Monark Pecas',
+      qtdNotas: 1,
+    });
+  });
+
+  it('o que já foi conferido não fica na fila', async () => {
+    const { service } = montarServico({
+      conferencias: [
+        {
+          id: 'cf-ok',
+          idLancamentoIxc: 5002,
+          conferido: true,
+          dataLancamento: new Date('2026-08-17T00:00:00Z'),
+        },
+      ],
+    });
+
+    const extrato = await service.extrato(7, RECORTE.de, RECORTE.ate);
+
+    expect(extrato.atrasados).toHaveLength(0);
+  });
+
+  /* Do próprio recorte não é atrasado: já está na lista de cima. */
+  it('a saída do próprio recorte não se repete como atrasada', async () => {
+    const { service } = montarServico({
+      conferencias: [
+        {
+          id: 'cf-hoje',
+          idLancamentoIxc: 5003,
+          conferido: false,
+          dataLancamento: new Date('2026-08-25T00:00:00Z'),
+        },
+      ],
+    });
+
+    const extrato = await service.extrato(7, RECORTE.de, RECORTE.ate);
+
+    expect(extrato.atrasados).toHaveLength(0);
+  });
+});
+
+/**
+ * O período fechado que dizia "133 saídas conferidas" e listava seis.
+ *
+ * As conferências do primeiro caixa batido guardaram só o número do lançamento
+ * no IXC — o retrato (data, valor, histórico) passou a ser copiado depois
+ * delas. Como o histórico procura por data, o que não tem data não é achado por
+ * recorte nenhum.
+ */
+describe('histórico de um período fechado', () => {
+  const FECHAMENTO = {
+    id: 'f1',
+    caixaId: 7,
+    de: new Date('2026-08-17T00:00:00Z'),
+    ate: new Date('2026-08-18T23:59:59.999Z'),
+  };
+
+  it('completa do IXC o retrato que a conferência não guardou', async () => {
+    const { service, prisma } = montarServico({
+      fechamento: FECHAMENTO,
+      lancamentos: [saidaEm(5001, 45, new Date('2026-08-17T10:00:00Z'))],
+      conferencias: [
+        {
+          id: 'cf-sem-data',
+          idLancamentoIxc: 5001,
+          conferido: true,
+          dataLancamento: null,
+        },
+      ],
+    });
+
+    const r = await service.historicoDoFechamento('f1');
+
+    expect(r.completados).toBe(1);
+    const [chamada] = prisma.conferenciaCaixa.update.mock.calls[0] as Array<{
+      where: { id: string };
+      data: Record<string, unknown>;
+    }>;
+    expect(chamada.where.id).toBe('cf-sem-data');
+    expect(chamada.data).toMatchObject({
+      dataLancamento: new Date('2026-08-17T10:00:00Z'),
+      historico: 'saída 5001',
+    });
+  });
+
+  /* O que já tem retrato não se relê: a segunda abertura não toca no IXC. */
+  it('período já completo não lê o IXC', async () => {
+    const { service, caixa } = montarServico({
+      fechamento: FECHAMENTO,
+      conferencias: [
+        {
+          id: 'cf-ok',
+          idLancamentoIxc: 5002,
+          conferido: true,
+          dataLancamento: new Date('2026-08-17T00:00:00Z'),
+        },
+      ],
+    });
+
+    await service.historicoDoFechamento('f1');
+
+    expect(caixa.listarLancamentos).not.toHaveBeenCalled();
+  });
+
+  it('fechamento que não existe é recusado', async () => {
+    const { service } = montarServico({ fechamento: null });
+
+    await expect(service.historicoDoFechamento('f9')).rejects.toThrow(
       /não existe/i,
     );
   });

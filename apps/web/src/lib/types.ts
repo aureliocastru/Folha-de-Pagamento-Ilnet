@@ -1333,6 +1333,17 @@ export interface ItemDoHistorico {
   qtdNotas: number;
 }
 
+/** Uma saída de dia já passado que ainda espera conferência. */
+export interface SaidaAtrasada {
+  id: string;
+  idLancamentoIxc: number;
+  dataLancamento: string | null;
+  valor: string | null;
+  historico: string | null;
+  observacao: string | null;
+  qtdNotas: number;
+}
+
 /** O que se faz com o dinheiro que está na rua. */
 export type TipoMovimentoDaRua = 'NOTA' | 'TROCO' | 'REFORCO';
 
@@ -1426,6 +1437,15 @@ export interface ExtratoDoCaixa {
   de: string;
   ate: string;
   lancamentos: LancamentoDoCaixa[];
+  /**
+   * Saídas por conferir de dias anteriores ao recorte.
+   *
+   * A nota do acerto da rua chega quando chega, e o acerto entra pelo dia em
+   * que aconteceu — que já passou. Sem esta lista, a saída que ele cria ia para
+   * a fila de conferir num dia que a tela não mostra mais, e ficava pendente
+   * para sempre.
+   */
+  atrasados: SaidaAtrasada[];
   naRua: ContaDaRua[];
   resumo: {
     entradas: number;

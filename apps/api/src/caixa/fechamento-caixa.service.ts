@@ -221,6 +221,33 @@ export class FechamentoCaixaService {
     });
 
     /*
+     * O que ficou para trás esperando conferência.
+     *
+     * A nota do acerto da rua chega quando chega: a pessoa levou dinheiro em
+     * agosto, comprou em agosto e trouxe o papel em setembro. O acerto entra
+     * pelo dia em que aconteceu — que é o certo, porque foi aí que a gaveta
+     * mudou —, e a saída que ele cria no IXC nasce com aquela data. Só que a
+     * tela olha o recorte de agora, e aquele dia já passou: a saída ia para a
+     * fila de conferir e ninguém mais a via. Ficava pendente para sempre, num
+     * lugar onde ninguém pensa em procurar.
+     *
+     * Então ela aparece aqui, seja qual for o recorte, até alguém conferi-la.
+     * Sai do que esta casa guardou — o retrato que o acerto copiou —, e não de
+     * uma varredura do IXC por datas antigas: é essa varredura que já derrubou
+     * esta página, e ela não é necessária para responder "o que ficou".
+     */
+    const atrasados = await this.prisma.conferenciaCaixa.findMany({
+      where: {
+        caixaId,
+        conferido: false,
+        dataLancamento: { not: null, lt: inicio },
+      },
+      orderBy: { dataLancamento: 'asc' },
+      take: 100,
+      include: { _count: { select: { fotos: true } } },
+    });
+
+    /*
      * Até onde este caixa já está conferido, seja qual for o recorte na tela.
      *
      * Sem isto, "não achei o anterior" tem duas causas e uma frase só: o caixa
@@ -350,6 +377,16 @@ export class FechamentoCaixaService {
       de,
       ate,
       lancamentos: comConferencia,
+      /** Saídas por conferir de dias anteriores ao recorte. Ver `atrasados`. */
+      atrasados: atrasados.map((c) => ({
+        id: c.id,
+        idLancamentoIxc: c.idLancamentoIxc,
+        dataLancamento: c.dataLancamento,
+        valor: c.valor,
+        historico: c.historico,
+        observacao: c.observacao,
+        qtdNotas: c._count.fotos,
+      })),
       naRua: naRua.map(comSaldo),
       resumo: {
         entradas: soma('ENTRADA'),
@@ -1433,6 +1470,97 @@ export class FechamentoCaixaService {
       orderBy: { de: 'desc' },
       take: 50,
     });
+  }
+
+  /**
+   * O histórico de um período fechado, completo.
+   *
+   * O `historicoConferido` procura por data, e por isso não achava o que não
+   * tem data: as conferências do primeiro caixa batido guardaram só o número do
+   * lançamento no IXC — o retrato (data, valor, histórico) passou a ser copiado
+   * depois delas. Eram 133 de 149 neste caixa, e o período abria dizendo "133
+   * saídas conferidas" e listando seis.
+   *
+   * Então, antes de listar, este caminho completa o que falta lendo o IXC uma
+   * vez na janela do próprio período. É a única leitura do IXC em todo o
+   * histórico, e ela existe porque um retrato que falta não se inventa daqui —
+   * e porque, uma vez copiado, ele fica: a segunda abertura do mesmo período já
+   * não lê nada.
+   */
+  async historicoDoFechamento(fechamentoId: string) {
+    const f = await this.prisma.fechamentoCaixa.findUnique({
+      where: { id: fechamentoId },
+    });
+    if (!f) throw new BadRequestException('Este fechamento não existe mais.');
+
+    const completados = await this.completarRetratos(f.caixaId, f.de, f.ate);
+    const itens = await this.historicoConferido(f.caixaId, {
+      de: diaISO(f.de),
+      ate: diaISO(f.ate),
+      limite: 1000,
+    });
+    return { itens, completados };
+  }
+
+  /**
+   * Copia do IXC o retrato das conferências que não guardaram nenhum.
+   *
+   * Só as que ficaram sem data — as outras já respondem por si. A leitura é uma
+   * só, da janela pedida, e o que casa por número de lançamento é preenchido; o
+   * que não casa ficou fora da janela e espera a janela dele.
+   *
+   * Falhar aqui não pode derrubar a tela: sem o IXC o período abre como abria
+   * antes, incompleto, que é melhor do que não abrir.
+   */
+  private async completarRetratos(
+    caixaId: number,
+    inicio: Date,
+    fim: Date,
+  ): Promise<number> {
+    const semRetrato = await this.prisma.conferenciaCaixa.findMany({
+      where: { caixaId, dataLancamento: null },
+      select: { id: true, idLancamentoIxc: true },
+    });
+    if (semRetrato.length === 0) return 0;
+
+    try {
+      const cfg = await this.config.obter();
+      const { lancamentos } = await this.caixa.listarLancamentos(
+        caixaId,
+        inicio,
+        fim,
+        cfg,
+      );
+      const porId = new Map(lancamentos.map((l) => [l.id, l]));
+
+      let completados = 0;
+      for (const c of semRetrato) {
+        const l = porId.get(c.idLancamentoIxc);
+        if (!l) continue;
+        await this.prisma.conferenciaCaixa.update({
+          where: { id: c.id },
+          data: {
+            dataLancamento: l.data,
+            valor: new Prisma.Decimal(arredondar(l.valor)),
+            historico: l.historico,
+          },
+        });
+        completados += 1;
+      }
+      if (completados > 0) {
+        this.logger.log(
+          `Caixa #${caixaId}: ${completados} conferência(s) recuperaram do IXC ` +
+            'a data, o valor e o histórico que não tinham guardado.',
+        );
+      }
+      return completados;
+    } catch (err) {
+      this.logger.warn(
+        `Caixa #${caixaId}: não deu para completar o retrato das conferências ` +
+          `antigas (${err instanceof Error ? err.message : String(err)}).`,
+      );
+      return 0;
+    }
   }
 }
 

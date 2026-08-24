@@ -226,6 +226,19 @@ export class FechamentoCaixaController {
   }
 
   /**
+   * O que este período fechado tem dentro, completo.
+   *
+   * Rota própria, e não o `historico` com de/ate, porque só ela pode ler o
+   * IXC: as conferências antigas não guardaram data, e sem essa leitura o
+   * período diz "133 saídas conferidas" e lista seis. A procura continua sem
+   * tocar no IXC, que é o que a mantém rápida.
+   */
+  @Get('fechamentos/:id/historico')
+  historicoDoFechamento(@Param('id') id: string) {
+    return this.service.historicoDoFechamento(id);
+  }
+
+  /**
    * Corrige o que se contou na gaveta num fechamento já assinado — só no
    * último de cada caixa, que é o único de quem ninguém ainda dependeu.
    */

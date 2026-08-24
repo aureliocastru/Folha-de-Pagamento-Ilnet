@@ -27,6 +27,7 @@ import type {
   ItemDoHistorico,
   LancamentoDoCaixa,
   MovimentoLancado,
+  SaidaAtrasada,
   TipoMovimentoDaRua,
 } from '../../lib/types';
 
@@ -331,7 +332,7 @@ function Conferencia({
   }
   if (!extrato.data) return null;
 
-  const { lancamentos, naRua, resumo, fechamentos } = extrato.data;
+  const { lancamentos, atrasados, naRua, resumo, fechamentos } = extrato.data;
   const faltam = resumo.qtdSaidas - resumo.saidasConferidas;
   const qtdSaidas = resumo.qtdSaidas;
   const qtdEntradas = lancamentos.length - qtdSaidas;
@@ -393,7 +394,7 @@ function Conferencia({
           {
             id: 'conferir',
             rotulo: 'A conferir',
-            selo: aConferir.length || undefined,
+            selo: aConferir.length + atrasados.length || undefined,
           },
           { id: 'revisados', rotulo: 'Revisados', selo: revisados.length || undefined },
           { id: 'historico', rotulo: 'Histórico' },
@@ -560,6 +561,32 @@ function Conferencia({
                 ? 'Não houve saída neste período.'
                 : 'Todas as saídas do período já foram revisadas.'}
             </Vazio>
+          )}
+
+          {/* O que ficou para trás. Dentro da mesma aba, embaixo do período:
+              é a mesma fila, e não outro assunto — só que de dias que a tela
+              não mostra mais. */}
+          {atrasados.length > 0 && (
+            <div className="border-t border-tinta-200 px-4 pb-4 pt-4 sm:px-5">
+              <Aviso tom="atencao">
+                {atrasados.length === 1
+                  ? '1 saída de dia anterior ainda espera conferência'
+                  : `${atrasados.length} saídas de dias anteriores ainda esperam conferência`}{' '}
+                — a nota do acerto da rua chegou depois que aquele dia passou.
+              </Aviso>
+              <ul className="lista-dividida">
+                {atrasados.map((a) => (
+                  <LinhaAtrasada
+                    key={a.id}
+                    item={a}
+                    caixaId={caixaId}
+                    podeConferir={podeConferir}
+                    onConferiu={recarregar}
+                    onErro={setErro}
+                  />
+                ))}
+              </ul>
+            </div>
           )}
         </Bloco>
       )}
@@ -851,13 +878,23 @@ function PeriodoFechado({
 }) {
   const [aberto, setAberto] = useState(false);
 
+  /*
+   * Rota própria do período, e não a procura com de/ate.
+   *
+   * As conferências do primeiro caixa batido guardaram só o número do
+   * lançamento no IXC — o retrato (data, valor, histórico) passou a ser copiado
+   * depois delas. Como a procura acha por data, o período abria dizendo "133
+   * saídas conferidas" e listava seis. Esta rota completa o que falta lendo o
+   * IXC uma vez, na janela do próprio período, e o que ela copia fica: a
+   * segunda abertura já não lê nada.
+   */
   const itens = useQuery({
     queryKey: ['caixa', 'historico', caixaId, 'periodo', f.id],
     queryFn: async () =>
       (
-        await api.get<ItemDoHistorico[]>(`/caixa/${caixaId}/historico`, {
-          params: { de: diaDoISO(f.de), ate: diaDoISO(f.ate) },
-        })
+        await api.get<{ itens: ItemDoHistorico[]; completados: number }>(
+          `/caixa/fechamentos/${f.id}/historico`,
+        )
       ).data,
     // Só quando abre: são vários períodos na lista, e ninguém olha todos.
     enabled: aberto,
@@ -922,17 +959,24 @@ function PeriodoFechado({
             />
           </div>
 
-          {itens.isLoading && <Carregando texto="Lendo o período…" />}
-          {itens.data?.length === 0 && (
+          {itens.isLoading && (
+            <Carregando texto="Lendo o período…" />
+          )}
+          {itens.data?.itens.length === 0 && (
             <p className="ajuda">
-              Nenhum pagamento conferido caiu neste recorte. O que foi conferido
-              antes de o histórico existir não guardou data — ele aparece na
-              procura, mas não sabe a que período pertence.
+              Nenhum pagamento conferido caiu neste período.
             </p>
           )}
-          {!!itens.data?.length && (
+          {!!itens.data?.completados && (
+            <p className="ajuda mb-2">
+              {itens.data.completados === 1
+                ? '1 conferência recuperou do IXC a data que não tinha guardado.'
+                : `${itens.data.completados} conferências recuperaram do IXC a data que não tinham guardado.`}
+            </p>
+          )}
+          {!!itens.data?.itens.length && (
             <ul className="lista-dividida">
-              {itens.data.map((h) => (
+              {itens.data.itens.map((h) => (
                 <LinhaDoHistorico key={h.id} item={h} caixaId={caixaId} />
               ))}
             </ul>
@@ -965,6 +1009,93 @@ function NumeroDoFechamento({
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Uma saída que ficou para trás, na fila de conferir.
+ *
+ * Confere pela mesma rota das outras — é o mesmo gesto e a mesma assinatura —,
+ * e reenvia o retrato que já está guardado: quem confere aqui não tem o
+ * lançamento do IXC na mão, tem a cópia que o acerto da rua deixou.
+ */
+function LinhaAtrasada({
+  item,
+  caixaId,
+  podeConferir,
+  onConferiu,
+  onErro,
+}: {
+  item: SaidaAtrasada;
+  caixaId: number;
+  podeConferir: boolean;
+  onConferiu: () => void;
+  onErro: (mensagem: string) => void;
+}) {
+  const [verNotas, setVerNotas] = useState(false);
+
+  const conferir = useMutation({
+    mutationFn: async () => {
+      await api.put(
+        `/caixa/${caixaId}/lancamentos/${item.idLancamentoIxc}/conferir`,
+        {
+          conferido: true,
+          dataLancamento: item.dataLancamento
+            ? diaDoISO(item.dataLancamento)
+            : undefined,
+          valor: item.valor === null ? undefined : Number(item.valor),
+          historico: item.historico ?? undefined,
+        },
+      );
+    },
+    onSuccess: onConferiu,
+    onError: (e) => onErro(mensagemErro(e)),
+  });
+
+  return (
+    <li className="py-2 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <span className="num text-tinta-400">
+            {item.dataLancamento ? formatData(item.dataLancamento) : '—'}
+          </span>{' '}
+          <span className="text-tinta-700">
+            {item.historico || 'sem histórico'}
+          </span>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="valor">
+            {item.valor === null ? '—' : formatBRL(Number(item.valor))}
+          </span>
+          {item.qtdNotas > 0 && (
+            <button
+              type="button"
+              onClick={() => setVerNotas((v) => !v)}
+              className="btn btn-p btn-sutil"
+            >
+              {item.qtdNotas === 1 ? 'Ver nota' : `Ver ${item.qtdNotas} notas`}
+            </button>
+          )}
+          {podeConferir && (
+            <button
+              type="button"
+              onClick={() => conferir.mutate()}
+              disabled={conferir.isPending}
+              className="btn btn-p btn-pagar"
+            >
+              {conferir.isPending ? 'Conferindo…' : 'OK'}
+            </button>
+          )}
+        </div>
+      </div>
+      {verNotas && (
+        <NotasDoLancamento
+          caixaId={caixaId}
+          idLancamento={item.idLancamentoIxc}
+          somenteLeitura
+        />
+      )}
+    </li>
   );
 }
 
