@@ -4,14 +4,15 @@ import {
   IconeCalendarioVolta,
   IconeChave,
   IconeDia,
+  IconeDocumento,
   IconeEngrenagem,
   IconeEtiqueta,
   IconeGuia,
   IconeMoeda,
-  IconeDocumento,
   IconePainel,
   IconePasta,
   IconePessoas,
+  IconePredio,
   IconeRecibo,
   IconeSaida,
   IconeSol,
@@ -138,6 +139,16 @@ const rh: Modulo = {
   papeis: ['ADMIN', 'RH'],
   menu: [
     { to: 'pastas', label: 'Pastas', icone: IconePasta },
+    /*
+     * A pasta da empresa tem porta própria.
+     *
+     * A estante lista gente — quarenta e poucas pastas em ordem alfabética —, e
+     * a da empresa é a única que não é de ninguém e a única em que se entra
+     * várias vezes por semana: contrato social, alvará, as certidões que a
+     * licitação pede. Achá-la caçando "Empresa" no meio dos nomes é o caminho
+     * mais longo para o lugar mais visitado.
+     */
+    { to: 'empresa', label: 'Empresa', icone: IconePredio },
     { to: 'recibos', label: 'Recibos da folha', icone: IconeDocumento },
   ],
 };

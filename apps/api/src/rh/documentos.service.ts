@@ -48,8 +48,21 @@ export const LIMITE_BYTES = 15 * 1024 * 1024;
 /** Documento que vence dentro disto está "a vencer" na tela. */
 const DIAS_DE_AVISO = 30;
 
-/** Quantos níveis de pasta dentro de pasta. Ver `exigirEspacoNaArvore`. */
-const NIVEIS = 3;
+/**
+ * O fundo da árvore — um limite de segurança, e não uma regra de organização.
+ *
+ * Aqui havia um teto de três níveis, com o argumento de que mais fundo do que
+ * isso ninguém acha o papel. O argumento estava errado sobre esta casa: a pasta
+ * da empresa sozinha já pede "Empresa / M A CASTRO / Balanços / 2024", e quem
+ * guarda o papel é quem sabe como ele se procura depois. O teto não organizava
+ * nada — só recusava a quarta pasta com uma frase que soava a explicação.
+ *
+ * O que sobrou é o que ele deveria ter sido desde o começo: um número grande o
+ * bastante para nunca aparecer no caminho de ninguém, e finito o bastante para
+ * que um `paiId` em círculo — que só um bug criaria — trave numa consulta a
+ * mais em vez de num laço infinito.
+ */
+const NIVEIS = 20;
 
 /**
  * A gaveta do papel que foi trocado.
@@ -141,7 +154,9 @@ export class DocumentosRhService {
     for (const p of pastas) {
       const meu = resumos.get(p.id) ?? vazio();
       let atual: string | null = p.id;
-      while (atual) {
+      // O mesmo teto de segurança da criação: sem ele, um `paiId` em círculo
+      // travaria a estante inteira em vez de desenhar uma pasta errada.
+      for (let passo = 0; atual && passo <= NIVEIS; passo += 1) {
         const soma = naArvore.get(atual) ?? vazio();
         soma.qtd += meu.qtd;
         soma.vencidos += meu.vencidos;
@@ -309,11 +324,10 @@ export class DocumentosRhService {
   }
 
   /**
-   * Até onde a árvore pode ir.
+   * Trava de segurança da árvore.
    *
-   * Três níveis dão "Fulano / Recibos de pagamento / 2026", que é mais fundo do
-   * que uma gaveta de RH costuma precisar. Sem teto, a estante vira um labirinto
-   * que ninguém percorre até o fim para achar um papel.
+   * Não é regra de organização: quem guarda o papel decide como ele se procura
+   * depois. É só o fundo em que um `paiId` em círculo pararia de andar.
    */
   private async exigirEspacoNaArvore(paiId: string) {
     let nivel = 1;
@@ -328,8 +342,8 @@ export class DocumentosRhService {
       nivel += 1;
       if (nivel > NIVEIS) {
         throw new BadRequestException(
-          `Dá para aninhar até ${NIVEIS} níveis de pasta. Mais fundo que ` +
-            'isso, ninguém acha o papel.',
+          `Esta pasta já está ${NIVEIS} níveis abaixo da estante. Mais fundo ` +
+            'que isso o sistema não sabe percorrer.',
         );
       }
       atual = pasta.paiId;

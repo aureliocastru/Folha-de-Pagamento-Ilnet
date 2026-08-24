@@ -25,7 +25,7 @@ import { Impostos } from './pages/folha/Impostos';
 import { MinhaConta } from './pages/folha/MinhaConta';
 import { Usuarios } from './pages/folha/Usuarios';
 import { Vales } from './pages/folha/Vales';
-import { PastaRhAberta } from './pages/rh/Pasta';
+import { PastaDaEmpresa, PastaRhAberta } from './pages/rh/Pasta';
 import { PastasRh } from './pages/rh/Pastas';
 import { RecibosDaFolha } from './pages/rh/RecibosDaFolha';
 import type { ReactNode } from 'react';
@@ -153,6 +153,7 @@ export default function App() {
       >
         <Route index element={<Navigate to="pastas" replace />} />
         <Route path="pastas" element={<PastasRh />} />
+        <Route path="empresa" element={<PastaDaEmpresa />} />
         <Route path="pastas/:id" element={<PastaRhAberta />} />
         <Route path="recibos" element={<RecibosDaFolha />} />
       </Route>

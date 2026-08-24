@@ -34,8 +34,11 @@ const ACEITOS =
  * aba: PDF e digitalização se leem no visualizador do navegador, que é melhor
  * do que qualquer coisa que esta tela fosse desenhar.
  */
-export function PastaRhAberta() {
-  const { id = '' } = useParams();
+export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
+  // A rota manda quando há `:id` na URL; o `pastaId` serve a quem já sabe qual
+  // pasta é — a da empresa, que tem porta própria no menu.
+  const { id: idDaRota = '' } = useParams();
+  const id = pastaId ?? idDaRota;
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { usuario } = useAuth();
@@ -496,6 +499,41 @@ export function PastaRhAberta() {
   );
 }
 
+/**
+ * A pasta da empresa, aberta pelo menu.
+ *
+ * Ela não tem endereço fixo — nasce do banco e leva um id que ninguém decora —,
+ * então quem chega pelo menu descobre qual é antes de abrir. É um pedido a mais
+ * que a estante já ia fazer de qualquer jeito: a mesma consulta serve às duas
+ * telas e vem do cache na segunda.
+ */
+export function PastaDaEmpresa() {
+  const estante = useQuery({
+    queryKey: ['rh', 'pastas'],
+    queryFn: async () => (await api.get<EstanteRh>('/rh/pastas')).data,
+  });
+
+  const empresa = estante.data?.pastas.find((p) => p.daEmpresa);
+
+  if (estante.isLoading) {
+    return (
+      <Pagina>
+        <Carregando texto="Abrindo a pasta da empresa…" />
+      </Pagina>
+    );
+  }
+  if (!empresa) {
+    return (
+      <Pagina>
+        <Vazio titulo="A pasta da empresa não existe">
+          Ela nasce sozinha quando a estante abre. Vá em Pastas e volte aqui.
+        </Vazio>
+      </Pagina>
+    );
+  }
+  return <PastaRhAberta pastaId={empresa.id} />;
+}
+
 function LinhaDoDocumento({
   documento: d,
   onEditar,
@@ -807,6 +845,7 @@ function FormularioDoDocumento({
     null,
   );
   const [lendo, setLendo] = useState(false);
+  const [sobreAArea, setSobreAArea] = useState(false);
   const [erroDoArquivo, setErroDoArquivo] = useState<string | null>(null);
 
   /** Corrigir: o mesmo documento, outros dados. Substituir não é isso. */
@@ -816,9 +855,7 @@ function FormularioDoDocumento({
     tipo.trim().length >= 2 &&
     (editando || !!arquivo);
 
-  async function escolher(e: React.ChangeEvent<HTMLInputElement>) {
-    const escolhido = e.target.files?.[0];
-    e.target.value = '';
+  async function receber(escolhido: File | undefined) {
     if (!escolhido) return;
 
     setLendo(true);
@@ -834,6 +871,31 @@ function FormularioDoDocumento({
     } finally {
       setLendo(false);
     }
+  }
+
+  async function escolher(e: React.ChangeEvent<HTMLInputElement>) {
+    const escolhido = e.target.files?.[0];
+    e.target.value = '';
+    await receber(escolhido);
+  }
+
+  /*
+   * Arrastar o papel para dentro da janela.
+   *
+   * O caminho do diálogo do sistema é o caminho longo quando o arquivo já está
+   * à vista — recém-baixado, aberto ao lado, na área de trabalho. O arrasto é o
+   * gesto que a pessoa já ia fazer, e o `dragOver` precisa do `preventDefault`
+   * porque sem ele o navegador abre o PDF numa aba e a janela se perde.
+   */
+  function aoArrastar(e: React.DragEvent) {
+    e.preventDefault();
+    setSobreAArea(e.type === 'dragover');
+  }
+
+  async function aoSoltar(e: React.DragEvent) {
+    e.preventDefault();
+    setSobreAArea(false);
+    await receber(e.dataTransfer.files?.[0]);
   }
 
   return (
@@ -859,7 +921,19 @@ function FormularioDoDocumento({
           <label className="rotulo">
             {substituindo ? 'O documento novo' : 'O arquivo'}
           </label>
-          <div className="flex flex-wrap items-center gap-3">
+          {/* A área inteira recebe o arrasto, e não só o botão: quem arrasta
+              mira a caixa, não um alvo de 140 pixels. O botão continua ali
+              para quem prefere o diálogo do sistema. */}
+          <div
+            onDragOver={aoArrastar}
+            onDragLeave={aoArrastar}
+            onDrop={aoSoltar}
+            className={`flex flex-wrap items-center gap-3 rounded-xl border border-dashed px-4 py-4 transition ${
+              sobreAArea
+                ? 'border-brand-400 bg-brand-500/10'
+                : 'border-tinta-200 bg-tinta-50/40 dark:bg-white/[0.02]'
+            }`}
+          >
             <label className="btn btn-neutro w-fit cursor-pointer">
               {lendo ? 'Lendo…' : arquivo ? 'Trocar arquivo' : 'Escolher arquivo'}
               <input
@@ -869,9 +943,13 @@ function FormularioDoDocumento({
                 onChange={escolher}
               />
             </label>
-            {arquivo && (
+            {arquivo ? (
               <span className="truncate text-sm text-tinta-600">
                 {arquivo.nome}
+              </span>
+            ) : (
+              <span className="text-sm text-tinta-400">
+                {sobreAArea ? 'Solte aqui.' : 'ou arraste o arquivo para cá'}
               </span>
             )}
           </div>
@@ -1034,9 +1112,9 @@ function trilha(
 ): Array<{ id: string; nome: string }> {
   const caminho: Array<{ id: string; nome: string }> = [];
   let atual = pasta;
-  // Teto de segurança: a árvore tem três níveis, e um ciclo aqui travaria a
-  // tela em vez de mostrar a pasta.
-  for (let i = 0; atual && i < 10; i += 1) {
+  // Teto de segurança: um ciclo aqui travaria a tela em vez de mostrar a pasta.
+  // O número acompanha o do servidor, que é quem recusa criar mais fundo.
+  for (let i = 0; atual && i < 20; i += 1) {
     caminho.unshift({ id: atual.id, nome: atual.nome });
     const paiId: string | null = atual.paiId;
     atual = paiId ? pastas.find((p) => p.id === paiId) : undefined;
