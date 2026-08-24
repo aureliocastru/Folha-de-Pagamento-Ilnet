@@ -76,6 +76,24 @@ export class GuardarDocumentoDto extends DadosDoDocumentoDto {
 }
 
 /**
+ * O documento novo que toma o lugar de um que venceu.
+ *
+ * Traz o arquivo, como quem guarda um documento pela primeira vez — porque é
+ * isso que ele é: a certidão de setembro não é a de agosto corrigida, é outro
+ * papel. O que se herda do antigo é o nome e o tipo, que a tela já preenche;
+ * as datas, não, porque são justamente elas que mudaram.
+ */
+export class SubstituirDocumentoDto extends DadosDoDocumentoDto {
+  @IsString() @MinLength(1) @MaxLength(255) arquivoNome!: string;
+
+  @IsString({ message: 'Escolha o arquivo novo.' })
+  @Matches(/^data:[-\w.+]+\/[-\w.+]+;base64,/, {
+    message: 'O arquivo não chegou num formato que eu saiba ler.',
+  })
+  arquivo!: string;
+}
+
+/**
  * Só os dados: o arquivo guardado não se troca, se apaga e se sobe de novo.
  *
  * A pasta, sim: é o único jeito de pôr numa subpasta nova o que já estava

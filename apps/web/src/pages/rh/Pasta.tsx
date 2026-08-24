@@ -44,6 +44,7 @@ export function PastaRhAberta() {
   const [criandoSubpasta, setCriandoSubpasta] = useState(false);
   const [renomeando, setRenomeando] = useState(false);
   const [editando, setEditando] = useState<DocumentoRh | null>(null);
+  const [substituindo, setSubstituindo] = useState<DocumentoRh | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [feito, setFeito] = useState<string | null>(null);
 
@@ -185,6 +186,30 @@ export function PastaRhAberta() {
     onError: (e) => setErro(mensagemErro(e)),
   });
 
+  /*
+   * Substituir é guardar o novo e descer o velho uma gaveta, num gesto só.
+   *
+   * Feito à mão seriam três passos — subir o novo, criar a pasta, mover o
+   * velho —, e é no terceiro que se desiste: a certidão velha fica ao lado da
+   * nova, com o mesmo título, e quem for pegar "a CND estadual" acha duas.
+   */
+  const substituir = useMutation({
+    mutationFn: async (dados: { id: string } & Record<string, unknown>) =>
+      (
+        await api.post<{ documento: DocumentoRh; guardadoEm: string }>(
+          `/rh/documentos/${dados.id}/substituir`,
+          dados,
+        )
+      ).data,
+    onSuccess: (r) => {
+      setSubstituindo(null);
+      setErro(null);
+      avisar(`"${r.documento.titulo}" entrou no lugar. O anterior foi para "${r.guardadoEm}".`);
+      recarregar();
+    },
+    onError: (e) => setErro(mensagemErro(e)),
+  });
+
   const apagar = useMutation({
     mutationFn: async (docId: string) => api.delete(`/rh/documentos/${docId}`),
     onSuccess: () => {
@@ -302,7 +327,7 @@ export function PastaRhAberta() {
       </nav>
 
       {feito && <Aviso tom="pago">{feito}</Aviso>}
-      {erro && !guardando && !editando && !renomeando && (
+      {erro && !guardando && !editando && !renomeando && !substituindo && (
         <Aviso tom="erro">{erro}</Aviso>
       )}
 
@@ -363,6 +388,10 @@ export function PastaRhAberta() {
                     onEditar={() => {
                       setErro(null);
                       setEditando(d);
+                    }}
+                    onSubstituir={() => {
+                      setErro(null);
+                      setSubstituindo(d);
                     }}
                     onApagar={() => {
                       if (
@@ -430,6 +459,24 @@ export function PastaRhAberta() {
         </Janela>
       )}
 
+      {substituindo && (
+        <Janela
+          titulo={`Substituir — ${substituindo.titulo}`}
+          onFechar={() => setSubstituindo(null)}
+        >
+          <FormularioDoDocumento
+            documento={substituindo}
+            substituindo
+            tipos={estante.data?.tipos ?? []}
+            pendente={substituir.isPending}
+            erro={erro}
+            onSalvar={(dados) =>
+              substituir.mutate({ id: substituindo.id, ...dados })
+            }
+          />
+        </Janela>
+      )}
+
       {editando && (
         <Janela
           titulo={`Corrigir — ${editando.titulo}`}
@@ -452,10 +499,12 @@ export function PastaRhAberta() {
 function LinhaDoDocumento({
   documento: d,
   onEditar,
+  onSubstituir,
   onApagar,
 }: {
   documento: DocumentoRh;
   onEditar: () => void;
+  onSubstituir: () => void;
   onApagar: () => void;
 }) {
   const [abrindo, setAbrindo] = useState(false);
@@ -518,6 +567,25 @@ function LinhaDoDocumento({
           >
             {abrindo ? 'Abrindo…' : 'Ver'}
           </button>
+          {/* O papel que vence é o que se substitui, e por isso o botão só
+              aparece em quem tem prazo — num contrato social ele não quer
+              dizer nada. Aceso na cor do estado quando o prazo aperta: é a
+              ação que a linha vermelha está pedindo, e ela não pode ter o
+              mesmo peso de "corrigir" ao lado. */}
+          {d.valeAte && (
+            <button
+              type="button"
+              onClick={onSubstituir}
+              className={`btn btn-p ${
+                d.prazo === 'vencido' || d.prazo === 'a-vencer'
+                  ? 'btn-ferramenta'
+                  : 'btn-sutil'
+              }`}
+              title="Guarda o documento novo aqui e manda este para “Substituídos”"
+            >
+              Substituir
+            </button>
+          )}
           <button
             type="button"
             onClick={onEditar}
@@ -684,6 +752,7 @@ function SeloDoPrazo({ prazo }: { prazo: PrazoDoDocumento }) {
  */
 function FormularioDoDocumento({
   documento,
+  substituindo = false,
   tipos,
   pastas,
   pendente,
@@ -691,6 +760,15 @@ function FormularioDoDocumento({
   onSalvar,
 }: {
   documento?: DocumentoRh;
+  /**
+   * O documento chegou para tomar o lugar daquele.
+   *
+   * É o meio-termo entre guardar e corrigir: pede o arquivo, como quem guarda
+   * um papel novo — a certidão de setembro não é a de agosto corrigida —, mas
+   * nasce com o nome e o tipo do antigo já escritos, que é o que não muda de
+   * uma renovação para a outra.
+   */
+  substituindo?: boolean;
   tipos: string[];
   /** Todas as pastas: corrigindo, dá para mudar o documento de lugar. */
   pastas?: PastaRh[];
@@ -702,15 +780,21 @@ function FormularioDoDocumento({
   const [titulo, setTitulo] = useState(documento?.titulo ?? '');
   const [tipo, setTipo] = useState(documento?.tipo ?? '');
   const [descricao, setDescricao] = useState(documento?.descricao ?? '');
-  const [emitidoEm, setEmitidoEm] = useState(documento?.emitidoEm ?? '');
-  const [valeAte, setValeAte] = useState(documento?.valeAte ?? '');
+  // As datas do antigo não se herdam: são justamente elas que mudaram.
+  const [emitidoEm, setEmitidoEm] = useState(
+    substituindo ? '' : (documento?.emitidoEm ?? ''),
+  );
+  const [valeAte, setValeAte] = useState(
+    substituindo ? '' : (documento?.valeAte ?? ''),
+  );
   const [arquivo, setArquivo] = useState<{ nome: string; dados: string } | null>(
     null,
   );
   const [lendo, setLendo] = useState(false);
   const [erroDoArquivo, setErroDoArquivo] = useState<string | null>(null);
 
-  const editando = !!documento;
+  /** Corrigir: o mesmo documento, outros dados. Substituir não é isso. */
+  const editando = !!documento && !substituindo;
   const podeSalvar =
     titulo.trim().length >= 2 &&
     tipo.trim().length >= 2 &&
@@ -756,7 +840,9 @@ function FormularioDoDocumento({
     >
       {!editando && (
         <div className="mb-4">
-          <label className="rotulo">O arquivo</label>
+          <label className="rotulo">
+            {substituindo ? 'O documento novo' : 'O arquivo'}
+          </label>
           <div className="flex flex-wrap items-center gap-3">
             <label className="btn btn-neutro w-fit cursor-pointer">
               {lendo ? 'Lendo…' : arquivo ? 'Trocar arquivo' : 'Escolher arquivo'}
@@ -775,6 +861,8 @@ function FormularioDoDocumento({
           </div>
           <p className="ajuda">
             PDF, foto, digitalização, documento do Word ou planilha — até 15 MB.
+            {substituindo &&
+              ` O que está aqui hoje não se perde: vai para a pasta “Substituídos”, com as datas que ele tinha.`}
           </p>
           {erroDoArquivo && (
             <p className="mt-1 text-sm text-rose-600">{erroDoArquivo}</p>
@@ -895,10 +983,14 @@ function FormularioDoDocumento({
           className="btn btn-primario"
         >
           {pendente
-            ? 'Guardando…'
+            ? substituindo
+              ? 'Substituindo…'
+              : 'Guardando…'
             : editando
               ? 'Salvar correção'
-              : 'Guardar na pasta'}
+              : substituindo
+                ? 'Substituir'
+                : 'Guardar na pasta'}
         </button>
       </div>
     </form>

@@ -22,6 +22,7 @@ import {
   GuardarDocumentoDto,
   GuardarRecibosDto,
   PastaDto,
+  SubstituirDocumentoDto,
 } from './dto/documento.dto';
 import { RecibosDaFolhaService } from './recibos.service';
 
@@ -139,6 +140,22 @@ export class RhController {
   @Patch('documentos/:id')
   editar(@Param('id') id: string, @Body() dto: EditarDocumentoDto) {
     return this.documentos.editar(id, dto);
+  }
+
+  /**
+   * O documento novo entra no lugar do que venceu.
+   *
+   * O antigo não se apaga: desce para a gaveta "Substituídos" da própria pasta.
+   * Ele é a prova de que a empresa estava regular naquele mês, e é ele que se
+   * apresenta quando alguém pergunta do ano passado.
+   */
+  @Post('documentos/:id/substituir')
+  substituir(
+    @Param('id') id: string,
+    @Body() dto: SubstituirDocumentoDto,
+    @Req() req: Request,
+  ) {
+    return this.documentos.substituir(id, dto, usuarioId(req));
   }
 
   @Delete('documentos/:id')

@@ -9,6 +9,7 @@ import type {
   EditarDocumentoDto,
   GuardarDocumentoDto,
   PastaDto,
+  SubstituirDocumentoDto,
 } from './dto/documento.dto';
 
 /**
@@ -49,6 +50,26 @@ const DIAS_DE_AVISO = 30;
 
 /** Quantos níveis de pasta dentro de pasta. Ver `exigirEspacoNaArvore`. */
 const NIVEIS = 3;
+
+/**
+ * A gaveta do papel que foi trocado.
+ *
+ * Nasce sozinha na primeira substituição feita naquela pasta, do mesmo jeito
+ * que "Recibos de pagamento" nasce no primeiro recibo. Fica dentro da pasta em
+ * que o documento estava — a certidão velha da empresa interessa a quem abre a
+ * pasta da empresa, e não a um arquivo morto do sistema inteiro.
+ */
+export const PASTA_DOS_SUBSTITUIDOS = 'Substituídos';
+
+/**
+ * Até onde a árvore pode ir de verdade.
+ *
+ * `NIVEIS` é o teto de quem cria pasta à mão. A gaveta dos substituídos nasce
+ * do sistema e pode cair um degrau abaixo dele — "Empresa / M A CASTRO /
+ * Certidões" já ocupa os três, e o papel trocado tem de ir para algum lugar.
+ * É por este número que a árvore se percorre; pelo outro, que ela se cria.
+ */
+const NIVEIS_NA_ARVORE = NIVEIS + 1;
 
 /**
  * A estante de documentos.
@@ -447,7 +468,7 @@ export class DocumentosRhService {
   private async deDentroParaFora(id: string): Promise<string[]> {
     const ordem: string[] = [];
     let nivel = [id];
-    for (let i = 0; i < NIVEIS && nivel.length > 0; i += 1) {
+    for (let i = 0; i < NIVEIS_NA_ARVORE && nivel.length > 0; i += 1) {
       ordem.unshift(...nivel);
       const filhas = await this.prisma.pastaRh.findMany({
         where: { paiId: { in: nivel } },
@@ -562,6 +583,82 @@ export class DocumentosRhService {
       select: SEM_O_ARQUIVO,
     });
     return paraTela(doc);
+  }
+
+  /**
+   * Troca um documento pelo que veio no lugar dele.
+   *
+   * É o gesto que a estante não tinha nome para: a certidão venceu, chegou a
+   * nova, e as duas não podem ficar lado a lado na mesma gaveta com o mesmo
+   * título — quem for pegar "a CND estadual" acha duas e não sabe qual das duas
+   * é a que vale. Apagar a velha também não serve: ela é a prova de que a
+   * empresa estava regular naquele mês, e é ela que se apresenta quando alguém
+   * pergunta do ano passado.
+   *
+   * Então a velha desce uma gaveta, para "Substituídos", e a nova ocupa o lugar
+   * dela. O arquivo antigo não se toca: continua o mesmo documento, com as
+   * mesmas datas, noutra divisória.
+   */
+  async substituir(id: string, dto: SubstituirDocumentoDto, usuarioId?: string) {
+    const velho = await this.prisma.documentoRh.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        pastaId: true,
+        titulo: true,
+        pasta: { select: { nome: true } },
+      },
+    });
+    if (!velho) throw new BadRequestException('Este documento não existe mais.');
+
+    const { conteudo, tipoDoArquivo } = lerDataUrl(dto.arquivo);
+    conferirArquivo(conteudo, tipoDoArquivo);
+
+    /*
+     * Substituir o que já está na gaveta dos substituídos não abre outra dentro
+     * dela. O papel trocado duas vezes continua no mesmo lugar — é sempre a
+     * mesma resposta à mesma pergunta ("o que já não vale?"), e uma boneca
+     * russa de "Substituídos / Substituídos" não responde a nenhuma.
+     */
+    const jaEstaNoArquivo = velho.pasta.nome === PASTA_DOS_SUBSTITUIDOS;
+    const destinoDoVelho = jaEstaNoArquivo
+      ? velho.pastaId
+      : await this.garantirSubpasta(velho.pastaId, PASTA_DOS_SUBSTITUIDOS);
+
+    const novo = await this.prisma.$transaction(async (tx) => {
+      await tx.documentoRh.update({
+        where: { id },
+        data: { pastaId: destinoDoVelho },
+      });
+      return tx.documentoRh.create({
+        data: {
+          // O novo fica onde o velho estava: é o lugar em que alguém vai
+          // procurá-lo, e é o velho que sai de cena.
+          pastaId: velho.pastaId,
+          titulo: dto.titulo.trim(),
+          tipo: dto.tipo.trim(),
+          descricao: dto.descricao?.trim() || null,
+          emitidoEm: diaOuNulo(dto.emitidoEm),
+          valeAte: diaOuNulo(dto.valeAte),
+          arquivoNome: dto.arquivoNome.trim(),
+          arquivoTipo: tipoDoArquivo,
+          arquivoTamanho: conteudo.length,
+          arquivo: new Uint8Array(conteudo),
+          criadoPor: usuarioId ?? null,
+        },
+        select: SEM_O_ARQUIVO,
+      });
+    });
+
+    this.logger.log(
+      `Documento "${velho.titulo}" substituído por "${novo.titulo}"; o ` +
+        `anterior foi para "${PASTA_DOS_SUBSTITUIDOS}".`,
+    );
+    return {
+      documento: paraTela(novo),
+      /** Para a tela dizer para onde o antigo foi. */
+      guardadoEm: jaEstaNoArquivo ? velho.pasta.nome : PASTA_DOS_SUBSTITUIDOS,
+    };
   }
 
   async apagar(id: string) {
