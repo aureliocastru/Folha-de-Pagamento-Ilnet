@@ -700,13 +700,29 @@ function quantoFalta(valeAte: string): string {
       86_400_000,
   );
 
-  if (dias < -1) return `venceu há ${-dias} dias`;
   if (dias === -1) return 'venceu ontem';
   if (dias === 0) return 'vence hoje';
   if (dias === 1) return 'vence amanhã';
-  if (dias < 60) return `faltam ${dias} dias`;
-  const meses = Math.round(dias / 30);
-  return meses < 24 ? `faltam ${meses} meses` : 'falta mais de 2 anos';
+  return dias < 0 ? `venceu há ${emTempo(-dias)}` : `faltam ${emTempo(dias)}`;
+}
+
+/**
+ * Uma distância em dias, na unidade em que ela se pensa.
+ *
+ * "Venceu há 1332 dias" é um número que ninguém converte de cabeça — e o papel
+ * de 2022 numa gaveta de 2026 não precisa de precisão de dia nenhuma, precisa
+ * de "há três anos", que é o que decide se vale a pena renovar ou jogar fora.
+ * Perto do prazo é o contrário: aí o dia é a informação, porque é ele que cabe
+ * ou não cabe na agenda desta semana.
+ */
+function emTempo(dias: number): string {
+  if (dias < 60) return `${dias} dias`;
+  if (dias < 550) {
+    const meses = Math.round(dias / 30);
+    return `${meses} ${meses === 1 ? 'mês' : 'meses'}`;
+  }
+  const anos = Math.floor(dias / 365);
+  return `${anos} ${anos === 1 ? 'ano' : 'anos'}`;
 }
 
 /** O que a pasta tem a dizer sobre prazo, antes de a lista começar. */
