@@ -501,21 +501,26 @@ export function Categorias() {
                           />
                         ) : (
                           <div className="flex items-center gap-2">
-                            <IconePasta className="shrink-0 text-brand-500 dark:text-brand-300" />
+                            <IconePasta className="shrink-0 text-brand-600 dark:text-brand-200" />
                             <span
                               className={`font-display text-[15px] font-semibold ${
-                                mae.ativa ? 'text-tinta-900' : 'text-tinta-400'
+                                mae.ativa
+                                  ? 'text-brand-800 dark:text-brand-100'
+                                  : 'text-tinta-400'
                               }`}
                             >
                               {mae.nome}
                             </span>
-                            <Selo
-                              pequeno
-                              tom="marca"
-                              titulo="É um grupo: o dashboard soma por ela e destrincha pelas subcategorias"
+                            {/* Selo cheio, e não o "marca" de sempre: aquele
+                                é tinta da marca sobre fundo claro, e sobre a
+                                faixa da marca ele desaparecia. Aqui a cor se
+                                inverte para ele continuar sendo lido. */}
+                            <span
+                              className="selo-p bg-brand-600 text-white dark:bg-brand-300 dark:text-brand-950"
+                              title="É um grupo: o dashboard soma por ela e destrincha pelas subcategorias"
                             >
                               grupo
-                            </Selo>
+                            </span>
                             {!mae.ativa && (
                               <Selo pequeno tom="neutro">
                                 desativada
