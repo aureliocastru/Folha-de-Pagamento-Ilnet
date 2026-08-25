@@ -168,6 +168,15 @@ const PAUSA_AUDITORIA_MS = 5 * 60_000;
  */
 const ESPERA_APRENDER_PIX_MS = 60_000;
 
+/**
+ * Como a categoria da folha costuma se chamar.
+ *
+ * Serve para achá-la uma vez, quando a configuração ainda não aponta para
+ * nenhuma — daí em diante quem manda é o id guardado, e o nome pode virar o
+ * que o usuário quiser.
+ */
+const NOMES_DA_FOLHA = ['Salários', 'Salarios', 'Salário', 'Salario'];
+
 @Injectable()
 export class ContasPagarService {
   private readonly logger = new Logger(ContasPagarService.name);
@@ -691,7 +700,7 @@ export class ContasPagarService {
       const { id: idFnApagar } = await this.ixc.create('fn_apagar', payload);
       if (!idFnApagar) throw new Error('IXC não retornou o id do fn_apagar');
 
-      return this.prisma.contaPagar.update({
+      const salva = await this.prisma.contaPagar.update({
         where: { id },
         data: {
           idFornecedorIxc: idFornecedor,
@@ -700,6 +709,11 @@ export class ContasPagarService {
           erro: null,
         },
       });
+
+      // Aqui é o único ponto em que o título ganha número no IXC — e é por
+      // esse número que a etiqueta é guardada.
+      await this.etiquetarComoFolha(salva, idFnApagar);
+      return salva;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`Falha ao enviar conta ${id} ao IXC: ${message}`);
@@ -708,6 +722,84 @@ export class ContasPagarService {
         data: { status: StatusContaPagar.ERRO, erro: message },
       });
     }
+  }
+
+
+  /**
+   * Os tipos que são folha de pagamento de gente da casa.
+   *
+   * Diária e avulso ficam de fora. A diária é de diarista, e o avulso tem o
+   * próprio campo de categoria na tela em que é lançado — carimbar "Salários"
+   * neles seria trocar uma informação melhor por uma pior.
+   */
+  private static readonly TIPOS_DA_FOLHA = new Set<TipoLancamento>([
+    TipoLancamento.SALARIO,
+    TipoLancamento.FERIAS,
+    TipoLancamento.ADIANTAMENTO,
+    TipoLancamento.BONUS,
+  ]);
+
+  /**
+   * Etiqueta a conta recém-criada como despesa de folha.
+   *
+   * A folha gera dezenas de contas por mês e nenhuma delas passa pela tela de
+   * classificar: quem gera a folha não abre conta por conta para escolher
+   * categoria. Sem isto, o maior gasto da empresa era justamente o que ficava
+   * fora de todo gráfico por categoria.
+   *
+   * Não sobrescreve etiqueta que já existe — se alguém classificou aquele
+   * título à mão, a escolha de gente manda. E o que falhar aqui não derruba o
+   * lançamento: a conta já está no IXC, e uma etiqueta que não colou se resolve
+   * na tela de contas em aberto, com dois cliques.
+   */
+  private async etiquetarComoFolha(
+    conta: ContaPagar,
+    idFnApagar: number,
+  ): Promise<void> {
+    if (conta.origem !== OrigemLancamento.FOLHA) return;
+    if (!ContasPagarService.TIPOS_DA_FOLHA.has(conta.tipo)) return;
+
+    try {
+      const categoriaId = await this.categoriaDaFolha();
+      if (!categoriaId) return;
+
+      await this.prisma.classificacaoConta.upsert({
+        where: { idFnApagar },
+        create: { idFnApagar, categoriaId },
+        // Vazio de propósito: já tendo etiqueta, ela fica como está.
+        update: {},
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `Conta ${conta.id} foi ao IXC, mas não deu para etiquetá-la como ` +
+          `folha: ${message}`,
+      );
+    }
+  }
+
+  /**
+   * Qual categoria a folha usa.
+   *
+   * Sai da configuração, e não de um nome fixo no código: o nome é do usuário,
+   * e renomear "Salários" não pode quebrar a automação. Vindo vazia — banco
+   * novo, ou configuração criada antes desta coluna existir —, procura pelo
+   * nome uma única vez e guarda o que achou, para a folha do mês seguinte não
+   * repetir a busca.
+   */
+  private async categoriaDaFolha(): Promise<string | null> {
+    const cfg = await this.config.obter();
+    if (cfg.categoriaFolhaId) return cfg.categoriaFolhaId;
+
+    const achada = await this.prisma.categoriaDespesa.findFirst({
+      where: { nome: { in: NOMES_DA_FOLHA, mode: 'insensitive' } },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+    if (!achada) return null;
+
+    await this.config.definirCategoriaDaFolha(achada.id);
+    return achada.id;
   }
 
   // -------------------------------------------------------------------------

@@ -28,6 +28,23 @@ export class ConfigFinanceiraService {
   }
 
   /**
+   * Guarda qual categoria a folha usa.
+   *
+   * Escrita à parte da tela de Configurações porque quem a chama é o próprio
+   * app, ao achar a categoria pelo nome na primeira folha depois desta coluna
+   * existir. Achou uma vez, fica sabido.
+   */
+  async definirCategoriaDaFolha(
+    categoriaId: string | null,
+  ): Promise<ConfiguracaoFinanceira> {
+    await this.obter();
+    return this.prisma.configuracaoFinanceira.update({
+      where: { id: 1 },
+      data: { categoriaFolhaId: categoriaId },
+    });
+  }
+
+  /**
    * Guarda o que o app descobriu do rádio "Tipo da chave Pix" no IXC.
    *
    * Fica em campo próprio, separado do que se informa em Configurações: o que

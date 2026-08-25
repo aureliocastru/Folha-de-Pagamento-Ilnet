@@ -8,7 +8,11 @@ import {
   Pagina,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
-import type { CaixasIxc, ConfigFinanceira } from '../../lib/types';
+import type {
+  CaixasIxc,
+  CategoriaDespesa,
+  ConfigFinanceira,
+} from '../../lib/types';
 
 export function Configuracoes() {
   const qc = useQueryClient();
@@ -20,6 +24,13 @@ export function Configuracoes() {
     queryKey: ['config-financeira'],
     queryFn: async () =>
       (await api.get<ConfigFinanceira>('/config-financeira')).data,
+  });
+
+  /** As categorias de despesa, para escolher a que a folha carimba. */
+  const categorias = useQuery({
+    queryKey: ['categorias-despesa'],
+    queryFn: async () =>
+      (await api.get<CategoriaDespesa[]>('/categorias-despesa')).data,
   });
 
   useEffect(() => {
@@ -232,6 +243,39 @@ export function Configuracoes() {
             Confirme com quem cuida da contabilidade se elas devem entrar em
             conta própria.
           </p>
+
+          {/* A conta contábil acima é do IXC; esta é a etiqueta da casa, a que
+              separa os números do painel. Fica no mesmo bloco porque respondem
+              à mesma pergunta — "onde este gasto entra?" —, uma de cada lado. */}
+          <div className="mt-5 border-t border-tinta-100 pt-4">
+            <label className="rotulo" htmlFor="categoria-da-folha">
+              Categoria dos pagamentos da folha
+            </label>
+            <select
+              id="categoria-da-folha"
+              value={form.categoriaFolhaId ?? ''}
+              disabled={categorias.isLoading}
+              onChange={(e) =>
+                setForm((f) =>
+                  f ? { ...f, categoriaFolhaId: e.target.value || null } : f,
+                )
+              }
+              className="campo max-w-sm"
+            >
+              <option value="">Sem etiqueta (a folha nasce sem categoria)</option>
+              {(categorias.data ?? []).map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.pai ? `${c.pai.nome} · ${c.nome}` : c.nome}
+                </option>
+              ))}
+            </select>
+            <p className="ajuda">
+              Salário, férias, adiantamento e bônus saem etiquetados com ela
+              sozinhos — são dezenas de contas por mês, e sem isto o maior gasto
+              da empresa fica fora dos gráficos por categoria. Diária e avulso
+              não entram: a categoria deles é escolhida na própria tela.
+            </p>
+          </div>
         </Bloco>
 
         <CaixaEmMaos form={form} num={num} txt={txt} />

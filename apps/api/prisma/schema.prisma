@@ -253,6 +253,19 @@ model ConfiguracaoFinanceira {
   /// Pagamentos avulsos (mão de obra, serviço pontual, patrocínio).
   contaContabilAvulso       Int @default(324) @map("conta_contabil_avulso")
 
+  /// A etiqueta que todo pagamento da folha recebe sozinho.
+  ///
+  /// A conta contábil acima é do plano de contas do IXC; esta é a nossa, a que
+  /// separa os números do painel. Salário, férias, adiantamento e bônus nascem
+  /// com ela — sem isso, o custo da folha ficava fora de todo gráfico por
+  /// categoria: são dezenas de contas por mês, e ninguém etiqueta uma a uma.
+  ///
+  /// `SetNull` porque apagar a categoria não pode derrubar a configuração: o
+  /// que acontece é a folha voltar a nascer sem etiqueta, e isso se vê na
+  /// própria tela de categorias.
+  categoriaFolha   CategoriaDespesa? @relation(fields: [categoriaFolhaId], references: [id], onDelete: SetNull)
+  categoriaFolhaId String?           @map("categoria_folha_id")
+
   // --- Caixa de onde sai o dinheiro pago em mãos (Financeiro > Movimentação >
   // Financeira, "CX - Werick"). ---
   /// Código do caixa no IXC. 0 = não configurado (o app procura pelo nome).
@@ -1192,6 +1205,8 @@ model CategoriaDespesa {
 
   classificacoes ClassificacaoConta[]
   recorrentes    DespesaRecorrente[]
+  /// A configuração que aponta esta categoria como a da folha.
+  configuracoes  ConfiguracaoFinanceira[]
 
   @@index([paiId])
 

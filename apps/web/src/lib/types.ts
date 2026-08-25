@@ -328,6 +328,11 @@ export interface ConfigFinanceira {
   /** Pagamentos avulsos (mão de obra, serviço pontual, patrocínio) */
   contaContabilAvulso: number;
   cidadePadraoId: number;
+  /**
+   * A etiqueta que todo pagamento da folha recebe sozinho. Null desliga a
+   * automação: a folha volta a nascer sem categoria.
+   */
+  categoriaFolhaId: string | null;
   /** Quem paga, como sai impresso no recibo assinado da diária */
   empresaNome: string;
   empresaCnpj: string;

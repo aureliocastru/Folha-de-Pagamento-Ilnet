@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString, IsUUID, Max, Min } from 'class-validator';
 
 export class UpdateConfigFinanceiraDto {
   @IsOptional() @IsInt() @Min(1) contaPagamentoId?: number;
@@ -11,6 +11,11 @@ export class UpdateConfigFinanceiraDto {
   @IsOptional() @IsInt() @Min(1) contaContabilDiaria?: number;
   @IsOptional() @IsInt() @Min(1) contaContabilAvulso?: number;
   @IsOptional() @IsInt() @Min(1) cidadePadraoId?: number;
+  /**
+   * A etiqueta que todo pagamento da folha recebe sozinho. Vazio desliga a
+   * automação: a folha volta a nascer sem categoria.
+   */
+  @IsOptional() @IsUUID() categoriaFolhaId?: string | null;
   // Quem paga, como sai impresso no recibo assinado da diária
   @IsOptional() @IsString() empresaNome?: string;
   @IsOptional() @IsString() empresaCnpj?: string;
