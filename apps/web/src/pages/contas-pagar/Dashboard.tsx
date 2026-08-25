@@ -25,6 +25,7 @@ import type {
   PagamentosDoMes,
 } from '../../lib/types';
 import { DetalheDaConta } from './DetalheDaConta';
+import { PraOndeVaiODinheiro } from './PraOndeVaiODinheiro';
 
 /**
  * O dashboard do que a empresa deve, na ordem em que as perguntas aparecem para
@@ -78,35 +79,12 @@ export function Dashboard() {
   // mudado.
   const contas = useMemo(() => consulta.data?.contas ?? [], [consulta.data]);
 
-  /**
-   * Por categoria ou por subcategoria.
-   *
-   * Começa na de cima porque é a pergunta de quem abre o painel — "com o que a
-   * empresa está gastando?" —, e trinta subcategorias respondem isso em trinta
-   * barras que ninguém soma de cabeça. A de baixo fica a um clique, para
-   * quando a resposta for "com veículos" e a próxima pergunta for "com o que
-   * dos veículos?".
+  /*
+   * O "com o quê" mora agora no bloco "Para onde está indo o dinheiro", que
+   * soma por categoria-mãe, faz o mesmo para o que já foi pago e abre cada
+   * barra nas contas que a compõem. Aqui ficou o que ele não responde: a quem
+   * se deve, quando vence, e o que precisa sair primeiro.
    */
-  const [altura, setAltura] = useState<'categoria' | 'subcategoria'>(
-    'categoria',
-  );
-
-  const porCategoria = useMemo(
-    () =>
-      agrupar(
-        contas.filter((c) => c.classificacao),
-        (c) =>
-          altura === 'categoria'
-            ? (c.classificacao!.grupo?.nome ?? c.classificacao!.nome)
-            : c.classificacao!.nome,
-      ),
-    [contas, altura],
-  );
-  /** Há grupo montado no cadastro? Sem nenhum, o botão de altura não decide nada. */
-  const temGrupos = useMemo(
-    () => contas.some((c) => c.classificacao?.grupo),
-    [contas],
-  );
   const porFornecedor = useMemo(
     () => agrupar(contas, (c) => c.fornecedor.nome || 'Sem fornecedor'),
     [contas],
@@ -281,51 +259,11 @@ export function Dashboard() {
               listas de barras curtas: lado a lado numa tela larga cabem sem
               apertar e poupam uma rolagem inteira. */}
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            <Bloco
-              titulo="Com o que a empresa está devendo"
-              className="surgir surgir-4"
-              esticado
-              acao={
-                temGrupos && (
-                  <div className="flex gap-1">
-                    {(
-                      [
-                        ['categoria', 'Por categoria'],
-                        ['subcategoria', 'Por subcategoria'],
-                      ] as const
-                    ).map(([qual, rotulo]) => (
-                      <button
-                        key={qual}
-                        onClick={() => setAltura(qual)}
-                        aria-pressed={altura === qual}
-                        className={`btn btn-p ${
-                          altura === qual ? 'btn-acao' : 'btn-sutil'
-                        }`}
-                      >
-                        {rotulo}
-                      </button>
-                    ))}
-                  </div>
-                )
-              }
-            >
-              {porCategoria.length === 0 ? (
-                <Vazio titulo="Nada classificado ainda">
-                  Este gráfico sai da classificação de cada débito. Marque as
-                  contas na aba "Em aberto" e escolha a que elas se referem — a
-                  partir da primeira, o gráfico começa a existir.
-                </Vazio>
-              ) : (
-                <BarrasComparadas itens={paraBarras(porCategoria, total)} />
-              )}
-              {semClassificar.length > 0 && (
-                <p className="ajuda">
-                  {formatBRL(somar(semClassificar))} em {semClassificar.length}{' '}
-                  título(s) ainda sem classificação — esse dinheiro não está em
-                  nenhuma barra acima.
-                </p>
-              )}
-            </Bloco>
+            {/* Para onde o dinheiro vai: por categoria-mãe, dos dois lados —
+                o que ainda vai sair e o que já saiu —, e cada barra abre nas
+                contas que a somam. O bloco anterior mostrava só o que se deve,
+                e o número morria na barra. */}
+            <PraOndeVaiODinheiro contas={contas} />
 
             <Bloco titulo="Maiores credores" className="surgir surgir-4" esticado>
               <BarrasComparadas itens={paraBarras(porFornecedor, total)} />

@@ -219,36 +219,68 @@ export function BarrasEmpilhadas({
  */
 export function BarrasComparadas({
   itens,
+  onAbrir,
 }: {
   itens: { rotulo: string; valor: number; cor: string; detalhe?: string }[];
+  /**
+   * O que fazer ao clicar numa barra. Dada, a barra vira botão.
+   *
+   * Um gráfico responde "quanto"; a pergunta seguinte é sempre "quanto do
+   * quê" — que contas somam aquilo. Sem o clique, a resposta estava a três
+   * telas de distância, e quem olhava o painel voltava a procurar na lista.
+   */
+  onAbrir?: (rotulo: string) => void;
 }) {
   const maior = Math.max(1, ...itens.map((i) => i.valor));
   return (
     <div className="space-y-3">
-      {itens.map((item) => (
-        <div key={item.rotulo}>
-          <div className="flex items-baseline justify-between gap-3 text-sm">
-            <span className="text-tinta-600">{item.rotulo}</span>
-            <span className="valor text-[13px]">{formatBRL(item.valor)}</span>
-          </div>
-          <div className="mt-1 flex items-center gap-2">
-            <div className="h-2 flex-1 overflow-hidden rounded-full bg-tinta-100">
-              <div
-                className="h-full animate-crescer rounded-full"
-                style={{
-                  width: `${(item.valor / maior) * 100}%`,
-                  background: item.cor,
-                }}
-              />
-            </div>
-            {item.detalhe && (
-              <span className="w-16 shrink-0 text-right text-[11px] text-tinta-400">
-                {item.detalhe}
+      {itens.map((item) => {
+        const conteudo = (
+          <>
+            <div className="flex items-baseline justify-between gap-3 text-sm">
+              <span
+                className={
+                  onAbrir
+                    ? 'text-tinta-700 group-hover:text-brand-700 dark:group-hover:text-brand-300'
+                    : 'text-tinta-600'
+                }
+              >
+                {item.rotulo}
               </span>
-            )}
-          </div>
-        </div>
-      ))}
+              <span className="valor text-[13px]">{formatBRL(item.valor)}</span>
+            </div>
+            <div className="mt-1 flex items-center gap-2">
+              <div className="h-2 flex-1 overflow-hidden rounded-full bg-tinta-100">
+                <div
+                  className="h-full animate-crescer rounded-full"
+                  style={{
+                    width: `${(item.valor / maior) * 100}%`,
+                    background: item.cor,
+                  }}
+                />
+              </div>
+              {item.detalhe && (
+                <span className="w-16 shrink-0 text-right text-[11px] text-tinta-400">
+                  {item.detalhe}
+                </span>
+              )}
+            </div>
+          </>
+        );
+
+        if (!onAbrir) return <div key={item.rotulo}>{conteudo}</div>;
+        return (
+          <button
+            key={item.rotulo}
+            type="button"
+            onClick={() => onAbrir(item.rotulo)}
+            title={`Ver as contas de ${item.rotulo}`}
+            className="group -mx-2 block w-full rounded-lg px-2 py-1 text-left transition hover:bg-tinta-50"
+          >
+            {conteudo}
+          </button>
+        );
+      })}
     </div>
   );
 }

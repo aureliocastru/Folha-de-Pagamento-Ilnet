@@ -242,7 +242,7 @@ export function HistoricoDePagamentos() {
  * ontem?", "quanto pagamos este mês?", "fecha o mês passado?". As datas soltas
  * ficam ao lado para quem procura um pagamento específico.
  */
-function SeletorDePeriodo({
+export function SeletorDePeriodo({
   periodo,
   onEscolher,
 }: {
@@ -523,12 +523,12 @@ function numero(valor: number): string {
 }
 
 /** Um período em datas ISO, do jeito que o input date e a API usam. */
-interface Janela {
+export interface Janela {
   de: string;
   ate: string;
 }
 
-function ultimosDias(dias: number): Janela {
+export function ultimosDias(dias: number): Janela {
   const hoje = new Date();
   const inicio = new Date(hoje);
   inicio.setDate(inicio.getDate() - (dias - 1));
@@ -536,7 +536,7 @@ function ultimosDias(dias: number): Janela {
 }
 
 /** O mês corrente, ou um mês para trás com `deslocamento = -1`. */
-function mesCorrente(deslocamento: number): Janela {
+export function mesCorrente(deslocamento: number): Janela {
   const hoje = new Date();
   const primeiro = new Date(
     hoje.getFullYear(),
