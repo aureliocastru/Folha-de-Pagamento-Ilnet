@@ -35,6 +35,10 @@ const CFG = {
   contaPagamentoId: 18,
   filialId: 1,
   categoriaFolhaId: 'cat-salarios',
+  categoriaSalarioId: null as string | null,
+  categoriaFeriasId: null as string | null,
+  categoriaAdiantamentoId: 'cat-adiantamento' as string | null,
+  categoriaBonusId: null as string | null,
   pixCampoTipoChave: 'tipo_chave_pix_apagar',
   pixCodigosTipoChave: 'Celular=C',
   pixCampoTipoChaveAprendido: '',
@@ -147,16 +151,35 @@ describe('a etiqueta da folha', () => {
     });
   });
 
-  it.each([
-    TipoLancamento.FERIAS,
-    TipoLancamento.ADIANTAMENTO,
-    TipoLancamento.BONUS,
-  ])('%s também é folha', async (tipo) => {
-    const { service, upsert } = montarServico({ tipo });
+  it.each([TipoLancamento.FERIAS, TipoLancamento.BONUS])(
+    '%s cai na categoria padrão, por não ter a sua',
+    async (tipo) => {
+      const { service, upsert } = montarServico({ tipo });
 
+      await service.enviarIxc('c1');
+
+      expect(upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: { idFnApagar: 4242, categoriaId: 'cat-salarios' },
+        }),
+      );
+    },
+  );
+
+  it('adiantamento vai para a categoria dele, e não para a da folha', async () => {
+    const { service, upsert } = montarServico({
+      tipo: TipoLancamento.ADIANTAMENTO,
+    });
+
+    // Uma etiqueta para a folha inteira responde "quanto custa a folha"; a do
+    // tipo responde a pergunta seguinte, que é a que se faz depois.
     await service.enviarIxc('c1');
 
-    expect(upsert).toHaveBeenCalled();
+    expect(upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: { idFnApagar: 4242, categoriaId: 'cat-adiantamento' },
+      }),
+    );
   });
 
   it.each([TipoLancamento.DIARIA, TipoLancamento.AVULSO])(
@@ -231,13 +254,21 @@ describe('a etiqueta da folha', () => {
  */
 describe('etiquetar a folha que ficou para trás', () => {
   function montarLote(opts: {
-    contas: Array<{ idFnApagarIxc: number | null }>;
+    contas: Array<{ idFnApagarIxc: number | null; tipo?: TipoLancamento }>;
     jaTem?: number[];
     categoriaFolhaId?: string | null;
+    categoriaAdiantamentoId?: string | null;
   }) {
     const createMany = jest.fn().mockResolvedValue({ count: 0 });
     const prisma = {
-      contaPagar: { findMany: jest.fn().mockResolvedValue(opts.contas) },
+      contaPagar: {
+        findMany: jest.fn().mockResolvedValue(
+          opts.contas.map((c) => ({
+            tipo: TipoLancamento.SALARIO,
+            ...c,
+          })),
+        ),
+      },
       classificacaoConta: {
         findMany: jest
           .fn()
@@ -253,6 +284,10 @@ describe('etiquetar a folha que ficou para trás', () => {
       obter: jest.fn().mockResolvedValue({
         categoriaFolhaId:
           'categoriaFolhaId' in opts ? opts.categoriaFolhaId : 'cat-salarios',
+        categoriaSalarioId: null,
+        categoriaFeriasId: null,
+        categoriaAdiantamentoId: opts.categoriaAdiantamentoId ?? null,
+        categoriaBonusId: null,
       }),
       definirCategoriaDaFolha: jest.fn(),
     } as never;
@@ -288,6 +323,29 @@ describe('etiquetar a folha que ficou para trás', () => {
       ],
       skipDuplicates: true,
     });
+  });
+
+  it('cada tipo entra na etiqueta dele', async () => {
+    const { service, createMany } = montarLote({
+      contas: [
+        { idFnApagarIxc: 10, tipo: TipoLancamento.SALARIO },
+        { idFnApagarIxc: 20, tipo: TipoLancamento.ADIANTAMENTO },
+      ],
+      categoriaAdiantamentoId: 'cat-adiantamento',
+    });
+
+    const r = await service.etiquetarFolhaSemCategoria();
+
+    expect(r.etiquetadas).toBe(2);
+    const gravados = createMany.mock.calls.flatMap(
+      (c) => (c[0] as { data: Array<Record<string, unknown>> }).data,
+    );
+    expect(gravados).toEqual(
+      expect.arrayContaining([
+        { idFnApagar: 10, categoriaId: 'cat-salarios' },
+        { idFnApagar: 20, categoriaId: 'cat-adiantamento' },
+      ]),
+    );
   });
 
   it('rodar de novo não escreve nada', async () => {

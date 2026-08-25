@@ -263,8 +263,24 @@ model ConfiguracaoFinanceira {
   /// `SetNull` porque apagar a categoria não pode derrubar a configuração: o
   /// que acontece é a folha voltar a nascer sem etiqueta, e isso se vê na
   /// própria tela de categorias.
-  categoriaFolha   CategoriaDespesa? @relation(fields: [categoriaFolhaId], references: [id], onDelete: SetNull)
+  categoriaFolha   CategoriaDespesa? @relation("CategoriaPadraoDaFolha", fields: [categoriaFolhaId], references: [id], onDelete: SetNull)
   categoriaFolhaId String?           @map("categoria_folha_id")
+
+  /// A etiqueta de cada tipo, quando ele tem a sua.
+  ///
+  /// Uma categoria para a folha inteira responde "quanto custa a folha"; estas
+  /// respondem a pergunta seguinte, que é a que se faz depois — quanto foi
+  /// salário, quanto foi adiantamento, quanto foram as férias. Vazia, o tipo
+  /// cai na de cima: assim quem não quiser esse detalhe não precisa criar
+  /// categoria nenhuma.
+  categoriaSalario        CategoriaDespesa? @relation("CategoriaDoSalario", fields: [categoriaSalarioId], references: [id], onDelete: SetNull)
+  categoriaSalarioId      String?           @map("categoria_salario_id")
+  categoriaFerias         CategoriaDespesa? @relation("CategoriaDasFerias", fields: [categoriaFeriasId], references: [id], onDelete: SetNull)
+  categoriaFeriasId       String?           @map("categoria_ferias_id")
+  categoriaAdiantamento   CategoriaDespesa? @relation("CategoriaDoAdiantamento", fields: [categoriaAdiantamentoId], references: [id], onDelete: SetNull)
+  categoriaAdiantamentoId String?           @map("categoria_adiantamento_id")
+  categoriaBonus          CategoriaDespesa? @relation("CategoriaDoBonus", fields: [categoriaBonusId], references: [id], onDelete: SetNull)
+  categoriaBonusId        String?           @map("categoria_bonus_id")
 
   // --- Caixa de onde sai o dinheiro pago em mãos (Financeiro > Movimentação >
   // Financeira, "CX - Werick"). ---
@@ -1205,8 +1221,13 @@ model CategoriaDespesa {
 
   classificacoes ClassificacaoConta[]
   recorrentes    DespesaRecorrente[]
-  /// A configuração que aponta esta categoria como a da folha.
-  configuracoes  ConfiguracaoFinanceira[]
+  /// As configurações que apontam esta categoria — a padrão da folha e a de
+  /// cada tipo de pagamento dela.
+  configuracoes             ConfiguracaoFinanceira[] @relation("CategoriaPadraoDaFolha")
+  configuracoesSalario      ConfiguracaoFinanceira[] @relation("CategoriaDoSalario")
+  configuracoesFerias       ConfiguracaoFinanceira[] @relation("CategoriaDasFerias")
+  configuracoesAdiantamento ConfiguracaoFinanceira[] @relation("CategoriaDoAdiantamento")
+  configuracoesBonus        ConfiguracaoFinanceira[] @relation("CategoriaDoBonus")
 
   @@index([paiId])
 

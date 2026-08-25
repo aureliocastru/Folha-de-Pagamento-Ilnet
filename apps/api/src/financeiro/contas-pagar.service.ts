@@ -760,7 +760,7 @@ export class ContasPagarService {
     if (!ContasPagarService.TIPOS_DA_FOLHA.has(conta.tipo)) return;
 
     try {
-      const categoriaId = await this.categoriaDaFolha();
+      const categoriaId = await this.categoriaDoTipo(conta.tipo);
       if (!categoriaId) return;
 
       await this.prisma.classificacaoConta.upsert({
@@ -799,21 +799,15 @@ export class ContasPagarService {
     /** Sem categoria configurada não há o que etiquetar — e a tela diz isso. */
     semCategoria: boolean;
   }> {
-    const categoriaId = await this.categoriaDaFolha();
-    if (!categoriaId) {
-      return { etiquetadas: 0, daFolha: 0, semCategoria: true };
-    }
-
     const contas = await this.prisma.contaPagar.findMany({
       where: {
         origem: OrigemLancamento.FOLHA,
         tipo: { in: [...ContasPagarService.TIPOS_DA_FOLHA] },
         idFnApagarIxc: { not: null },
       },
-      select: { idFnApagarIxc: true },
+      select: { idFnApagarIxc: true, tipo: true },
     });
-    const ids = [...new Set(contas.map((c) => c.idFnApagarIxc!))];
-    if (ids.length === 0) {
+    if (contas.length === 0) {
       return { etiquetadas: 0, daFolha: 0, semCategoria: false };
     }
 
@@ -824,41 +818,84 @@ export class ContasPagarService {
      * sobrescreve por lote. Por isso a lista das que faltam é montada aqui, em
      * vez de um `updateMany` que passaria por cima de tudo.
      */
+    const ids = [...new Set(contas.map((c) => c.idFnApagarIxc!))];
     const jaTem = await this.prisma.classificacaoConta.findMany({
       where: { idFnApagar: { in: ids } },
       select: { idFnApagar: true },
     });
     const etiquetados = new Set(jaTem.map((c) => c.idFnApagar));
-    const faltando = ids.filter((id) => !etiquetados.has(id));
 
-    if (faltando.length > 0) {
+    /*
+     * Cada tipo com a etiqueta dele, e a busca da categoria feita uma vez por
+     * tipo — e não uma por conta: são oitenta contas para quatro respostas.
+     */
+    const porCategoria = new Map<string, number[]>();
+    let semCategoria = false;
+    const categorias = new Map<TipoLancamento, string | null>();
+
+    for (const conta of contas) {
+      const idFnApagar = conta.idFnApagarIxc!;
+      if (etiquetados.has(idFnApagar)) continue;
+
+      if (!categorias.has(conta.tipo)) {
+        categorias.set(conta.tipo, await this.categoriaDoTipo(conta.tipo));
+      }
+      const categoriaId = categorias.get(conta.tipo) ?? null;
+      if (!categoriaId) {
+        semCategoria = true;
+        continue;
+      }
+
+      const fila = porCategoria.get(categoriaId);
+      if (fila) fila.push(idFnApagar);
+      else porCategoria.set(categoriaId, [idFnApagar]);
+    }
+
+    let etiquetadas = 0;
+    for (const [categoriaId, deles] of porCategoria) {
       await this.prisma.classificacaoConta.createMany({
-        data: faltando.map((idFnApagar) => ({ idFnApagar, categoriaId })),
+        data: deles.map((idFnApagar) => ({ idFnApagar, categoriaId })),
         skipDuplicates: true,
       });
+      etiquetadas += deles.length;
+    }
+
+    if (etiquetadas > 0) {
       this.logger.log(
-        `${faltando.length} conta(s) da folha etiquetadas de uma vez.`,
+        `${etiquetadas} conta(s) da folha etiquetadas de uma vez.`,
       );
     }
 
-    return {
-      etiquetadas: faltando.length,
-      daFolha: ids.length,
-      semCategoria: false,
-    };
+    return { etiquetadas, daFolha: ids.length, semCategoria };
   }
 
   /**
-   * Qual categoria a folha usa.
+   * Qual categoria um pagamento da folha usa.
    *
-   * Sai da configuração, e não de um nome fixo no código: o nome é do usuário,
-   * e renomear "Salários" não pode quebrar a automação. Vindo vazia — banco
-   * novo, ou configuração criada antes desta coluna existir —, procura pelo
-   * nome uma única vez e guarda o que achou, para a folha do mês seguinte não
-   * repetir a busca.
+   * Primeiro a do próprio tipo — "Adiantamento" para o adiantamento, "Férias"
+   * para as férias —, e só depois a geral. Uma etiqueta para a folha inteira
+   * responde "quanto custa a folha"; a do tipo responde a pergunta seguinte,
+   * que é a que se faz depois de olhar esse número.
+   *
+   * Tudo sai da configuração, e não de um nome fixo no código: o nome é do
+   * usuário, e renomear "Salários" não pode quebrar a automação. Vindo tudo
+   * vazio — banco novo, ou configuração criada antes destas colunas —, procura
+   * a geral pelo nome uma única vez e guarda o que achou.
    */
-  private async categoriaDaFolha(): Promise<string | null> {
+  private async categoriaDoTipo(
+    tipo: TipoLancamento,
+  ): Promise<string | null> {
     const cfg = await this.config.obter();
+
+    const doTipo: Partial<Record<TipoLancamento, string | null>> = {
+      [TipoLancamento.SALARIO]: cfg.categoriaSalarioId,
+      [TipoLancamento.FERIAS]: cfg.categoriaFeriasId,
+      [TipoLancamento.ADIANTAMENTO]: cfg.categoriaAdiantamentoId,
+      [TipoLancamento.BONUS]: cfg.categoriaBonusId,
+    };
+    const escolhida = doTipo[tipo];
+    if (escolhida) return escolhida;
+
     if (cfg.categoriaFolhaId) return cfg.categoriaFolhaId;
 
     const achada = await this.prisma.categoriaDespesa.findFirst({

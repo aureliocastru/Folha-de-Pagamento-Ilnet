@@ -333,6 +333,11 @@ export interface ConfigFinanceira {
    * automação: a folha volta a nascer sem categoria.
    */
   categoriaFolhaId: string | null;
+  /** A etiqueta de cada tipo. Null = usa a de cima. */
+  categoriaSalarioId: string | null;
+  categoriaFeriasId: string | null;
+  categoriaAdiantamentoId: string | null;
+  categoriaBonusId: string | null;
   /** Quem paga, como sai impresso no recibo assinado da diária */
   empresaNome: string;
   empresaCnpj: string;

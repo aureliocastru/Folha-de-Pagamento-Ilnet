@@ -272,7 +272,7 @@ export function Configuracoes() {
               à mesma pergunta — "onde este gasto entra?" —, uma de cada lado. */}
           <div className="mt-5 border-t border-tinta-100 pt-4">
             <label className="rotulo" htmlFor="categoria-da-folha">
-              Categoria dos pagamentos da folha
+              Categoria padrão dos pagamentos da folha
             </label>
             <select
               id="categoria-da-folha"
@@ -293,22 +293,61 @@ export function Configuracoes() {
               ))}
             </select>
             <p className="ajuda">
-              Salário, férias, adiantamento e bônus saem etiquetados com ela
-              sozinhos — são dezenas de contas por mês, e sem isto o maior gasto
-              da empresa fica fora dos gráficos por categoria. Diária e avulso
-              não entram: a categoria deles é escolhida na própria tela.
+              Vale para o tipo que não tiver categoria própria abaixo. Diária e
+              avulso não entram: a categoria deles é escolhida na própria tela.
             </p>
+
+            {/*
+              Uma etiqueta para a folha inteira responde "quanto custa a
+              folha". Estas respondem a pergunta seguinte, que é a que se faz
+              depois de olhar aquele número: quanto foi salário, quanto foi
+              adiantamento, quanto foram as férias.
+            */}
+            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {(
+                [
+                  ['categoriaSalarioId', 'Salário'],
+                  ['categoriaAdiantamentoId', 'Adiantamento'],
+                  ['categoriaFeriasId', 'Férias'],
+                  ['categoriaBonusId', 'Bônus'],
+                ] as const
+              ).map(([campo, rotulo]) => (
+                <div key={campo}>
+                  <label className="rotulo" htmlFor={campo}>
+                    {rotulo}
+                  </label>
+                  <select
+                    id={campo}
+                    value={form[campo] ?? ''}
+                    disabled={categorias.isLoading}
+                    onChange={(e) =>
+                      setForm((f) =>
+                        f ? { ...f, [campo]: e.target.value || null } : f,
+                      )
+                    }
+                    className="campo"
+                  >
+                    <option value="">usa a padrão acima</option>
+                    {(categorias.data ?? []).map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.pai ? `${c.pai.nome} · ${c.nome}` : c.nome}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
 
             {/* O acerto do que ficou para trás é botão, e não mágica no
                 arranque: conta enviada antes desta regra existir não aparece em
-                lugar nenhum reclamando: quem olha o painel só vê um número
+                lugar nenhum reclamando — quem olha o painel só vê um número
                 menor do que devia. Aqui ele roda quando alguém manda e diz
-                quantas etiquetou — e rodar de novo não estraga nada. */}
+                quantas etiquetou, e rodar de novo não estraga nada. */}
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button
                 type="button"
                 onClick={() => etiquetarFolha.mutate()}
-                disabled={etiquetarFolha.isPending || !form.categoriaFolhaId}
+                disabled={etiquetarFolha.isPending}
                 className="btn btn-neutro"
               >
                 {etiquetarFolha.isPending
@@ -320,13 +359,13 @@ export function Configuracoes() {
                   {/* Zero conta da folha não é "tudo certo": é o filtro não
                       achando nada, e a frase precisa dizer isso — senão o
                       botão responde "nada a fazer" para um problema. */}
-                  {etiquetarFolha.data.semCategoria
-                    ? 'Escolha a categoria acima e salve antes.'
-                    : etiquetarFolha.data.daFolha === 0
-                      ? 'Não achei conta nenhuma da folha com número no IXC — não há o que etiquetar.'
-                      : etiquetarFolha.data.etiquetadas === 0
-                        ? `Nada a fazer — as ${etiquetarFolha.data.daFolha} conta(s) da folha já estão etiquetadas.`
-                        : `${etiquetarFolha.data.etiquetadas} conta(s) etiquetadas, de ${etiquetarFolha.data.daFolha} da folha.`}
+                  {etiquetarFolha.data.daFolha === 0
+                    ? 'Não achei conta nenhuma da folha com número no IXC — não há o que etiquetar.'
+                    : etiquetarFolha.data.etiquetadas === 0
+                      ? `Nada a fazer — as ${etiquetarFolha.data.daFolha} conta(s) da folha já estão etiquetadas.`
+                      : `${etiquetarFolha.data.etiquetadas} conta(s) etiquetadas, de ${etiquetarFolha.data.daFolha} da folha.`}
+                  {etiquetarFolha.data.semCategoria &&
+                    ' Algum tipo ficou de fora por não ter categoria: escolha uma acima e salve.'}
                 </span>
               )}
               {etiquetarFolha.isError && (

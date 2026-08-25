@@ -16,6 +16,15 @@ export class UpdateConfigFinanceiraDto {
    * automação: a folha volta a nascer sem categoria.
    */
   @IsOptional() @IsUUID() categoriaFolhaId?: string | null;
+  /**
+   * A etiqueta de cada tipo, quando ele tem a sua. Vazia, o tipo cai na de
+   * cima — assim quem não quer esse detalhe não precisa criar categoria
+   * nenhuma.
+   */
+  @IsOptional() @IsUUID() categoriaSalarioId?: string | null;
+  @IsOptional() @IsUUID() categoriaFeriasId?: string | null;
+  @IsOptional() @IsUUID() categoriaAdiantamentoId?: string | null;
+  @IsOptional() @IsUUID() categoriaBonusId?: string | null;
   // Quem paga, como sai impresso no recibo assinado da diária
   @IsOptional() @IsString() empresaNome?: string;
   @IsOptional() @IsString() empresaCnpj?: string;
