@@ -605,25 +605,27 @@ function LinhaDoDocumento({
           >
             {abrindo ? 'Abrindo…' : 'Ver'}
           </button>
-          {/* O papel que vence é o que se substitui, e por isso o botão só
-              aparece em quem tem prazo — num contrato social ele não quer
-              dizer nada. Aceso na cor do estado quando o prazo aperta: é a
-              ação que a linha vermelha está pedindo, e ela não pode ter o
-              mesmo peso de "corrigir" ao lado. */}
-          {d.valeAte && (
-            <button
-              type="button"
-              onClick={onSubstituir}
-              className={`btn btn-p ${
-                d.prazo === 'vencido' || d.prazo === 'a-vencer'
-                  ? 'btn-ferramenta'
-                  : 'btn-sutil'
-              }`}
-              title="Guarda o documento novo aqui e manda este para “Substituídos”"
-            >
-              Substituir
-            </button>
-          )}
+          {/* Em toda linha, e não só nas que têm prazo. Papel sem validade
+              também é trocado: o contrato social ganha uma alteração, a
+              licença sai reemitida, a digitalização torta é refeita — e nesses
+              casos o gesto é o mesmo, guardar o novo e descer o velho para
+              "Substituídos". Antes o botão sumia justamente onde o caminho à
+              mão é mais longo, porque ali não há data que lembre ninguém.
+              Aceso na cor do estado quando o prazo aperta: é a ação que a
+              linha vermelha está pedindo, e ela não pode ter o mesmo peso de
+              "corrigir" ao lado. */}
+          <button
+            type="button"
+            onClick={onSubstituir}
+            className={`btn btn-p ${
+              d.prazo === 'vencido' || d.prazo === 'a-vencer'
+                ? 'btn-ferramenta'
+                : 'btn-sutil'
+            }`}
+            title="Guarda o documento novo aqui e manda este para “Substituídos”"
+          >
+            Substituir
+          </button>
           <button
             type="button"
             onClick={onEditar}
