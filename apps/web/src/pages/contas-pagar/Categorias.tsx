@@ -14,6 +14,13 @@ import { emArvore } from '../../lib/categorias';
 import type { CategoriaDespesa } from '../../lib/types';
 
 /**
+ * O valor da opção que abre a criação da mãe. Um uuid nunca começa com dois
+ * sublinhados, então ele não colide com o id de categoria nenhuma — é o mesmo
+ * truque do seletor de categoria da classificação.
+ */
+const NOVA_MAE = '__nova-mae';
+
+/**
  * O cadastro de "com o que a empresa gasta".
  *
  * É cadastro, e não lista fixa no código, porque o que a empresa compra muda
@@ -37,6 +44,11 @@ export function Categorias() {
   const [editando, setEditando] = useState<{ id: string; nome: string } | null>(
     null,
   );
+  /** A linha que está criando a mãe dela, e o nome sendo digitado. */
+  const [criandoMae, setCriandoMae] = useState<{
+    id: string;
+    nome: string;
+  } | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [erro, setErro] = useState(false);
 
@@ -108,6 +120,36 @@ export function Categorias() {
     onError: (e) => avisar(mensagemErro(e), true),
   });
 
+  /**
+   * Cria a mãe e já põe esta categoria dentro dela, num gesto só.
+   *
+   * São duas escritas porque são dois registros, mas uma decisão: quem digitou
+   * "Veículos" no campo de "Compra de veículos" não quis cadastrar um nome —
+   * quis agrupar. Parar no meio deixaria uma categoria-mãe vazia na lista, com
+   * cara de engano, e é por isso que a segunda parte não é opcional.
+   */
+  const agruparEmNova = useMutation({
+    mutationFn: async (args: { id: string; nome: string }) => {
+      const mae = (
+        await api.post<CategoriaDespesa>('/categorias-despesa', {
+          nome: args.nome.trim(),
+        })
+      ).data;
+      const filha = (
+        await api.patch<CategoriaDespesa>(`/categorias-despesa/${args.id}`, {
+          paiId: mae.id,
+        })
+      ).data;
+      return { mae, filha };
+    },
+    onSuccess: ({ mae, filha }) => {
+      setCriandoMae(null);
+      avisar(`"${mae.nome}" criada, com "${filha.nome}" dentro dela.`);
+      invalidar();
+    },
+    onError: (e) => avisar(mensagemErro(e), true),
+  });
+
   const alternar = useMutation({
     mutationFn: async (c: CategoriaDespesa) =>
       (
@@ -150,7 +192,10 @@ export function Categorias() {
     salvar.isPending ||
     alternar.isPending ||
     mover.isPending ||
+    agruparEmNova.isPending ||
     remover.isPending;
+  const podeCriarMae =
+    !!criandoMae && criandoMae.nome.trim().length >= 2 && !agruparEmNova.isPending;
 
   /** As linhas na ordem em que se lê: cada grupo com as suas, e as soltas no fim. */
   const linhas = [
@@ -195,7 +240,10 @@ export function Categorias() {
             className="campo sm:max-w-[16rem]"
             title="Dentro de que categoria ela entra"
           >
-            <option value="">Sem categoria-mãe</option>
+            {/* O rótulo diz o que a escolha faz, e não o que falta nela:
+                "sem categoria-mãe" descrevia uma ausência, e quem procurava
+                onde criar a mãe não reconhecia que era ali. */}
+            <option value="">Categoria-mãe (não entra em nenhuma)</option>
             {maesPossiveis.map((c) => (
               <option key={c.id} value={c.id}>
                 dentro de {c.nome}
@@ -211,8 +259,10 @@ export function Categorias() {
           </button>
         </form>
         <p className="ajuda">
-          Sem mãe, ela nasce no primeiro nível e pode virar grupo depois — basta
-          pôr outras dentro dela.
+          Categoria-mãe é só uma categoria que não está dentro de outra: crie
+          "Veículos" assim e depois use a coluna "Dentro de" para pôr
+          "Compra de veículos" e "Manutenção de veículos" nela — ou crie a mãe
+          direto de lá, pela última opção da lista.
         </p>
       </Bloco>
 
@@ -309,16 +359,64 @@ export function Categorias() {
                         >
                           agrupa outras
                         </span>
+                      ) : criandoMae?.id === c.id ? (
+                        /*
+                         * A mãe nasce aqui, no campo em que a falta dela é
+                         * percebida.
+                         *
+                         * Quem está pondo "Compra de veículos" no lugar abre a
+                         * lista à procura de "Veículos", não acha, e o caminho
+                         * era subir até o formulário do topo, criar, e voltar
+                         * para achar a linha de novo. Criada daqui, ela já
+                         * recebe esta categoria dentro — que era o motivo de
+                         * ela estar sendo criada.
+                         */
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            value={criandoMae.nome}
+                            autoFocus
+                            onChange={(e) =>
+                              setCriandoMae({ id: c.id, nome: e.target.value })
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && podeCriarMae) {
+                                agruparEmNova.mutate(criandoMae);
+                              }
+                              if (e.key === 'Escape') setCriandoMae(null);
+                            }}
+                            placeholder="Nome da categoria-mãe"
+                            className="campo max-w-[12rem] py-1 text-xs"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => agruparEmNova.mutate(criandoMae)}
+                            disabled={!podeCriarMae}
+                            className="btn btn-primario btn-p"
+                          >
+                            {agruparEmNova.isPending ? 'Criando…' : 'Criar'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setCriandoMae(null)}
+                            className="btn btn-sutil btn-p"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
                       ) : (
                         <select
                           value={c.pai?.id ?? ''}
                           disabled={ocupado}
-                          onChange={(e) =>
+                          onChange={(e) => {
+                            if (e.target.value === NOVA_MAE) {
+                              setCriandoMae({ id: c.id, nome: '' });
+                              return;
+                            }
                             mover.mutate({
                               id: c.id,
                               paiId: e.target.value || null,
-                            })
-                          }
+                            });
+                          }}
                           className="campo max-w-[14rem] py-1 text-xs"
                           title="A categoria de cima, que soma esta no dashboard"
                         >
@@ -330,6 +428,9 @@ export function Categorias() {
                                 {m.nome}
                               </option>
                             ))}
+                          <option value={NOVA_MAE}>
+                            + Criar categoria-mãe…
+                          </option>
                         </select>
                       )}
                     </td>
