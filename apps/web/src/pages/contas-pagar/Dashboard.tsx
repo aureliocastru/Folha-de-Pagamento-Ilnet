@@ -78,8 +78,33 @@ export function Dashboard() {
   // mudado.
   const contas = useMemo(() => consulta.data?.contas ?? [], [consulta.data]);
 
+  /**
+   * Por categoria ou por subcategoria.
+   *
+   * Começa na de cima porque é a pergunta de quem abre o painel — "com o que a
+   * empresa está gastando?" —, e trinta subcategorias respondem isso em trinta
+   * barras que ninguém soma de cabeça. A de baixo fica a um clique, para
+   * quando a resposta for "com veículos" e a próxima pergunta for "com o que
+   * dos veículos?".
+   */
+  const [altura, setAltura] = useState<'categoria' | 'subcategoria'>(
+    'categoria',
+  );
+
   const porCategoria = useMemo(
-    () => agrupar(contas.filter((c) => c.classificacao), (c) => c.classificacao!.nome),
+    () =>
+      agrupar(
+        contas.filter((c) => c.classificacao),
+        (c) =>
+          altura === 'categoria'
+            ? (c.classificacao!.grupo?.nome ?? c.classificacao!.nome)
+            : c.classificacao!.nome,
+      ),
+    [contas, altura],
+  );
+  /** Há grupo montado no cadastro? Sem nenhum, o botão de altura não decide nada. */
+  const temGrupos = useMemo(
+    () => contas.some((c) => c.classificacao?.grupo),
     [contas],
   );
   const porFornecedor = useMemo(
@@ -260,6 +285,29 @@ export function Dashboard() {
               titulo="Com o que a empresa está devendo"
               className="surgir surgir-4"
               esticado
+              acao={
+                temGrupos && (
+                  <div className="flex gap-1">
+                    {(
+                      [
+                        ['categoria', 'Por categoria'],
+                        ['subcategoria', 'Por subcategoria'],
+                      ] as const
+                    ).map(([qual, rotulo]) => (
+                      <button
+                        key={qual}
+                        onClick={() => setAltura(qual)}
+                        aria-pressed={altura === qual}
+                        className={`btn btn-p ${
+                          altura === qual ? 'btn-acao' : 'btn-sutil'
+                        }`}
+                      >
+                        {rotulo}
+                      </button>
+                    ))}
+                  </div>
+                )
+              }
             >
               {porCategoria.length === 0 ? (
                 <Vazio titulo="Nada classificado ainda">
@@ -585,7 +633,14 @@ function FilaDePagamento({
                       : `em ${dias} dia(s)`}
                 </Selo>
                 {c.classificacao ? (
-                  <span className="text-[11px] text-tinta-400">
+                  <span
+                    className="text-[11px] text-tinta-400"
+                    title={
+                      c.classificacao.grupo
+                        ? `${c.classificacao.grupo.nome} · ${c.classificacao.nome}`
+                        : undefined
+                    }
+                  >
                     {c.classificacao.nome}
                   </span>
                 ) : (

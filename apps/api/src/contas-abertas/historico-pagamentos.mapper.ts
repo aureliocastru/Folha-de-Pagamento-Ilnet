@@ -119,8 +119,15 @@ export interface PagamentoFeito {
   statusEhDePago: boolean;
   /** A conta de despesa do IXC. O nome é completado depois. */
   categoria: { id: number | null; nome: string | null };
-  /** A classificação desta casa — etiqueta nossa, o IXC não tem onde guardá-la */
-  classificacao: { id: string; nome: string } | null;
+  /**
+   * A classificação desta casa — etiqueta nossa, o IXC não tem onde guardá-la.
+   * `grupo` é a categoria de cima, quando ela é uma subcategoria.
+   */
+  classificacao: {
+    id: string;
+    nome: string;
+    grupo: { id: string; nome: string } | null;
+  } | null;
   /** Preenchido depois, cruzando com o que a folha lançou */
   origem: OrigemNaFolha | null;
   /** O que o registro do IXC confirma — e o que nele não fecha */

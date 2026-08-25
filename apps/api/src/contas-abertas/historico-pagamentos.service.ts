@@ -666,7 +666,7 @@ export class HistoricoPagamentosService {
     for (const p of pagamentos) {
       const categoria = etiquetas.get(p.idFnApagar);
       if (categoria) {
-        p.classificacao = { id: categoria.id, nome: categoria.nome };
+        p.classificacao = categoria;
       }
     }
   }

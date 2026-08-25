@@ -1174,11 +1174,26 @@ model CategoriaDespesa {
   /// Ordem de exibição; empate resolve pelo nome.
   ordem Int     @default(0)
 
+  /// A categoria de cima, quando esta é uma subcategoria.
+  ///
+  /// Um nível só, de propósito: "Veículos" agrupa "Compra de veículos" e
+  /// "Manutenção de veículos", e para aí. Etiquetar é escolher a folha; o
+  /// dashboard soma pela mãe e destrincha pelas filhas — é isso que responde
+  /// "quanto custa a frota?" sem perder "quanto foi conserto".
+  ///
+  /// `Restrict` porque apagar a mãe deixaria as filhas órfãs em silêncio: quem
+  /// quiser desfazer o grupo tira as filhas de dentro dele primeiro.
+  pai    CategoriaDespesa?  @relation("SubcategoriaDespesa", fields: [paiId], references: [id], onDelete: Restrict)
+  paiId  String?            @map("pai_id")
+  filhas CategoriaDespesa[] @relation("SubcategoriaDespesa")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   classificacoes ClassificacaoConta[]
   recorrentes    DespesaRecorrente[]
+
+  @@index([paiId])
 
   @@map("categorias_despesa")
 }

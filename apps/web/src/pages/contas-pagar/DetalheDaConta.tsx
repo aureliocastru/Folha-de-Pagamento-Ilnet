@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
+import { NotasDoTitulo } from '../../components/NotasDoTitulo';
 import { Aviso, Carregando, Janela, Selo } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
@@ -170,7 +171,7 @@ export function DetalheDaConta({
               ? 'Salvando…'
               : conta.categoria.nome
                 ? `No IXC este título está na conta de despesa "${conta.categoria.nome}".`
-                : 'É por esta escolha que o dashboard separa os gastos. Ela fica guardada aqui — o IXC não tem onde recebê-la.'}
+                : 'É por esta escolha que o dashboard separa os gastos: ele soma pela categoria e destrincha pela subcategoria. Fica guardada aqui — o IXC não tem onde recebê-la.'}
           </p>
           {classificar.isError && (
             <p className="mt-2 text-sm text-rose-700">
@@ -185,6 +186,11 @@ export function DetalheDaConta({
             <p className="text-sm text-tinta-700">{conta.observacao}</p>
           </div>
         )}
+
+        {/* A foto do cupom sobe junto com a conta, na hora de lançar — e é
+            aqui que ela é procurada depois. Sem este bloco, a ficha do débito
+            era a única tela do caminho que não sabia dizer se a nota subiu. */}
+        <NotasDoTitulo idFnApagar={conta.idFnApagar} />
 
         {conta.origem && (
           <div className="mt-4 rounded-xl bg-brand-50 px-4 py-3 text-sm text-brand-800">

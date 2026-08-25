@@ -356,7 +356,15 @@ function Linha({
             </Selo>
           )}
           {pagamento.classificacao && (
-            <Selo pequeno tom="info">
+            <Selo
+              pequeno
+              tom="info"
+              titulo={
+                pagamento.classificacao.grupo
+                  ? `${pagamento.classificacao.grupo.nome} · ${pagamento.classificacao.nome}`
+                  : undefined
+              }
+            >
               {pagamento.classificacao.nome}
             </Selo>
           )}
@@ -457,6 +465,10 @@ function baixarCsv(pagamentos: PagamentoFeito[], periodo: Janela): void {
     'Caixa',
     'Categoria',
     'Classificacao',
+    // A categoria de cima vai em coluna separada de propósito: é por ela que
+    // uma tabela dinâmica soma "quanto custou a frota" sem ter de reconhecer,
+    // no texto, quais linhas falam de veículo.
+    'Categoria-mae',
     'Titulo no IXC',
     'Status no IXC',
     'Conferencia',
@@ -480,6 +492,7 @@ function baixarCsv(pagamentos: PagamentoFeito[], periodo: Janela): void {
     p.caixa.nome ?? (p.caixa.id ? `caixa ${p.caixa.id}` : ''),
     p.categoria.nome ?? '',
     p.classificacao?.nome ?? '',
+    p.classificacao?.grupo?.nome ?? '',
     String(p.idFnApagar),
     p.statusNoIxc ?? '',
     p.conferencia.fecha ? 'fecha' : p.conferencia.ressalvas.join(' | '),

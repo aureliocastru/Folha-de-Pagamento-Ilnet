@@ -1,14 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
+import { NotasDoTitulo } from '../../components/NotasDoTitulo';
 import { Carregando, Janela, Selo } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { formatBRL, formatData } from '../../lib/format';
 import { TIPO_LABEL } from '../../lib/status';
-import type {
-  DetalheDoTitulo,
-  NotaDoTitulo,
-  PagamentoFeito,
-} from '../../lib/types';
+import type { DetalheDoTitulo, PagamentoFeito } from '../../lib/types';
 
 /**
  * A ficha de um pagamento: quanto saiu, quando, de qual caixa — e, no fim, o
@@ -177,7 +174,11 @@ export function DetalheDoPagamento({
               (pagamento.categoria.id ? `conta ${pagamento.categoria.id}` : '—')}
           </Dado>
           <Dado rotulo="Classificação daqui">
-            {pagamento.classificacao?.nome ?? 'sem classificação'}
+            {pagamento.classificacao
+              ? pagamento.classificacao.grupo
+                ? `${pagamento.classificacao.grupo.nome} · ${pagamento.classificacao.nome}`
+                : pagamento.classificacao.nome
+              : 'sem classificação'}
           </Dado>
           <Dado rotulo="Status no IXC">
             {pagamento.statusEhDePago
@@ -386,85 +387,5 @@ export function PrazoDoPagamento({
     <Selo pequeno={pequeno} tom="pago">
       {adiantado === 1 ? 'pago 1 dia antes' : `pago ${adiantado} dias antes`}
     </Selo>
-  );
-}
-
-/**
- * As notas anexadas a este título, lidas do IXC.
- *
- * É a mesma lista da aba "Arquivos" da tela dele. Aparece aqui porque a
- * pergunta de quem abre a ficha de um pagamento é "cadê a nota disso?" — e
- * mandar a pessoa ao IXC para responder seria mandá-la embora da tela em que
- * ela já está.
- */
-function NotasDoTitulo({ idFnApagar }: { idFnApagar: number }) {
-  const [abrindo, setAbrindo] = useState<number | null>(null);
-  const [erro, setErro] = useState<string | null>(null);
-
-  const notas = useQuery({
-    queryKey: ['notas-do-titulo', idFnApagar],
-    queryFn: async () =>
-      (
-        await api.get<NotaDoTitulo[]>(
-          `/contas-abertas/${idFnApagar}/notas`,
-        )
-      ).data,
-    // Anexo é raro e o IXC é lento: não vale repetir a pergunta sozinho.
-    retry: 0,
-  });
-
-  /*
-   * O arquivo vem pela API autenticada, e não por um `href` direto: o token
-   * vive no cabeçalho, e uma aba aberta na mão chegaria lá sem ele.
-   */
-  async function abrir(nota: NotaDoTitulo) {
-    setAbrindo(nota.id);
-    setErro(null);
-    try {
-      const { data } = await api.get<Blob>(
-        `/contas-abertas/notas/${nota.id}/arquivo`,
-        { params: { extensao: nota.extensao || undefined }, responseType: 'blob' },
-      );
-      const url = URL.createObjectURL(data);
-      window.open(url, '_blank', 'noopener');
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    } catch (e) {
-      setErro(mensagemErro(e));
-    } finally {
-      setAbrindo(null);
-    }
-  }
-
-  const lista = notas.data ?? [];
-  // Sem nota e sem erro não há o que dizer: um bloco vazio em toda ficha seria
-  // ruído em quase todas elas.
-  if (lista.length === 0 && !erro) return null;
-
-  return (
-    <div className="mt-4">
-      <div className="rotulo">Notas anexadas</div>
-      <div className="flex flex-wrap gap-2">
-        {lista.map((nota) => (
-          <button
-            key={nota.id}
-            type="button"
-            onClick={() => abrir(nota)}
-            disabled={abrindo === nota.id}
-            className="btn btn-p btn-neutro"
-            title={
-              nota.data
-                ? `Anexada em ${nota.data}${nota.usuario ? ` por ${nota.usuario}` : ''}`
-                : undefined
-            }
-          >
-            {abrindo === nota.id ? 'Abrindo…' : nota.descricao}
-            {nota.extensao && (
-              <span className="ml-1 text-tinta-400">.{nota.extensao}</span>
-            )}
-          </button>
-        ))}
-      </div>
-      {erro && <p className="mt-1 text-sm text-rose-600">{erro}</p>}
-    </div>
   );
 }

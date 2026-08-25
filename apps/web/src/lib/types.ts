@@ -697,7 +697,7 @@ export interface ContaAberta {
    * A que se refere o débito, na classificação desta casa. É o eixo dos
    * relatórios. Null = ninguém classificou ainda.
    */
-  classificacao: { id: string; nome: string } | null;
+  classificacao: EtiquetaDaConta | null;
   origem: OrigemNaFolha | null;
 }
 
@@ -734,6 +734,23 @@ export interface CategoriaDespesa {
   ordem: number;
   /** Quantas contas já foram etiquetadas com ela */
   emUso: number;
+  /** A categoria de cima, quando esta é uma subcategoria */
+  pai: { id: string; nome: string } | null;
+  /** Tem subcategorias dentro dela — então ela é um grupo, e não uma folha */
+  temFilhas: boolean;
+}
+
+/**
+ * A etiqueta que um débito carrega, com o grupo em que ela mora.
+ *
+ * `grupo` é a categoria de cima ("Veículos") e `nome` é a subcategoria
+ * ("Manutenção de veículos"): o dashboard soma pelo primeiro e destrincha pelo
+ * segundo. Null quando a categoria não está dentro de nenhuma.
+ */
+export interface EtiquetaDaConta {
+  id: string;
+  nome: string;
+  grupo: { id: string; nome: string } | null;
 }
 
 export interface FatiaDoResumo {
@@ -1276,7 +1293,7 @@ export interface PagamentoFeito {
    */
   statusEhDePago: boolean;
   categoria: { id: number | null; nome: string | null };
-  classificacao: { id: string; nome: string } | null;
+  classificacao: EtiquetaDaConta | null;
   origem: OrigemNaFolha | null;
   conferencia: ConferenciaDoPagamento;
 }

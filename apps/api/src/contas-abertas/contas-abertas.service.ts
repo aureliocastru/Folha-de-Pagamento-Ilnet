@@ -608,7 +608,7 @@ export class ContasAbertasService {
     for (const conta of contas) {
       const categoria = etiquetas.get(conta.idFnApagar);
       if (categoria) {
-        conta.classificacao = { id: categoria.id, nome: categoria.nome };
+        conta.classificacao = categoria;
       }
     }
   }

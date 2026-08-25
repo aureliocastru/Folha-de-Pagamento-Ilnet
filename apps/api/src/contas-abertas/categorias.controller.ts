@@ -38,7 +38,7 @@ export class CategoriasController {
   @Post('categorias-despesa')
   @HttpCode(201)
   criar(@Body() dto: CriarCategoriaDto) {
-    return this.service.criar(dto.nome);
+    return this.service.criar(dto.nome, dto.paiId ?? null);
   }
 
   @Patch('categorias-despesa/:id')

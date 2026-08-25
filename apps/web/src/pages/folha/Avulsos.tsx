@@ -16,6 +16,7 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { emArvore } from '../../lib/categorias';
 import { formatBRL, formatData } from '../../lib/format';
 import { FORMA_PAGAMENTO_LABEL, STATUS_LABEL, STATUS_TOM } from '../../lib/status';
 import { TIPOS_CHAVE_PIX } from '../../lib/types';
@@ -1428,6 +1429,7 @@ function FormularioPagamento({
     queryFn: async () =>
       (await api.get<CategoriaDespesa[]>('/categorias-despesa')).data,
   });
+  const categoriasEmArvore = emArvore(categorias.data);
 
   const config = useQuery({
     queryKey: ['config-financeira'],
@@ -1530,10 +1532,24 @@ function FormularioPagamento({
             disabled={categorias.isLoading}
           >
             <option value="">Sem classificação</option>
-            {(categorias.data ?? []).map((c) => (
+            {/* As soltas primeiro, os grupos depois: opção fora de `optgroup`
+                listada abaixo de um grupo parece ter escapado dele. */}
+            {categoriasEmArvore.soltas.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.nome}
               </option>
+            ))}
+            {categoriasEmArvore.grupos.map(({ mae, filhas }) => (
+              <optgroup key={mae.id} label={mae.nome}>
+                {mae.emUso > 0 && (
+                  <option value={mae.id}>{mae.nome} (sem subcategoria)</option>
+                )}
+                {filhas.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nome}
+                  </option>
+                ))}
+              </optgroup>
             ))}
           </select>
           <p className="ajuda">

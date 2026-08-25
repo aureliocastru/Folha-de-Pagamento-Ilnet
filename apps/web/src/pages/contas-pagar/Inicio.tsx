@@ -583,7 +583,15 @@ function Linha({
         )}
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           {conta.classificacao ? (
-            <Selo pequeno tom="info">
+            <Selo
+              pequeno
+              tom="info"
+              titulo={
+                conta.classificacao.grupo
+                  ? `${conta.classificacao.grupo.nome} · ${conta.classificacao.nome}`
+                  : undefined
+              }
+            >
               {conta.classificacao.nome}
             </Selo>
           ) : (

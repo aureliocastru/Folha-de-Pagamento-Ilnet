@@ -44,8 +44,16 @@ export interface ContaAberta {
    * A que se refere o débito, na classificação desta casa — "mão de obra",
    * "compra de veículos". É o eixo dos relatórios, e é etiqueta nossa: o IXC
    * não tem onde guardar isso. Null = ninguém classificou ainda.
+   *
+   * `grupo` é a categoria de cima, quando a etiqueta é uma subcategoria: o
+   * dashboard soma por ele ("Veículos") e destrincha pela etiqueta ("Compra",
+   * "Manutenção"). Null quando a categoria não está dentro de nenhuma.
    */
-  classificacao: { id: string; nome: string } | null;
+  classificacao: {
+    id: string;
+    nome: string;
+    grupo: { id: string; nome: string } | null;
+  } | null;
   /** Preenchido depois, cruzando com o que a folha lançou */
   origem: OrigemNaFolha | null;
 }
