@@ -317,11 +317,16 @@ export function Configuracoes() {
               </button>
               {etiquetarFolha.data && (
                 <span className="text-sm text-tinta-500">
+                  {/* Zero conta da folha não é "tudo certo": é o filtro não
+                      achando nada, e a frase precisa dizer isso — senão o
+                      botão responde "nada a fazer" para um problema. */}
                   {etiquetarFolha.data.semCategoria
                     ? 'Escolha a categoria acima e salve antes.'
-                    : etiquetarFolha.data.etiquetadas === 0
-                      ? `Nada a fazer — as ${etiquetarFolha.data.daFolha} conta(s) da folha já estão etiquetadas.`
-                      : `${etiquetarFolha.data.etiquetadas} conta(s) etiquetadas, de ${etiquetarFolha.data.daFolha} da folha.`}
+                    : etiquetarFolha.data.daFolha === 0
+                      ? 'Não achei conta nenhuma da folha com número no IXC — não há o que etiquetar.'
+                      : etiquetarFolha.data.etiquetadas === 0
+                        ? `Nada a fazer — as ${etiquetarFolha.data.daFolha} conta(s) da folha já estão etiquetadas.`
+                        : `${etiquetarFolha.data.etiquetadas} conta(s) etiquetadas, de ${etiquetarFolha.data.daFolha} da folha.`}
                 </span>
               )}
               {etiquetarFolha.isError && (
