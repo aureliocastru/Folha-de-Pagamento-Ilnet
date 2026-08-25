@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { DocumentosRhService } from './documentos.service';
+import { LicitacoesService } from './licitacoes.service';
 import { RecibosDaFolhaService } from './recibos.service';
 import { RhController } from './rh.controller';
 
@@ -15,7 +16,7 @@ import { RhController } from './rh.controller';
 @Module({
   imports: [PrismaModule],
   controllers: [RhController],
-  providers: [DocumentosRhService, RecibosDaFolhaService],
+  providers: [DocumentosRhService, RecibosDaFolhaService, LicitacoesService],
   exports: [DocumentosRhService],
 })
 export class RhModule {}

@@ -183,6 +183,24 @@ export function IconeGuia({ className }: IconeProps) {
   );
 }
 
+/** Licitação: o martelo do pregão, de viés, sobre a base. */
+export function IconeMartelo({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <rect
+        x="11.5"
+        y="3.5"
+        width="9"
+        height="5"
+        rx="1.2"
+        transform="rotate(45 16 6)"
+      />
+      <path d="M14.4 7.6 7.6 14.4" />
+      <path d="M4.5 19.5h9.5" />
+    </svg>
+  );
+}
+
 export function IconeChave({ className }: IconeProps) {
   return (
     <svg {...base} className={className}>

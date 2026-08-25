@@ -493,13 +493,41 @@ export class DocumentosRhService {
     return ordem;
   }
 
+  /**
+   * Esta pasta e as de dentro dela, menos a gaveta do papel trocado.
+   *
+   * Serve a quem precisa ver tudo que uma pasta tem sem abrir divisória por
+   * divisória — montar a pasta de uma licitação, por exemplo. Os substituídos
+   * ficam de fora de propósito: eles são a prova do que já valeu, e listá-los
+   * junto seria oferecer a certidão velha ao lado da nova, com o mesmo título.
+   */
+  private async arvoreUtil(id: string): Promise<string[]> {
+    const todas = [id];
+    let nivel = [id];
+    for (let i = 0; i < NIVEIS_NA_ARVORE && nivel.length > 0; i += 1) {
+      const filhas = await this.prisma.pastaRh.findMany({
+        where: {
+          paiId: { in: nivel },
+          NOT: {
+            nome: { equals: PASTA_DOS_SUBSTITUIDOS, mode: 'insensitive' },
+          },
+        },
+        select: { id: true },
+      });
+      nivel = filhas.map((f) => f.id);
+      todas.push(...nivel);
+    }
+    return todas;
+  }
+
   /** Os documentos de uma pasta, sem os arquivos. */
-  async listar(pastaId: string, termo?: string) {
+  async listar(pastaId: string, termo?: string, comSubpastas = false) {
     const busca = termo?.trim();
+    const pastas = comSubpastas ? await this.arvoreUtil(pastaId) : null;
 
     const documentos = await this.prisma.documentoRh.findMany({
       where: {
-        pastaId,
+        ...(pastas ? { pastaId: { in: pastas } } : { pastaId }),
         ...(busca
           ? {
               OR: [

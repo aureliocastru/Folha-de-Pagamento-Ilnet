@@ -8,6 +8,7 @@ import {
   IconeEngrenagem,
   IconeEtiqueta,
   IconeGuia,
+  IconeMartelo,
   IconeMoeda,
   IconePainel,
   IconePasta,
@@ -150,6 +151,15 @@ const rh: Modulo = {
      */
     { to: 'empresa', label: 'Empresa', icone: IconePredio },
     { to: 'recibos', label: 'Recibos da folha', icone: IconeDocumento },
+    /*
+     * A pasta que se monta para entregar.
+     *
+     * Ela sai da pasta da empresa e volta para lá — as mesmas certidões —, mas
+     * a pergunta é outra: não é "o que a empresa tem?", é "o que foi entregue
+     * naquele pregão?". A segunda só tem resposta se houver um lugar em que a
+     * cópia do dia fica guardada, e é este.
+     */
+    { to: 'licitacoes', label: 'Licitações', icone: IconeMartelo },
   ],
 };
 

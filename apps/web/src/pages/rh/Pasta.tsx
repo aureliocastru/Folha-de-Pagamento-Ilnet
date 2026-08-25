@@ -663,7 +663,7 @@ function LinhaDoDocumento({
  * faz de cabeça em vinte linhas seguidas. Quem está em dia continua discreto:
  * pintar as vinte de verde apagaria as duas que importam.
  */
-function Validade({ documento: d }: { documento: DocumentoRh }) {
+export function Validade({ documento: d }: { documento: DocumentoRh }) {
   const emitido = d.emitidoEm && (
     <div className="text-[11px] leading-tight text-tinta-400">
       emitido {formatData(d.emitidoEm)}
@@ -806,7 +806,7 @@ function SeloDoPrazo({ prazo }: { prazo: PrazoDoDocumento }) {
  * título é como um documento vira outro sem ninguém perceber. Errou o arquivo,
  * apaga e sobe de novo.
  */
-function FormularioDoDocumento({
+export function FormularioDoDocumento({
   documento,
   substituindo = false,
   tipos,

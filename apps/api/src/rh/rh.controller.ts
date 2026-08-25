@@ -18,12 +18,15 @@ import { Roles } from '../auth/roles.decorator';
 import { DocumentosRhService } from './documentos.service';
 import {
   AnalisarRecibosDto,
+  CopiarParaLicitacaoDto,
   EditarDocumentoDto,
   GuardarDocumentoDto,
   GuardarRecibosDto,
+  LicitacaoDto,
   PastaDto,
   SubstituirDocumentoDto,
 } from './dto/documento.dto';
+import { LicitacoesService } from './licitacoes.service';
 import { RecibosDaFolhaService } from './recibos.service';
 
 function usuarioId(req: Request): string | undefined {
@@ -57,6 +60,7 @@ export class RhController {
   constructor(
     private readonly documentos: DocumentosRhService,
     private readonly recibos: RecibosDaFolhaService,
+    private readonly licitacoes: LicitacoesService,
   ) {}
 
   // --- A estante ------------------------------------------------------------
@@ -101,8 +105,17 @@ export class RhController {
    * Nunca traz o arquivo: são megabytes cada, e a tela mostra dezenas de linhas.
    */
   @Get('documentos')
-  listar(@Query('pastaId') pastaId: string, @Query('termo') termo?: string) {
-    return this.documentos.listar(pastaId, termo);
+  listar(
+    @Query('pastaId') pastaId: string,
+    @Query('termo') termo?: string,
+    /**
+     * Traz junto o que está nas divisorias de dentro -- menos os substituidos.
+     * E o que a montagem de uma licitacao precisa: ver tudo que a empresa tem
+     * sem abrir gaveta por gaveta.
+     */
+    @Query('comSubpastas') comSubpastas?: string,
+  ) {
+    return this.documentos.listar(pastaId, termo, comSubpastas === 'true');
   }
 
   /**
@@ -161,6 +174,34 @@ export class RhController {
   @Delete('documentos/:id')
   apagar(@Param('id') id: string) {
     return this.documentos.apagar(id);
+  }
+
+  // --- As licitacoes --------------------------------------------------------
+
+  /**
+   * Cada licitacao e uma pasta, e o que ela guarda e a fotografia do que foi
+   * entregue naquele dia -- copia, e nao atalho: renovar a certidao na pasta da
+   * empresa no mes seguinte nao pode reescrever o que ja foi mandado.
+   */
+  @Get('licitacoes')
+  licitacoesAbertas() {
+    return this.licitacoes.listar();
+  }
+
+  @Post('licitacoes')
+  abrirLicitacao(@Body() dto: LicitacaoDto, @Req() req: Request) {
+    return this.licitacoes.criar(dto.nome, usuarioId(req));
+  }
+
+  /** Manda para dentro da licitacao os documentos marcados na pasta da empresa. */
+  @Post('licitacoes/:id/documentos')
+  @HttpCode(200)
+  copiarParaLicitacao(
+    @Param('id') id: string,
+    @Body() dto: CopiarParaLicitacaoDto,
+    @Req() req: Request,
+  ) {
+    return this.licitacoes.copiar(id, dto.documentoIds, usuarioId(req));
   }
 
   // --- Os recibos da folha --------------------------------------------------

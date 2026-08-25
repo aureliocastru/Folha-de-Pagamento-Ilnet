@@ -1585,6 +1585,23 @@ export interface EstanteRh {
   tipos: string[];
 }
 
+/**
+ * Uma licitação: a pasta em que se monta o que vai ser entregue.
+ *
+ * Os documentos entram nela por cópia, e não por atalho — ela é a fotografia
+ * do que foi mandado naquele dia, e renovar a certidão na pasta da empresa no
+ * mês seguinte não reescreve o que já foi entregue.
+ */
+export interface Licitacao {
+  id: string;
+  nome: string;
+  criadaEm: string;
+  /** Quantos documentos já estão dentro dela. */
+  qtd: number;
+  vencidos: number;
+  aVencer: number;
+}
+
 /** Onde um documento está no prazo dele. */
 export type PrazoDoDocumento = 'sem-prazo' | 'vencido' | 'a-vencer' | 'em-dia';
 

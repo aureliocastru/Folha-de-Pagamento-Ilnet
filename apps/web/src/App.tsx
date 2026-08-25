@@ -26,6 +26,7 @@ import { MinhaConta } from './pages/folha/MinhaConta';
 import { Usuarios } from './pages/folha/Usuarios';
 import { Vales } from './pages/folha/Vales';
 import { PastaDaEmpresa, PastaRhAberta } from './pages/rh/Pasta';
+import { Licitacoes } from './pages/rh/Licitacoes';
 import { PastasRh } from './pages/rh/Pastas';
 import { RecibosDaFolha } from './pages/rh/RecibosDaFolha';
 import type { ReactNode } from 'react';
@@ -156,6 +157,7 @@ export default function App() {
         <Route path="empresa" element={<PastaDaEmpresa />} />
         <Route path="pastas/:id" element={<PastaRhAberta />} />
         <Route path="recibos" element={<RecibosDaFolha />} />
+        <Route path="licitacoes" element={<Licitacoes />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/modulos" replace />} />

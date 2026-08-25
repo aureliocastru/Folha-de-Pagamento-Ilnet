@@ -179,3 +179,26 @@ export class GuardarRecibosDto extends AnalisarRecibosDto {
   @Type(() => ItemDoReciboDto)
   itens!: ItemDoReciboDto[];
 }
+
+/** Uma licitação nova: por enquanto ela é o nome da pasta dela. */
+export class LicitacaoDto {
+  @IsString({ message: 'Diga o nome da licitação.' })
+  @MinLength(2, { message: 'O nome ficou curto demais.' })
+  @MaxLength(120)
+  nome!: string;
+}
+
+/**
+ * Os documentos que vão para a pasta da licitação.
+ *
+ * O teto é o mesmo do serviço, e existe porque cada item traz o arquivo inteiro
+ * para ser regravado: sem ele, um clique em "marcar todos" numa estante grande
+ * viraria dezenas de megabytes num pedido só.
+ */
+export class CopiarParaLicitacaoDto {
+  @IsArray()
+  @ArrayMinSize(1, { message: 'Marque ao menos um documento.' })
+  @ArrayMaxSize(60)
+  @IsUUID('4', { each: true, message: 'Documento inválido.' })
+  documentoIds!: string[];
+}
