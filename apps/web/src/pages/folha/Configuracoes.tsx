@@ -37,6 +37,29 @@ export function Configuracoes() {
     if (data) setForm(data);
   }, [data]);
 
+  /**
+   * Etiqueta de uma vez a folha que ficou sem categoria — a que foi paga antes
+   * de esta regra existir.
+   */
+  const etiquetarFolha = useMutation({
+    mutationFn: async () =>
+      (
+        await api.post<{
+          etiquetadas: number;
+          daFolha: number;
+          semCategoria: boolean;
+        }>('/contas-pagar/etiquetar-folha')
+      ).data,
+    onSuccess: () => {
+      // Os números do painel e a contagem de "em uso" da categoria mudam com
+      // isto: deixá-los como estavam faria a tela discordar do que acabou de
+      // acontecer.
+      void qc.invalidateQueries({ queryKey: ['categorias-despesa'] });
+      void qc.invalidateQueries({ queryKey: ['pagamentos-feitos'] });
+      void qc.invalidateQueries({ queryKey: ['contas-abertas'] });
+    },
+  });
+
   const salvar = useMutation({
     mutationFn: async () => (await api.put('/config-financeira', form)).data,
     onSuccess: () => {
@@ -275,6 +298,38 @@ export function Configuracoes() {
               da empresa fica fora dos gráficos por categoria. Diária e avulso
               não entram: a categoria deles é escolhida na própria tela.
             </p>
+
+            {/* O acerto do que ficou para trás é botão, e não mágica no
+                arranque: conta enviada antes desta regra existir não aparece em
+                lugar nenhum reclamando: quem olha o painel só vê um número
+                menor do que devia. Aqui ele roda quando alguém manda e diz
+                quantas etiquetou — e rodar de novo não estraga nada. */}
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() => etiquetarFolha.mutate()}
+                disabled={etiquetarFolha.isPending || !form.categoriaFolhaId}
+                className="btn btn-neutro"
+              >
+                {etiquetarFolha.isPending
+                  ? 'Etiquetando…'
+                  : 'Etiquetar a folha que está sem categoria'}
+              </button>
+              {etiquetarFolha.data && (
+                <span className="text-sm text-tinta-500">
+                  {etiquetarFolha.data.semCategoria
+                    ? 'Escolha a categoria acima e salve antes.'
+                    : etiquetarFolha.data.etiquetadas === 0
+                      ? `Nada a fazer — as ${etiquetarFolha.data.daFolha} conta(s) da folha já estão etiquetadas.`
+                      : `${etiquetarFolha.data.etiquetadas} conta(s) etiquetadas, de ${etiquetarFolha.data.daFolha} da folha.`}
+                </span>
+              )}
+              {etiquetarFolha.isError && (
+                <span className="text-sm text-rose-600">
+                  {mensagemErro(etiquetarFolha.error)}
+                </span>
+              )}
+            </div>
           </div>
         </Bloco>
 

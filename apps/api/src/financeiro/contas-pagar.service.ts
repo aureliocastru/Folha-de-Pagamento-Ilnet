@@ -778,6 +778,76 @@ export class ContasPagarService {
     }
   }
 
+
+  /**
+   * Etiqueta de uma vez a folha que ficou para trás.
+   *
+   * A conta da folha passou a nascer etiquetada, e uma migração acertou o que
+   * já estava pago. Mas as duas coisas só valem para quem estava lá na hora:
+   * conta enviada enquanto a categoria não existia, base em que a migração não
+   * achou o que etiquetar, folha gerada por uma versão antiga da API — tudo
+   * isso deixa buraco, e buraco em relatório não se vê olhando.
+   *
+   * Então isto existe como botão, e não como um acerto escondido no arranque:
+   * roda quando alguém manda, diz quantas contas etiquetou, e pode rodar de
+   * novo sem estragar nada — o que já tem etiqueta não é tocado.
+   */
+  async etiquetarFolhaSemCategoria(): Promise<{
+    etiquetadas: number;
+    /** Quantas contas da folha existem ao todo, etiquetadas ou não. */
+    daFolha: number;
+    /** Sem categoria configurada não há o que etiquetar — e a tela diz isso. */
+    semCategoria: boolean;
+  }> {
+    const categoriaId = await this.categoriaDaFolha();
+    if (!categoriaId) {
+      return { etiquetadas: 0, daFolha: 0, semCategoria: true };
+    }
+
+    const contas = await this.prisma.contaPagar.findMany({
+      where: {
+        origem: OrigemLancamento.FOLHA,
+        tipo: { in: [...ContasPagarService.TIPOS_DA_FOLHA] },
+        idFnApagarIxc: { not: null },
+      },
+      select: { idFnApagarIxc: true },
+    });
+    const ids = [...new Set(contas.map((c) => c.idFnApagarIxc!))];
+    if (ids.length === 0) {
+      return { etiquetadas: 0, daFolha: 0, semCategoria: false };
+    }
+
+    /*
+     * Quem já tem etiqueta fica como está — inclusive quem tem outra.
+     *
+     * Alguém pode ter classificado um salário à mão, e escolha de gente não se
+     * sobrescreve por lote. Por isso a lista das que faltam é montada aqui, em
+     * vez de um `updateMany` que passaria por cima de tudo.
+     */
+    const jaTem = await this.prisma.classificacaoConta.findMany({
+      where: { idFnApagar: { in: ids } },
+      select: { idFnApagar: true },
+    });
+    const etiquetados = new Set(jaTem.map((c) => c.idFnApagar));
+    const faltando = ids.filter((id) => !etiquetados.has(id));
+
+    if (faltando.length > 0) {
+      await this.prisma.classificacaoConta.createMany({
+        data: faltando.map((idFnApagar) => ({ idFnApagar, categoriaId })),
+        skipDuplicates: true,
+      });
+      this.logger.log(
+        `${faltando.length} conta(s) da folha etiquetadas de uma vez.`,
+      );
+    }
+
+    return {
+      etiquetadas: faltando.length,
+      daFolha: ids.length,
+      semCategoria: false,
+    };
+  }
+
   /**
    * Qual categoria a folha usa.
    *

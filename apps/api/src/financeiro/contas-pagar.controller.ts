@@ -9,7 +9,9 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 import type { Request } from 'express';
+import { Roles } from '../auth/roles.decorator';
 import { ContasPagarService } from './contas-pagar.service';
 import { CriarContasPagarDto } from './dto/criar-contas.dto';
 import { PrepararFolhaDto } from './dto/preparar-folha.dto';
@@ -44,6 +46,26 @@ export class ContasPagarController {
   @Get()
   listar(@Query() query: QueryContasPagarDto) {
     return this.service.listar(query);
+  }
+
+  /**
+   * Etiqueta como despesa de folha o que ficou sem categoria.
+   *
+   * A conta da folha já nasce etiquetada; isto é para o que veio antes disso,
+   * ou para o buraco que sobrou de uma base em que a categoria ainda não
+   * existia. Roda quantas vezes for preciso: o que já tem etiqueta não é
+   * tocado.
+   *
+   * De ADMIN, pela mesma razão que reclassificar pagamento feito é: mexe na
+   * fatia de meses que já foram lidos e decididos.
+   *
+   * Antes de ":id" para não ser lido como um id de conta.
+   */
+  @Post('etiquetar-folha')
+  @Roles(UserRole.ADMIN)
+  @HttpCode(200)
+  etiquetarFolha() {
+    return this.service.etiquetarFolhaSemCategoria();
   }
 
   /**

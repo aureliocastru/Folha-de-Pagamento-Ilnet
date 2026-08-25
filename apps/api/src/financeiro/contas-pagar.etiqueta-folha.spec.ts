@@ -219,3 +219,98 @@ describe('a etiqueta da folha', () => {
     expect(conta.status).toBe(StatusContaPagar.AGUARDANDO_APROVACAO);
   });
 });
+
+/**
+ * O acerto do que ficou para trás.
+ *
+ * A conta da folha passou a nascer etiquetada, mas isso vale para quem estava
+ * lá na hora: o que foi pago antes continua sem categoria, e buraco em
+ * relatório não se vê olhando — o painel só mostra um número menor do que
+ * devia. Por isso o acerto é um botão que diz quantas etiquetou, e que pode
+ * rodar de novo sem estragar nada.
+ */
+describe('etiquetar a folha que ficou para trás', () => {
+  function montarLote(opts: {
+    contas: Array<{ idFnApagarIxc: number | null }>;
+    jaTem?: number[];
+    categoriaFolhaId?: string | null;
+  }) {
+    const createMany = jest.fn().mockResolvedValue({ count: 0 });
+    const prisma = {
+      contaPagar: { findMany: jest.fn().mockResolvedValue(opts.contas) },
+      classificacaoConta: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue(
+            (opts.jaTem ?? []).map((idFnApagar) => ({ idFnApagar })),
+          ),
+        createMany,
+      },
+      categoriaDespesa: { findFirst: jest.fn().mockResolvedValue(null) },
+    } as never;
+
+    const config = {
+      obter: jest.fn().mockResolvedValue({
+        categoriaFolhaId:
+          'categoriaFolhaId' in opts ? opts.categoriaFolhaId : 'cat-salarios',
+      }),
+      definirCategoriaDaFolha: jest.fn(),
+    } as never;
+
+    const service = new ContasPagarService(
+      prisma,
+      {} as never,
+      config,
+      {} as never,
+      {} as never,
+      semFaltas,
+    );
+    return { service, createMany };
+  }
+
+  it('etiqueta só o que está sem categoria', async () => {
+    const { service, createMany } = montarLote({
+      contas: [
+        { idFnApagarIxc: 10 },
+        { idFnApagarIxc: 20 },
+        { idFnApagarIxc: 30 },
+      ],
+      jaTem: [20],
+    });
+
+    const r = await service.etiquetarFolhaSemCategoria();
+
+    expect(r).toEqual({ etiquetadas: 2, daFolha: 3, semCategoria: false });
+    expect(createMany).toHaveBeenCalledWith({
+      data: [
+        { idFnApagar: 10, categoriaId: 'cat-salarios' },
+        { idFnApagar: 30, categoriaId: 'cat-salarios' },
+      ],
+      skipDuplicates: true,
+    });
+  });
+
+  it('rodar de novo não escreve nada', async () => {
+    const { service, createMany } = montarLote({
+      contas: [{ idFnApagarIxc: 10 }],
+      jaTem: [10],
+    });
+
+    const r = await service.etiquetarFolhaSemCategoria();
+
+    expect(r.etiquetadas).toBe(0);
+    expect(createMany).not.toHaveBeenCalled();
+  });
+
+  it('sem categoria configurada, avisa em vez de inventar uma', async () => {
+    const { service, createMany } = montarLote({
+      contas: [{ idFnApagarIxc: 10 }],
+      categoriaFolhaId: null,
+    });
+
+    const r = await service.etiquetarFolhaSemCategoria();
+
+    expect(r.semCategoria).toBe(true);
+    expect(createMany).not.toHaveBeenCalled();
+  });
+});
