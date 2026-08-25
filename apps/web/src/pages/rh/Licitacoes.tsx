@@ -12,6 +12,7 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { combina, semAcento } from '../../lib/busca';
 import { formatData } from '../../lib/format';
 import type {
   DocumentoRh,
@@ -481,8 +482,7 @@ export function Licitacoes() {
  * mesmo "faltam 8 dias", porque é a informação que decide o que vai: mandar
  * certidão vencida é o erro que desclassifica, e ele acontece justamente na
  * pressa de montar o pacote.
- */
-function EscolhaDosDocumentos({
+ */function EscolhaDosDocumentos({
   licitacao,
   fonte,
   pastas,
@@ -494,7 +494,7 @@ function EscolhaDosDocumentos({
 }: {
   licitacao: Licitacao;
   fonte: PastaRh;
-  /** Todas as pastas, para dizer de qual divisória cada documento veio. */
+  /** Todas as pastas, para andar pelas divisórias e nomeá-las. */
   pastas: PastaRh[];
   erro: string | null;
   pendente: boolean;
@@ -503,7 +503,17 @@ function EscolhaDosDocumentos({
   onAnexar: () => void;
 }) {
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
+  const [busca, setBusca] = useState('');
+  /** A divisória aberta agora. Começa na pasta que foi escolhida. */
+  const [pastaAtual, setPastaAtual] = useState(fonte.id);
 
+  /*
+   * A árvore inteira numa leitura só.
+   *
+   * Andar de pasta em pasta não pede nada de novo ao servidor, e a busca varre
+   * tudo que a empresa tem sem ter de adivinhar em que divisória o papel está
+   * — que é justamente o que não se sabe quando se procura por ele.
+   */
   const documentos = useQuery({
     queryKey: ['rh', 'documentos', fonte.id, 'com-subpastas'],
     queryFn: async () =>
@@ -535,6 +545,34 @@ function EscolhaDosDocumentos({
   /** Quantos ficaram de fora da lista por já estarem na pasta. */
   const jaForam = naEmpresa.length - lista.length;
 
+  /*
+   * A busca é aqui, e não uma ida ao servidor: a lista inteira já está na mão,
+   * e o valor dela é filtrar enquanto se digita — numa pasta de quarenta
+   * papéis, "balan" tem de deixar quatro linhas na tela antes de a pessoa
+   * terminar a palavra.
+   *
+   * Procurando, a divisória sai do caminho: quem digita um nome não sabe em
+   * qual delas o papel está, e limitar a busca à pasta aberta responderia "não
+   * achei" sobre um documento que existe uma gaveta ao lado.
+   */
+  const termo = semAcento(busca.trim());
+  const visiveis = termo
+    ? lista.filter((d) =>
+        combina([d.titulo, d.tipo, d.descricao, d.arquivoNome], termo),
+      )
+    : lista.filter((d) => d.pastaId === pastaAtual);
+
+  /** As divisórias desta pasta. Na busca elas dão lugar ao resultado. */
+  const subpastas = termo
+    ? []
+    : pastas.filter(
+        (p) =>
+          p.paiId === pastaAtual && p.nome.trim().toLowerCase() !== SUBSTITUIDOS,
+      );
+
+  /** O caminho da pasta escolhida até a aberta. */
+  const trilha = caminhoAte(pastas, fonte.id, pastaAtual);
+
   function alternar(id: string) {
     setMarcados((atual) => {
       const proximo = new Set(atual);
@@ -542,6 +580,40 @@ function EscolhaDosDocumentos({
       else proximo.add(id);
       return proximo;
     });
+  }
+
+  /*
+   * Os atalhos trabalham no que está à vista, e somam ao que já estava
+   * marcado.
+   *
+   * É o que a busca e as divisórias exigem: marcar os quatro balanços, entrar
+   * na pasta das certidões e marcar as seis é um gesto só em duas etapas — se
+   * o segundo "marcar" trocasse a marcação inteira, os quatro primeiros
+   * cairiam sem ninguém ver, e o envio sairia com metade do pacote.
+   */
+  function marcarAVista(quais: DocumentoRh[]) {
+    setMarcados((atual) => new Set([...atual, ...quais.map((d) => d.id)]));
+  }
+
+  /** Dos marcados, quantos estão fora da lista que se vê agora. */
+  const marcadosEscondidos = [...marcados].filter(
+    (id) => !visiveis.some((d) => d.id === id),
+  ).length;
+
+  /**
+   * A seta desfaz um passo de cada vez, e na ordem em que eles foram dados:
+   * primeiro a busca, depois a divisória em que se entrou, e só então a
+   * escolha da empresa. Voltar direto para o começo jogaria fora, num clique,
+   * o caminho que alguém andou até achar o papel.
+   */
+  function voltar() {
+    if (termo) {
+      setBusca('');
+      return;
+    }
+    const pai = pastas.find((p) => p.id === pastaAtual)?.paiId;
+    if (pastaAtual !== fonte.id && pai) setPastaAtual(pai);
+    else onVoltar();
   }
 
   // As duas leituras esperam juntas: mostrar a lista antes de saber o que já
@@ -554,13 +626,7 @@ function EscolhaDosDocumentos({
   if (lista.length === 0) {
     return (
       <>
-        <Vazio
-          titulo={
-            jaForam > 0
-              ? 'Já foi tudo'
-              : 'Esta pasta está vazia'
-          }
-        >
+        <Vazio titulo={jaForam > 0 ? 'Já foi tudo' : 'Esta pasta está vazia'}>
           {jaForam > 0
             ? `Os ${jaForam} documento(s) de "${fonte.nome}" já estão nesta licitação. O que falta, se falta, é o que se faz por fora.`
             : `Não há documento nenhum em "${fonte.nome}" para mandar junto.`}
@@ -584,37 +650,76 @@ function EscolhaDosDocumentos({
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm text-tinta-500">
-          {fonte.nome} — {lista.length} documento(s)
-          {/* O que já entrou some da lista, mas não em silêncio: sem esta
-              frase, a pasta de quarenta papéis que abre com vinte e oito
-              parece ter perdido doze pelo caminho. */}
-          {jaForam > 0 && (
-            <span className="text-tinta-400">
-              {' '}
-              · {jaForam} já {jaForam === 1 ? 'está' : 'estão'} na licitação
+        {/* A seta fica junto do nome da pasta porque é dele que ela fala: é o
+            caminho de volta pela mesma porta por onde se entrou. */}
+        <button
+          type="button"
+          onClick={voltar}
+          title="Voltar"
+          aria-label="Voltar"
+          className="btn btn-p btn-sutil"
+        >
+          ←
+        </button>
+
+        <span className="min-w-0 text-sm text-tinta-500">
+          {trilha.map((p, i) => (
+            <span key={p.id}>
+              {i > 0 && <span className="text-tinta-300"> / </span>}
+              {p.id === pastaAtual ? (
+                <span className="font-semibold text-tinta-700">{p.nome}</span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setPastaAtual(p.id)}
+                  className="hover:text-brand-600 hover:underline"
+                >
+                  {p.nome}
+                </button>
+              )}
             </span>
-          )}
+          ))}
+          <span className="text-tinta-400">
+            {' '}
+            —{' '}
+            {termo
+              ? `${visiveis.length} de ${lista.length} documento(s)`
+              : `${visiveis.length} documento(s)`}
+            {/* O que já entrou some da lista, mas não em silêncio: sem esta
+                frase, a pasta de quarenta papéis que abre com vinte e oito
+                parece ter perdido doze pelo caminho. */}
+            {jaForam > 0 &&
+              ` · ${jaForam} já ${jaForam === 1 ? 'está' : 'estão'} na licitação`}
+          </span>
         </span>
+
         <div className="ml-auto flex flex-wrap gap-1.5">
           <button
             type="button"
-            onClick={() => setMarcados(new Set(lista.map((d) => d.id)))}
+            onClick={() => marcarAVista(visiveis)}
+            disabled={visiveis.length === 0}
             className="btn btn-p btn-sutil"
           >
-            Marcar todos
+            {termo ? 'Marcar os achados' : 'Marcar os desta pasta'}
           </button>
           {/* O atalho que se usa de verdade: o pacote é o que está valendo, e
               o vencido some da marcação em vez de ter de ser caçado nela. */}
           <button
             type="button"
-            onClick={() =>
+            onClick={() => {
+              const vencidosAVista = new Set(
+                visiveis.filter((d) => d.prazo === 'vencido').map((d) => d.id),
+              );
               setMarcados(
-                new Set(
-                  lista.filter((d) => d.prazo !== 'vencido').map((d) => d.id),
-                ),
-              )
-            }
+                (atual) =>
+                  new Set(
+                    [...atual, ...visiveis.map((d) => d.id)].filter(
+                      (id) => !vencidosAVista.has(id),
+                    ),
+                  ),
+              );
+            }}
+            disabled={visiveis.length === 0}
             className="btn btn-p btn-sutil"
           >
             Só os que não venceram
@@ -629,10 +734,43 @@ function EscolhaDosDocumentos({
         </div>
       </div>
 
+      {/* A busca fica acima da lista e vale para a empresa inteira: numa pasta
+          de quarenta papéis, achar "o balanço de 2024" abrindo divisória por
+          divisória é o caminho longo para uma linha que o nome já identifica. */}
+      <input
+        value={busca}
+        onChange={(e) => setBusca(e.target.value)}
+        placeholder="Procurar por nome, tipo ou arquivo — em todas as pastas"
+        className="campo mt-3"
+        aria-label="Procurar documento"
+      />
+
       <div className="mt-3 max-h-[50vh] overflow-y-auto rolagem-fina rounded-xl border border-tinta-100">
         <table className="w-full text-sm">
           <tbody>
-            {lista.map((d) => {
+            {/* As divisórias primeiro, como numa gaveta: elas são o caminho, e
+                os papéis soltos são o conteúdo desta. */}
+            {subpastas.map((p) => (
+              <tr key={p.id} className="linha">
+                <td className="td w-8 align-top text-tinta-300" aria-hidden>
+                  ▸
+                </td>
+                <td className="td" colSpan={2}>
+                  <button
+                    type="button"
+                    onClick={() => setPastaAtual(p.id)}
+                    className="block text-left font-medium text-brand-700 hover:underline dark:text-brand-300"
+                  >
+                    {p.nome}
+                  </button>
+                  <div className="text-xs text-tinta-400">
+                    {quantosDentro(pastas, lista, p.id)} documento(s) dentro
+                  </div>
+                </td>
+              </tr>
+            ))}
+
+            {visiveis.map((d) => {
               const de = pastas.find((p) => p.id === d.pastaId);
               return (
                 <tr key={d.id} className="linha">
@@ -656,9 +794,10 @@ function EscolhaDosDocumentos({
                       <Selo pequeno tom="neutro">
                         {d.tipo}
                       </Selo>
-                      {/* De qual divisória ele veio: sem isto, dois papéis de
-                          nome parecido em pastas diferentes viram um enigma. */}
-                      {de && de.id !== fonte.id && <span>em {de.nome}</span>}
+                      {/* De qual divisória ele veio. Na pasta aberta isso é
+                          óbvio e o rótulo some; no resultado da busca é o que
+                          diz onde o papel mora. */}
+                      {de && de.id !== pastaAtual && <span>em {de.nome}</span>}
                     </div>
                   </td>
                   <td className="td whitespace-nowrap align-top">
@@ -667,6 +806,18 @@ function EscolhaDosDocumentos({
                 </tr>
               );
             })}
+
+            {visiveis.length === 0 && (
+              <tr>
+                <td className="td text-sm text-tinta-400" colSpan={3}>
+                  {termo
+                    ? 'Nenhum documento com esse nome nas pastas da empresa.'
+                    : subpastas.length > 0
+                      ? 'Nenhum documento solto aqui — o que há está nas pastas de dentro.'
+                      : 'Esta pasta não tem documento nenhum.'}
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -683,7 +834,7 @@ function EscolhaDosDocumentos({
 
       {erro && <Aviso tom="erro">{erro}</Aviso>}
 
-      <div className="mt-5 flex flex-wrap justify-end gap-2">
+      <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
         <button
           type="button"
           onClick={onVoltar}
@@ -691,6 +842,14 @@ function EscolhaDosDocumentos({
         >
           Trocar de empresa
         </button>
+        {/* Marcação que a busca ou a divisória escondeu continua valendo, e o
+            número no botão a conta: sem esta frase, "Mandar 9" com três linhas
+            na tela parece engano. */}
+        {marcadosEscondidos > 0 && (
+          <span className="text-xs text-tinta-400">
+            {marcadosEscondidos} marcado(s) fora desta lista
+          </span>
+        )}
         <button type="button" onClick={onAnexar} className="btn btn-neutro">
           Anexar arquivo de fora
         </button>
@@ -700,11 +859,58 @@ function EscolhaDosDocumentos({
           disabled={marcados.size === 0 || pendente}
           className="btn btn-primario"
         >
-          {pendente
-            ? 'Copiando…'
-            : `Mandar ${marcados.size} para a licitação`}
+          {pendente ? 'Copiando…' : `Mandar ${marcados.size} para a licitação`}
         </button>
       </div>
     </>
   );
+}
+
+/**
+ * O caminho da pasta escolhida até a que está aberta.
+ *
+ * Sobe pelo `paiId` e para na raiz da montagem: acima dela é a estante, que
+ * esta janela não abre. O teto de passos é a mesma precaução da API — um
+ * `paiId` em círculo trava numa volta em vez de num laço infinito.
+ */
+function caminhoAte(
+  pastas: PastaRh[],
+  raizId: string,
+  atualId: string,
+): PastaRh[] {
+  const caminho: PastaRh[] = [];
+  let id: string | undefined = atualId;
+  for (let passo = 0; id && passo < 20; passo += 1) {
+    const pasta: PastaRh | undefined = pastas.find((p) => p.id === id);
+    if (!pasta) break;
+    caminho.unshift(pasta);
+    id = pasta.id === raizId ? undefined : (pasta.paiId ?? undefined);
+  }
+  return caminho;
+}
+
+/**
+ * Quantos documentos há dentro de uma divisória, contando as de dentro dela.
+ *
+ * É o número que decide se vale a pena entrar. Conta sobre a lista que já está
+ * na tela — a que já tirou o que foi para a licitação —, então uma pasta que
+ * aparece com "0 documento(s) dentro" está dizendo que dali já foi tudo.
+ */
+function quantosDentro(
+  pastas: PastaRh[],
+  documentos: DocumentoRh[],
+  id: string,
+): number {
+  const arvore = new Set([id]);
+  let cresceu = true;
+  while (cresceu) {
+    cresceu = false;
+    for (const p of pastas) {
+      if (p.paiId && arvore.has(p.paiId) && !arvore.has(p.id)) {
+        arvore.add(p.id);
+        cresceu = true;
+      }
+    }
+  }
+  return documentos.filter((d) => arvore.has(d.pastaId)).length;
 }
