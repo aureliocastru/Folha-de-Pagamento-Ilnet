@@ -372,7 +372,8 @@ export function Licitacoes() {
           onFechar={() => setMontagem(null)}
         >
           <EscolhaDosDocumentos
-            key={montagem.fonte.id}
+            key={`${montagem.licitacao.id}-${montagem.fonte.id}`}
+            licitacao={montagem.licitacao}
             fonte={montagem.fonte}
             pastas={pastas}
             erro={erro}
@@ -461,7 +462,17 @@ export function Licitacoes() {
 }
 
 /**
- * A lista de tudo que a empresa tem, com uma caixa em cada linha.
+ * A lista do que **ainda não está** na licitação, com uma caixa em cada linha.
+ *
+ * Quem volta para acrescentar o que faltou não quer rever os quarenta papéis:
+ * quer os que ficaram de fora. Listar tudo de novo, com doze deles já dentro da
+ * pasta e sem nada dizendo isso, faz a mesma escolha ser refeita no escuro — e
+ * marcar de novo o que já foi não muda nada (a API recusa a repetição), o que é
+ * pior: o trabalho parece ter acontecido e não aconteceu.
+ *
+ * A comparação é pelo título, que é a mesma régua com que a API decide o que
+ * não entra duas vezes — se fosse outra, a tela esconderia uma linha que o
+ * servidor deixaria passar, ou o contrário.
  *
  * A marcação vive aqui dentro, e não na tela: trocar de empresa recomeça a
  * escolha, e é o que se espera — o que estava marcado era da outra pasta.
@@ -472,6 +483,7 @@ export function Licitacoes() {
  * pressa de montar o pacote.
  */
 function EscolhaDosDocumentos({
+  licitacao,
   fonte,
   pastas,
   erro,
@@ -480,6 +492,7 @@ function EscolhaDosDocumentos({
   onVoltar,
   onAnexar,
 }: {
+  licitacao: Licitacao;
   fonte: PastaRh;
   /** Todas as pastas, para dizer de qual divisória cada documento veio. */
   pastas: PastaRh[];
@@ -501,7 +514,26 @@ function EscolhaDosDocumentos({
       ).data,
   });
 
-  const lista = documentos.data ?? [];
+  /** O que a licitação já tem — é ele que sai da lista de escolher. */
+  const jaNaLicitacao = useQuery({
+    queryKey: ['rh', 'documentos', licitacao.id, 'na-licitacao'],
+    queryFn: async () =>
+      (
+        await api.get<DocumentoRh[]>('/rh/documentos', {
+          params: { pastaId: licitacao.id },
+        })
+      ).data,
+  });
+
+  const naEmpresa = documentos.data ?? [];
+  const dentro = new Set(
+    (jaNaLicitacao.data ?? []).map((d) => d.titulo.trim().toLowerCase()),
+  );
+  const lista = naEmpresa.filter(
+    (d) => !dentro.has(d.titulo.trim().toLowerCase()),
+  );
+  /** Quantos ficaram de fora da lista por já estarem na pasta. */
+  const jaForam = naEmpresa.length - lista.length;
 
   function alternar(id: string) {
     setMarcados((atual) => {
@@ -512,15 +544,26 @@ function EscolhaDosDocumentos({
     });
   }
 
-  if (documentos.isLoading) {
+  // As duas leituras esperam juntas: mostrar a lista antes de saber o que já
+  // está na licitação acenderia por um instante justamente as linhas que este
+  // filtro existe para tirar.
+  if (documentos.isLoading || jaNaLicitacao.isLoading) {
     return <Carregando texto="Lendo o que a empresa tem…" />;
   }
 
   if (lista.length === 0) {
     return (
       <>
-        <Vazio titulo="Esta pasta está vazia">
-          Não há documento nenhum em "{fonte.nome}" para mandar junto.
+        <Vazio
+          titulo={
+            jaForam > 0
+              ? 'Já foi tudo'
+              : 'Esta pasta está vazia'
+          }
+        >
+          {jaForam > 0
+            ? `Os ${jaForam} documento(s) de "${fonte.nome}" já estão nesta licitação. O que falta, se falta, é o que se faz por fora.`
+            : `Não há documento nenhum em "${fonte.nome}" para mandar junto.`}
         </Vazio>
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" onClick={onVoltar} className="btn btn-neutro">
@@ -543,6 +586,15 @@ function EscolhaDosDocumentos({
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm text-tinta-500">
           {fonte.nome} — {lista.length} documento(s)
+          {/* O que já entrou some da lista, mas não em silêncio: sem esta
+              frase, a pasta de quarenta papéis que abre com vinte e oito
+              parece ter perdido doze pelo caminho. */}
+          {jaForam > 0 && (
+            <span className="text-tinta-400">
+              {' '}
+              · {jaForam} já {jaForam === 1 ? 'está' : 'estão'} na licitação
+            </span>
+          )}
         </span>
         <div className="ml-auto flex flex-wrap gap-1.5">
           <button
