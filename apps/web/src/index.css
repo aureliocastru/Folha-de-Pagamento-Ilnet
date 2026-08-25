@@ -388,6 +388,18 @@
     background-color: rgb(var(--faixa));
   }
   /*
+   * A linha que abre um grupo — a categoria-mãe, com as subcategorias dela
+   * embaixo.
+   *
+   * Leva a mesma tinta da faixa de título dos cartões, e não um cinza a mais:
+   * as duas dizem a mesma coisa ("isto encabeça o que vem abaixo"), e uma cor
+   * nova para o mesmo papel seria uma segunda gramática para quem lê. É a
+   * marca que separa o cabeçalho do conteúdo em toda a casa.
+   */
+  .faixa-do-grupo {
+    @apply bg-brand-500/[0.07] dark:bg-brand-400/[0.09];
+  }
+  /*
    * A mesma divisória para as listas que não são tabela — as de `divide-y` e
    * as de `border-b … last:border-0`. Elas separam item de item igual, e sem
    * isto a correção valeria só para metade das telas.
