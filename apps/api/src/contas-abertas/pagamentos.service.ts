@@ -16,6 +16,7 @@ import {
 } from '../ixc/ixc.financeiro';
 import { parseIxcId } from '../ixc/ixc.parse';
 import { PrismaService } from '../prisma/prisma.service';
+import { campoDeBaixa, statusDizPago } from './contas-abertas.mapper';
 
 /** Por onde o dinheiro sai. */
 export type FormaDePagar = 'BANCO' | 'EM_MAOS';
@@ -635,10 +636,24 @@ export class PagamentosService {
   /**
    * Apaga um título do IXC.
    *
-   * Só o que ainda não foi pago: apagar uma conta paga sumiria com o registro
-   * de uma saída de dinheiro que existiu. Se ela nasceu aqui, o registro deste
+   * Só o que nunca teve baixa: apagar um título baixado sumiria com o registro
+   * de uma saída de dinheiro que existiu. Se ele nasceu aqui, o registro deste
    * lado vai junto — deixá-lo apontando para um título que não existe mais
    * faria a conferência de pagamentos procurar um fantasma.
+   *
+   * A trava aqui é mais larga que a de pagar de propósito, e isso custou R$
+   * 300,00 para ser aprendido. Ela usava `lerSituacaoContaPagar().pago`, que
+   * pergunta "esta conta está quitada?" — e quitada, nesta base, quer dizer
+   * status "P" (que ela não usa: aqui é "F"), ou data de pagamento preenchida,
+   * ou saldo zerado. Um título baixado que não caísse em nenhuma das três
+   * passava por "não pago" e era apagado.
+   *
+   * O que apagar destrói não é a quitação: é a **baixa**. Ela move dinheiro no
+   * `fn_movim_finan` do IXC, e apagar o título de `fn_apagar` não desfaz esse
+   * movimento — sobra uma saída no caixa sem nada atrás dela, que foi
+   * exatamente o que aconteceu num acerto da rua. Por isso a pergunta certa é
+   * "houve baixa?", e não "está quitado?": baixa parcial também tirou dinheiro
+   * da gaveta.
    */
   async excluir(idFnApagar: number): Promise<{ idFnApagar: number }> {
     const raw = await this.ixc.getById<Record<string, unknown>>(
@@ -652,11 +667,13 @@ export class PagamentosService {
       );
     }
 
-    const situacao = lerSituacaoContaPagar(raw);
-    if (situacao.pago) {
+    const marca = marcaDeBaixa(raw);
+    if (marca) {
       throw new BadRequestException(
-        `O título ${idFnApagar} já foi pago. Apagar sumiria com o registro de ` +
-          'um dinheiro que saiu — estorne no IXC, se for o caso.',
+        `O título ${idFnApagar} já teve baixa no IXC (${marca}). Apagar ` +
+          'sumiria com o registro de um dinheiro que saiu, e a saída no caixa ' +
+          'ficaria sem nada atrás dela. Estorne o pagamento no IXC ' +
+          '(Pagar > Estornar pagamento recebido) e apague depois, se for o caso.',
       );
     }
 
@@ -668,6 +685,39 @@ export class PagamentosService {
 
     return { idFnApagar };
   }
+}
+
+/**
+ * Por que este título não pode mais ser apagado — ou `null` se nunca teve
+ * baixa.
+ *
+ * Devolve o **motivo por extenso** e não um booleano porque a frase da recusa
+ * precisa dele: "já teve baixa" sem dizer por onde se soube manda a pessoa
+ * procurar no IXC uma coisa que ela não sabe nomear.
+ *
+ * As três perguntas são independentes de propósito. Cada uma pega um jeito
+ * diferente de a baixa ter acontecido, e nenhuma delas pega todos: o status
+ * desta base é "F" e não o "P" da documentação; a coluna da data varia de
+ * instalação para instalação (por isso `CAMPOS_DE_BAIXA` é uma lista); e há
+ * títulos baixados aqui cuja data não estava em nenhuma das colunas — é o caso
+ * que o histórico de pagamentos chama de `fonteDaData: 'titulo'`.
+ */
+export function marcaDeBaixa(raw: Record<string, unknown>): string | null {
+  if (statusDizPago(raw)) {
+    return `status "${String(raw.status ?? '').trim()}"`;
+  }
+
+  const campo = campoDeBaixa(raw);
+  if (campo) return `a coluna ${campo}`;
+
+  const situacao = lerSituacaoContaPagar(raw);
+  // Baixa parcial: sobrou saldo, mas dinheiro já saiu da gaveta por este
+  // título. Apagá-lo apaga o registro do que saiu.
+  if (situacao.valorPago > 0.005) {
+    return `R$ ${situacao.valorPago.toFixed(2)} já pagos`;
+  }
+
+  return null;
 }
 
 /**
