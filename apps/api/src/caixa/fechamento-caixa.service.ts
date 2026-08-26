@@ -825,6 +825,8 @@ export class FechamentoCaixaService {
       observacao?: string;
       /** Só para NOTA: a conta a pagar a lançar pelo que foi gasto. */
       despesa?: DespesaDaPrestacao;
+      /** Só para NOTA sem despesa: o dia em que ela já saiu do caixa no IXC. */
+      gastoJaNoIxcEm?: string;
     },
     usuarioId?: string,
     usuarioNome?: string,
@@ -862,6 +864,45 @@ export class FechamentoCaixaService {
     if (dados.despesa && dados.tipo !== 'NOTA') {
       throw new BadRequestException(
         'Só a nota vira conta a pagar: troco e reforço não são despesa.',
+      );
+    }
+
+    if (dados.gastoJaNoIxcEm && dados.tipo !== 'NOTA') {
+      throw new BadRequestException(
+        'Só a nota tem despesa: troco e reforço não saem no caixa do IXC.',
+      );
+    }
+
+    /*
+     * Ou o app lança a despesa, ou ela já está lá — nunca as duas.
+     *
+     * Aceitar as duas juntas seria descontar o gasto duas vezes da gaveta: uma
+     * pela compensação da despesa lançada aqui, outra pela data informada à
+     * mão. E ainda deixaria dois títulos no IXC para a mesma nota.
+     */
+    if (dados.despesa && dados.gastoJaNoIxcEm) {
+      throw new BadRequestException(
+        'Escolha um dos dois: ou o app lança a conta a pagar, ou ela já está ' +
+          'no IXC. As duas juntas descontariam o mesmo gasto duas vezes.',
+      );
+    }
+
+    /*
+     * A data da saída lá não pode ser anterior à entrega.
+     *
+     * Ela existe para compensar o dinheiro que saiu da gaveta nesta conta, e
+     * compensação em período anterior à saída joga o acerto num fechamento que
+     * já foi assinado sem ele.
+     */
+    const gastoJaNoIxc = dados.gastoJaNoIxcEm
+      ? dataDoDia(dados.gastoJaNoIxcEm, 'da saída no IXC')
+      : null;
+    // Pelo dia, e não pelo instante: a entrega guarda a hora em que foi
+    // anotada, e uma saída no IXC do mesmo dia às 00:00 pareceria anterior.
+    if (gastoJaNoIxc && diaISO(gastoJaNoIxc) < diaISO(conta.entregueEm)) {
+      throw new BadRequestException(
+        'A saída no IXC é de antes de o dinheiro ter sido entregue. Confira a ' +
+          'data: ela é a do dia em que a despesa saiu do caixa lá.',
       );
     }
 
@@ -908,6 +949,15 @@ export class FechamentoCaixaService {
               gastoPagoEm: lancada.pagoEm,
             }
           : {}),
+        /*
+         * A despesa lançada por fora entra só com a data.
+         *
+         * `idFnApagarIxc` fica vazio de propósito, mesmo que se saiba o número
+         * do título: é ele que faz o "desfazer" apagar o título no IXC, e
+         * apagar um título que este app não criou seria mexer no lançamento
+         * que alguém fez à mão do outro lado.
+         */
+        ...(gastoJaNoIxc ? { gastoPagoEm: gastoJaNoIxc } : {}),
       },
     });
 

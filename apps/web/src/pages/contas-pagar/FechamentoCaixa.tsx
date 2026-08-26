@@ -1960,6 +1960,8 @@ function AcertarConta({
 
   // A despesa que a nota vira no IXC.
   const [lancarDespesa, setLancarDespesa] = useState(true);
+  /** Quando ela já foi lançada lá por fora: o dia em que saiu do caixa do IXC. */
+  const [gastoJaNoIxcEm, setGastoJaNoIxcEm] = useState('');
   const [termo, setTermo] = useState('');
   const [fornecedor, setFornecedor] = useState<FornecedorIxc | null>(null);
   /* O motivo da entrega já é a descrição da despesa nove vezes em dez. */
@@ -2035,6 +2037,10 @@ function AcertarConta({
                   categoriaId: categoriaId || undefined,
                 }
               : undefined,
+            gastoJaNoIxcEm:
+              ehNota && !lancarDespesa && gastoJaNoIxcEm
+                ? gastoJaNoIxcEm
+                : undefined,
           },
         )
       ).data,
@@ -2046,6 +2052,7 @@ function AcertarConta({
       setData(diaDeHoje());
       setFornecedor(null);
       setTermo('');
+      setGastoJaNoIxcEm('');
       setErro(null);
       onLancado(feito.despesa?.avisos ?? []);
     },
@@ -2298,11 +2305,40 @@ function AcertarConta({
           </label>
 
           {!lancarDespesa ? (
-            <p className="ajuda mt-1">
-              Desmarcado, a nota fica registrada só aqui. Use assim quando a
-              despesa já tiver sido lançada no IXC por outro caminho; senão o
-              caixa de lá continua sem a saída.
-            </p>
+            <>
+              <p className="ajuda mt-1">
+                Desmarcado, a nota fica registrada só aqui. Use assim quando a
+                despesa já tiver sido lançada no IXC por outro caminho; senão o
+                caixa de lá continua sem a saída.
+              </p>
+
+              {/* A data da saída lá é o que impede o dinheiro de ser
+                  descontado duas vezes da gaveta.
+
+                  O saldo esperado tira da conta o que foi entregue e devolve o
+                  que a nota virou despesa — e essa devolução se guia por esta
+                  data. Sem ela, a entrega desconta uma vez e a saída lançada no
+                  IXC desconta de novo: R$ 300 entregues viram R$ 600 fora da
+                  gaveta, e a contagem nunca fecha. */}
+              <div className="mt-3">
+                <label className="rotulo" htmlFor="gasto-ja-no-ixc">
+                  Em que dia ela saiu do caixa no IXC{' '}
+                  <span className="text-tinta-400">(opcional)</span>
+                </label>
+                <input
+                  id="gasto-ja-no-ixc"
+                  type="date"
+                  value={gastoJaNoIxcEm}
+                  onChange={(e) => setGastoJaNoIxcEm(e.target.value)}
+                  className="campo max-w-xs"
+                />
+                <p className="ajuda">
+                  {gastoJaNoIxcEm
+                    ? 'A gaveta soma este gasto de volta no período desse dia, porque a saída do IXC já o desconta.'
+                    : 'Sem esta data, o valor sai da gaveta duas vezes: uma pela entrega e outra pela saída que já está no IXC. Preencha com o dia da saída lá.'}
+                </p>
+              </div>
+            </>
           ) : (
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="sm:col-span-2">

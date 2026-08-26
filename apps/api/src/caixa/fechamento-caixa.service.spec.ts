@@ -1604,3 +1604,117 @@ describe('histórico de um período fechado', () => {
     );
   });
 });
+
+/**
+ * A despesa lançada por fora, direto no IXC.
+ *
+ * É o caso que a caixinha "Lançar a conta a pagar deste gasto" desmarcada
+ * sempre disse servir — "use assim quando a despesa já tiver sido lançada no
+ * IXC por outro caminho" — e que a conta da gaveta não sabia compensar: a
+ * entrega descontava o dinheiro uma vez, a saída lançada lá descontava de
+ * novo, e R$ 300,00 entregues viravam R$ 600,00 fora da gaveta.
+ *
+ * A data da saída no IXC é o que fecha isso: é ela que o `gastoPagoEm` guarda,
+ * e é por ele que o período soma o gasto de volta.
+ */
+describe('acerto com a despesa já lançada no IXC', () => {
+  const conta = {
+    id: 'r1',
+    caixaId: 7,
+    pessoa: 'Jeferson',
+    valor: 300,
+    entregueEm: new Date(2026, 7, 20),
+    baixadoEm: null,
+    movimentos: [],
+  };
+
+  it('grava a data da saída de lá, que é o que compensa a gaveta', async () => {
+    const { service, prisma } = montarServico({ entrega: conta });
+
+    await service.lancarMovimento('r1', {
+      tipo: 'NOTA',
+      valor: 300,
+      data: '2026-08-26',
+      gastoJaNoIxcEm: '2026-08-26',
+    });
+
+    const [{ data }] = prisma.movimentoDaRua.create.mock.calls[0];
+    expect(data.gastoPagoEm).toEqual(new Date(2026, 7, 26));
+  });
+
+  it('não guarda o número do título: desfazer não pode apagar o que não criou', async () => {
+    const { service, prisma } = montarServico({ entrega: conta });
+
+    await service.lancarMovimento('r1', {
+      tipo: 'NOTA',
+      valor: 300,
+      gastoJaNoIxcEm: '2026-08-26',
+    });
+
+    const [{ data }] = prisma.movimentoDaRua.create.mock.calls[0];
+    expect(data.idFnApagarIxc).toBeUndefined();
+  });
+
+  it('recusa as duas juntas: seria o mesmo gasto compensado duas vezes', async () => {
+    const { service } = montarServico({ entrega: conta });
+
+    await expect(
+      service.lancarMovimento('r1', {
+        tipo: 'NOTA',
+        valor: 300,
+        gastoJaNoIxcEm: '2026-08-26',
+        despesa: {
+          idFornecedorIxc: 55,
+          fornecedorNome: 'Auto Peças Silva',
+          descricao: 'Correia',
+        },
+      }),
+    ).rejects.toThrow(/duas vezes/i);
+  });
+
+  it('recusa em troco e reforço, que não saem no caixa do IXC', async () => {
+    const { service } = montarServico({ entrega: conta });
+
+    await expect(
+      service.lancarMovimento('r1', {
+        tipo: 'TROCO',
+        valor: 10,
+        gastoJaNoIxcEm: '2026-08-26',
+      }),
+    ).rejects.toThrow(/troco e reforço/i);
+  });
+
+  it('recusa a saída anterior à entrega, que cairia num fechamento já assinado', async () => {
+    const { service } = montarServico({ entrega: conta });
+
+    await expect(
+      service.lancarMovimento('r1', {
+        tipo: 'NOTA',
+        valor: 300,
+        gastoJaNoIxcEm: '2026-08-19',
+      }),
+    ).rejects.toThrow(/antes de o dinheiro ter sido entregue/i);
+  });
+
+  it('aceita a saída no mesmo dia da entrega', async () => {
+    const { service, prisma } = montarServico({ entrega: conta });
+
+    await service.lancarMovimento('r1', {
+      tipo: 'NOTA',
+      valor: 300,
+      gastoJaNoIxcEm: '2026-08-20',
+    });
+
+    const [{ data }] = prisma.movimentoDaRua.create.mock.calls[0];
+    expect(data.gastoPagoEm).toEqual(new Date(2026, 7, 20));
+  });
+
+  it('sem a data, segue como antes: nada a compensar', async () => {
+    const { service, prisma } = montarServico({ entrega: conta });
+
+    await service.lancarMovimento('r1', { tipo: 'NOTA', valor: 300 });
+
+    const [{ data }] = prisma.movimentoDaRua.create.mock.calls[0];
+    expect(data.gastoPagoEm).toBeUndefined();
+  });
+});
