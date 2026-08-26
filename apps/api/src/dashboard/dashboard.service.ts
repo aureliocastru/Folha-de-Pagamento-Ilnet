@@ -128,6 +128,9 @@ export class DashboardService {
           forma: true,
           beneficiarioId: true,
           contaPagar: { select: { status: true } },
+          // A prova de que o em mãos sem conta a pagar saiu mesmo da gaveta.
+          idLancamentoIxc: true,
+          lancadoManual: true,
         },
       }),
       this.impostos.resumo(meses),
@@ -159,15 +162,26 @@ export class DashboardService {
 
     const serie = montarSerieContas(meses, contas);
     const diaristas = montarPagamentosPorData(meses, diarias, (d) => d.diaristaId);
+    /*
+     * O avulso em mãos precisa provar que saiu; a diária não.
+     *
+     * O em mãos do avulso nasce como conta a pagar na conta do caixa. Um avulso
+     * sem conta nenhuma é um pagamento que não chegou a existir do outro lado —
+     * ou cuja conta foi apagada depois —, e dinheiro nenhum saiu por ele.
+     */
+    const avulsosComProva = avulsos.map((a) => ({
+      ...a,
+      precisaProvaDeSaida: true,
+    }));
     const avulsosSerie = montarPagamentosPorData(
       meses,
-      avulsos,
+      avulsosComProva,
       (p) => p.beneficiarioId,
     );
     const diariasDoMes = diaristas.serie.find((d) => d.competencia === comp);
     const avulsosDoMes = avulsosSerie.serie.find((a) => a.competencia === comp);
     const serieTipos = comDiariaEAvulso(serie.porTipo, diaristas, avulsosSerie);
-    const vendas = montarVendas(meses, [...diarias, ...avulsos], contas);
+    const vendas = montarVendas(meses, [...diarias, ...avulsosComProva], contas);
 
     return {
       competencia: comp,
@@ -362,6 +376,18 @@ interface PagamentoDaSerie {
   vendas: number;
   forma: FormaPagamento;
   contaPagar: { status: StatusContaPagar } | null;
+  /**
+   * Em mãos, sem conta a pagar, este pagamento precisa provar que saiu.
+   *
+   * A diária em mãos não precisa: o dinheiro foi entregue na hora, e nunca
+   * houve nada para o IXC confirmar. O avulso precisa — o em mãos dele nasce
+   * como conta a pagar na conta do caixa, e um avulso sem conta nenhuma é um
+   * pagamento que não chegou a existir do outro lado.
+   */
+  precisaProvaDeSaida?: boolean;
+  /** A prova: o lançamento no caixa do IXC, ou a marca de lançado à mão. */
+  idLancamentoIxc?: number | null;
+  lancadoManual?: boolean;
 }
 
 /** Onde o pagamento está no caminho do dinheiro. */
@@ -375,12 +401,27 @@ type SituacaoDoPagamento = 'SAIU' | 'A_CAMINHO' | 'TRAVADO';
  */
 function situacaoDoPagamento(p: PagamentoDaSerie): SituacaoDoPagamento {
   const status = p.contaPagar?.status;
-  // Sem conta nenhuma: ou é um pagamento em mãos antigo, de quando a saída ia
-  // direto para a movimentação financeira — e aí o dinheiro saiu da gaveta na
-  // hora, sem nada para o IXC confirmar —, ou é um pagamento pelo IXC que
-  // perdeu o fn_apagar (apagado lá) e não vai sair sozinho.
+  /*
+   * Sem conta a pagar, "em mãos" não basta para dizer que o dinheiro saiu.
+   *
+   * O em mãos **antigo** saiu mesmo: a saída ia direto para a movimentação
+   * financeira, e ele carrega a prova disso — o número do lançamento no caixa,
+   * ou a marca de que alguém o lançou à mão. Esse continua contando.
+   *
+   * Sem nenhuma das duas provas, o que existe é um pagamento cuja conta a
+   * pagar nunca foi criada, ou foi apagada depois. Dinheiro nenhum saiu, e
+   * contá-lo como saído foi o que fez uma venda de teste — lançada, apagada
+   * pela metade, nunca finalizada — continuar somando no gráfico sem aparecer
+   * em lugar nenhum como pendente.
+   *
+   * Pelo IXC sem conta a pagar é o mesmo caso: perdeu o `fn_apagar`, e não sai
+   * sozinho.
+   */
   if (!status) {
-    return p.forma === FormaPagamento.EM_MAOS ? 'SAIU' : 'TRAVADO';
+    if (p.forma !== FormaPagamento.EM_MAOS) return 'TRAVADO';
+    // A diária em mãos foi entregue na hora: não há prova a pedir.
+    if (!p.precisaProvaDeSaida) return 'SAIU';
+    return p.idLancamentoIxc || p.lancadoManual === true ? 'SAIU' : 'TRAVADO';
   }
   if (status === StatusContaPagar.PAGO) return 'SAIU';
   if (EM_ABERTO.includes(status)) return 'A_CAMINHO';

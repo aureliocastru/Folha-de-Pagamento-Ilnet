@@ -49,6 +49,9 @@ interface PagamentoDoTeste {
   diaristaId?: string;
   beneficiarioId?: string;
   contaPagar: { status: StatusContaPagar } | null;
+  /** A prova de que o em mãos sem conta a pagar saiu mesmo da gaveta. */
+  idLancamentoIxc?: number | null;
+  lancadoManual?: boolean;
 }
 
 function montarServico(dados: {
@@ -512,6 +515,9 @@ describe('gasto com vendas', () => {
           forma: FormaPagamento.EM_MAOS,
           beneficiarioId: 'b1',
           contaPagar: null,
+          // Em maos antigo: a saida foi direto para a movimentacao
+          // financeira, e o numero do lancamento e a prova disso.
+          idLancamentoIxc: 8801,
         },
       ],
     });
@@ -747,12 +753,50 @@ describe('venda a caminho não conta como venda do mês', () => {
   });
 
   /*
-   * O pagamento em mãos antigo não tinha conta a pagar: o dinheiro saía da
-   * gaveta na hora. Ele continua contando — não há o que esperar.
+   * O em mãos antigo saiu mesmo: a saída ia direto para a movimentação
+   * financeira, e ele carrega a prova — o número do lançamento no caixa. Esse
+   * continua contando.
    */
-  it('o pagamento em mãos sem conta continua contando', async () => {
+  it('o em mãos antigo, com lançamento no caixa, continua contando', async () => {
+    const { service } = montarServico({
+      avulsos: [
+        {
+          ...avulso(null),
+          forma: FormaPagamento.EM_MAOS,
+          idLancamentoIxc: 8801,
+        },
+      ],
+    });
+
+    const r = await service.resumo(COMP, 1);
+
+    expect(r.vendas.serie[0].vendas).toBe(4);
+  });
+
+  /*
+   * O caso do acerto de teste: lançado, apagado pela metade, nunca finalizado.
+   *
+   * Um avulso em mãos sem conta a pagar e sem lançamento no caixa é pagamento
+   * que não chegou a existir do outro lado. Contá-lo como saído foi o que fez
+   * duas vendas de teste continuarem somando no gráfico sem aparecer em lugar
+   * nenhum como pendente.
+   */
+  it('o em mãos sem conta e sem lançamento não conta: dinheiro nenhum saiu', async () => {
     const { service } = montarServico({
       avulsos: [{ ...avulso(null), forma: FormaPagamento.EM_MAOS }],
+    });
+
+    const r = await service.resumo(COMP, 1);
+
+    expect(r.vendas.serie[0].vendas).toBe(0);
+    expect(r.vendas.serie[0].foraDaFolha).toBe(0);
+  });
+
+  it('marcado como lançado à mão também conta', async () => {
+    const { service } = montarServico({
+      avulsos: [
+        { ...avulso(null), forma: FormaPagamento.EM_MAOS, lancadoManual: true },
+      ],
     });
 
     const r = await service.resumo(COMP, 1);
