@@ -41,19 +41,41 @@ export function CalculadoraDaGaveta({
   esperado: number | null;
   onFechar: () => void;
 }) {
-  const [contagem, setContagem] = useState<Contagem>(() =>
-    lerRascunho(caixaId),
-  );
+  const [rascunho, setRascunho] = useState<Rascunho>(() => lerRascunho(caixaId));
+  const contagem = rascunho.contagem;
+
+  const setContagem = (proxima: Contagem | ((c: Contagem) => Contagem)) =>
+    setRascunho((atual) => ({
+      contagem:
+        typeof proxima === 'function' ? proxima(atual.contagem) : proxima,
+      em: new Date().toISOString(),
+    }));
 
   /*
-   * A contagem sobrevive a um F5, mas não ao dia seguinte.
+   * Trocar de caixa recarrega a contagem daquele caixa.
+   *
+   * A contagem é de uma gaveta, e cada caixa tem a sua. Lendo só na montagem,
+   * a da gaveta anterior ficava na tela — e o efeito abaixo a gravava por cima
+   * da certa, apagando a contagem do outro caixa sem ninguém pedir.
+   */
+  const [caixaLido, setCaixaLido] = useState(caixaId);
+  if (caixaLido !== caixaId) {
+    setCaixaLido(caixaId);
+    setRascunho(lerRascunho(caixaId));
+  }
+
+  /*
+   * A contagem fica guardada até alguém mudá-la.
    *
    * Contar uma gaveta cheia leva minutos, e perder isso porque a tela
-   * recarregou é o tipo de coisa que faz ninguém mais usar. Guardar para
-   * sempre seria pior: a contagem de ontem, aberta hoje, é um número errado
-   * com cara de certo.
+   * recarregou é o tipo de coisa que faz ninguém mais usar. Ela não vence: o
+   * que protege de tomar a contagem de ontem por atual é a data mostrada ao
+   * lado do total, e não apagá-la pelas costas de quem contou.
    */
-  useEffect(() => guardarRascunho(caixaId, contagem), [caixaId, contagem]);
+  useEffect(() => {
+    if (caixaLido !== caixaId) return;
+    guardarRascunho(caixaId, contagem);
+  }, [caixaId, caixaLido, contagem]);
 
   const totalDe = (valores: number[]) =>
     arredondar(
@@ -97,6 +119,16 @@ export function CalculadoraDaGaveta({
         <div>
           <span className="rotulo mb-0">Contado na gaveta</span>
           <p className="valor text-xl">{formatBRL(total)}</p>
+          {/* De quando é esta contagem.
+
+              É o que substitui o descarte automático: a contagem guardada não
+              é apagada pelas costas de quem a fez, e ninguém a toma por atual
+              sem querer, porque a data está do lado do número. */}
+          {contou && rascunho.em && (
+            <p className="text-xs text-tinta-400">
+              contado {quandoFoiContado(rascunho.em)}
+            </p>
+          )}
         </div>
         {esperado !== null && (
           <div className="text-right">
@@ -107,9 +139,14 @@ export function CalculadoraDaGaveta({
       </div>
 
       <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+        {/* Limpar é o único jeito de a contagem sumir, e some de verdade: o
+            guardado vai junto, senão ela voltaria no próximo F5. */}
         <button
           type="button"
-          onClick={() => setContagem({})}
+          onClick={() => {
+            setRascunho({ contagem: {}, em: null });
+            apagarRascunho(caixaId);
+          }}
           disabled={!contou}
           className="btn btn-p btn-sutil"
         >
@@ -272,15 +309,40 @@ function hoje(): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-function lerRascunho(caixaId: number): Contagem {
+/** O rascunho guardado: a contagem e quando ela foi feita. */
+interface Rascunho {
+  contagem: Contagem;
+  /** Quando a última cédula foi digitada. Vazio = rascunho de antes disto. */
+  em: string | null;
+}
+
+/**
+ * A contagem guardada daquele caixa.
+ *
+ * Ela não vence mais. Antes o rascunho de outro dia era descartado — a ideia
+ * era boa (a contagem de ontem, aberta hoje, é um número errado com cara de
+ * certo), mas o remédio jogava fora justamente o que se pediu para guardar. O
+ * que resolve os dois é não apagar e **dizer de quando é**: a tela mostra a
+ * data da contagem, e quem a vê decide se ainda vale.
+ */
+function lerRascunho(caixaId: number): Rascunho {
+  const vazio: Rascunho = { contagem: {}, em: null };
   try {
     const cru = localStorage.getItem(chaveDoRascunho(caixaId));
-    if (!cru) return {};
-    const guardado = JSON.parse(cru) as { dia?: string; contagem?: Contagem };
-    return guardado.dia === hoje() ? (guardado.contagem ?? {}) : {};
+    if (!cru) return vazio;
+    const guardado = JSON.parse(cru) as {
+      dia?: string;
+      em?: string;
+      contagem?: Contagem;
+    };
+    return {
+      contagem: guardado.contagem ?? {},
+      // `dia` é o formato antigo, que só guardava a data. Vale como data.
+      em: guardado.em ?? guardado.dia ?? null,
+    };
   } catch {
     // Rascunho é conveniência: se o que está guardado não se lê, começa vazio.
-    return {};
+    return vazio;
   }
 }
 
@@ -288,9 +350,38 @@ function guardarRascunho(caixaId: number, contagem: Contagem) {
   try {
     localStorage.setItem(
       chaveDoRascunho(caixaId),
-      JSON.stringify({ dia: hoje(), contagem }),
+      JSON.stringify({ em: new Date().toISOString(), contagem }),
     );
   } catch {
     // Sem espaço ou sem permissão, a contagem vale só nesta tela.
   }
+}
+
+function apagarRascunho(caixaId: number) {
+  try {
+    localStorage.removeItem(chaveDoRascunho(caixaId));
+  } catch {
+    // Não deu para apagar: o "Limpar" já zerou o que está na tela.
+  }
+}
+
+/** "hoje às 14:32", "ontem às 9:05", "25/08 às 14:32". */
+function quandoFoiContado(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+
+  const p = (n: number) => String(n).padStart(2, '0');
+  const hora = `${p(d.getHours())}:${p(d.getMinutes())}`;
+  const dia = `${p(d.getDate())}/${p(d.getMonth() + 1)}`;
+
+  const hojeStr = hoje();
+  const daContagem = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  if (daContagem === hojeStr) return `hoje às ${hora}`;
+
+  const ontem = new Date();
+  ontem.setDate(ontem.getDate() - 1);
+  const ontemStr = `${ontem.getFullYear()}-${p(ontem.getMonth() + 1)}-${p(ontem.getDate())}`;
+  if (daContagem === ontemStr) return `ontem às ${hora}`;
+
+  return `${dia} às ${hora}`;
 }
