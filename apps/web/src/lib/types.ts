@@ -955,6 +955,14 @@ export interface Dashboard {
     }[];
     total: number;
     vendas: number;
+    /**
+     * Venda lançada cujo pagamento ainda não saiu — fora da série.
+     *
+     * A comissão é o pagamento de uma venda: enquanto o dinheiro não saiu, o
+     * que existe é intenção de pagar. Fica à parte para não sumir da tela:
+     * venda que a empresa já deve não pode desaparecer.
+     */
+    aCaminho: { comissao: number; vendas: number };
   };
   impostos: ResumoImpostos;
   /**

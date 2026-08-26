@@ -176,7 +176,14 @@ export function Dashboard() {
       chave: 'vendas',
       rotulo: 'Gasto com vendas',
       valor: vendasDoMes?.total ?? 0,
-      nota: 'Comissão de quem vende: funcionário (dentro do salário), diarista e avulso (junto do pagamento). Só conta o que ficou gravado no pagamento.',
+      nota: 'Comissão de quem vende: funcionário (dentro do salário), diarista e avulso (junto do pagamento). Conta o que ficou gravado no pagamento, e só depois que ele saiu.',
+      // O que foi lançado e ainda não saiu não entra no número, e também não
+      // pode sumir: é venda que a empresa já deve, e quem lançou precisa saber
+      // que ela está ali esperando aprovação.
+      alerta:
+        data && data.vendas.aCaminho.vendas > 0
+          ? `${data.vendas.aCaminho.vendas} venda(s), ${formatBRL(data.vendas.aCaminho.comissao)} de comissão esperando o pagamento sair`
+          : undefined,
       linhas: [
         { rotulo: 'Dentro da folha', valor: vendasDoMes?.funcionarios ?? 0 },
         { rotulo: 'A diaristas e avulsos', valor: vendasDoMes?.foraDaFolha ?? 0 },

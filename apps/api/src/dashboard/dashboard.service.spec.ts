@@ -678,3 +678,85 @@ describe('custo com pessoal', () => {
     expect(r.custoPessoal[0]).toMatchObject({ encargos: 0, total: 1000 });
   });
 });
+
+/**
+ * A venda só conta depois que o pagamento sai.
+ *
+ * Antes bastava o pagamento não estar travado, e "a caminho" — a conta a pagar
+ * criada, esperando aprovação ou baixa no IXC — já entrava no gráfico. Um
+ * acerto lançado para conferir aparecia como venda fechada no mesmo instante, e
+ * ficava lá enquanto ninguém aprovasse nem cancelasse.
+ *
+ * A comissão é o pagamento de uma venda: enquanto o dinheiro não saiu, o que
+ * existe é intenção de pagar. O que está a caminho vai para `aCaminho`, e não
+ * some da resposta — venda que a empresa já deve não pode sumir da tela.
+ */
+describe('venda a caminho não conta como venda do mês', () => {
+  const avulso = (status: StatusContaPagar | null) => ({
+    data: new Date('2026-07-20T00:00:00.000Z'),
+    valor: 200,
+    comissaoVendas: 200,
+    vendas: 4,
+    forma: FormaPagamento.IXC,
+    beneficiarioId: 'b1',
+    contaPagar: status ? { status } : null,
+  });
+
+  it('esperando aprovação: fica fora da série e aparece em "a caminho"', async () => {
+    const { service } = montarServico({
+      avulsos: [avulso(StatusContaPagar.AGUARDANDO_APROVACAO)],
+    });
+
+    const r = await service.resumo(COMP, 1);
+
+    expect(r.vendas.serie[0]).toMatchObject({ foraDaFolha: 0, vendas: 0 });
+    expect(r.vendas.aCaminho).toEqual({ comissao: 200, vendas: 4 });
+  });
+
+  it('aprovado mas ainda não pago também não conta', async () => {
+    const { service } = montarServico({
+      avulsos: [avulso(StatusContaPagar.APROVADO)],
+    });
+
+    const r = await service.resumo(COMP, 1);
+
+    expect(r.vendas.serie[0].vendas).toBe(0);
+    expect(r.vendas.aCaminho.vendas).toBe(4);
+  });
+
+  it('pago conta, e não aparece como a caminho', async () => {
+    const { service } = montarServico({
+      avulsos: [avulso(StatusContaPagar.PAGO)],
+    });
+
+    const r = await service.resumo(COMP, 1);
+
+    expect(r.vendas.serie[0]).toMatchObject({ foraDaFolha: 200, vendas: 4 });
+    expect(r.vendas.aCaminho).toEqual({ comissao: 0, vendas: 0 });
+  });
+
+  it('cancelado não conta em lugar nenhum — nem como a caminho', async () => {
+    const { service } = montarServico({
+      avulsos: [avulso(StatusContaPagar.CANCELADO)],
+    });
+
+    const r = await service.resumo(COMP, 1);
+
+    expect(r.vendas.serie[0].vendas).toBe(0);
+    expect(r.vendas.aCaminho).toEqual({ comissao: 0, vendas: 0 });
+  });
+
+  /*
+   * O pagamento em mãos antigo não tinha conta a pagar: o dinheiro saía da
+   * gaveta na hora. Ele continua contando — não há o que esperar.
+   */
+  it('o pagamento em mãos sem conta continua contando', async () => {
+    const { service } = montarServico({
+      avulsos: [{ ...avulso(null), forma: FormaPagamento.EM_MAOS }],
+    });
+
+    const r = await service.resumo(COMP, 1);
+
+    expect(r.vendas.serie[0].vendas).toBe(4);
+  });
+});

@@ -506,10 +506,39 @@ function montarVendas(
     meses.map((m) => [m, { fora: 0, folha: 0, vendas: 0 }]),
   );
 
+  /**
+   * A venda cujo pagamento ainda não saiu.
+   *
+   * Fica à parte, e não some: um acerto esperando aprovação é venda que a
+   * empresa já deve, e sumir da tela deixaria quem lançou achando que se
+   * perdeu. Não entra na série porque a série é do que já foi pago.
+   */
+  const aCaminho = { comissao: 0, vendas: 0 };
+
   for (const p of pagamentos) {
     const mes = porMes.get(mesDaData(p.data));
-    // Comissão de pagamento travado não saiu nem vai sair, como o resto dele.
-    if (!mes || situacaoDoPagamento(p) === 'TRAVADO') continue;
+    if (!mes) continue;
+
+    /*
+     * Venda só conta depois que o pagamento saiu.
+     *
+     * Antes bastava não estar travado, e "a caminho" — a conta a pagar criada,
+     * esperando aprovação ou baixa no IXC — já entrava no gráfico. Um acerto
+     * lançado para conferir aparecia como venda fechada no mesmo instante, e
+     * continuava lá enquanto o pagamento não fosse aprovado nem cancelado.
+     *
+     * A comissão é o pagamento de uma venda: enquanto o dinheiro não saiu, o
+     * que existe é uma intenção de pagar. O que está a caminho vai para
+     * `aCaminho`, e não some — só não é contado como venda do mês.
+     */
+    if (situacaoDoPagamento(p) !== 'SAIU') {
+      if (situacaoDoPagamento(p) === 'A_CAMINHO') {
+        aCaminho.comissao += Number(p.comissaoVendas ?? 0);
+        aCaminho.vendas += p.vendas;
+      }
+      continue;
+    }
+
     mes.fora += Number(p.comissaoVendas ?? 0);
     mes.vendas += p.vendas;
   }
@@ -538,6 +567,11 @@ function montarVendas(
     serie,
     total: arredondar(serie.reduce((s, m) => s + m.total, 0)),
     vendas: serie.reduce((s, m) => s + m.vendas, 0),
+    /** Venda lançada cujo pagamento ainda não saiu. Fora da série. */
+    aCaminho: {
+      comissao: arredondar(aCaminho.comissao),
+      vendas: aCaminho.vendas,
+    },
   };
 }
 
