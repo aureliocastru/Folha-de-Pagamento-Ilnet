@@ -97,6 +97,7 @@ function montarServico(
       if (opts.recusaABaixa) throw new Error(opts.recusaABaixa);
       return {};
     }),
+    remove: jest.fn(async () => ({})),
   };
 
   const config = { obter: jest.fn().mockResolvedValue(CFG) };
@@ -108,12 +109,15 @@ function montarServico(
       findFirst: jest.fn().mockResolvedValue(null),
     },
   };
+  // O quarto: quem sabe o que cai junto ao apagar uma conta a pagar daqui.
+  const contasPagar = { apagarLocalPorTituloIxc: jest.fn() };
   const service = new PagamentosService(
     ixc as never,
     config as never,
     prisma as never,
+    contasPagar as never,
   );
-  return { service, ixc, criados, prisma };
+  return { service, ixc, criados, prisma, contasPagar };
 }
 
 describe('PagamentosService.pagar', () => {
@@ -429,5 +433,48 @@ describe('PagamentosService.pagar — quando o IXC recusa a baixa', () => {
 
     expect(r.paga).toBe(true);
     expect(r.avisos).toEqual([]);
+  });
+});
+
+/**
+ * Apagado é apagado.
+ *
+ * Aqui havia um `deleteMany` na `ContaPagar` e mais nada. A FK do pagamento
+ * avulso é `SetNull`: o pagamento não ia junto, ficava sem conta a pagar e sem
+ * lançamento no caixa, e nesse estado o painel o lia como "já saiu" — contado
+ * no gasto e invisível como pendente. Foi assim que um acerto de teste apagado
+ * continuou somando duas vendas no gráfico.
+ *
+ * A regra do que cai junto mora no `ContasPagarService`. O que este arquivo
+ * protege é que este caminho a chame, em vez de decidir por conta própria.
+ */
+describe('apagar o título leva junto o que só existia por causa dele', () => {
+  const emAberto = {
+    id: '4242',
+    status: 'A',
+    valor: '100,00',
+    valor_aberto: '100,00',
+    data_pagamento: '',
+  };
+
+  it('chama quem sabe o que cai junto, e não apaga a conta por fora', async () => {
+    const { service, contasPagar, prisma } = montarServico({
+      titulo: emAberto,
+    });
+
+    await service.excluir(4242);
+
+    expect(contasPagar.apagarLocalPorTituloIxc).toHaveBeenCalledWith(4242);
+    // O `deleteMany` solto era justamente o que deixava o pagamento órfão.
+    expect(prisma.contaPagar.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('título com baixa não é apagado, e nada cai junto', async () => {
+    const { service, contasPagar } = montarServico({
+      titulo: { ...emAberto, status: 'F' },
+    });
+
+    await expect(service.excluir(4242)).rejects.toThrow(/baixa/i);
+    expect(contasPagar.apagarLocalPorTituloIxc).not.toHaveBeenCalled();
   });
 });

@@ -1348,6 +1348,27 @@ export class ContasPagarService {
     await this.prisma.contaPagar.delete({ where: { id } });
   }
 
+  /**
+   * O mesmo apagar, achando a conta pelo número do título no IXC.
+   *
+   * Existe porque há um segundo caminho que apaga título: o "excluir" da tela
+   * de contas a pagar, que conhece o `fn_apagar` e não o id daqui. Ele apagava
+   * a `ContaPagar` por conta própria, com um `deleteMany` — e a FK do
+   * pagamento avulso, que é `SetNull`, virava null em vez de levar o pagamento
+   * junto.
+   *
+   * O resultado era o pagamento órfão: sem conta a pagar, sem lançamento no
+   * caixa, contado como "já saiu" e invisível como pendente. Apagado tem de
+   * ficar apagado, e a regra do que vai junto mora num lugar só — aqui.
+   */
+  async apagarLocalPorTituloIxc(idFnApagar: number): Promise<void> {
+    const contas = await this.prisma.contaPagar.findMany({
+      where: { idFnApagarIxc: idFnApagar },
+      select: { id: true },
+    });
+    for (const c of contas) await this.apagarLocal(c.id);
+  }
+
   /** O fornecedor do IXC de quem vai receber (cria na primeira vez). */
   private async fornecedorDaConta(conta: {
     funcionarioId: string | null;

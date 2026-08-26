@@ -5,6 +5,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigFinanceiraService } from '../financeiro/config-financeira.service';
+import { ContasPagarService } from '../financeiro/contas-pagar.service';
 import { IxcClient } from '../ixc/ixc.client';
 import {
   buildAuditoriaPayload,
@@ -101,6 +102,8 @@ export class PagamentosService {
     private readonly ixc: IxcClient,
     private readonly config: ConfigFinanceiraService,
     private readonly prisma: PrismaService,
+    // Quem sabe o que cai junto quando uma conta a pagar some daqui.
+    private readonly contasPagar: ContasPagarService,
   ) {}
 
   async pagar(
@@ -678,9 +681,19 @@ export class PagamentosService {
     }
 
     await this.ixc.remove('fn_apagar', idFnApagar);
-    await this.prisma.contaPagar.deleteMany({
-      where: { idFnApagarIxc: idFnApagar },
-    });
+    /*
+     * Apagado é apagado: vai junto o que só existia por causa desta conta.
+     *
+     * Aqui havia um `deleteMany` na `ContaPagar` e mais nada. A FK do pagamento
+     * avulso é `SetNull`, então o pagamento não ia junto — ficava sem conta a
+     * pagar e sem lançamento no caixa, contado como "já saiu" e invisível como
+     * pendente. Foi assim que um acerto de teste apagado continuou somando duas
+     * vendas no painel.
+     *
+     * A regra do que cai junto mora no `ContasPagarService`, que é quem já a
+     * tinha: dois lugares decidindo isso foi o que abriu o buraco.
+     */
+    await this.contasPagar.apagarLocalPorTituloIxc(idFnApagar);
     this.logger.log(`Título ${idFnApagar} apagado do IXC.`);
 
     return { idFnApagar };
