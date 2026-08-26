@@ -802,6 +802,31 @@ export interface ContasAbertas {
   avisos: string[];
 }
 
+/**
+ * Onde um título cai na sequência de parcelas de que ele parece fazer parte.
+ *
+ * O IXC não guarda o vínculo entre as parcelas de uma compra — elas são
+ * títulos soltos. Isto aqui é inferido de "mesmo fornecedor, mesmo valor", e a
+ * tela precisa dizer isso a quem lê.
+ */
+export interface ParcelaDoTitulo {
+  /** 1 = a primeira da sequência, por vencimento */
+  posicao: number;
+  total: number;
+  pagas: number;
+  /** Quantas ainda não foram pagas — inclui esta, quando esta está aberta */
+  faltam: number;
+  valor: number;
+  primeiroVencimento: string | null;
+  ultimoVencimento: string | null;
+}
+
+export interface ParcelasEncontradas {
+  /** `idFnApagar` → o lugar daquele título. Só os que estão em sequência. */
+  titulos: Record<string, ParcelaDoTitulo>;
+  avisos: string[];
+}
+
 /** Um caixa/conta do IXC, para configurar de onde sai o dinheiro em mãos. */
 export interface CaixaIxc {
   id: number;

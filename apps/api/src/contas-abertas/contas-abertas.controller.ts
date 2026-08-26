@@ -1,5 +1,6 @@
 import { Controller, Get, Param, ParseIntPipe, Query } from '@nestjs/common';
 import { ContasAbertasService } from './contas-abertas.service';
+import { ParcelasService } from './parcelas.service';
 
 /**
  * As contas a pagar da empresa, direto do IXC: o que está em aberto e o que já
@@ -11,7 +12,10 @@ import { ContasAbertasService } from './contas-abertas.service';
  */
 @Controller('contas-abertas')
 export class ContasAbertasController {
-  constructor(private readonly service: ContasAbertasService) {}
+  constructor(
+    private readonly service: ContasAbertasService,
+    private readonly parcelas: ParcelasService,
+  ) {}
 
   @Get()
   listar() {
@@ -43,6 +47,19 @@ export class ContasAbertasController {
   }
 
   /**
+   * De que sequência de parcelas cada título faz parte — quantas já foram
+   * pagas e quantas faltam.
+   *
+   * Vem por fornecedor porque é assim que o IXC deixa achar as parcelas de uma
+   * compra: elas são títulos soltos, e o que as junta é serem do mesmo
+   * fornecedor pelo mesmo valor. Ver `ParcelasService`.
+   */
+  @Get('parcelas')
+  parcelasDosTitulos(@Query('fornecedores') fornecedores?: string) {
+    return this.parcelas.doFornecedores(lerIds(fornecedores));
+  }
+
+  /**
    * Os campos crus do título no IXC. É o que responde "por que esta conta
    * aparece aqui?" sem depender de adivinhar o nome de coluna.
    */
@@ -50,4 +67,19 @@ export class ContasAbertasController {
   bruto(@Param('idFnApagar', ParseIntPipe) idFnApagar: number) {
     return this.service.registroBruto(idFnApagar);
   }
+}
+
+/**
+ * "12,45,78" nos códigos que dá para usar.
+ *
+ * O que não for código inteiro cai fora em silêncio: a lista vem da tela, e um
+ * fornecedor sem código no IXC é uma linha que simplesmente não tem parcela
+ * para contar — não é erro que valha derrubar a consulta das outras.
+ */
+function lerIds(texto?: string): number[] {
+  if (!texto) return [];
+  return texto
+    .split(',')
+    .map((p) => Number(p.trim()))
+    .filter((n) => Number.isInteger(n) && n > 0);
 }

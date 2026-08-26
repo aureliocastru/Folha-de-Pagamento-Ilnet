@@ -11,6 +11,7 @@ import { DespesasService } from './despesas.service';
 import { HistoricoPagamentosController } from './historico-pagamentos.controller';
 import { HistoricoPagamentosService } from './historico-pagamentos.service';
 import { PagamentosService } from './pagamentos.service';
+import { ParcelasService } from './parcelas.service';
 import { RecorrentesPollerService } from './recorrentes-poller.service';
 import { RecorrentesController } from './recorrentes.controller';
 import { RecorrentesService } from './recorrentes.service';
@@ -41,6 +42,9 @@ import { RecorrentesService } from './recorrentes.service';
     // A linha de baixa do IXC, que é quem sabe em que dia o dinheiro saiu — o
     // título só sabe em que dia a baixa foi registrada.
     BaixasDoIxcService,
+    // Que títulos são parcelas da mesma compra. O IXC não guarda esse vínculo:
+    // aqui ele é inferido, e a tela diz que é inferência.
+    ParcelasService,
     RecorrentesService,
     RecorrentesPollerService,
   ],

@@ -6,6 +6,7 @@ import {
   Bloco,
   Carregando,
   Janela,
+  Selo,
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
@@ -14,6 +15,8 @@ import type {
   ContaAberta,
   HistoricoPagamentos,
   PagamentoFeito,
+  ParcelaDoTitulo,
+  ParcelasEncontradas,
 } from '../../lib/types';
 import { DetalheDaConta } from './DetalheDaConta';
 import { DetalheDoPagamento } from './DetalheDoPagamento';
@@ -42,6 +45,8 @@ interface LinhaDoDinheiro {
   grupo: string;
   subcategoria: string;
   fornecedor: string;
+  /** O código no IXC — é por ele que se acham as outras parcelas da compra. */
+  fornecedorId: number | null;
   valor: number;
   data: string | null;
   /** O que o IXC guarda sobre o título — é o que diz de que compra ele é. */
@@ -105,6 +110,7 @@ export function PraOndeVaiODinheiro({ contas }: { contas: ContaAberta[] }) {
           : SEM_CATEGORIA,
         subcategoria: c.classificacao?.nome ?? SEM_CATEGORIA,
         fornecedor: c.fornecedor.nome || `Fornecedor ${c.fornecedor.id ?? '?'}`,
+        fornecedorId: c.fornecedor.id,
         valor: c.valorAberto,
         data: c.vencimento,
         observacao: c.observacao,
@@ -118,6 +124,7 @@ export function PraOndeVaiODinheiro({ contas }: { contas: ContaAberta[] }) {
         : SEM_CATEGORIA,
       subcategoria: p.classificacao?.nome ?? SEM_CATEGORIA,
       fornecedor: p.fornecedor.nome || `Fornecedor ${p.fornecedor.id ?? '?'}`,
+      fornecedorId: p.fornecedor.id,
       valor: p.valorPago,
       data: p.pagoEm,
       observacao: p.observacao,
@@ -256,6 +263,54 @@ function ContasDaFatia({
       .sort((a, b) => b.total - a.total);
   }, [fatia]);
 
+  /*
+   * De que sequência de parcelas cada título faz parte.
+   *
+   * A pergunta é "já paguei quantas destas, e faltam quantas" — e ela não cabe
+   * nos dados que esta tela já tem: o que está em aberto não sabe do que foi
+   * pago, e o que foi pago só veio do período escolhido. A parcela quitada em
+   * janeiro está fora das duas listas, e é ela que a conta precisa incluir.
+   *
+   * Por isso a leitura é por fornecedor, no IXC, e sob demanda: só quando
+   * alguém abre a janela de uma categoria, e só para os fornecedores que estão
+   * nela.
+   */
+  const fornecedores = useMemo(
+    () => [
+      ...new Set(
+        fatia.linhas
+          .map((l) => l.fornecedorId)
+          .filter((id): id is number => id !== null),
+      ),
+    ],
+    [fatia],
+  );
+
+  const parcelas = useQuery({
+    queryKey: ['parcelas-dos-titulos', fornecedores],
+    queryFn: async () =>
+      (
+        await api.get<ParcelasEncontradas>('/contas-abertas/parcelas', {
+          params: { fornecedores: fornecedores.join(',') },
+        })
+      ).data,
+    enabled: fornecedores.length > 0,
+    retry: 0,
+  });
+
+  /*
+   * A explicação só aparece se houver etiqueta na tela para ela explicar.
+   *
+   * A resposta traz o fornecedor inteiro, e não só o que está nesta janela: o
+   * mesmo fornecedor pode ter parcelas abertas enquanto se olha o que já foi
+   * pago. Contar as chaves da resposta poria o aviso numa lista sem uma única
+   * etiqueta.
+   */
+  const achouParcela = useMemo(
+    () => fatia.linhas.some((l) => parcelas.data?.titulos[String(l.chave)]),
+    [fatia, parcelas.data],
+  );
+
   /** Uma subcategoria só não precisa de sanfona: ela é a fatia inteira. */
   const [abertas, setAbertas] = useState<Set<string>>(
     () => new Set(porSubcategoria.length === 1 ? [porSubcategoria[0].nome] : []),
@@ -297,6 +352,33 @@ function ContasDaFatia({
             </div>
           </div>
 
+          {parcelas.isLoading && (
+            <p className="ajuda mt-3">Contando as parcelas no IXC…</p>
+          )}
+
+          {parcelas.error && (
+            <Aviso tom="atencao">
+              Não deu para contar as parcelas: {mensagemErro(parcelas.error)}. O
+              resto da lista não depende disso.
+            </Aviso>
+          )}
+
+          {parcelas.data?.avisos.map((a) => (
+            <Aviso key={a} tom="atencao">
+              {a}
+            </Aviso>
+          ))}
+
+          {achouParcela && (
+            <p className="ajuda mt-3">
+              As parcelas são deduzidas aqui, não vêm do IXC: ele guarda cada
+              uma como um título solto, e o que as junta é serem do mesmo
+              fornecedor pelo mesmo valor. Dois negócios de valor igual com a
+              mesma pessoa aparecem como uma sequência só — passe o mouse na
+              etiqueta para ver de quando até quando ela vai.
+            </p>
+          )}
+
           <div className="mt-4 space-y-2">
             {porSubcategoria.map((sub) => (
               <div
@@ -329,7 +411,9 @@ function ContasDaFatia({
                 {abertas.has(sub.nome) && (
                   <table className="w-full text-sm">
                     <tbody>
-                      {sub.linhas.map((l) => (
+                      {sub.linhas.map((l) => {
+                        const parcela = parcelas.data?.titulos[String(l.chave)];
+                        return (
                         <tr key={l.chave} className="linha">
                           <td className="td">
                             <button
@@ -364,13 +448,33 @@ function ContasDaFatia({
                               >
                                 {l.observacao ?? 'sem observação no IXC'}
                               </span>
+                              {/* O que a observação do IXC quase nunca diz: em
+                                  que pé está a compra. Vem de contar os
+                                  títulos do mesmo fornecedor pelo mesmo valor —
+                                  ver o texto acima da lista, que conta de onde
+                                  esta etiqueta saiu. */}
+                              {parcela && (
+                                <span className="mt-1 block">
+                                  <Selo
+                                    pequeno
+                                    tom="info"
+                                    titulo={explicarParcela(parcela)}
+                                  >
+                                    parcela {parcela.posicao} de {parcela.total}{' '}
+                                    · {parcela.pagas} paga
+                                    {parcela.pagas === 1 ? '' : 's'},{' '}
+                                    {parcela.faltam} a pagar
+                                  </Selo>
+                                </span>
+                              )}
                             </button>
                           </td>
                           <td className="td whitespace-nowrap text-right">
                             <span className="valor">{formatBRL(l.valor)}</span>
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 )}
@@ -407,6 +511,25 @@ function ContasDaFatia({
         />
       )}
     </>
+  );
+}
+
+/**
+ * De onde a contagem daquela etiqueta saiu, para quem parar o mouse nela.
+ *
+ * Diz o que foi comparado e em que intervalo — é o que deixa alguém reconhecer
+ * um palpite errado ("são duas compras diferentes de dez mil, não seis
+ * parcelas") sem ter de abrir título por título no IXC.
+ */
+function explicarParcela(p: ParcelaDoTitulo): string {
+  const quando =
+    p.primeiroVencimento && p.ultimoVencimento
+      ? `, de ${formatData(p.primeiroVencimento)} a ${formatData(p.ultimoVencimento)}`
+      : '';
+  return (
+    `${p.total} títulos de ${formatBRL(p.valor)} para este fornecedor${quando}. ` +
+    'O IXC não guarda o vínculo entre parcelas: a sequência é deduzida do ' +
+    'fornecedor e do valor.'
   );
 }
 
