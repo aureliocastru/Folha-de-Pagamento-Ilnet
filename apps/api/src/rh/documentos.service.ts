@@ -705,6 +705,55 @@ export class DocumentosRhService {
   }
 
   /**
+   * Muda de divisória os documentos marcados, de uma vez.
+   *
+   * Mover é o gesto que faltava para a pasta poder ser arrumada: guardar dez
+   * papéis é rápido, e separá-los depois em "Balanços", "Certidões" e
+   * "Contratos" era abrir a ficha de cada um e trocar a pasta ali dentro, dez
+   * vezes. O documento não muda em nada ao mudar de gaveta — é o mesmo papel,
+   * com o mesmo arquivo e as mesmas datas, noutro lugar.
+   *
+   * O que já estava no destino não é erro: quem marcou "todos" e mandou para a
+   * subpasta contava com isso. Eles entram na conta de movidos como quem já
+   * chegou.
+   */
+  async mover(documentoIds: string[], pastaId: string) {
+    const destino = await this.exigirPasta(pastaId);
+
+    const ids = [...new Set(documentoIds)];
+    const achados = await this.prisma.documentoRh.findMany({
+      where: { id: { in: ids } },
+      select: { id: true },
+    });
+
+    // Documento que sumiu no meio do caminho não derruba a mudança dos outros:
+    // a tela mandou o que ela via, e o que ela via pode ter sido apagado noutra
+    // aba. O que existe se move, e a resposta conta a diferença.
+    if (achados.length === 0) {
+      throw new BadRequestException(
+        'Nenhum destes documentos existe mais. Recarregue a pasta.',
+      );
+    }
+
+    const { count } = await this.prisma.documentoRh.updateMany({
+      where: { id: { in: achados.map((d) => d.id) } },
+      data: { pastaId },
+    });
+
+    this.logger.log(
+      `${count} documento(s) movidos para a pasta "${destino.nome}" ` +
+        `(${destino.id}).`,
+    );
+
+    return {
+      movidos: count,
+      /** Os que a tela mandou e que não existem mais. */
+      sumiram: ids.length - achados.length,
+      pasta: { id: destino.id, nome: destino.nome },
+    };
+  }
+
+  /**
    * Troca um documento pelo que veio no lugar dele.
    *
    * É o gesto que a estante não tinha nome para: a certidão venceu, chegou a

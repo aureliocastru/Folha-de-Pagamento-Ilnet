@@ -23,6 +23,7 @@ import {
   GuardarDocumentoDto,
   GuardarRecibosDto,
   LicitacaoDto,
+  MoverDocumentosDto,
   PastaDto,
   SubstituirDocumentoDto,
 } from './dto/documento.dto';
@@ -153,6 +154,19 @@ export class RhController {
   @Patch('documentos/:id')
   editar(@Param('id') id: string, @Body() dto: EditarDocumentoDto) {
     return this.documentos.editar(id, dto);
+  }
+
+  /**
+   * Muda de divisória os documentos marcados.
+   *
+   * Rota própria, e não um `PATCH` por documento, porque arrumar uma pasta é um
+   * gesto só: vinte requisições que podem falhar na décima deixariam metade da
+   * mudança feita, e nenhuma tela sabe explicar isso.
+   */
+  @Post('documentos/mover')
+  @HttpCode(200)
+  mover(@Body() dto: MoverDocumentosDto) {
+    return this.documentos.mover(dto.documentoIds, dto.pastaId);
   }
 
   /**

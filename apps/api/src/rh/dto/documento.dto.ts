@@ -213,3 +213,22 @@ export class CopiarParaLicitacaoDto {
   @IsUUID('4', { each: true, message: 'Documento inválido.' })
   documentoIds!: string[];
 }
+
+/**
+ * Documentos mudando de divisória, de uma vez.
+ *
+ * Aqui não viaja arquivo nenhum — só os códigos —, e por isso o teto é bem mais
+ * largo que o da licitação: arrumar uma pasta de duzentos papéis é justamente o
+ * caso em que mover um por um não se faz.
+ */
+export class MoverDocumentosDto {
+  @IsArray()
+  @ArrayMinSize(1, { message: 'Marque ao menos um documento.' })
+  @ArrayMaxSize(500)
+  @IsUUID('4', { each: true, message: 'Documento inválido.' })
+  documentoIds!: string[];
+
+  /** Para onde eles vão. */
+  @IsUUID('4', { message: 'Escolha a pasta de destino.' })
+  pastaId!: string;
+}

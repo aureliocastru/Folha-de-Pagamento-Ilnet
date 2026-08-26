@@ -48,6 +48,9 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
   const [renomeando, setRenomeando] = useState(false);
   const [editando, setEditando] = useState<DocumentoRh | null>(null);
   const [substituindo, setSubstituindo] = useState<DocumentoRh | null>(null);
+  /** Os documentos marcados para ir junto para outra pasta. */
+  const [marcados, setMarcados] = useState<Set<string>>(new Set());
+  const [movendo, setMovendo] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [feito, setFeito] = useState<string | null>(null);
 
@@ -103,6 +106,55 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
       setCriandoSubpasta(false);
       setErro(null);
       avisar(`Pasta "${p.nome}" criada aqui dentro.`);
+      recarregar();
+    },
+    onError: (e) => setErro(mensagemErro(e)),
+  });
+
+  /*
+   * Arrumar a pasta: marcar papéis e mandar todos para outra divisória.
+   *
+   * A pasta enche pelo caminho mais rápido — guardar dez documentos é rápido —,
+   * e é depois que alguém quer os balanços separados das certidões. Fazer isso
+   * pela ficha de cada um é abrir e fechar dez janelas para uma decisão só, que
+   * é o tipo de trabalho que não se faz e a pasta fica como está.
+   *
+   * A pasta de destino pode nascer aqui: quase sempre ela não existe ainda, e
+   * mandar a pessoa criar a pasta noutra tela para voltar e marcar tudo de novo
+   * é perder a marcação que ela acabou de fazer.
+   */
+  const mover = useMutation({
+    mutationFn: async (destino: { pastaId?: string; novaPasta?: string }) => {
+      const pastaId = destino.pastaId
+        ? destino.pastaId
+        : (
+            await api.post<PastaRh>('/rh/pastas', {
+              nome: destino.novaPasta,
+              paiId: id,
+            })
+          ).data.id;
+
+      return (
+        await api.post<{
+          movidos: number;
+          sumiram: number;
+          pasta: { id: string; nome: string };
+        }>('/rh/documentos/mover', {
+          documentoIds: [...marcados],
+          pastaId,
+        })
+      ).data;
+    },
+    onSuccess: (r) => {
+      setMovendo(false);
+      setMarcados(new Set());
+      setErro(null);
+      avisar(
+        `${r.movidos} documento(s) movidos para "${r.pasta.nome}".` +
+          (r.sumiram > 0
+            ? ` ${r.sumiram} não existiam mais e ficaram de fora.`
+            : ''),
+      );
       recarregar();
     },
     onError: (e) => setErro(mensagemErro(e)),
@@ -224,6 +276,30 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
   const lista = documentos.data ?? [];
   const vencidos = lista.filter((d) => d.prazo === 'vencido').length;
   const aVencer = lista.filter((d) => d.prazo === 'a-vencer').length;
+
+  const marcadosNaLista = lista.filter((d) => marcados.has(d.id)).length;
+  const todosMarcados = lista.length > 0 && marcadosNaLista === lista.length;
+  const algunsMarcados = marcadosNaLista > 0 && !todosMarcados;
+
+  function alternarMarca(idDoc: string) {
+    setMarcados((atuais) => {
+      const proximo = new Set(atuais);
+      if (proximo.has(idDoc)) proximo.delete(idDoc);
+      else proximo.add(idDoc);
+      return proximo;
+    });
+  }
+
+  function alternarTodos() {
+    setMarcados((atuais) => {
+      const proximo = new Set(atuais);
+      // Desmarcar tira só os que estão à vista: o que a busca escondeu foi
+      // marcado por alguém que o viu, e continua marcado.
+      if (todosMarcados) for (const d of lista) proximo.delete(d.id);
+      else for (const d of lista) proximo.add(d.id);
+      return proximo;
+    });
+  }
 
   /*
    * Voltar é a tela anterior, e não uma rota fixa.
@@ -352,13 +428,42 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
         </div>
       )}
 
-      <div className="surgir mb-5">
+      <div className="surgir mb-5 flex flex-wrap items-center gap-3">
         <input
           value={termo}
           onChange={(e) => setTermo(e.target.value)}
           placeholder="Procurar nesta pasta"
           className="campo max-w-md"
         />
+
+        {/* A barra do que está marcado fica junto da busca, e não flutuando
+            sobre a lista: é ali que o olho já está quando se acaba de marcar,
+            e uma barra por cima taparia justamente as linhas que se quer
+            conferir antes de mover. */}
+        {marcados.size > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-tinta-600">
+              {marcados.size} marcado{marcados.size === 1 ? '' : 's'}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setErro(null);
+                setMovendo(true);
+              }}
+              className="btn btn-p btn-acao"
+            >
+              Mover para…
+            </button>
+            <button
+              type="button"
+              onClick={() => setMarcados(new Set())}
+              className="btn btn-p btn-sutil"
+            >
+              Limpar
+            </button>
+          </div>
+        )}
       </div>
 
       {documentos.isLoading ? (
@@ -375,6 +480,26 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
             <table className="w-full text-sm">
               <thead>
                 <tr>
+                  <th className="th w-8">
+                    {/* Marcar tudo é sobre o que está à vista: com uma busca
+                        ativa, marca o que a busca achou. Marcar em silêncio o
+                        que está filtrado fora seria mover papel que a pessoa
+                        não viu. */}
+                    <input
+                      type="checkbox"
+                      checked={todosMarcados}
+                      ref={(el) => {
+                        if (el) el.indeterminate = algunsMarcados;
+                      }}
+                      onChange={alternarTodos}
+                      aria-label={
+                        todosMarcados
+                          ? 'Desmarcar todos'
+                          : 'Marcar todos os que estão à vista'
+                      }
+                      className="h-4 w-4 accent-brand-500"
+                    />
+                  </th>
                   <th className="th">Documento</th>
                   <th className="th">Tipo</th>
                   <th className="th">Validade</th>
@@ -387,6 +512,8 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
                   <LinhaDoDocumento
                     key={d.id}
                     documento={d}
+                    marcado={marcados.has(d.id)}
+                    onMarcar={() => alternarMarca(d.id)}
                     onEditar={() => {
                       setErro(null);
                       setEditando(d);
@@ -479,6 +606,25 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
         </Janela>
       )}
 
+      {movendo && (
+        <Janela
+          titulo={`Mover ${marcados.size} documento${
+            marcados.size === 1 ? '' : 's'
+          }`}
+          onFechar={() => setMovendo(false)}
+        >
+          <ParaOndeMover
+            aqui={pasta?.nome ?? 'esta pasta'}
+            subpastas={subpastas}
+            todas={todas}
+            pastaAtualId={id}
+            pendente={mover.isPending}
+            erro={erro}
+            onMover={(destino) => mover.mutate(destino)}
+          />
+        </Janela>
+      )}
+
       {editando && (
         <Janela
           titulo={`Corrigir — ${editando.titulo}`}
@@ -533,13 +679,136 @@ export function PastaDaEmpresa() {
   return <PastaRhAberta pastaId={empresa.id} />;
 }
 
+/**
+ * Para onde vão os documentos marcados.
+ *
+ * Duas respostas, e a primeira é a que quase sempre se quer: uma pasta nova
+ * aqui dentro. Quem marcou os cinco balanços está justamente criando a gaveta
+ * "Balanços" — mandá-lo criar a pasta noutra tela e voltar custaria a marcação
+ * que ele acabou de fazer.
+ *
+ * A segunda é a estante inteira, para o papel que foi parar na pasta errada e
+ * precisa atravessar a árvore. A pasta em que já se está não aparece na lista:
+ * mover para onde já está não é uma escolha, é um clique perdido.
+ */
+function ParaOndeMover({
+  aqui,
+  subpastas,
+  todas,
+  pastaAtualId,
+  pendente,
+  erro,
+  onMover,
+}: {
+  aqui: string;
+  subpastas: PastaRh[];
+  todas: PastaRh[];
+  pastaAtualId?: string;
+  pendente: boolean;
+  erro: string | null;
+  onMover: (destino: { pastaId?: string; novaPasta?: string }) => void;
+}) {
+  const [novaPasta, setNovaPasta] = useState('');
+  const [escolhida, setEscolhida] = useState('');
+
+  const destinos = [...todas]
+    .filter((p) => p.id !== pastaAtualId)
+    .sort((a, b) =>
+      caminhoLegivel(todas, a).localeCompare(caminhoLegivel(todas, b), 'pt-BR'),
+    );
+
+  return (
+    <div className="p-5 sm:p-6">
+      <div>
+        <label className="rotulo" htmlFor="nova-pasta-do-movimento">
+          Numa pasta nova, aqui dentro de “{aqui}”
+        </label>
+        <div className="flex flex-wrap gap-2">
+          <input
+            id="nova-pasta-do-movimento"
+            value={novaPasta}
+            onChange={(e) => {
+              setNovaPasta(e.target.value);
+              if (e.target.value) setEscolhida('');
+            }}
+            placeholder="Ex.: Balanços"
+            className="campo flex-1"
+          />
+          <button
+            type="button"
+            disabled={novaPasta.trim().length < 2 || pendente}
+            onClick={() => onMover({ novaPasta: novaPasta.trim() })}
+            className="btn btn-primario"
+          >
+            {pendente ? 'Movendo…' : 'Criar e mover'}
+          </button>
+        </div>
+        <p className="ajuda">
+          A pasta é criada agora e os documentos entram nela. Eles não mudam em
+          nada ao mudar de gaveta: mesmo arquivo, mesmas datas, outro lugar.
+        </p>
+      </div>
+
+      {destinos.length > 0 && (
+        <div className="mt-6 border-t border-tinta-100 pt-5">
+          <label className="rotulo" htmlFor="pasta-de-destino">
+            Ou numa pasta que já existe
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <select
+              id="pasta-de-destino"
+              value={escolhida}
+              onChange={(e) => {
+                setEscolhida(e.target.value);
+                if (e.target.value) setNovaPasta('');
+              }}
+              className="campo flex-1"
+            >
+              <option value="">Escolha a pasta…</option>
+              {destinos.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {caminhoLegivel(todas, p)}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={!escolhida || pendente}
+              onClick={() => onMover({ pastaId: escolhida })}
+              className="btn btn-neutro"
+            >
+              {pendente ? 'Movendo…' : 'Mover'}
+            </button>
+          </div>
+          {subpastas.length > 0 && (
+            <p className="ajuda">
+              As divisórias desta pasta aparecem na lista com o caminho inteiro,
+              como “{caminhoLegivel(todas, subpastas[0])}”.
+            </p>
+          )}
+        </div>
+      )}
+
+      {erro && (
+        <div className="mt-4">
+          <Aviso tom="erro">{erro}</Aviso>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function LinhaDoDocumento({
   documento: d,
+  marcado,
+  onMarcar,
   onEditar,
   onSubstituir,
   onApagar,
 }: {
   documento: DocumentoRh;
+  marcado: boolean;
+  onMarcar: () => void;
   onEditar: () => void;
   onSubstituir: () => void;
   onApagar: () => void;
@@ -569,7 +838,16 @@ function LinhaDoDocumento({
   }
 
   return (
-    <tr className="linha">
+    <tr className={`linha ${marcado ? 'bg-brand-500/5' : ''}`}>
+      <td className="td w-8 align-top">
+        <input
+          type="checkbox"
+          checked={marcado}
+          onChange={onMarcar}
+          aria-label={`Marcar "${d.titulo}"`}
+          className="mt-1 h-4 w-4 accent-brand-500"
+        />
+      </td>
       <td className="td">
         <div className="font-medium text-tinta-800">{d.titulo}</div>
         {d.descricao && (
