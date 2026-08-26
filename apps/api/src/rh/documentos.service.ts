@@ -836,6 +836,39 @@ export class DocumentosRhService {
     return { apagado: true };
   }
 
+  /**
+   * Apaga de uma vez os documentos marcados.
+   *
+   * Os títulos são lidos **antes** de apagar e vão para o log. Depois não há
+   * mais onde ler: a linha some com o arquivo dentro dela, e "sete documentos
+   * apagados" não responde a pergunta que se faz uma semana depois, que é qual
+   * era o sétimo. É o único registro que sobra.
+   */
+  async apagarVarios(documentoIds: string[]) {
+    const ids = [...new Set(documentoIds)];
+    const achados = await this.prisma.documentoRh.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, titulo: true, pastaId: true },
+    });
+
+    if (achados.length === 0) {
+      throw new BadRequestException(
+        'Nenhum destes documentos existe mais. Recarregue a pasta.',
+      );
+    }
+
+    const { count } = await this.prisma.documentoRh.deleteMany({
+      where: { id: { in: achados.map((d) => d.id) } },
+    });
+
+    this.logger.log(
+      `${count} documento(s) apagados: ` +
+        achados.map((d) => `"${d.titulo}"`).join(', '),
+    );
+
+    return { apagados: count, sumiram: ids.length - achados.length };
+  }
+
   /** Os tipos que já existem, do mais usado para o menos. */
   async tipos(): Promise<string[]> {
     const grupos = await this.prisma.documentoRh.groupBy({

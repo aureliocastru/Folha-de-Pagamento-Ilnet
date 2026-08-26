@@ -29,9 +29,14 @@ function montarServico(opts: {
       findMany: jest.fn(async ({ where }: { where: { id: { in: string[] } } }) =>
         where.id.in
           .filter((id) => (opts.existentes ?? where.id.in).includes(id))
-          .map((id) => ({ id })),
+          .map((id) => ({ id, titulo: `Documento ${id}`, pastaId: 'origem' })),
       ),
       updateMany: jest.fn(
+        async ({ where }: { where: { id: { in: string[] } } }) => ({
+          count: where.id.in.length,
+        }),
+      ),
+      deleteMany: jest.fn(
         async ({ where }: { where: { id: { in: string[] } } }) => ({
           count: where.id.in.length,
         }),
@@ -97,5 +102,54 @@ describe('mover documentos', () => {
 
     expect(r.movidos).toBe(2);
     expect(r.sumiram).toBe(0);
+  });
+});
+
+/**
+ * Apagar é o oposto do mover em consequência: o que se move está na outra
+ * gaveta, o que se apaga não está em lugar nenhum. O que se protege aqui é o
+ * mesmo cuidado com a lista que a tela mandou, mais o registro no log — depois
+ * de apagar não há mais onde ler qual era o sétimo documento.
+ */
+describe('apagar vários documentos', () => {
+  it('apaga os marcados e conta quantos foram', async () => {
+    const { servico, prisma } = montarServico();
+
+    const r = await servico.apagarVarios(['a', 'b']);
+
+    expect(r).toMatchObject({ apagados: 2, sumiram: 0 });
+    expect(prisma.documentoRh.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ['a', 'b'] } },
+    });
+  });
+
+  it('apaga o que existe e conta o que já tinha sumido', async () => {
+    const { servico } = montarServico({ existentes: ['a'] });
+
+    const r = await servico.apagarVarios(['a', 'b', 'c']);
+
+    expect(r).toMatchObject({ apagados: 1, sumiram: 2 });
+  });
+
+  it('recusa quando nenhum existe mais, em vez de dizer que apagou zero', async () => {
+    const { servico, prisma } = montarServico({ existentes: [] });
+
+    await expect(servico.apagarVarios(['a'])).rejects.toThrow(/existe mais/i);
+    expect(prisma.documentoRh.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('lê os títulos antes de apagar — é o único registro que sobra', async () => {
+    const { servico, prisma } = montarServico();
+
+    await servico.apagarVarios(['a']);
+
+    const ordem = prisma.documentoRh.findMany.mock.invocationCallOrder[0];
+    const depois = prisma.documentoRh.deleteMany.mock.invocationCallOrder[0];
+    expect(ordem).toBeLessThan(depois);
+    expect(prisma.documentoRh.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: { id: true, titulo: true, pastaId: true },
+      }),
+    );
   });
 });

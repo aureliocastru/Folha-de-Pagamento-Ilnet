@@ -273,6 +273,35 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
     onError: (e) => setErro(mensagemErro(e)),
   });
 
+  /*
+   * Apagar os marcados.
+   *
+   * Mesmo gesto do mover, e o oposto dele em consequência: o que se move está
+   * na outra gaveta, e o que se apaga não está em lugar nenhum. Por isso a
+   * pergunta antes lista os papéis pelo nome — "apagar 7 documentos?" é um
+   * número, e ninguém confere um número; nome é o que faz alguém reconhecer
+   * que marcou uma linha a mais.
+   */
+  const apagarVarios = useMutation({
+    mutationFn: async (documentoIds: string[]) =>
+      (
+        await api.post<{ apagados: number; sumiram: number }>(
+          '/rh/documentos/apagar-lote',
+          { documentoIds },
+        )
+      ).data,
+    onSuccess: (r) => {
+      setMarcados(new Set());
+      setErro(null);
+      avisar(
+        `${r.apagados} documento(s) apagados.` +
+          (r.sumiram > 0 ? ` ${r.sumiram} já não existiam.` : ''),
+      );
+      recarregar();
+    },
+    onError: (e) => setErro(mensagemErro(e)),
+  });
+
   const lista = documentos.data ?? [];
   const vencidos = lista.filter((d) => d.prazo === 'vencido').length;
   const aVencer = lista.filter((d) => d.prazo === 'a-vencer').length;
@@ -288,6 +317,37 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
       else proximo.add(idDoc);
       return proximo;
     });
+  }
+
+  /**
+   * A pergunta antes de apagar, com os papéis pelo nome.
+   *
+   * Até dez nomes cabem numa caixa de confirmação sem virar um muro que
+   * ninguém lê; passando disso, o resto vira "e mais N". O que a lista não
+   * mostrar mais não é lido de qualquer jeito.
+   */
+  function pedirParaApagarMarcados() {
+    const nomes = lista
+      .filter((d) => marcados.has(d.id))
+      .map((d) => d.titulo);
+    // O marcado que a busca escondeu vai junto, e a pergunta precisa dizê-lo:
+    // apagar o que não está na tela é a surpresa que não pode acontecer aqui.
+    const escondidos = marcados.size - nomes.length;
+
+    const pergunta = [
+      `Apagar ${marcados.size} documento(s)? Os arquivos saem daqui e não voltam.`,
+      nomes
+        .slice(0, 10)
+        .map((n) => `• ${n}`)
+        .join('\n') +
+        (nomes.length > 10 ? `\n• e mais ${nomes.length - 10}` : ''),
+      escondidos > 0 &&
+        `Mais ${escondidos} marcado(s) que a busca não está mostrando vão junto.`,
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+
+    if (confirm(pergunta)) apagarVarios.mutate([...marcados]);
   }
 
   function alternarTodos() {
@@ -454,6 +514,17 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
               className="btn btn-p btn-acao"
             >
               Mover para…
+            </button>
+            {/* Apagar fica depois de "Mover", e em vermelho: é o único aqui
+                que não tem volta, e o vermelho é o que separa o clique certo
+                do clique de reflexo em quem já usou a barra dez vezes. */}
+            <button
+              type="button"
+              disabled={apagarVarios.isPending}
+              onClick={pedirParaApagarMarcados}
+              className="btn btn-p btn-perigo"
+            >
+              {apagarVarios.isPending ? 'Apagando…' : 'Apagar'}
             </button>
             <button
               type="button"

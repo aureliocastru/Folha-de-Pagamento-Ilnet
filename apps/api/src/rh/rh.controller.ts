@@ -18,6 +18,7 @@ import { Roles } from '../auth/roles.decorator';
 import { DocumentosRhService } from './documentos.service';
 import {
   AnalisarRecibosDto,
+  ApagarDocumentosDto,
   CopiarParaLicitacaoDto,
   EditarDocumentoDto,
   GuardarDocumentoDto,
@@ -167,6 +168,19 @@ export class RhController {
   @HttpCode(200)
   mover(@Body() dto: MoverDocumentosDto) {
     return this.documentos.mover(dto.documentoIds, dto.pastaId);
+  }
+
+  /**
+   * Apaga os documentos marcados.
+   *
+   * `POST` e não `DELETE` porque a lista vai no corpo, e corpo em `DELETE` é
+   * coisa que proxy pelo caminho descarta sem avisar — aqui isso seria apagar
+   * uma lista diferente da que a tela mandou.
+   */
+  @Post('documentos/apagar-lote')
+  @HttpCode(200)
+  apagarVarios(@Body() dto: ApagarDocumentosDto) {
+    return this.documentos.apagarVarios(dto.documentoIds);
   }
 
   /**

@@ -232,3 +232,18 @@ export class MoverDocumentosDto {
   @IsUUID('4', { message: 'Escolha a pasta de destino.' })
   pastaId!: string;
 }
+
+/**
+ * Documentos saindo da estante de uma vez.
+ *
+ * O teto é menor que o de mover de propósito. Mover é reversível — o papel está
+ * na outra gaveta —, e apagar não é: quinhentos de uma vez é mais estrago do
+ * que qualquer confirmação de tela consegue deixar claro.
+ */
+export class ApagarDocumentosDto {
+  @IsArray()
+  @ArrayMinSize(1, { message: 'Marque ao menos um documento.' })
+  @ArrayMaxSize(100)
+  @IsUUID('4', { each: true, message: 'Documento inválido.' })
+  documentoIds!: string[];
+}
