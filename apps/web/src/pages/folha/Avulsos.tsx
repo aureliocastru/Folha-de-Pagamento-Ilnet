@@ -18,7 +18,7 @@ import {
 import { api, mensagemErro } from '../../lib/api';
 import { emArvore } from '../../lib/categorias';
 import { formatBRL, formatData } from '../../lib/format';
-import { FORMA_PAGAMENTO_LABEL, STATUS_LABEL, STATUS_TOM } from '../../lib/status';
+import { STATUS_LABEL, STATUS_TOM } from '../../lib/status';
 import { TIPOS_CHAVE_PIX } from '../../lib/types';
 import type {
   BeneficiarioAvulso,
@@ -112,17 +112,23 @@ function partesDoPagamento(p: PagamentoAvulso): string[] {
 }
 
 /**
- * @param doIxc Abre pela lista de fornecedores do IXC em vez de pelos
- * cadastrados aqui. É como a tela aparece no módulo Contas a Pagar: quem paga
- * alguém de fora da folha procura a pessoa pelo nome, e ela já está cadastrada
- * no IXC — o cadastro daqui nasce sozinho na hora do primeiro pagamento. No
- * módulo Folha a tela continua sendo a lista de quem esta casa cadastrou.
+ * @param modulo De que lado esta tela está.
+ *
+ * As duas listam o cadastro de fornecedores do IXC — é lá que a pessoa já
+ * existe, e cadastrá-la de novo aqui antes de poder pagá-la era o passo que
+ * sobrava. O cadastro deste sistema nasce sozinho no primeiro pagamento.
+ *
+ * O que muda de um lado para o outro é o formulário e a conta: na folha o
+ * pagamento se divide em serviço, comissão de venda e extra, e a comissão entra
+ * no gráfico de vendas. No Contas a Pagar é um valor só, porque ali o pagamento
+ * avulso é uma saída da empresa e não o acerto de quem também vende.
  */
-export function Avulsos({ doIxc = false }: { doIxc?: boolean } = {}) {
+export function Avulsos({
+  modulo = 'folha',
+}: { modulo?: 'folha' | 'contas-pagar' } = {}) {
   const qc = useQueryClient();
   const [busca, setBusca] = useState('');
-  const [verInativos, setVerInativos] = useState(false);
-  /** Página da lista do IXC (só no modo `doIxc`). */
+  /** Página da lista do IXC (a lista do IXC é paginada). */
   const [pagina, setPagina] = useState(1);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [erro, setErro] = useState(false);
@@ -135,23 +141,23 @@ export function Avulsos({ doIxc = false }: { doIxc?: boolean } = {}) {
   });
   const [aberto, setAberto] = useState<string | null>(null);
   const [pagando, setPagando] = useState<BeneficiarioAvulso | null>(null);
-  /** Fornecedor do IXC aberto para edição (só no modo `doIxc`). */
+  /** Fornecedor do IXC aberto para edição (o apelido é gravado lá). */
   const [editandoFornecedor, setEditandoFornecedor] =
     useState<FornecedorParaPagar | null>(null);
 
   /**
-   * De qual lado esta tela está. A folha e o contas a pagar dividem as mesmas
-   * tabelas, e sem dizer o módulo a folha listaria também os fornecedores do
-   * IXC pagos do outro lado — que não são custo dela.
+   * O formulário de um valor só é o do Contas a Pagar.
+   *
+   * Escondidos, os campos de venda não vão no pedido, e o pagamento sai com o
+   * valor inteiro como serviço — que é o certo daquele lado.
    */
-  const modulo = doIxc ? 'contas-pagar' : 'folha';
+  const soValor = modulo === 'contas-pagar';
 
   const lista = useQuery({
-    queryKey: ['avulsos', modulo, busca, verInativos],
+    queryKey: ['avulsos', modulo, busca],
     queryFn: async () => {
       const params: Record<string, string> = { modulo };
       if (busca) params.busca = busca;
-      if (verInativos) params.todos = 'true';
       return (
         await api.get<BeneficiarioComResumo[]>('/avulsos/beneficiarios', {
           params,
@@ -164,13 +170,12 @@ export function Avulsos({ doIxc = false }: { doIxc?: boolean } = {}) {
   // uma consulta a um sistema lento que não é nosso.
   const [buscaIxc, setBuscaIxc] = useState('');
   useEffect(() => {
-    if (!doIxc) return;
     const id = setTimeout(() => {
       setBuscaIxc(busca.trim());
       setPagina(1);
     }, 400);
     return () => clearTimeout(id);
-  }, [busca, doIxc]);
+  }, [busca]);
 
   const fornecedoresIxc = useQuery({
     queryKey: ['fornecedores-ixc-avulsos', buscaIxc, pagina],
@@ -180,7 +185,6 @@ export function Avulsos({ doIxc = false }: { doIxc?: boolean } = {}) {
           params: { busca: buscaIxc || undefined, page: pagina, porPagina: 25 },
         })
       ).data,
-    enabled: doIxc,
     // O IXC demora e às vezes não responde: repetir por baixo dobraria a espera
     // com a tela parada, sem dizer nada a quem está esperando.
     retry: 0,
@@ -200,6 +204,7 @@ export function Avulsos({ doIxc = false }: { doIxc?: boolean } = {}) {
       (
         await api.post<BeneficiarioAvulso>('/avulsos/beneficiarios/do-ixc', {
           idFornecedorIxc,
+          modulo,
         })
       ).data,
     onSuccess: (beneficiario) => {
@@ -335,29 +340,13 @@ export function Avulsos({ doIxc = false }: { doIxc?: boolean } = {}) {
     onError: (err) => avisar(mensagemErro(err), true),
   });
 
-  const alternarAtivo = useMutation({
-    mutationFn: async (b: BeneficiarioAvulso) =>
-      (
-        await api.patch<BeneficiarioSalvo>(`/avulsos/beneficiarios/${b.id}`, {
-          ativo: !b.ativo,
-        })
-      ).data,
-    onSuccess: ({ beneficiario: b }) => {
-      avisar(`${b.nome} ${b.ativo ? 'reativado' : 'desativado'}.`);
-      invalidar();
-    },
-    onError: (err) => avisar(mensagemErro(err), true),
-  });
-
-  const excluir = useMutation({
-    mutationFn: async (id: string) =>
-      (await api.delete(`/avulsos/beneficiarios/${id}`)).data,
-    onSuccess: () => {
-      avisar('Cadastro apagado.');
-      invalidar();
-    },
-    onError: (err) => avisar(mensagemErro(err), true),
-  });
+  /*
+   * Desativar e apagar o cadastro sairam junto com a lista local.
+   *
+   * Eram acoes daquela tabela, e a tela agora lista o cadastro do IXC — onde o
+   * que se edita e o registro de la. As rotas continuam existindo; falta o
+   * caminho na tela, e ele volta no dia em que alguem precisar dele aqui.
+   */
 
   const pagar = useMutation({
     mutationFn: async (args: {
@@ -372,7 +361,11 @@ export function Avulsos({ doIxc = false }: { doIxc?: boolean } = {}) {
 
       const { data: p } = await api.post<PagamentoAvulso>(
         `/avulsos/beneficiarios/${args.beneficiarioId}/pagamentos`,
-        body,
+        // O módulo vai junto: é ele que decide em que relatório este pagamento
+        // conta. Sem ele o servidor cai na origem do cadastro, e a comissão
+        // paga pela folha a um fornecedor puxado do IXC ficaria de fora do
+        // gráfico de vendas.
+        { ...body, modulo },
       );
 
       let avisoCategoria: string | null = null;
@@ -474,30 +467,11 @@ export function Avulsos({ doIxc = false }: { doIxc?: boolean } = {}) {
     setFornecedor({ tipo: 'NOVO' });
     setEditando('novo');
   }
-  function abrirEdicao(b: BeneficiarioAvulso) {
-    setForm({
-      nome: b.nome,
-      cpfCnpj: b.cpfCnpj ?? '',
-      tipoPessoa: b.tipoPessoa,
-      telefone: b.telefone ?? '',
-      email: b.email ?? '',
-      chavePix: b.chavePix ?? '',
-      tipoChavePix: b.tipoChavePix ?? '',
-      valorPorVenda: b.valorPorVenda ?? '',
-      formaPagamento: b.formaPagamento,
-      observacoes: b.observacoes ?? '',
-    });
-    setFornecedor(
-      b.idFornecedorIxc
-        ? {
-            tipo: 'REUSAR',
-            idFornecedorIxc: b.idFornecedorIxc,
-            semPix: !b.chavePix,
-          }
-        : { tipo: 'NOVO' },
-    );
-    setEditando(b.id);
-  }
+  /*
+   * `abrirEdicao` saiu junto com a lista local: era o "Editar" daquela
+   * tabela. O cadastro continua sendo criado por "Cadastrar beneficiário", e
+   * o que se edita na lista do IXC é o registro de lá.
+   */
   function fecharCadastro() {
     setEditando(null);
     setForm(CADASTRO_VAZIO);
@@ -518,9 +492,9 @@ export function Avulsos({ doIxc = false }: { doIxc?: boolean } = {}) {
         secao="Pagamentos avulsos"
         titulo="Pagar quem não é da folha"
         descricao={
-          doIxc
+          soValor
             ? 'Todo o cadastro de fornecedores do IXC, para pagar quem já existe lá sem cadastrar de novo. O pagamento sai como conta a pagar no IXC, do banco por PIX ou do caixa em dinheiro.'
-            : 'Mão de obra contratada, serviço pontual, patrocínio, ajuda de custo. A pessoa fica cadastrada e vira fornecedor no IXC — o pagamento sai por lá como conta a pagar, do banco por PIX ou do caixa em dinheiro.'
+            : 'Todo o cadastro de fornecedores do IXC: mão de obra contratada, serviço pontual, comissão de venda. O pagamento se divide em serviço, venda e extra — a comissão entra no gráfico de vendas — e sai como conta a pagar no IXC, do banco por PIX ou do caixa em dinheiro.'
         }
         acoes={
           <button onClick={abrirNovo} className="btn btn-primario">
@@ -699,36 +673,19 @@ export function Avulsos({ doIxc = false }: { doIxc?: boolean } = {}) {
         <input
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
-          placeholder={
-            doIxc
-              ? 'Buscar no IXC por nome ou apelido'
-              : 'Buscar por nome ou documento'
-          }
+          placeholder="Buscar no IXC por nome ou apelido"
           className="campo max-w-xs"
         />
-        {doIxc ? (
-          <span className="text-xs text-tinta-400">
-            {fornecedoresIxc.isFetching
-              ? 'Lendo o IXC…'
-              : fornecedoresIxc.data
-                ? `${fornecedoresIxc.data.total.toLocaleString('pt-BR')} fornecedor(es) ativo(s) no IXC`
-                : ''}
-          </span>
-        ) : (
-          <label className="flex w-fit items-center gap-2 text-sm text-tinta-600">
-            <input
-              type="checkbox"
-              className="accent-brand-600"
-              checked={verInativos}
-              onChange={(e) => setVerInativos(e.target.checked)}
-            />
-            Mostrar desativados
-          </label>
-        )}
+        <span className="text-xs text-tinta-400">
+          {fornecedoresIxc.isFetching
+            ? 'Lendo o IXC…'
+            : fornecedoresIxc.data
+              ? `${fornecedoresIxc.data.total.toLocaleString('pt-BR')} fornecedor(es) ativo(s) no IXC`
+              : ''}
+        </span>
       </div>
 
-      {doIxc && (
-        <Bloco className="surgir surgir-2" semPadding>
+      <Bloco className="surgir surgir-2" semPadding>
           <div className="overflow-x-auto rolagem-fina">
             <table className="w-full text-sm">
               <thead>
@@ -870,158 +827,17 @@ export function Avulsos({ doIxc = false }: { doIxc?: boolean } = {}) {
               </div>
             </div>
           )}
-        </Bloco>
-      )}
-
-      {!doIxc && (
-      <Bloco className="surgir surgir-2" semPadding>
-        <div className="overflow-x-auto rolagem-fina">
-          <table className="w-full text-sm">
-            <thead>
-              <tr>
-                <th className="th">Beneficiário</th>
-                <th className="th">Chave PIX</th>
-                <th className="th">Costuma receber</th>
-                <th className="th text-right">Já pago</th>
-                <th className="th">Último</th>
-                <th className="th text-right">Ação</th>
-              </tr>
-            </thead>
-            <tbody>
-              {lista.isLoading && (
-                <tr>
-                  <td colSpan={6}>
-                    <Carregando />
-                  </td>
-                </tr>
-              )}
-              {!lista.isLoading && itens.length === 0 && (
-                <tr>
-                  <td colSpan={6}>
-                    <Vazio titulo="Ninguém cadastrado ainda">
-                      Cadastre quem presta serviço para a empresa sem estar na
-                      folha — pedreiro, eletricista, patrocinado.
-                    </Vazio>
-                  </td>
-                </tr>
-              )}
-              {itens.map(({ beneficiario: b, ...resumo }) => (
-                <tr key={b.id} className={`linha ${b.ativo ? '' : 'opacity-50'}`}>
-                  <td className="td">
-                    <button
-                      onClick={() => setAberto(aberto === b.id ? null : b.id)}
-                      className="flex flex-wrap items-center gap-2 text-left"
-                    >
-                      <span
-                        className={`text-tinta-300 transition-transform ${
-                          aberto === b.id ? 'rotate-90' : ''
-                        }`}
-                      >
-                        ▸
-                      </span>
-                      <span className="font-medium text-tinta-900">{b.nome}</span>
-                      {!b.ativo && (
-                        <Selo tom="neutro" pequeno>
-                          desativado
-                        </Selo>
-                      )}
-                      {b.idFornecedorIxc && (
-                        <Selo tom="info" pequeno titulo="Fornecedor vinculado no IXC">
-                          #{b.idFornecedorIxc}
-                        </Selo>
-                      )}
-                      {resumo.pendentesNoCaixa > 0 && (
-                        <Selo tom="atencao" pequeno>
-                          {resumo.pendentesNoCaixa} fora do caixa
-                        </Selo>
-                      )}
-                      {resumo.quantidadeComErro > 0 && (
-                        <Selo
-                          tom="erro"
-                          pequeno
-                          titulo="O IXC recusou a conta a pagar — corrija e reenvie em Contas a Pagar"
-                        >
-                          {resumo.quantidadeComErro} com erro
-                        </Selo>
-                      )}
-                    </button>
-                    {b.cpfCnpj && (
-                      <div className="mt-0.5 num text-xs text-tinta-400">
-                        {b.cpfCnpj}
-                      </div>
-                    )}
-                  </td>
-                  <td className="td text-tinta-500">
-                    {b.chavePix || (
-                      <Selo tom="atencao" pequeno>
-                        sem PIX
-                      </Selo>
-                    )}
-                  </td>
-                  <td className="td text-tinta-500">
-                    {FORMA_PAGAMENTO_LABEL[b.formaPagamento]}
-                  </td>
-                  <td className="td text-right">
-                    <span className="valor">{formatBRL(resumo.totalPago)}</span>
-                    <div className="num text-xs text-tinta-400">
-                      {resumo.quantidadePagas} pagamento(s)
-                    </div>
-                    {resumo.totalAguardando > 0 && (
-                      <div
-                        className="mt-0.5 num text-xs text-amber-600"
-                        title="Lançado no IXC, ainda não pago pelo banco"
-                      >
-                        + {formatBRL(resumo.totalAguardando)} a caminho
-                      </div>
-                    )}
-                  </td>
-                  <td className="td num text-tinta-500">
-                    {resumo.ultimoPagamento
-                      ? formatData(resumo.ultimoPagamento)
-                      : '—'}
-                  </td>
-                  <td className="td text-right">
-                    <div className="flex flex-wrap justify-end gap-1.5">
-                      <button
-                        onClick={() => setPagando(b)}
-                        disabled={!b.ativo}
-                        className="btn btn-pagar btn-p disabled:opacity-40"
-                      >
-                        Pagar
-                      </button>
-                      <button
-                        onClick={() => abrirEdicao(b)}
-                        className="btn btn-neutro btn-p"
-                      >
-                        Editar
-                      </button>
-                      <button
-                        onClick={() => alternarAtivo.mutate(b)}
-                        className="btn btn-sutil btn-p"
-                      >
-                        {b.ativo ? 'Desativar' : 'Reativar'}
-                      </button>
-                      {resumo.quantidadePagamentos === 0 && (
-                        <button
-                          onClick={() => {
-                            if (confirm(`Apagar o cadastro de ${b.nome}?`)) {
-                              excluir.mutate(b.id);
-                            }
-                          }}
-                          className="btn btn-perigo btn-p"
-                        >
-                          Excluir
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
       </Bloco>
-      )}
+
+      {/*
+        Aqui ficava a lista dos beneficiários cadastrados nesta casa.
+
+        As duas telas passaram a listar o cadastro de fornecedores do IXC: é
+        lá que a pessoa já existe, e obrigar a cadastrá-la de novo aqui antes
+        de poder pagá-la era o passo que sobrava. O histórico de cada um não
+        se perdeu — a coluna "Por aqui" abre os pagamentos feitos por este
+        sistema àquele fornecedor.
+      */}
 
       {aberto && abertoBeneficiario && (
         <Bloco
@@ -1143,7 +959,7 @@ export function Avulsos({ doIxc = false }: { doIxc?: boolean } = {}) {
         <FormularioPagamento
           beneficiario={pagando}
           ocupado={pagar.isPending}
-          soValor={doIxc}
+          soValor={soValor}
           onCancelar={() => setPagando(null)}
           onConfirmar={(body) =>
             pagar.mutate({ beneficiarioId: pagando.id, body })

@@ -74,6 +74,16 @@ export class UpdateBeneficiarioDto extends CriarBeneficiarioDto {
  * `pagamento.calc`, compartilhado com a diária.
  */
 export class PagarAvulsoDto {
+  /**
+   * De qual módulo saiu este pagamento — é o que decide em que relatório ele
+   * conta. Vazio = folha, que é quem não precisa dizer nada.
+   *
+   * É da tela, e não do cadastro: a mesma pessoa pode receber pela folha (uma
+   * comissão de venda, que vai para o gráfico de vendas) e pelo Contas a Pagar
+   * (um serviço prestado, que é despesa da empresa).
+   */
+  @IsOptional() @IsString() modulo?: string;
+
   /** Dia do pagamento (AAAA-MM-DD). Vazio = hoje. */
   @IsOptional() @IsISO8601() data?: string;
 
@@ -156,6 +166,14 @@ export class VincularFornecedorIxcDto {
   @IsInt()
   @Min(1)
   idFornecedorIxc!: number;
+
+  /**
+   * De qual tela veio. Decide em que lista o cadastro novo aparece.
+   *
+   * Só vale para o cadastro que nasce agora: o que já existe fica com a origem
+   * que tem. Quem manda no relatório é a origem do pagamento.
+   */
+  @IsOptional() @IsString() modulo?: string;
 }
 
 export class QueryFornecedorIxcDto {

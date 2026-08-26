@@ -253,10 +253,15 @@ export class AvulsosService {
    */
   async garantirBeneficiarioDoIxc(
     idFornecedorIxc: number,
+    origem: OrigemLancamento = OrigemLancamento.CONTAS_PAGAR,
   ): Promise<BeneficiarioAvulso> {
     const existente = await this.prisma.beneficiarioAvulso.findFirst({
       where: { idFornecedorIxc },
     });
+    // O cadastro que já existe fica com a origem que tem: ela decide em que
+    // lista ele aparece, e mudá-la aqui o faria sumir da lista do outro módulo
+    // no meio de um pagamento. Quem manda no relatório é a origem do
+    // pagamento, e essa vem da tela que está pagando.
     if (existente) return existente;
 
     const doIxc = await this.fornecedores.buscarNoIxcPorId(idFornecedorIxc);
@@ -284,9 +289,10 @@ export class AvulsosService {
         // Já existe lá: o pagamento usa este código em vez de abrir outro
         // fornecedor com o mesmo CPF.
         idFornecedorIxc: doIxc.idFornecedor,
-        // Só a tela do Contas a Pagar cria cadastro assim, pela lista de
-        // fornecedores do IXC. A folha não lista quem entrou por aqui.
-        origem: OrigemLancamento.CONTAS_PAGAR,
+        // A origem é a da tela que puxou o fornecedor: as duas telas listam o
+        // cadastro do IXC agora, e o cadastro criado por uma aparece na lista
+        // dela. O que ele recebe de cada lado é outra conta — ver `pagar`.
+        origem,
       },
     });
   }
@@ -448,6 +454,14 @@ export class AvulsosService {
     beneficiarioId: string,
     dto: PagarAvulsoDto,
     usuarioId?: string,
+    /**
+     * De que módulo saiu este pagamento. Vazio = o do cadastro de quem recebe.
+     *
+     * O vazio não é descuido: é o que mantém de pé a garantia antiga de que
+     * nenhum caminho que não conheça esta conversa — link velho, script — faça
+     * um pagamento do Contas a Pagar entrar na folha.
+     */
+    origem?: OrigemLancamento,
   ): Promise<PagamentoAvulso> {
     const beneficiario = await this.decorarPix(
       await this.buscar(beneficiarioId),
@@ -500,10 +514,25 @@ export class AvulsosService {
 
     const base = {
       beneficiarioId,
-      // A origem vem do cadastro, não da tela: quem foi puxado da lista de
-      // fornecedores do IXC é do Contas a Pagar, e o pagamento a ele também —
-      // por qualquer caminho que se chegue aqui.
-      origem: beneficiario.origem,
+      /*
+       * A tela que paga decide; sem ela, decide o cadastro.
+       *
+       * Era só o cadastro, e foi o que travou a folha quando ela passou a
+       * listar os fornecedores do IXC: o cadastro puxado de lá nascia "do
+       * Contas a Pagar", o pagamento herdava isso, e a comissão de venda paga
+       * pela folha sumia do gráfico de vendas — que só conta pagamento com
+       * origem FOLHA.
+       *
+       * As duas coisas respondem perguntas diferentes. A origem do **cadastro**
+       * diz em que lista a pessoa aparece; a do **pagamento** diz de que módulo
+       * saiu aquele dinheiro. A mesma pessoa pode receber uma comissão pela
+       * folha e um serviço pelo Contas a Pagar, e cada relatório conta o seu.
+       *
+       * O `??` guarda o resto: quem chega sem dizer o módulo continua caindo na
+       * regra antiga, e nenhum caminho velho passa a despejar na folha o que é
+       * do outro lado.
+       */
+      origem: origem ?? beneficiario.origem,
       data: dto.data ? new Date(dto.data) : hojeUtc(),
       valor: new Prisma.Decimal(valor),
       vendas: partes.vendas ?? 0,

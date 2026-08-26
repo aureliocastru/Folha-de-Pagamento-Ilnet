@@ -131,7 +131,7 @@ export default function App() {
             Aqui ela abre pelo cadastro de fornecedores do IXC: neste módulo se
             paga qualquer um deles, e não só quem esta casa já cadastrou. Na
             folha continua sendo a lista de cá. */}
-        <Route path="avulsos" element={<Avulsos doIxc />} />
+        <Route path="avulsos" element={<Avulsos modulo="contas-pagar" />} />
         <Route path="recorrentes" element={<Recorrentes />} />
         <Route path="categorias" element={<ContasPagarCategorias />} />
         <Route path="fechamento-caixa" element={<FechamentoCaixa />} />
