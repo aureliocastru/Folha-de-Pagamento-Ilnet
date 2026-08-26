@@ -51,6 +51,7 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
   /** Os documentos marcados para ir junto para outra pasta. */
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
   const [movendo, setMovendo] = useState(false);
+  const [baixando, setBaixando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [feito, setFeito] = useState<string | null>(null);
 
@@ -350,6 +351,36 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
     if (confirm(pergunta)) apagarVarios.mutate([...marcados]);
   }
 
+  /**
+   * Baixa a pasta inteira num zip.
+   *
+   * Vai pela API autenticada, e não por um `href` direto: o token vive no
+   * cabeçalho, e um link aberto na mão chegaria lá sem ele. O erro do servidor
+   * chega como blob — pasta vazia ou grande demais respondem JSON —, e é por
+   * isso que ele é lido como texto antes de virar aviso: sem isso a tela diria
+   * "[object Blob]" para um recado que estava escrito.
+   */
+  async function baixarPasta() {
+    if (!id) return;
+    setBaixando(true);
+    setErro(null);
+    try {
+      const resposta = await api.get<Blob>(`/rh/pastas/${id}/zip`, {
+        responseType: 'blob',
+      });
+      const url = URL.createObjectURL(resposta.data);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${nomeDeArquivo(pasta?.nome ?? 'pasta')}.zip`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch (e) {
+      setErro(await motivoDoBlob(e));
+    } finally {
+      setBaixando(false);
+    }
+  }
+
   function alternarTodos() {
     setMarcados((atuais) => {
       const proximo = new Set(atuais);
@@ -420,6 +451,18 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
                 </button>
               </>
             )}
+            {/* Baixar a pasta inteira: é o pacote da licitação saindo daqui
+                como um arquivo só, com as subpastas viradas diretórios. Sem
+                ele, quarenta documentos são quarenta cliques em "Ver". */}
+            <button
+              type="button"
+              onClick={baixarPasta}
+              disabled={baixando}
+              className="btn btn-neutro"
+              title="Baixa todos os documentos desta pasta, e das subpastas, num zip"
+            >
+              {baixando ? 'Montando o zip…' : 'Baixar a pasta'}
+            </button>
             <button
               type="button"
               onClick={() => {
@@ -1645,6 +1688,50 @@ function lerComoDataUrl(arquivo: File): Promise<string> {
 
 function semExtensao(nome: string): string {
   return nome.replace(/\.[^.]+$/, '').slice(0, 120);
+}
+
+/**
+ * Um nome de pasta virando nome de arquivo salvo.
+ *
+ * A barra é o motivo de isto existir: "Licitação nº 016/2026" é um nome de
+ * pasta perfeitamente comum aqui, e navegador que leve a barra a sério salva o
+ * arquivo como "2026 da Câmara….zip" — o número do edital, que é justamente o
+ * que identifica o pacote, fica de fora.
+ */
+function nomeDeArquivo(nome: string): string {
+  return (
+    nome
+      .replace(/[/\\:*?"<>|]/g, '-')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 150) || 'pasta'
+  );
+}
+
+/**
+ * O motivo de um erro que veio numa resposta pedida como blob.
+ *
+ * Pedindo `responseType: 'blob'`, o axios entrega o corpo do erro como blob
+ * também — e o recado do servidor ("esta pasta está vazia", "acima do limite")
+ * fica dentro dele, em JSON. Sem abrir, a tela mostraria "[object Blob]" no
+ * lugar de uma frase que já estava escrita.
+ */
+async function motivoDoBlob(err: unknown): Promise<string> {
+  const dados = (err as { response?: { data?: unknown } })?.response?.data;
+
+  if (dados instanceof Blob) {
+    try {
+      const { message } = JSON.parse(await dados.text()) as {
+        message?: string | string[];
+      };
+      if (Array.isArray(message)) return message.join(' ');
+      if (message) return message;
+    } catch {
+      // Não era JSON — cai no tratamento de sempre.
+    }
+  }
+
+  return mensagemErro(err);
 }
 
 /** O que saiu de guardar uma leva de documentos. */

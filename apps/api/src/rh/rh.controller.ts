@@ -29,6 +29,7 @@ import {
   SubstituirDocumentoDto,
 } from './dto/documento.dto';
 import { LicitacoesService } from './licitacoes.service';
+import { PastaEmZipService } from './pasta-em-zip.service';
 import { RecibosDaFolhaService } from './recibos.service';
 
 function usuarioId(req: Request): string | undefined {
@@ -63,6 +64,7 @@ export class RhController {
     private readonly documentos: DocumentosRhService,
     private readonly recibos: RecibosDaFolhaService,
     private readonly licitacoes: LicitacoesService,
+    private readonly zip: PastaEmZipService,
   ) {}
 
   // --- A estante ------------------------------------------------------------
@@ -145,6 +147,30 @@ export class RhController {
       'Cache-Control': 'private, no-store',
     });
     return new StreamableFile(conteudo);
+  }
+
+  /**
+   * A pasta inteira num zip, com as subpastas viradas diretórios.
+   *
+   * É o pacote da licitação saindo daqui como um arquivo só — o caminho que
+   * existia era abrir os quarenta documentos um a um pelo botão "Ver".
+   */
+  @Get('pastas/:id/zip')
+  async pastaEmZip(
+    @Param('id') id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const { nome, corpo } = await this.zip.montar(id);
+
+    res.set({
+      'Content-Type': 'application/zip',
+      'Content-Disposition':
+        `attachment; filename="${semAcento(nome)}"; ` +
+        `filename*=UTF-8''${encodeURIComponent(nome)}`,
+      // Os documentos são da casa: nenhum intermediário guarda cópia.
+      'Cache-Control': 'private, no-store',
+    });
+    return new StreamableFile(corpo);
   }
 
   @Post('documentos')
