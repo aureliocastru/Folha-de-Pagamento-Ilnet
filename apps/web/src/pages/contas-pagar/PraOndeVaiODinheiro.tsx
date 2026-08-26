@@ -33,9 +33,9 @@ const SEM_CATEGORIA = 'Sem categoria';
  * Uma linha de dinheiro, seja ela conta em aberto ou pagamento feito.
  *
  * As duas respondem à mesma pergunta com a mesma forma — quanto, de quem, em
- * que categoria —, e é isso que deixa o gráfico e a janela de detalhe serem os
- * mesmos para os dois lados. O registro original vai junto porque é ele que a
- * ficha abre no fim do caminho.
+ * que categoria, e a que se referia —, e é isso que deixa o gráfico e a janela
+ * de detalhe serem os mesmos para os dois lados. O registro original vai junto
+ * porque é ele que a ficha abre no fim do caminho.
  */
 interface LinhaDoDinheiro {
   chave: number;
@@ -44,6 +44,8 @@ interface LinhaDoDinheiro {
   fornecedor: string;
   valor: number;
   data: string | null;
+  /** O que o IXC guarda sobre o título — é o que diz de que compra ele é. */
+  observacao: string | null;
   conta?: ContaAberta;
   pagamento?: PagamentoFeito;
 }
@@ -105,6 +107,7 @@ export function PraOndeVaiODinheiro({ contas }: { contas: ContaAberta[] }) {
         fornecedor: c.fornecedor.nome || `Fornecedor ${c.fornecedor.id ?? '?'}`,
         valor: c.valorAberto,
         data: c.vencimento,
+        observacao: c.observacao,
         conta: c,
       }));
     }
@@ -117,6 +120,7 @@ export function PraOndeVaiODinheiro({ contas }: { contas: ContaAberta[] }) {
       fornecedor: p.fornecedor.nome || `Fornecedor ${p.fornecedor.id ?? '?'}`,
       valor: p.valorPago,
       data: p.pagoEm,
+      observacao: p.observacao,
       pagamento: p,
     }));
   }, [recorte, contas, pagos.data]);
@@ -341,9 +345,24 @@ function ContasDaFatia({
                                 {l.fornecedor}
                               </span>
                               <span className="block text-xs text-tinta-400">
+                                nº {l.chave} ·{' '}
                                 {recorte === 'abertas' ? 'vence ' : 'pago em '}
-                                {l.data ? formatData(l.data) : 'sem data'} · nº{' '}
-                                {l.chave}
+                                {l.data ? formatData(l.data) : 'sem data'}
+                              </span>
+                              {/* A observação do IXC é o que responde "de que
+                                  compra é este título" — sem ela a linha é um
+                                  nome e um valor, e a resposta ficava a uma
+                                  ficha de distância. Ela vai inteira, e não
+                                  cortada: o número da parcela, quando existe,
+                                  está no fim dela ("… (3/6)"). */}
+                              <span
+                                className={`mt-0.5 block text-xs ${
+                                  l.observacao
+                                    ? 'text-tinta-500'
+                                    : 'italic text-tinta-300'
+                                }`}
+                              >
+                                {l.observacao ?? 'sem observação no IXC'}
                               </span>
                             </button>
                           </td>
