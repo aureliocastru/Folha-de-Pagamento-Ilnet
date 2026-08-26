@@ -79,6 +79,8 @@ function montarServico(
       historico?: string | null;
       id?: string;
       observacao?: string | null;
+      /** Fora da conta do saldo esperado. */
+      foraDaGaveta?: boolean;
     }>;
     /** Contas abertas agora, com os acertos que já tiveram. */
     naRua?: Array<Record<string, unknown>>;
@@ -122,6 +124,15 @@ function montarServico(
           ...c,
         }));
         const where = args.where ?? {};
+
+        // A terceira pergunta à mesma tabela: quais lançamentos ficam fora da
+        // conta da gaveta. Vem só com o caixa e a marca, sem data nenhuma.
+        if ((where as { foraDaGaveta?: boolean }).foraDaGaveta === true) {
+          return todas
+            .filter((c) => c.foraDaGaveta)
+            .map((c) => ({ idLancamentoIxc: c.idLancamentoIxc }));
+        }
+
         if (!('dataLancamento' in where)) return todas;
 
         // `dataLancamento: null` é a busca do retrato que falta; com `lt`, a
@@ -145,7 +156,14 @@ function montarServico(
           data: Record<string, unknown>;
         }) => data,
       ),
-      upsert: jest.fn(async ({ create }: { create: Record<string, unknown> }) => ({
+      upsert: jest.fn(async ({
+        create,
+      }: {
+        create: Record<string, unknown>;
+        // O `update` não é lido pelo fake, mas é o que os testes conferem: sem
+        // ele no tipo, a chamada gravada não deixa ler o que foi escrito.
+        update?: Record<string, unknown>;
+      }) => ({
         id: 'cf1',
         notaFoto: 'data:image/png;base64,AAAA',
         ...create,
@@ -1716,5 +1734,91 @@ describe('acerto com a despesa já lançada no IXC', () => {
 
     const [{ data }] = prisma.movimentoDaRua.create.mock.calls[0];
     expect(data.gastoPagoEm).toBeUndefined();
+  });
+});
+
+/**
+ * O lançamento de acerto, que não pode pesar na gaveta.
+ *
+ * R$ 300,00 saíram da gaveta e a saída nunca chegou ao IXC. O caixa de lá ficou
+ * R$ 300,00 acima do real, e foi lançada uma saída à mão para acertá-lo. Do
+ * lado daqui, que lê as saídas do IXC, aquela saída virou um segundo desconto
+ * de um dinheiro que já tinha saído — e o saldo esperado foi para negativo.
+ *
+ * Marcado, o lançamento sai da conta do saldo e continua em todo o resto: na
+ * lista, na fila de conferência, no histórico. Ele é uma saída que aconteceu.
+ */
+describe('lançamento fora da conta da gaveta', () => {
+  it('a saída marcada não desconta do saldo esperado', async () => {
+    const { service } = montarServico({
+      anterior: { saldoFinal: 1000 },
+      lancamentos: [saida(1, 50), saida(2, 300)],
+      conferencias: [{ idLancamentoIxc: 2, conferido: false, foraDaGaveta: true }],
+    });
+
+    const e = await service.extrato(7, '2026-08-01', '2026-08-31');
+
+    // 1000 - 50. Os 300 do acerto ficam de fora.
+    expect(e.resumo.saldoEsperado).toBe(950);
+  });
+
+  it('sem marcar, ela desconta como qualquer outra', async () => {
+    const { service } = montarServico({
+      anterior: { saldoFinal: 1000 },
+      lancamentos: [saida(1, 50), saida(2, 300)],
+    });
+
+    const e = await service.extrato(7, '2026-08-01', '2026-08-31');
+
+    expect(e.resumo.saldoEsperado).toBe(650);
+  });
+
+  it('marcada, ela continua na lista — é uma saída que aconteceu', async () => {
+    const { service } = montarServico({
+      anterior: { saldoFinal: 1000 },
+      lancamentos: [saida(1, 50), saida(2, 300)],
+      conferencias: [{ idLancamentoIxc: 2, conferido: false, foraDaGaveta: true }],
+    });
+
+    const e = await service.extrato(7, '2026-08-01', '2026-08-31');
+
+    expect(e.lancamentos).toHaveLength(2);
+    expect(e.lancamentos.find((l) => l.id === 2)?.foraDaGaveta).toBe(true);
+    expect(e.lancamentos.find((l) => l.id === 1)?.foraDaGaveta).toBe(false);
+  });
+
+  it('exige o motivo ao tirar da conta', async () => {
+    const { service } = montarServico();
+
+    await expect(
+      service.marcarForaDaGaveta(7, 2, { fora: true }),
+    ).rejects.toThrow(/por que/i);
+  });
+
+  it('guarda o motivo de quem tirou', async () => {
+    const { service, prisma } = montarServico();
+
+    await service.marcarForaDaGaveta(7, 2, {
+      fora: true,
+      motivo: 'Acerto: o dinheiro já tinha saído da gaveta antes',
+    });
+
+    const [chamada] = prisma.conferenciaCaixa.upsert.mock.calls[0] as Array<{
+      update: Record<string, unknown>;
+    }>;
+    expect(chamada.update.foraDaGaveta).toBe(true);
+    expect(chamada.update.motivoForaDaGaveta).toContain('Acerto');
+  });
+
+  it('devolver à conta não pede motivo, e limpa o que estava escrito', async () => {
+    const { service, prisma } = montarServico();
+
+    await service.marcarForaDaGaveta(7, 2, { fora: false });
+
+    const [chamada] = prisma.conferenciaCaixa.upsert.mock.calls[0] as Array<{
+      update: Record<string, unknown>;
+    }>;
+    expect(chamada.update.foraDaGaveta).toBe(false);
+    expect(chamada.update.motivoForaDaGaveta).toBeNull();
   });
 });

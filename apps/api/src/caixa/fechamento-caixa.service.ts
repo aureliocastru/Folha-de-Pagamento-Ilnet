@@ -39,6 +39,14 @@ export interface LancamentoConferido extends LancamentoDoCaixa {
   /** Quantas fotos de nota há. As fotos em si vêm sob demanda. */
   qtdNotas: number;
   observacao: string | null;
+  /**
+   * Não entra na conta do que deve estar na gaveta.
+   *
+   * A saída de acerto: criada no IXC só para corrigir um saldo que já estava
+   * errado lá, de um dinheiro que saiu da gaveta antes por outro caminho.
+   */
+  foraDaGaveta: boolean;
+  motivoForaDaGaveta: string | null;
 }
 
 /**
@@ -199,6 +207,10 @@ export class FechamentoCaixaService {
         // Quem quer ver pede as daquele lançamento.
         qtdNotas: c?._count.fotos ?? 0,
         observacao: c?.observacao ?? null,
+        // Fora da conta do saldo, mas na lista e na fila de conferência do
+        // mesmo jeito: é uma saída que aconteceu.
+        foraDaGaveta: c?.foraDaGaveta ?? false,
+        motivoForaDaGaveta: c?.motivoForaDaGaveta ?? null,
       };
     });
 
@@ -366,10 +378,31 @@ export class FechamentoCaixaService {
           .reduce((s, l) => s + l.valor, 0),
       );
 
+    /*
+     * Os lançamentos marcados como fora da gaveta.
+     *
+     * São as saídas de acerto: criadas no IXC só para corrigir um saldo que já
+     * estava errado lá, de um dinheiro que saiu da gaveta antes por outro
+     * caminho. Descontá-las de novo tiraria duas vezes o mesmo dinheiro.
+     *
+     * A busca é por caixa, e não pela janela: são poucas linhas — só as que
+     * alguém marcou à mão — e a janela da gaveta muda a cada fechamento.
+     */
+    const foraDaGaveta = new Set(
+      (
+        await this.prisma.conferenciaCaixa.findMany({
+          where: { caixaId, foraDaGaveta: true },
+          select: { idLancamentoIxc: true },
+        })
+      ).map((c) => c.idLancamentoIxc),
+    );
+
     /** A mesma soma, na janela da gaveta — que pode ser maior que o recorte. */
     const somaDaGaveta = (t: 'ENTRADA' | 'SAIDA') =>
       arredondar(
-        daGaveta.filter((l) => l.tipo === t).reduce((s, l) => s + l.valor, 0),
+        daGaveta
+          .filter((l) => l.tipo === t && !foraDaGaveta.has(l.id))
+          .reduce((s, l) => s + l.valor, 0),
       );
 
     return {
@@ -635,6 +668,61 @@ export class FechamentoCaixaService {
       create: { caixaId, idLancamentoIxc, ...base },
       update: base,
     });
+    return { ...salvo, qtdNotas: await this.contarNotas(salvo.id) };
+  }
+
+  /**
+   * Tira (ou devolve) um lançamento da conta do que deve estar na gaveta.
+   *
+   * É para a saída de acerto: aquela criada no IXC só para corrigir um saldo
+   * que já estava errado lá, de um dinheiro que saiu da gaveta antes por outro
+   * caminho. Sem isto ela desconta de novo, e a contagem nunca fecha.
+   *
+   * O lançamento continua na lista e na fila de conferência — ele é uma saída
+   * que aconteceu, e alguém ainda precisa dizer que a olhou. O que ele deixa de
+   * fazer é pesar no saldo esperado.
+   *
+   * O motivo é obrigatório ao tirar: valor que some da conta sem explicação
+   * escrita é o começo de uma contagem em que ninguém confia — inclusive quem
+   * a tirou, seis meses depois.
+   */
+  async marcarForaDaGaveta(
+    caixaId: number,
+    idLancamentoIxc: number,
+    dados: {
+      fora: boolean;
+      motivo?: string;
+      dataLancamento?: string;
+      valor?: number;
+      historico?: string;
+    },
+    usuarioId?: string,
+  ) {
+    const motivo = dados.motivo?.trim() || '';
+    if (dados.fora && motivo.length < 3) {
+      throw new BadRequestException(
+        'Diga por que este lançamento fica fora da conta da gaveta.',
+      );
+    }
+
+    const base = {
+      foraDaGaveta: dados.fora,
+      motivoForaDaGaveta: dados.fora ? motivo : null,
+      ...retratoDoLancamento(dados),
+    };
+
+    const salvo = await this.prisma.conferenciaCaixa.upsert({
+      where: { caixaId_idLancamentoIxc: { caixaId, idLancamentoIxc } },
+      create: { caixaId, idLancamentoIxc, ...base },
+      update: base,
+    });
+
+    this.logger.log(
+      `Lançamento ${idLancamentoIxc} do caixa ${caixaId} ` +
+        (dados.fora ? `fora da gaveta: ${motivo}` : 'de volta à gaveta') +
+        (usuarioId ? ` (por ${usuarioId})` : ''),
+    );
+
     return { ...salvo, qtdNotas: await this.contarNotas(salvo.id) };
   }
 

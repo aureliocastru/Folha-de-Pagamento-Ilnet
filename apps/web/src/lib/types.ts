@@ -1377,6 +1377,16 @@ export interface LancamentoDoCaixa {
   /** Quantas fotos de nota há. As imagens vêm sob demanda, uma a uma. */
   qtdNotas: number;
   observacao: string | null;
+  /**
+   * Não entra na conta do que deve estar na gaveta.
+   *
+   * A saída de acerto: criada no IXC só para corrigir um saldo que já estava
+   * errado lá, de um dinheiro que saiu da gaveta antes por outro caminho.
+   * Continua na lista e na conferência — o que ela deixa de fazer é pesar no
+   * saldo esperado.
+   */
+  foraDaGaveta: boolean;
+  motivoForaDaGaveta: string | null;
 }
 
 /**

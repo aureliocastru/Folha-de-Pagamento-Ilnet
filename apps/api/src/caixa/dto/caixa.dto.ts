@@ -81,6 +81,24 @@ export class ConferirLancamentoDto extends RetratoDoLancamentoDto {
   observacao?: string;
 }
 
+/**
+ * Tirar (ou devolver) um lançamento da conta do saldo esperado da gaveta.
+ *
+ * É para a saída de acerto: a que foi criada no IXC só para corrigir um saldo
+ * que já estava errado lá, de um dinheiro que saiu da gaveta antes por outro
+ * caminho.
+ */
+export class ForaDaGavetaDto extends RetratoDoLancamentoDto {
+  @IsBoolean()
+  fora!: boolean;
+
+  /** Obrigatório ao tirar — a validação do "por quê" mora no serviço. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  motivo?: string;
+}
+
 /** Mais uma foto para a nota de um lançamento. */
 export class AnexarNotaDto extends RetratoDoLancamentoDto {
   @IsString()

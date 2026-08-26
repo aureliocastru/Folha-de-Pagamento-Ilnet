@@ -1242,6 +1242,8 @@ function LinhaDoLancamento({
   onErro: (m: string) => void;
 }) {
 
+  const qc = useQueryClient();
+
   /**
    * O retrato do lançamento vai junto do que se grava sobre ele.
    *
@@ -1266,6 +1268,52 @@ function LinhaDoLancamento({
     onSuccess: (conferido) => onConferiu(l.id, conferido),
     onError: (e) => onErro(mensagemErro(e)),
   });
+
+  /*
+   * Tirar este lançamento da conta da gaveta.
+   *
+   * É para a saída de acerto: a criada no IXC só para corrigir um saldo que já
+   * estava errado lá, de um dinheiro que saiu da gaveta antes por outro
+   * caminho. Sem isto ela desconta de novo, e a contagem nunca fecha.
+   */
+  const foraDaGaveta = useMutation({
+    mutationFn: async (dados: { fora: boolean; motivo?: string }) => {
+      await api.patch(
+        `/caixa/${caixaId}/lancamentos/${l.id}/fora-da-gaveta`,
+        { ...dados, ...retrato },
+      );
+      return dados.fora;
+    },
+    /*
+     * Aqui o extrato é relido inteiro, e não remendado no cache como faz o
+     * "conferir".
+     *
+     * Conferir mexe só naquela linha; isto muda o saldo esperado da gaveta, que
+     * é somado no servidor. Remendar a linha deixaria o número grande no topo
+     * dizendo o de antes — que é justamente o número que se está corrigindo.
+     */
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['caixa', 'extrato'] });
+    },
+    onError: (e) => onErro(mensagemErro(e)),
+  });
+
+  function alternarForaDaGaveta() {
+    if (l.foraDaGaveta) {
+      foraDaGaveta.mutate({ fora: false });
+      return;
+    }
+    // O porquê é pedido aqui, e não é opcional: valor que some da conta sem
+    // explicação escrita é o começo de uma contagem em que ninguém confia.
+    const motivo = prompt(
+      `Por que "${l.historico || 'este lançamento'}" (${formatBRL(l.valor)}) ` +
+        'fica fora da conta da gaveta?\n\n' +
+        'Ex.: lançamento de acerto — o dinheiro já tinha saído da gaveta antes.',
+    );
+    if (motivo && motivo.trim().length >= 3) {
+      foraDaGaveta.mutate({ fora: true, motivo: motivo.trim() });
+    }
+  }
 
   const anexar = useMutation({
     mutationFn: async (notaFoto: string) =>
@@ -1306,6 +1354,24 @@ function LinhaDoLancamento({
               entrada
             </Selo>
           )}
+          {/* O selo fica na linha, e não escondido num detalhe: um valor que
+              não entra na conta precisa se anunciar onde a conta é lida. */}
+          {l.foraDaGaveta && (
+            <>
+              <Selo
+                pequeno
+                tom="atencao"
+                titulo={l.motivoForaDaGaveta ?? undefined}
+              >
+                fora da gaveta
+              </Selo>
+              {l.motivoForaDaGaveta && (
+                <div className="text-xs text-tinta-400">
+                  {l.motivoForaDaGaveta}
+                </div>
+              )}
+            </>
+          )}
         </td>
         <td className="td whitespace-nowrap text-right">
           <span className="valor">{formatBRL(l.valor)}</span>
@@ -1334,6 +1400,27 @@ function LinhaDoLancamento({
               onEscolher={(dataUrl) => anexar.mutate(dataUrl)}
               onErro={onErro}
             />
+            {/* Só nas saídas: entrada de acerto não existe neste problema — o
+                que se conta duas vezes é dinheiro saindo. */}
+            {l.tipo === 'SAIDA' && (
+              <button
+                type="button"
+                onClick={alternarForaDaGaveta}
+                disabled={foraDaGaveta.isPending}
+                className="btn btn-p btn-ferramenta"
+                title={
+                  l.foraDaGaveta
+                    ? 'Voltar a contar este lançamento no saldo esperado'
+                    : 'Tirar este lançamento da conta do saldo esperado da gaveta'
+                }
+              >
+                {foraDaGaveta.isPending
+                  ? '…'
+                  : l.foraDaGaveta
+                    ? 'Contar na gaveta'
+                    : 'Fora da gaveta'}
+              </button>
+            )}
           </div>
         </td>
         <td className="td text-right">

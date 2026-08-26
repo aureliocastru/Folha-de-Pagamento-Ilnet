@@ -1287,6 +1287,22 @@ model ConferenciaCaixa {
   conferidoEm  DateTime? @map("conferido_em")
   conferidoPor String?   @map("conferido_por")
 
+  /// Este lançamento não entra na conta do que deve estar na gaveta.
+  ///
+  /// Existe para o lançamento de acerto: a saída criada no IXC só para corrigir
+  /// um saldo que já estava errado lá. O dinheiro dela saiu da gaveta antes, por
+  /// outro caminho — descontá-la de novo tira duas vezes o mesmo dinheiro, e a
+  /// contagem passa a nunca fechar.
+  ///
+  /// Não some da lista nem da conferência: ela continua sendo uma saída que
+  /// aconteceu e que alguém precisa conferir. O que ela deixa de fazer é pesar
+  /// no saldo esperado.
+  foraDaGaveta       Boolean @default(false) @map("fora_da_gaveta")
+  /// Por que ele ficou de fora. Sem isto, o número não se explica seis meses
+  /// depois — e um valor que some da conta sem motivo escrito é o começo de
+  /// uma contagem que ninguém confia.
+  motivoForaDaGaveta String? @map("motivo_fora_da_gaveta")
+
   /// As fotos da nota. Mais de uma porque uma nota nem sempre cabe numa só:
   /// cupom comprido, verso escrito, a foto tremida que pede a segunda.
   fotos      FotoDaNota[]
