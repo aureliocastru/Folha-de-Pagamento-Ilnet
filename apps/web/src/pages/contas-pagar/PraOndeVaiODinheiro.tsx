@@ -6,7 +6,6 @@ import {
   Bloco,
   Carregando,
   Janela,
-  Selo,
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
@@ -369,13 +368,15 @@ function ContasDaFatia({
             </Aviso>
           ))}
 
+          {/* A ressalva cabe numa linha. O caso em que o palpite erra, e o
+              intervalo que o denuncia, ficam no título da própria contagem —
+              quem desconfiar de uma linha para o mouse nela, e quem não
+              desconfiar não precisa ler um parágrafo para chegar à lista. */}
           {achouParcela && (
             <p className="ajuda mt-3">
-              As parcelas são deduzidas aqui, não vêm do IXC: ele guarda cada
-              uma como um título solto, e o que as junta é serem do mesmo
-              fornecedor pelo mesmo valor. Dois negócios de valor igual com a
-              mesma pessoa aparecem como uma sequência só — passe o mouse na
-              etiqueta para ver de quando até quando ela vai.
+              As parcelas são deduzidas do fornecedor e do valor — o IXC não
+              guarda esse vínculo. Passe o mouse numa para ver de quando até
+              quando ela vai.
             </p>
           )}
 
@@ -428,19 +429,18 @@ function ContasDaFatia({
                               <span className="font-medium text-tinta-800 hover:text-brand-700 dark:hover:text-brand-300">
                                 {l.fornecedor}
                               </span>
-                              <span className="block text-xs text-tinta-400">
-                                nº {l.chave} ·{' '}
-                                {recorte === 'abertas' ? 'vence ' : 'pago em '}
-                                {l.data ? formatData(l.data) : 'sem data'}
-                              </span>
                               {/* A observação do IXC é o que responde "de que
                                   compra é este título" — sem ela a linha é um
-                                  nome e um valor, e a resposta ficava a uma
-                                  ficha de distância. Ela vai inteira, e não
+                                  nome e um valor. Ela vai inteira, e não
                                   cortada: o número da parcela, quando existe,
-                                  está no fim dela ("… (3/6)"). */}
+                                  está no fim dela ("… (3/6)").
+
+                                  O número do título e a data saíram daqui: são
+                                  o que a ficha responde, e a ficha está a um
+                                  clique. Numa lista, cada linha a mais custa a
+                                  leitura de todas as outras. */}
                               <span
-                                className={`mt-0.5 block text-xs ${
+                                className={`block text-xs ${
                                   l.observacao
                                     ? 'text-tinta-500'
                                     : 'italic text-tinta-300'
@@ -448,23 +448,25 @@ function ContasDaFatia({
                               >
                                 {l.observacao ?? 'sem observação no IXC'}
                               </span>
-                              {/* O que a observação do IXC quase nunca diz: em
-                                  que pé está a compra. Vem de contar os
-                                  títulos do mesmo fornecedor pelo mesmo valor —
-                                  ver o texto acima da lista, que conta de onde
-                                  esta etiqueta saiu. */}
+                              {/* Em que pé está a compra — o que a observação
+                                  do IXC quase nunca diz.
+
+                                  Sem etiqueta e sem cor: numa lista em que
+                                  toda linha tem uma, a etiqueta deixa de
+                                  destacar e vira ruído, e o azul sobre azul
+                                  disputava a atenção com o valor sem dizer
+                                  nada que o texto já não dissesse. A hierarquia
+                                  aqui é de tom, não de cor: nome, do que é, e
+                                  em que pé está. */}
                               {parcela && (
-                                <span className="mt-1 block">
-                                  <Selo
-                                    pequeno
-                                    tom="info"
-                                    titulo={explicarParcela(parcela)}
-                                  >
-                                    parcela {parcela.posicao} de {parcela.total}{' '}
-                                    · {parcela.pagas} paga
-                                    {parcela.pagas === 1 ? '' : 's'},{' '}
-                                    {parcela.faltam} a pagar
-                                  </Selo>
+                                <span
+                                  className="block text-xs text-tinta-400"
+                                  title={explicarParcela(parcela)}
+                                >
+                                  parcela {parcela.posicao} de {parcela.total} ·{' '}
+                                  {parcela.pagas} paga
+                                  {parcela.pagas === 1 ? '' : 's'},{' '}
+                                  {parcela.faltam} a pagar
                                 </span>
                               )}
                             </button>
