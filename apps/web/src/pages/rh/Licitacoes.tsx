@@ -20,7 +20,12 @@ import type {
   Licitacao,
   PastaRh,
 } from '../../lib/types';
-import { FormularioDoDocumento, Validade } from './Pasta';
+import {
+  FormularioDoDocumento,
+  Validade,
+  contarLeva,
+  guardarLeva,
+} from './Pasta';
 
 /** A gaveta do papel trocado não entra na montagem: ela é o que já não vale. */
 const SUBSTITUIDOS = 'substituídos';
@@ -111,12 +116,14 @@ export function Licitacoes() {
   });
 
   const anexar = useMutation({
-    mutationFn: async (args: { pastaId: string } & Record<string, unknown>) =>
-      (await api.post<DocumentoRh>('/rh/documentos', args)).data,
-    onSuccess: (d) => {
+    mutationFn: async (args: {
+      pastaId: string;
+      documentos: Record<string, unknown>[];
+    }) => guardarLeva(args.documentos, args.pastaId),
+    onSuccess: (leva) => {
       setAnexando(null);
       setErro(null);
-      avisar(`"${d.titulo}" anexado à licitação.`);
+      avisar(contarLeva(leva, 'anexado'));
       recarregar();
     },
     onError: (e) => setErro(mensagemErro(e)),
@@ -452,8 +459,8 @@ export function Licitacoes() {
             tipos={estante.data?.tipos ?? []}
             pendente={anexar.isPending}
             erro={erro}
-            onSalvar={(dados) =>
-              anexar.mutate({ ...dados, pastaId: anexando.id })
+            onSalvar={(documentos) =>
+              anexar.mutate({ documentos, pastaId: anexando.id })
             }
           />
         </Janela>

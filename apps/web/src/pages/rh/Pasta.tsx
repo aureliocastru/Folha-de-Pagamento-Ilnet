@@ -165,13 +165,12 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
   }
 
   const guardar = useMutation({
-    mutationFn: async (dados: Record<string, unknown>) =>
-      (await api.post<DocumentoRh>('/rh/documentos', { ...dados, pastaId: id }))
-        .data,
-    onSuccess: (d) => {
+    mutationFn: async (documentos: Record<string, unknown>[]) =>
+      guardarLeva(documentos, id!),
+    onSuccess: (leva) => {
       setGuardando(false);
       setErro(null);
-      avisar(`"${d.titulo}" guardado.`);
+      avisar(contarLeva(leva));
       recarregar();
     },
     onError: (e) => setErro(mensagemErro(e)),
@@ -457,7 +456,7 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
             tipos={estante.data?.tipos ?? []}
             pendente={guardar.isPending}
             erro={erro}
-            onSalvar={(dados) => guardar.mutate(dados)}
+            onSalvar={(documentos) => guardar.mutate(documentos)}
           />
         </Janela>
       )}
@@ -473,7 +472,7 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
             tipos={estante.data?.tipos ?? []}
             pendente={substituir.isPending}
             erro={erro}
-            onSalvar={(dados) =>
+            onSalvar={([dados]) =>
               substituir.mutate({ id: substituindo.id, ...dados })
             }
           />
@@ -491,7 +490,7 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
             pastas={todas}
             pendente={editar.isPending}
             erro={erro}
-            onSalvar={(dados) => editar.mutate({ id: editando.id, ...dados })}
+            onSalvar={([dados]) => editar.mutate({ id: editando.id, ...dados })}
           />
         </Janela>
       )}
@@ -830,7 +829,14 @@ export function FormularioDoDocumento({
   pastas?: PastaRh[];
   pendente: boolean;
   erro: string | null;
-  onSalvar: (dados: Record<string, unknown>) => void;
+  /**
+   * Os documentos a guardar — sempre uma lista, mesmo quando é um.
+   *
+   * Guardando papel novo dá para arrastar vários de uma vez, e cada arquivo
+   * vira um documento com o seu nome. Corrigindo ou substituindo vem sempre um
+   * só: os dois mexem num documento que já existe.
+   */
+  onSalvar: (documentos: Record<string, unknown>[]) => void;
 }) {
   const [pastaId, setPastaId] = useState(documento?.pastaId ?? '');
   const [titulo, setTitulo] = useState(documento?.titulo ?? '');
@@ -843,31 +849,56 @@ export function FormularioDoDocumento({
   const [valeAte, setValeAte] = useState(
     substituindo ? '' : (documento?.valeAte ?? ''),
   );
-  const [arquivo, setArquivo] = useState<{ nome: string; dados: string } | null>(
-    null,
-  );
+  const [arquivos, setArquivos] = useState<ArquivoEscolhido[]>([]);
+  const [converterParaPdf, setConverterParaPdf] = useState(false);
   const [lendo, setLendo] = useState(false);
   const [sobreAArea, setSobreAArea] = useState(false);
   const [erroDoArquivo, setErroDoArquivo] = useState<string | null>(null);
 
   /** Corrigir: o mesmo documento, outros dados. Substituir não é isso. */
   const editando = !!documento && !substituindo;
-  const podeSalvar =
-    titulo.trim().length >= 2 &&
-    tipo.trim().length >= 2 &&
-    (editando || !!arquivo);
 
-  async function receber(escolhido: File | undefined) {
-    if (!escolhido) return;
+  /*
+   * Vários de uma vez só ao guardar papel novo.
+   *
+   * Corrigir mexe num documento; substituir troca um por outro. Nos dois há um
+   * documento do outro lado, e "cinco arquivos" não teria a quem responder.
+   */
+  const varios = !editando && !substituindo;
+
+  /** Com dois ou mais, cada um tem o seu nome: um título só não serviria. */
+  const emLote = arquivos.length > 1;
+
+  const podeSalvar =
+    tipo.trim().length >= 2 &&
+    (editando || arquivos.length > 0) &&
+    (emLote
+      ? arquivos.every((a) => a.titulo.trim().length >= 2)
+      : titulo.trim().length >= 2);
+
+  /** Há Word ou planilha na mão — só aí a conversão tem o que fazer. */
+  const temConversivel = arquivos.some((a) => viraPdf(a.nome));
+
+  async function receber(lista: File[]) {
+    if (lista.length === 0) return;
 
     setLendo(true);
     setErroDoArquivo(null);
     try {
-      const dados = await lerComoDataUrl(escolhido);
-      setArquivo({ nome: escolhido.name, dados });
-      // O nome do arquivo vira o título quando ninguém escreveu um: é o que
-      // quem está subindo dez digitalizações não quer digitar dez vezes.
-      if (!titulo.trim()) setTitulo(semExtensao(escolhido.name));
+      const lidos = await Promise.all(
+        lista.map(async (f) => ({
+          nome: f.name,
+          dados: await lerComoDataUrl(f),
+          // O nome do arquivo vira o título: é o que quem está subindo dez
+          // digitalizações não quer digitar dez vezes.
+          titulo: semExtensao(f.name),
+        })),
+      );
+
+      // Arrastar de novo acrescenta, não recomeça: quem larga três e lembra do
+      // quarto larga o quarto, e não os quatro.
+      setArquivos((atuais) => (varios ? [...atuais, ...lidos] : lidos.slice(0, 1)));
+      if (!titulo.trim() && lidos[0]) setTitulo(semExtensao(lidos[0].nome));
     } catch (err) {
       setErroDoArquivo(err instanceof Error ? err.message : String(err));
     } finally {
@@ -876,9 +907,23 @@ export function FormularioDoDocumento({
   }
 
   async function escolher(e: React.ChangeEvent<HTMLInputElement>) {
-    const escolhido = e.target.files?.[0];
+    // A cópia tem de sair antes de limpar o campo: `files` é uma lista viva, e
+    // zerar o input a esvazia — o que chegaria em `receber` seria uma lista de
+    // zero arquivos. O campo é limpo para escolher o mesmo arquivo de novo
+    // ainda disparar `change`.
+    const escolhidos = [...(e.target.files ?? [])];
     e.target.value = '';
-    await receber(escolhido);
+    await receber(escolhidos);
+  }
+
+  function tirar(i: number) {
+    setArquivos((atuais) => atuais.filter((_, n) => n !== i));
+  }
+
+  function renomear(i: number, novo: string) {
+    setArquivos((atuais) =>
+      atuais.map((a, n) => (n === i ? { ...a, titulo: novo } : a)),
+    );
   }
 
   /*
@@ -897,7 +942,7 @@ export function FormularioDoDocumento({
   async function aoSoltar(e: React.DragEvent) {
     e.preventDefault();
     setSobreAArea(false);
-    await receber(e.dataTransfer.files?.[0]);
+    await receber([...e.dataTransfer.files]);
   }
 
   return (
@@ -905,17 +950,40 @@ export function FormularioDoDocumento({
       onSubmit={(e) => {
         e.preventDefault();
         if (!podeSalvar) return;
-        onSalvar({
+
+        // O que é do lote inteiro: tipo, observação e datas. Só o título muda
+        // de um papel para o outro — cinco certidões são cinco documentos, mas
+        // são o mesmo tipo, do mesmo dia, com a mesma validade.
+        const comum = {
           ...(editando && pastaId !== documento?.pastaId ? { pastaId } : {}),
-          titulo: titulo.trim(),
           tipo: tipo.trim(),
           descricao: descricao.trim() || undefined,
           emitidoEm: emitidoEm || undefined,
           valeAte: valeAte || undefined,
-          ...(arquivo
-            ? { arquivo: arquivo.dados, arquivoNome: arquivo.nome }
-            : {}),
-        });
+          ...(converterParaPdf ? { converterParaPdf: true } : {}),
+        };
+
+        onSalvar(
+          emLote
+            ? arquivos.map((a) => ({
+                ...comum,
+                titulo: a.titulo.trim(),
+                arquivo: a.dados,
+                arquivoNome: a.nome,
+              }))
+            : [
+                {
+                  ...comum,
+                  titulo: titulo.trim(),
+                  ...(arquivos[0]
+                    ? {
+                        arquivo: arquivos[0].dados,
+                        arquivoNome: arquivos[0].nome,
+                      }
+                    : {}),
+                },
+              ],
+        );
       }}
     >
       {!editando && (
@@ -937,29 +1005,108 @@ export function FormularioDoDocumento({
             }`}
           >
             <label className="btn btn-neutro w-fit cursor-pointer">
-              {lendo ? 'Lendo…' : arquivo ? 'Trocar arquivo' : 'Escolher arquivo'}
+              {lendo
+                ? 'Lendo…'
+                : arquivos.length === 0
+                  ? varios
+                    ? 'Escolher arquivos'
+                    : 'Escolher arquivo'
+                  : varios
+                    ? 'Acrescentar'
+                    : 'Trocar arquivo'}
               <input
                 type="file"
                 accept={ACEITOS}
+                multiple={varios}
                 className="hidden"
                 onChange={escolher}
               />
             </label>
-            {arquivo ? (
+            {arquivos.length === 0 ? (
+              <span className="text-sm text-tinta-400">
+                {sobreAArea
+                  ? 'Solte aqui.'
+                  : varios
+                    ? 'ou arraste os arquivos para cá — pode ser mais de um'
+                    : 'ou arraste o arquivo para cá'}
+              </span>
+            ) : !emLote ? (
               <span className="truncate text-sm text-tinta-600">
-                {arquivo.nome}
+                {arquivos[0].nome}
               </span>
             ) : (
-              <span className="text-sm text-tinta-400">
-                {sobreAArea ? 'Solte aqui.' : 'ou arraste o arquivo para cá'}
+              <span className="text-sm text-tinta-600">
+                {arquivos.length} arquivos
               </span>
             )}
           </div>
+
+          {/* Em lote, cada arquivo aparece com o nome que ele vai ter na
+              estante: é o único campo que não dá para dividir com os outros.
+              Um só continua usando o campo de sempre, lá embaixo — mostrar a
+              lista de um item seria desenhar uma tabela para uma linha. */}
+          {emLote && (
+            <ul className="mt-3 space-y-2">
+              {arquivos.map((a, i) => (
+                <li
+                  key={`${a.nome}-${i}`}
+                  className="flex flex-wrap items-center gap-2 rounded-xl border border-tinta-100 px-3 py-2"
+                >
+                  <span
+                    className="max-w-[14rem] truncate text-xs text-tinta-400"
+                    title={a.nome}
+                  >
+                    {a.nome}
+                  </span>
+                  <input
+                    value={a.titulo}
+                    onChange={(e) => renomear(i, e.target.value)}
+                    aria-label={`Como "${a.nome}" se chama na pasta`}
+                    placeholder="Como este documento se chama"
+                    className="campo min-w-[12rem] flex-1"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => tirar(i)}
+                    className="btn btn-p btn-sutil"
+                    title={`Tirar "${a.nome}" da lista`}
+                  >
+                    Tirar
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
           <p className="ajuda">
-            PDF, foto, digitalização, documento do Word ou planilha — até 15 MB.
+            PDF, foto, digitalização, documento do Word ou planilha — até 15 MB
+            cada.
             {substituindo &&
               ` O que está aqui hoje não se perde: vai para a pasta “Substituídos”, com as datas que ele tinha.`}
           </p>
+
+          {/* A caixa só aparece quando há o que converter: oferecer "virar PDF"
+              a quem acabou de escolher um PDF é linha para não fazer nada. */}
+          {temConversivel && (
+            <label className="mt-3 flex cursor-pointer items-start gap-2">
+              <input
+                type="checkbox"
+                checked={converterParaPdf}
+                onChange={(e) => setConverterParaPdf(e.target.checked)}
+                className="mt-0.5 h-4 w-4 accent-brand-500"
+              />
+              <span className="text-sm text-tinta-600">
+                Guardar em PDF
+                <span className="ajuda mt-0.5">
+                  O Word e a planilha entram convertidos — é o formato que abre
+                  igual em qualquer máquina e que não se altera no caminho. O
+                  que já é PDF ou foto passa direto. Não dando para converter, o
+                  arquivo entra como veio e a tela avisa.
+                </span>
+              </span>
+            </label>
+          )}
+
           {erroDoArquivo && (
             <p className="mt-1 text-sm text-rose-600">{erroDoArquivo}</p>
           )}
@@ -995,18 +1142,21 @@ export function FormularioDoDocumento({
             </select>
           </div>
         )}
-        <div>
-          <label className="rotulo" htmlFor="titulo-do-documento">
-            Como este documento se chama
-          </label>
-          <input
-            id="titulo-do-documento"
-            value={titulo}
-            onChange={(e) => setTitulo(e.target.value)}
-            placeholder="Ex.: Contrato de experiência"
-            className="campo"
-          />
-        </div>
+        {/* Em lote o nome de cada um já foi perguntado na lista de arquivos. */}
+        {!emLote && (
+          <div>
+            <label className="rotulo" htmlFor="titulo-do-documento">
+              Como este documento se chama
+            </label>
+            <input
+              id="titulo-do-documento"
+              value={titulo}
+              onChange={(e) => setTitulo(e.target.value)}
+              placeholder="Ex.: Contrato de experiência"
+              className="campo"
+            />
+          </div>
+        )}
         <div>
           <label className="rotulo" htmlFor="tipo-do-documento">
             Tipo
@@ -1086,7 +1236,9 @@ export function FormularioDoDocumento({
               ? 'Salvar correção'
               : substituindo
                 ? 'Substituir'
-                : 'Guardar na pasta'}
+                : emLote
+                  ? `Guardar os ${arquivos.length} na pasta`
+                  : 'Guardar na pasta'}
         </button>
       </div>
     </form>
@@ -1144,6 +1296,100 @@ function lerComoDataUrl(arquivo: File): Promise<string> {
 
 function semExtensao(nome: string): string {
   return nome.replace(/\.[^.]+$/, '').slice(0, 120);
+}
+
+/** O que saiu de guardar uma leva de documentos. */
+export interface LevaGuardada {
+  guardados: (DocumentoRh & { avisoDaConversao?: string })[];
+  /** Os que não entraram, com o motivo. O resto entrou. */
+  falhas: { nome: string; motivo: string }[];
+}
+
+/**
+ * Guarda os documentos de uma leva, um a um.
+ *
+ * Um a um e não de uma vez porque cada arquivo é o corpo inteiro de uma
+ * requisição — cinco de quinze megabytes ao mesmo tempo é o que o nginx recusa
+ * com um 413 sem frase nenhuma.
+ *
+ * O que falha no meio não desfaz o que já entrou, e nem para a fila: quem
+ * arrastou cinco certidões e tem uma grande demais quer as outras quatro
+ * guardadas, e quer saber qual ficou de fora — não quer as cinco recusadas por
+ * causa de uma. Só quando **nenhuma** entra é que isto vira erro, porque aí não
+ * há nada a contar como feito.
+ */
+export async function guardarLeva(
+  documentos: Record<string, unknown>[],
+  pastaId: string,
+): Promise<LevaGuardada> {
+  const leva: LevaGuardada = { guardados: [], falhas: [] };
+
+  for (const doc of documentos) {
+    try {
+      const { data } = await api.post<
+        DocumentoRh & { avisoDaConversao?: string }
+      >('/rh/documentos', { ...doc, pastaId });
+      leva.guardados.push(data);
+    } catch (err) {
+      leva.falhas.push({
+        nome: String(doc.arquivoNome ?? doc.titulo ?? 'arquivo'),
+        motivo: mensagemErro(err),
+      });
+    }
+  }
+
+  if (leva.guardados.length === 0) {
+    throw new Error(leva.falhas[0]?.motivo ?? 'Nenhum documento foi guardado.');
+  }
+  return leva;
+}
+
+/** A frase que conta o que aconteceu com a leva, para o aviso da tela. */
+export function contarLeva(leva: LevaGuardada, verbo = 'guardado'): string {
+  const partes: string[] = [];
+
+  partes.push(
+    leva.guardados.length === 1
+      ? `"${leva.guardados[0].titulo}" ${verbo}.`
+      : `${leva.guardados.length} documentos ${verbo}s.`,
+  );
+
+  if (leva.falhas.length > 0) {
+    partes.push(
+      `Não ${leva.falhas.length === 1 ? 'entrou' : 'entraram'}: ` +
+        leva.falhas.map((f) => `${f.nome} (${f.motivo})`).join('; '),
+    );
+  }
+
+  // O aviso da conversão vem do servidor e é por documento: "foi guardado como
+  // veio porque tal coisa". Quem pediu PDF precisa saber na hora que não saiu.
+  const daConversao = leva.guardados
+    .map((d) => d.avisoDaConversao)
+    .filter((a): a is string => !!a);
+  if (daConversao.length > 0) partes.push(daConversao.join(' '));
+
+  return partes.join(' ');
+}
+
+/** Um arquivo já lido, esperando para virar documento. */
+interface ArquivoEscolhido {
+  nome: string;
+  /** O conteúdo como data URL, que é como ele viaja até a API. */
+  dados: string;
+  /** Como ele vai se chamar na estante. Começa no nome do arquivo. */
+  titulo: string;
+}
+
+/**
+ * Se este arquivo é dos que o servidor sabe converter em PDF.
+ *
+ * Pela extensão, e não pelo `File.type`: o navegador devolve tipo vazio para
+ * arquivo vindo de rede ou de pen drive em algumas máquinas, e aí a caixa de
+ * converter sumiria justamente para quem arrastou o .docx da rede. Quem decide
+ * de verdade é a API, pelo conteúdo — aqui é só para saber se a caixa aparece.
+ */
+function viraPdf(nome: string): boolean {
+  return /\.(docx?|xlsx?)$/i.test(nome);
 }
 
 function emTamanho(bytes: number): string {

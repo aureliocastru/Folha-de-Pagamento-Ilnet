@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
+import { ConversaoPdfService } from './conversao-pdf.service';
 import { DocumentosRhService } from './documentos.service';
 import { LicitacoesService } from './licitacoes.service';
 import { RecibosDaFolhaService } from './recibos.service';
@@ -16,7 +17,14 @@ import { RhController } from './rh.controller';
 @Module({
   imports: [PrismaModule],
   controllers: [RhController],
-  providers: [DocumentosRhService, RecibosDaFolhaService, LicitacoesService],
+  providers: [
+    DocumentosRhService,
+    RecibosDaFolhaService,
+    LicitacoesService,
+    // O Word virando PDF ao ser guardado. Mora aqui porque é da estante: é
+    // guardando o papel que se decide em que formato ele fica.
+    ConversaoPdfService,
+  ],
   exports: [DocumentosRhService],
 })
 export class RhModule {}

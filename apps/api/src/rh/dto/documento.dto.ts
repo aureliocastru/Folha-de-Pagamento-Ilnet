@@ -73,6 +73,17 @@ export class GuardarDocumentoDto extends DadosDoDocumentoDto {
     message: 'O arquivo não chegou num formato que eu saiba ler.',
   })
   arquivo!: string;
+
+  /**
+   * Guardar o Word (ou a planilha) já convertido em PDF.
+   *
+   * É escolha de quem sobe, e não regra da casa: o mesmo .docx que se manda
+   * para a licitação em PDF — porque em PDF ele não se altera no caminho e
+   * abre igual em qualquer máquina — é o que se guarda em Word quando ainda
+   * vai ser editado. Fora do Office o pedido é ignorado em silêncio: não há o
+   * que converter num PDF nem numa foto.
+   */
+  @IsOptional() @IsBoolean() converterParaPdf?: boolean;
 }
 
 /**

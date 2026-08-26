@@ -5,6 +5,11 @@ import {
   lerDataUrl as lerArquivo,
 } from '../arquivos/data-url';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  ConversaoPdfService,
+  nomeComoPdf,
+  podeVirarPdf,
+} from './conversao-pdf.service';
 import type {
   EditarDocumentoDto,
   GuardarDocumentoDto,
@@ -97,7 +102,10 @@ const NIVEIS_NA_ARVORE = NIVEIS + 1;
 export class DocumentosRhService {
   private readonly logger = new Logger(DocumentosRhService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly conversao: ConversaoPdfService,
+  ) {}
 
   /**
    * A estante inteira, com o que há em cada pasta.
@@ -569,9 +577,17 @@ export class DocumentosRhService {
 
   /** Guarda um documento novo. */
   async guardar(dto: GuardarDocumentoDto, usuarioId?: string) {
-    const { conteudo, tipoDoArquivo } = lerDataUrl(dto.arquivo);
-    conferirArquivo(conteudo, tipoDoArquivo);
+    const original = lerDataUrl(dto.arquivo);
+    conferirArquivo(original.conteudo, original.tipoDoArquivo);
     await this.exigirPasta(dto.pastaId);
+
+    const { conteudo, tipoDoArquivo, nome, avisoDaConversao } =
+      await this.converterSePedido(
+        original.conteudo,
+        original.tipoDoArquivo,
+        dto.arquivoNome.trim(),
+        dto.converterParaPdf === true,
+      );
 
     const doc = await this.prisma.documentoRh.create({
       data: {
@@ -581,7 +597,7 @@ export class DocumentosRhService {
         descricao: dto.descricao?.trim() || null,
         emitidoEm: diaOuNulo(dto.emitidoEm),
         valeAte: diaOuNulo(dto.valeAte),
-        arquivoNome: dto.arquivoNome.trim(),
+        arquivoNome: nome,
         arquivoTipo: tipoDoArquivo,
         arquivoTamanho: conteudo.length,
         // `Uint8Array` e não `Buffer`: o tipo que o Prisma 6 espera na coluna
@@ -597,7 +613,68 @@ export class DocumentosRhService {
       `Documento "${doc.titulo}" (${doc.tipo}, ` +
         `${emMegabytes(doc.arquivoTamanho)}) guardado na pasta ${doc.pastaId}.`,
     );
-    return paraTela(doc);
+    // O aviso viaja junto com o documento, e não como erro: o papel entrou. Só
+    // entrou em Word, e quem subiu pediu PDF — é o tipo de coisa que a pessoa
+    // precisa saber na hora, e não ao abrir o anexo três dias depois.
+    return { ...paraTela(doc), avisoDaConversao };
+  }
+
+  /**
+   * O arquivo como ele vai ser guardado — em PDF, se foi pedido e deu.
+   *
+   * Não deu **nunca** derruba o upload. Um documento de licitação que não sobe
+   * porque o conversor caiu é pior que um documento em Word na pasta: o prazo
+   * do edital não espera o servidor, e o Word ali dentro ainda é o documento.
+   * O que se perde é a conversão, e o aviso diz isso a quem subiu.
+   */
+  private async converterSePedido(
+    conteudo: Buffer,
+    tipoDoArquivo: string,
+    nome: string,
+    pedido: boolean,
+  ): Promise<{
+    conteudo: Buffer;
+    tipoDoArquivo: string;
+    nome: string;
+    avisoDaConversao?: string;
+  }> {
+    const semConverter = { conteudo, tipoDoArquivo, nome };
+
+    // PDF e imagem não têm o que converter, e dizer isso em aviso seria avisar
+    // do que ninguém pediu: a caixa fica marcada para o lote inteiro.
+    if (!pedido || !podeVirarPdf(tipoDoArquivo)) return semConverter;
+
+    const feito = await this.conversao.paraPdf(conteudo, nome);
+
+    if (!feito.convertido) {
+      this.logger.warn(`"${nome}" não virou PDF: ${feito.motivo}.`);
+      return {
+        ...semConverter,
+        avisoDaConversao: `"${nome}" foi guardado como veio: ${feito.motivo}.`,
+      };
+    }
+
+    // O PDF do LibreOffice pode passar do teto que o Word cabia — Word compacta
+    // imagem, o PDF nem sempre. Guardar o original é melhor que recusar o
+    // documento por causa de uma conversão que ninguém exigiu.
+    if (feito.pdf.length > LIMITE_BYTES) {
+      this.logger.warn(
+        `O PDF de "${nome}" passou do teto (${emMegabytes(feito.pdf.length)}).`,
+      );
+      return {
+        ...semConverter,
+        avisoDaConversao:
+          `"${nome}" foi guardado como veio: em PDF ele ficaria com ` +
+          `${emMegabytes(feito.pdf.length)}, acima do limite de ` +
+          `${emMegabytes(LIMITE_BYTES)}.`,
+      };
+    }
+
+    return {
+      conteudo: feito.pdf,
+      tipoDoArquivo: 'application/pdf',
+      nome: nomeComoPdf(nome),
+    };
   }
 
   /**

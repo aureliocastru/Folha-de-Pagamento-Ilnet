@@ -2,6 +2,28 @@
 FROM node:22-alpine
 WORKDIR /app
 
+# LibreOffice, para guardar o Word já convertido em PDF (ver
+# `src/rh/conversao-pdf.service.ts`).
+#
+# É a camada mais pesada da imagem, e vem primeiro de propósito: mudança de
+# código não a reconstrói. Só Writer e Calc — o resto da suíte (Impress, Draw,
+# Base) não converte nada que esta estante guarde.
+#
+# As fontes não são enfeite: sem Liberation, o LibreOffice troca Arial e Times
+# New Roman por qualquer coisa que ache, e a proposta que ia em duas páginas vai
+# em três com a paginação toda deslocada. Liberation tem as mesmas métricas das
+# fontes da Microsoft, que é o que faz o PDF sair com a quebra de página do
+# documento original.
+#
+# A API funciona sem nada disto: sem o binário, a conversão devolve "o
+# LibreOffice não está instalado no servidor" e o arquivo é guardado como veio.
+RUN apk add --no-cache \
+      libreoffice-writer \
+      libreoffice-calc \
+      font-liberation \
+      font-dejavu \
+      font-noto
+
 # Instala dependências do workspace da API (só apps/api é copiado, então o
 # workspace resolve apenas @folha/api).
 #
