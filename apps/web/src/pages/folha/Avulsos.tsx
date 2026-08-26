@@ -480,9 +480,19 @@ export function Avulsos({
 
   const itens = lista.data ?? [];
   const pendentes = itens.reduce((s, i) => s + i.pendentesNoCaixa, 0);
-  const abertoBeneficiario = itens.find(
-    (i) => i.beneficiario.id === aberto,
-  )?.beneficiario;
+
+  /*
+   * De quem é o painel de pagamentos aberto.
+   *
+   * O nome sai da lista local quando ela o tem, e da linha do IXC quando não —
+   * e é o segundo caso que fazia o painel não abrir. A lista local é filtrada
+   * pela origem do módulo; a do IXC não. Um fornecedor que só tem cadastro do
+   * outro lado não estava em `itens`, e o painel, que dependia dele para
+   * escrever o título, simplesmente não aparecia: clicava-se e nada acontecia.
+   */
+  const nomeDoAberto =
+    itens.find((i) => i.beneficiario.id === aberto)?.beneficiario.nome ??
+    fornecedoresIxc.data?.itens.find((f) => f.beneficiarioId === aberto)?.nome;
   const editandoNovo = editando === 'novo';
   const nomeValido = form.nome.trim().length >= 2;
 
@@ -780,6 +790,27 @@ export function Avulsos({
                         >
                           Editar
                         </button>
+                        {/* Um botão de verdade para ver o que a pessoa já
+                            recebeu. O "2 pagamento(s)" da coluna ao lado
+                            também abre, mas ninguém adivinha que um selo é
+                            clicável — e sem isto não havia como olhar um
+                            pagamento antigo por esta tela. */}
+                        {f.beneficiarioId && (
+                          <button
+                            onClick={() =>
+                              setAberto(
+                                aberto === f.beneficiarioId
+                                  ? null
+                                  : f.beneficiarioId,
+                              )
+                            }
+                            className="btn btn-neutro btn-p"
+                          >
+                            {aberto === f.beneficiarioId
+                              ? 'Fechar'
+                              : 'Pagamentos'}
+                          </button>
+                        )}
                         <button
                           onClick={() => pagarDoIxc.mutate(f.idFornecedor)}
                           disabled={pagarDoIxc.isPending}
@@ -839,9 +870,9 @@ export function Avulsos({
         sistema àquele fornecedor.
       */}
 
-      {aberto && abertoBeneficiario && (
+      {aberto && (
         <Bloco
-          titulo={`Pagamentos — ${abertoBeneficiario.nome}`}
+          titulo={`Pagamentos — ${nomeDoAberto ?? 'este fornecedor'}`}
           className="surgir surgir-3 mt-6"
           acao={
             <button onClick={() => setAberto(null)} className="btn btn-sutil btn-p">
