@@ -78,6 +78,18 @@ export interface BeneficiarioSalvo {
   avisoIxc: string | null;
 }
 
+/**
+ * O pagamento que acabou de sair, mais o que não deu certo com a etiqueta.
+ *
+ * A categoria é gravada num segundo passo — ela se prende ao número do título,
+ * que só existe depois que o IXC responde —, e esse passo pode falhar sozinho,
+ * com o dinheiro já a caminho. Quem paga precisa saber disso na mesma tela.
+ */
+export interface PagamentoAvulsoLancado extends PagamentoAvulso {
+  /** null = a categoria ficou gravada no título. */
+  avisoCategoria: string | null;
+}
+
 /** O que a tela precisa saber antes de cadastrar alguém com aquele documento. */
 export interface ConsultaCpfCnpj {
   /** Já cadastrado aqui (a busca é local, e vence a do IXC). */
@@ -411,6 +423,7 @@ export class AvulsosService {
       ...(dto.formaPagamento === undefined
         ? {}
         : { formaPagamento: dto.formaPagamento }),
+      ...(dto.categoriaId === undefined ? {} : { categoriaId: dto.categoriaId }),
       ...(dto.observacoes === undefined
         ? {}
         : { observacoes: dto.observacoes || null }),
@@ -462,13 +475,14 @@ export class AvulsosService {
      * um pagamento do Contas a Pagar entrar na folha.
      */
     origem?: OrigemLancamento,
-  ): Promise<PagamentoAvulso> {
+  ): Promise<PagamentoAvulsoLancado> {
     const beneficiario = await this.decorarPix(
       await this.buscar(beneficiarioId),
       dto,
     );
     const forma = dto.forma ?? beneficiario.formaPagamento;
     const cfg = await this.config.obter();
+    const categoriaId = await this.categoriaDoPagamento(dto, beneficiario);
 
     // A chave só é obrigatória quando é o PIX que vai pagar. Fornecedor que
     // manda boleto não tem chave nenhuma, e exigi-la aqui era o que impedia de
@@ -548,7 +562,69 @@ export class AvulsosService {
       criadoPor: usuarioId ?? null,
     };
 
-    return this.pagarPeloIxc(base, partes, cfg, usuarioId, tipoEscolhido);
+    const pagamento = await this.pagarPeloIxc(
+      base,
+      partes,
+      cfg,
+      usuarioId,
+      tipoEscolhido,
+      categoriaId,
+    );
+    await this.guardarCategoriaPadrao(beneficiario, categoriaId);
+    return pagamento;
+  }
+
+  /**
+   * A que se refere este pagamento: o que a tela escolheu ou, sem ela, a
+   * categoria do cadastro de quem recebe.
+   *
+   * Conferir aqui que ela existe é o ponto de fazer isto antes de qualquer
+   * coisa ser criada: mais adiante o título já está no IXC, e um id que não
+   * existe viraria erro numa tela que acabou de mandar o dinheiro embora.
+   *
+   * O padrão do cadastro não é conferido porque não precisa: a chave
+   * estrangeira o apaga junto com a categoria (`SetNull`), então ele nunca
+   * aponta para o que não há.
+   */
+  private async categoriaDoPagamento(
+    dto: PagarAvulsoDto,
+    beneficiario: BeneficiarioAvulso,
+  ): Promise<string | null> {
+    if (!dto.categoriaId) return beneficiario.categoriaId ?? null;
+
+    const categoria = await this.prisma.categoriaDespesa.findUnique({
+      where: { id: dto.categoriaId },
+      select: { id: true },
+    });
+    if (!categoria) {
+      throw new BadRequestException(
+        'A categoria escolhida não existe mais — recarregue a tela e escolha ' +
+          'outra.',
+      );
+    }
+    return categoria.id;
+  }
+
+  /**
+   * A categoria escolhida na hora de pagar vira o padrão de quem recebeu.
+   *
+   * Mesmo motivo da chave PIX logo abaixo: quem paga o mesmo pedreiro pela
+   * quarta vez não deveria ter de dizer "Obras" pela quarta vez — é na quarta
+   * que alguém deixa passar, e a conta some do dashboard.
+   *
+   * Grava mesmo que a etiqueta não tenha colado no título: a escolha foi feita,
+   * e o próximo pagamento já abre com ela.
+   */
+  private async guardarCategoriaPadrao(
+    beneficiario: BeneficiarioAvulso,
+    categoriaId: string | null,
+  ): Promise<void> {
+    if (!categoriaId || categoriaId === beneficiario.categoriaId) return;
+
+    await this.prisma.beneficiarioAvulso.update({
+      where: { id: beneficiario.id },
+      data: { categoriaId },
+    });
   }
 
   /**
@@ -591,7 +667,9 @@ export class AvulsosService {
     usuarioId?: string,
     /** Como o IXC vai pagar. Ignorado no pagamento em mãos, que é dinheiro. */
     tipoPagamento?: string,
-  ): Promise<PagamentoAvulso> {
+    /** A que se refere — a etiqueta desta casa, presa ao título lá do IXC. */
+    categoriaId?: string | null,
+  ): Promise<PagamentoAvulsoLancado> {
     const emMaos = base.forma === FormaPagamento.EM_MAOS;
     const [conta] = await this.contasPagar.criar(
       {
@@ -638,7 +716,64 @@ export class AvulsosService {
     const aviso = await this.espelharPix(salvo);
     if (aviso) this.logger.warn(aviso);
 
-    return pagamento;
+    return {
+      ...pagamento,
+      avisoCategoria: await this.etiquetar(
+        conta,
+        categoriaId ?? null,
+        usuarioId,
+      ),
+    };
+  }
+
+  /**
+   * Prende a etiqueta desta casa ao título que acabou de nascer no IXC.
+   *
+   * Só dá para fazer depois do envio: a classificação se liga ao número do
+   * `fn_apagar`, e ele não existe antes. Escreve direto na tabela em vez de
+   * chamar o serviço de categorias porque ele mora no módulo que importa este
+   * — chamá-lo daqui fecharia o ciclo. É o mesmo caminho pelo qual a folha já
+   * se etiqueta sozinha.
+   *
+   * Falhar aqui não derruba nada: o dinheiro já foi, e etiqueta que não colou
+   * se resolve na lista de contas em aberto, em dois cliques. O que não pode é
+   * ninguém ficar sabendo — por isso o aviso sobe para a tela.
+   */
+  private async etiquetar(
+    conta: { id: string; idFnApagarIxc: number | null },
+    categoriaId: string | null,
+    usuarioId?: string,
+  ): Promise<string | null> {
+    if (!categoriaId) return null;
+
+    if (!conta.idFnApagarIxc) {
+      return (
+        'O IXC não devolveu o número do título, então a categoria não pôde ' +
+        'ser gravada. Escolha-a na lista de contas em aberto.'
+      );
+    }
+
+    try {
+      await this.prisma.classificacaoConta.upsert({
+        where: { idFnApagar: conta.idFnApagarIxc },
+        create: {
+          idFnApagar: conta.idFnApagarIxc,
+          categoriaId,
+          classificadoPor: usuarioId ?? null,
+        },
+        update: { categoriaId, classificadoPor: usuarioId ?? null },
+      });
+      return null;
+    } catch (err) {
+      const motivo = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `A conta ${conta.id} foi paga, mas a categoria não ficou: ${motivo}`,
+      );
+      return (
+        `O pagamento saiu, mas a categoria não ficou (${motivo}). ` +
+        'Escolha-a na lista de contas em aberto.'
+      );
+    }
   }
 
   /**

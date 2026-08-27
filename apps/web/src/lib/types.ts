@@ -388,6 +388,11 @@ export interface BeneficiarioAvulso {
   /** Quanto ganha por venda — cliente da empresa também vende e comissiona */
   valorPorVenda: string | null;
   formaPagamento: FormaPagamento;
+  /**
+   * Em que categoria o que se paga a essa pessoa costuma entrar. É ela que já
+   * vem escolhida no pagamento seguinte; null = a tela pergunta.
+   */
+  categoriaId: string | null;
   observacoes: string | null;
   ativo: boolean;
   idFornecedorIxc: number | null;
@@ -459,6 +464,12 @@ export interface PagamentoAvulso {
   lancadoEm: string | null;
   lancadoManual: boolean;
   erroIxc: string | null;
+  /**
+   * Por que a categoria não ficou gravada no título (null = ficou). Vem só na
+   * resposta de quem acabou de pagar — a etiqueta é presa ao número do IXC, e
+   * esse passo pode falhar sozinho, com o dinheiro já a caminho.
+   */
+  avisoCategoria?: string | null;
   beneficiario?: { nome: string };
   contaPagar?: {
     id: string;

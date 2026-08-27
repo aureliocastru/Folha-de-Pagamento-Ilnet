@@ -51,6 +51,12 @@ function montarServico(
     erroConsulta?: string;
     /** Por que a chave não subiu para os dados bancários do fornecedor. */
     motivoEspelho?: string;
+    /** null = o IXC criou a conta mas não devolveu o número do título. */
+    idFnApagar?: number | null;
+    /** A categoria escolhida não existe mais no cadastro daqui. */
+    categoriaSumiu?: boolean;
+    /** Por que a etiqueta não pôde ser gravada. */
+    erroEtiqueta?: string;
   } = {},
 ) {
   const beneficiario = { ...BENEFICIARIO, ...opts.beneficiario };
@@ -99,13 +105,28 @@ function montarServico(
       count: jest.fn().mockResolvedValue(0),
       delete: jest.fn(),
     },
+    categoriaDespesa: {
+      findUnique: jest.fn(async ({ where }: { where: { id: string } }) =>
+        opts.categoriaSumiu ? null : { id: where.id },
+      ),
+    },
+    classificacaoConta: {
+      upsert: jest.fn(async () => {
+        if (opts.erroEtiqueta) throw new Error(opts.erroEtiqueta);
+      }),
+    },
   } as any;
 
   const config = { obter: jest.fn().mockResolvedValue(CFG) } as any;
 
   const contasPagar = {
     criar: jest.fn().mockResolvedValue([
-      { id: 'cp1', status: StatusContaPagar.AGUARDANDO_APROVACAO },
+      {
+        id: 'cp1',
+        status: StatusContaPagar.AGUARDANDO_APROVACAO,
+        // O número do título no IXC: é por ele que a etiqueta se prende.
+        idFnApagarIxc: opts.idFnApagar === undefined ? 9001 : opts.idFnApagar,
+      },
     ]),
     remover: jest.fn(),
   } as any;
@@ -289,6 +310,105 @@ describe('pagamento pelo IXC', () => {
     expect(contasPagar.criar.mock.calls[0][0].itens[0]).toMatchObject({
       tipoPagamentoIxc: 'Dinheiro',
     });
+  });
+});
+
+/**
+ * A que se refere o pagamento.
+ *
+ * A etiqueta é desta casa — o IXC não tem onde recebê-la — e é por ela que o
+ * dashboard do Contas a Pagar separa os gastos. O que este bloco protege: ela
+ * não depende de a tela lembrar de fazer um segundo pedido, ela se guarda no
+ * cadastro de quem recebeu, e quando não dá para gravá-la, alguém fica sabendo.
+ */
+describe('categoria do pagamento', () => {
+  it('etiqueta o título no IXC e vira o padrão de quem recebeu', async () => {
+    const { service, prisma } = montarServico();
+
+    const pago = await service.pagar(
+      'b1',
+      { valorServico: 500, descricao: 'pintura', categoriaId: 'cat-obras' },
+      'u9',
+    );
+
+    expect(prisma.classificacaoConta.upsert).toHaveBeenCalledWith({
+      where: { idFnApagar: 9001 },
+      create: {
+        idFnApagar: 9001,
+        categoriaId: 'cat-obras',
+        classificadoPor: 'u9',
+      },
+      update: { categoriaId: 'cat-obras', classificadoPor: 'u9' },
+    });
+    expect(prisma.beneficiarioAvulso.update).toHaveBeenCalledWith({
+      where: { id: 'b1' },
+      data: { categoriaId: 'cat-obras' },
+    });
+    expect(pago.avisoCategoria).toBeNull();
+  });
+
+  /** O segundo pagamento não precisa dizer de novo: o cadastro já sabe. */
+  it('sem categoria no pedido, vale a do cadastro', async () => {
+    const { service, prisma } = montarServico({
+      beneficiario: { categoriaId: 'cat-obras' },
+    });
+
+    await service.pagar('b1', { valorServico: 500, descricao: 'pintura' });
+
+    expect(prisma.classificacaoConta.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { idFnApagar: 9001 } }),
+    );
+    // Já é o padrão: não há o que regravar no cadastro.
+    expect(prisma.beneficiarioAvulso.update).not.toHaveBeenCalled();
+  });
+
+  /**
+   * O dinheiro já foi. Derrubar o pagamento porque a etiqueta não colou seria
+   * trocar um problema de relatório por um de pagamento — mas ninguém pode
+   * descobrir isso um mês depois, olhando o gráfico.
+   */
+  it('título sem número no IXC devolve aviso, e o pagamento fica de pé', async () => {
+    const { service } = montarServico({ idFnApagar: null });
+
+    const pago = await service.pagar('b1', {
+      valorServico: 500,
+      descricao: 'pintura',
+      categoriaId: 'cat-obras',
+    });
+
+    expect(pago.contaPagarId).toBe('cp1');
+    expect(pago.avisoCategoria).toMatch(/não devolveu o número do título/);
+  });
+
+  it('etiqueta que falha não derruba o pagamento, mas avisa', async () => {
+    const { service } = montarServico({ erroEtiqueta: 'banco fora' });
+
+    const pago = await service.pagar('b1', {
+      valorServico: 500,
+      descricao: 'pintura',
+      categoriaId: 'cat-obras',
+    });
+
+    expect(pago.contaPagarId).toBe('cp1');
+    expect(pago.avisoCategoria).toMatch(/banco fora/);
+  });
+
+  /**
+   * Categoria apagada por outra pessoa enquanto a janela estava aberta: melhor
+   * recusar aqui, com nada criado ainda, do que descobrir depois de o título já
+   * estar no IXC.
+   */
+  it('categoria que não existe mais barra o pagamento antes de criar a conta', async () => {
+    const { service, contasPagar } = montarServico({ categoriaSumiu: true });
+
+    await expect(
+      service.pagar('b1', {
+        valorServico: 500,
+        descricao: 'pintura',
+        categoriaId: 'cat-sumida',
+      }),
+    ).rejects.toThrow(/não existe mais/);
+    expect(contasPagar.criar).not.toHaveBeenCalled();
   });
 });
 

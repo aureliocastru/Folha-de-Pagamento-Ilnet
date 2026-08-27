@@ -4,6 +4,7 @@ import {
   LeitorDeCodigo,
   leitorDeCodigoSuportado,
 } from '../../components/LeitorDeCodigo';
+import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
 import {
   Aviso,
   Bloco,
@@ -16,7 +17,6 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
-import { emArvore } from '../../lib/categorias';
 import { formatBRL, formatData } from '../../lib/format';
 import { STATUS_LABEL, STATUS_TOM } from '../../lib/status';
 import { TIPOS_CHAVE_PIX } from '../../lib/types';
@@ -44,6 +44,7 @@ const CADASTRO_VAZIO = {
   tipoChavePix: '',
   valorPorVenda: '',
   formaPagamento: 'IXC' as FormaPagamento,
+  categoriaId: '',
   observacoes: '',
 };
 
@@ -242,6 +243,12 @@ export function Avulsos({
     onError: (err) => avisar(mensagemErro(err), true),
   });
 
+  const categorias = useQuery({
+    queryKey: ['categorias-despesa'],
+    queryFn: async () =>
+      (await api.get<CategoriaDespesa[]>('/categorias-despesa')).data,
+  });
+
   const pagamentos = useQuery({
     queryKey: ['pagamentos-avulsos', modulo, aberto],
     queryFn: async () =>
@@ -258,6 +265,10 @@ export function Avulsos({
     qc.invalidateQueries({ queryKey: ['pagamentos-avulsos'] });
     qc.invalidateQueries({ queryKey: ['contas-pagar'] });
     qc.invalidateQueries({ queryKey: ['dashboard'] });
+    // O pagamento nasce etiquetado: a conta entra na lista de em aberto já
+    // classificada, e a categoria escolhida passa a contar uma conta a mais.
+    qc.invalidateQueries({ queryKey: ['contas-abertas'] });
+    qc.invalidateQueries({ queryKey: ['categorias-despesa'] });
   }
 
   function avisar(texto: string, ruim = false) {
@@ -312,6 +323,7 @@ export function Avulsos({
         tipoChavePix: form.tipoChavePix,
         valorPorVenda: form.valorPorVenda || null,
         formaPagamento: form.formaPagamento,
+        categoriaId: form.categoriaId || null,
         observacoes: form.observacoes || undefined,
         ...(fornecedor.tipo === 'REUSAR'
           ? { idFornecedorIxc: fornecedor.idFornecedorIxc }
@@ -348,53 +360,39 @@ export function Avulsos({
    * caminho na tela, e ele volta no dia em que alguem precisar dele aqui.
    */
 
+  /*
+   * A categoria vai junto no mesmo pedido.
+   *
+   * Ela é etiqueta desta casa e se prende ao número do título, que só existe
+   * depois que o IXC responde — mas quem faz esse segundo passo é o servidor,
+   * que está do lado de lá do envio. Feito daqui, ele era uma segunda ida que
+   * podia falhar sozinha com o dinheiro já a caminho; e o mesmo pedido que
+   * etiqueta é o que guarda a categoria no cadastro de quem recebeu, para o
+   * pagamento seguinte já abrir marcado.
+   */
   const pagar = useMutation({
     mutationFn: async (args: {
       beneficiarioId: string;
       body: Record<string, unknown>;
-    }) => {
-      // A categoria é etiqueta desta casa e mora fora do pagamento: ela se
-      // prende ao número do título, que só existe depois que o IXC responde.
-      const { categoriaId, ...body } = args.body as {
-        categoriaId?: string;
-      } & Record<string, unknown>;
-
-      const { data: p } = await api.post<PagamentoAvulso>(
-        `/avulsos/beneficiarios/${args.beneficiarioId}/pagamentos`,
-        // O módulo vai junto: é ele que decide em que relatório este pagamento
-        // conta. Sem ele o servidor cai na origem do cadastro, e a comissão
-        // paga pela folha a um fornecedor puxado do IXC ficaria de fora do
-        // gráfico de vendas.
-        { ...body, modulo },
-      );
-
-      let avisoCategoria: string | null = null;
-      if (categoriaId && p.contaPagar?.idFnApagarIxc) {
-        try {
-          await api.put(
-            `/contas-abertas/${p.contaPagar.idFnApagarIxc}/categoria`,
-            { categoriaId },
-          );
-        } catch (err) {
-          // O pagamento já saiu; a etiqueta que faltou se resolve na lista.
-          avisoCategoria = `O pagamento saiu, mas a categoria não ficou (${mensagemErro(err)}).`;
-        }
-      } else if (categoriaId) {
-        avisoCategoria =
-          'O pagamento saiu, mas o IXC não devolveu o número do título, então ' +
-          'a categoria não pôde ser gravada.';
-      }
-
-      return { pagamento: p, avisoCategoria };
-    },
-    onSuccess: ({ pagamento: p, avisoCategoria }) => {
+    }) =>
+      (
+        await api.post<PagamentoAvulso>(
+          `/avulsos/beneficiarios/${args.beneficiarioId}/pagamentos`,
+          // O módulo vai junto: é ele que decide em que relatório este pagamento
+          // conta. Sem ele o servidor cai na origem do cadastro, e a comissão
+          // paga pela folha a um fornecedor puxado do IXC ficaria de fora do
+          // gráfico de vendas.
+          { ...args.body, modulo },
+        )
+      ).data,
+    onSuccess: (p) => {
       setPagando(null);
       setAberto(p.beneficiarioId);
       avisar(
-        avisoCategoria
-          ? `${resumoDoPagamento(p)} ${avisoCategoria}`
+        p.avisoCategoria
+          ? `${resumoDoPagamento(p)} ${p.avisoCategoria}`
           : resumoDoPagamento(p),
-        !!p.erroIxc || p.contaPagar?.status === 'ERRO' || !!avisoCategoria,
+        !!p.erroIxc || p.contaPagar?.status === 'ERRO' || !!p.avisoCategoria,
       );
       invalidar();
     },
@@ -628,6 +626,20 @@ export function Avulsos({
                 onChange={(v) => setForm({ ...form, valorPorVenda: v })}
                 placeholder="Se essa pessoa também vende"
               />
+            </Campo>
+            <Campo label="Categoria dos pagamentos">
+              <SeletorDeCategoria
+                categorias={categorias.data}
+                value={form.categoriaId}
+                vazio="Escolher na hora de pagar"
+                carregando={categorias.isLoading}
+                onChange={(id) => setForm({ ...form, categoriaId: id })}
+                title="É por ela que o dashboard separa os gastos. Fica guardada aqui — o IXC não tem onde recebê-la."
+              />
+              <p className="ajuda">
+                Já vem marcada em todo pagamento a essa pessoa — e dá para
+                trocar na hora.
+              </p>
             </Campo>
             <Campo label="Observações" span2>
               <input
@@ -1253,7 +1265,15 @@ function FormularioPagamento({
   onConfirmar: (body: Record<string, unknown>) => void;
 }) {
   const [data, setData] = useState(hojeISO());
-  const [categoriaId, setCategoriaId] = useState('');
+  /*
+   * A categoria abre marcada com a de quem recebe. Quem paga o mesmo pedreiro
+   * pela quarta vez não deveria ter de dizer "Obras" pela quarta — é na quarta
+   * que alguém deixa em branco, e a conta some do dashboard. Trocar aqui vale
+   * para este pagamento e vira o novo padrão do cadastro.
+   */
+  const [categoriaId, setCategoriaId] = useState(
+    beneficiario.categoriaId ?? '',
+  );
   const [tipoPagamento, setTipoPagamento] = useState('');
   const [valorServico, setValorServico] = useState('');
   const [vendas, setVendas] = useState('');
@@ -1276,7 +1296,6 @@ function FormularioPagamento({
     queryFn: async () =>
       (await api.get<CategoriaDespesa[]>('/categorias-despesa')).data,
   });
-  const categoriasEmArvore = emArvore(categorias.data);
 
   const config = useQuery({
     queryKey: ['config-financeira'],
@@ -1309,7 +1328,21 @@ function FormularioPagamento({
   const total = servico + comissao + extra;
   const vaiDePix = /pix/i.test(tipoPagamento);
   const semPix = forma === 'IXC' && vaiDePix && !chavePix.trim();
-  const valido = total >= 0.01 && descricao.trim().length >= 3 && !semPix;
+  /*
+   * Sem categoria o pagamento não sai — e não é capricho de formulário.
+   *
+   * Ele vira conta a pagar no IXC como qualquer outra, e conta sem etiqueta cai
+   * em "Sem categoria" no dashboard do Contas a Pagar: some do gráfico e só
+   * volta quando alguém for caçá-la na lista, um mês depois, sem lembrar do que
+   * se tratava. Escolher agora custa um clique — e a partir da segunda vez nem
+   * isso, porque vem marcada do cadastro.
+   */
+  const semCategoria = !categoriaId;
+  const valido =
+    total >= 0.01 &&
+    descricao.trim().length >= 3 &&
+    !semPix &&
+    !semCategoria;
 
   /** A conta contábil que vai valer: a escolhida, ou a padrão da configuração. */
   const contaEmUso = Number(contaContabil) || config.data?.contaContabilAvulso;
@@ -1372,36 +1405,18 @@ function FormularioPagamento({
 
       <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
         <Campo label="A que se refere — categoria daqui">
-          <select
+          <SeletorDeCategoria
+            categorias={categorias.data}
             value={categoriaId}
-            onChange={(e) => setCategoriaId(e.target.value)}
-            className="campo"
-            disabled={categorias.isLoading}
-          >
-            <option value="">Sem classificação</option>
-            {/* As soltas primeiro, os grupos depois: opção fora de `optgroup`
-                listada abaixo de um grupo parece ter escapado dele. */}
-            {categoriasEmArvore.soltas.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.nome}
-              </option>
-            ))}
-            {categoriasEmArvore.grupos.map(({ mae, filhas }) => (
-              <optgroup key={mae.id} label={mae.nome}>
-                {mae.emUso > 0 && (
-                  <option value={mae.id}>{mae.nome} (sem subcategoria)</option>
-                )}
-                {filhas.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.nome}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
+            vazio="Escolha a categoria…"
+            carregando={categorias.isLoading}
+            onChange={setCategoriaId}
+            title="É por ela que o dashboard separa os gastos. Fica guardada aqui — o IXC não tem onde recebê-la."
+          />
           <p className="ajuda">
-            É por ela que o dashboard separa os gastos. Fica guardada aqui — o IXC
-            não tem onde recebê-la.
+            {beneficiario.categoriaId
+              ? 'Veio do cadastro dessa pessoa. Trocando aqui, o próximo pagamento já vem com a nova.'
+              : 'É por ela que o dashboard do Contas a Pagar separa os gastos — e fica guardada no cadastro para a próxima vez. Não achou a certa? Crie na própria lista.'}
           </p>
         </Campo>
 
@@ -1592,6 +1607,11 @@ function FormularioPagamento({
           <span className="text-sm text-rose-600">
             Sem chave PIX o banco não paga por PIX — informe a chave, escolha
             outro tipo de pagamento (boleto, transferência) ou pague em mãos.
+          </span>
+        ) : semCategoria ? (
+          <span className="text-sm text-rose-600">
+            Escolha a que se refere, lá em cima: sem categoria este gasto cai
+            em “Sem categoria” no dashboard do Contas a Pagar.
           </span>
         ) : (
           <span className="ml-auto text-sm text-tinta-500">

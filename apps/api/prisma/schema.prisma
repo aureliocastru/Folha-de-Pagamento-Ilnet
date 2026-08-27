@@ -550,6 +550,19 @@ model BeneficiarioAvulso {
   /// Forma habitual de pagar essa pessoa (dá para mudar em cada pagamento)
   formaPagamento FormaPagamento @default(IXC) @map("forma_pagamento")
 
+  /// Em que categoria o que se paga a essa pessoa costuma entrar.
+  ///
+  /// Quem paga o mesmo pedreiro pela quarta vez escolhe "Obras" pela quarta
+  /// vez, e é na quarta que alguém deixa passar — a conta vai para o IXC sem
+  /// etiqueta e some do dashboard, que é justamente onde ela seria procurada.
+  /// Guardando aqui, o pagamento seguinte já abre marcado, e mudar a escolha na
+  /// hora de pagar grava o novo padrão: quem trocou de ramo troca uma vez só.
+  ///
+  /// `SetNull` porque apagar a categoria não pode apagar quem recebe: o cadastro
+  /// fica sem padrão e a tela volta a perguntar, que é o pior que pode dar.
+  categoria   CategoriaDespesa? @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
+  categoriaId String?           @map("categoria_id")
+
   observacoes String?
   ativo       Boolean @default(true)
 
@@ -1219,8 +1232,10 @@ model CategoriaDespesa {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  classificacoes ClassificacaoConta[]
-  recorrentes    DespesaRecorrente[]
+  classificacoes            ClassificacaoConta[]
+  recorrentes               DespesaRecorrente[]
+  /// Quem recebe fora da folha e costuma entrar nesta categoria.
+  beneficiarios             BeneficiarioAvulso[]
   /// As configurações que apontam esta categoria — a padrão da folha e a de
   /// cada tipo de pagamento dela.
   configuracoes             ConfiguracaoFinanceira[] @relation("CategoriaPadraoDaFolha")

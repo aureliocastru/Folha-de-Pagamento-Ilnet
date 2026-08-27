@@ -8,6 +8,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
   Min,
   MinLength,
@@ -40,6 +41,15 @@ export class CriarBeneficiarioDto {
   valorPorVenda?: number | null;
 
   @IsOptional() @IsEnum(FormaPagamento) formaPagamento?: FormaPagamento;
+
+  /**
+   * Categoria em que os pagamentos dessa pessoa costumam entrar. Vazio limpa o
+   * padrão — cadastro que não tem um faz a tela perguntar, que é o certo.
+   */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? null : value))
+  @IsUUID()
+  categoriaId?: string | null;
 
   @IsOptional() @IsString() observacoes?: string;
 
@@ -151,6 +161,19 @@ export class PagarAvulsoDto {
   @Transform(({ value }) => (value === '' || value == null ? undefined : value))
   @IsIn([...TIPOS_CHAVE_PIX])
   tipoChavePix?: string;
+
+  /**
+   * A que se refere este pagamento — a etiqueta desta casa, que é por onde o
+   * dashboard separa os gastos.
+   *
+   * Vazio = a categoria do cadastro de quem recebe. A tela sempre manda a
+   * escolhida, e o que vier aqui vira o padrão dele para a próxima vez, como
+   * já acontece com a chave PIX.
+   */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : value))
+  @IsUUID()
+  categoriaId?: string;
 }
 
 export class QueryPagamentosAvulsosDto {
