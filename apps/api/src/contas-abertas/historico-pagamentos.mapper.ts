@@ -318,7 +318,7 @@ export function mapPagamento(
     ]),
     caixa: {
       id: parseIxcId(raw.id_contas ?? raw.id_conta_pagamento ?? raw.id_caixa),
-      nome: primeiroTexto(raw, ['conta_pagamento', 'nome_conta_pagamento']),
+      nome: nomeDeVerdade(raw, ['conta_pagamento', 'nome_conta_pagamento']),
     },
     baixadoPor: nomeDeQuemBaixou(raw),
     observacao: primeiroTexto(raw, ['obs', 'observacao', 'historico']),
@@ -351,6 +351,26 @@ export function mapPagamento(
       campoDaBaixa,
     }),
   };
+}
+
+/**
+ * O nome da conta, quando a coluna traz nome — e não o código de novo.
+ *
+ * `fn_apagar.conta_pagamento` não é o rótulo que o nome promete: nesta base ela
+ * repete o código da conta ("14"), e só vem preenchida nos títulos lançados pela
+ * tela do IXC. Lida como nome, ela fazia a lista de pagos mostrar "14" numa
+ * linha e "Conta Sicoob" na de baixo — a mesma conta com dois rostos, e o do
+ * código escondendo o defeito de quem procurava por nome.
+ *
+ * Texto que é só dígito, então, não é nome: fica para o índice de contas
+ * preencher, que é quem tem o nome de verdade.
+ */
+function nomeDeVerdade(
+  raw: Record<string, unknown>,
+  campos: string[],
+): string | null {
+  const texto = primeiroTexto(raw, campos);
+  return texto && /\D/.test(texto) ? texto : null;
 }
 
 /**

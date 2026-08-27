@@ -193,6 +193,25 @@ describe('ler um pagamento', () => {
     expect(p.fornecedor).toEqual({ id: 77, nome: 'ENERGISA CEARA' });
   });
 
+  /**
+   * `conta_pagamento` promete o nome da conta e entrega o código dela — e só
+   * vem preenchida nos títulos lançados pela tela do IXC. Lida como nome, a
+   * lista de pagos mostrava "14" numa linha e "Conta Sicoob" na de baixo, para
+   * a mesma conta, e quem visse "14" não tinha como saber de onde saiu.
+   */
+  it('código na coluna de nome não vira nome — fica para o índice de contas', () => {
+    const p = mapPagamento(pago({ conta_pagamento: '14', id_contas: '14' }))!;
+
+    expect(p.caixa.id).toBe(14);
+    expect(p.caixa.nome).toBeNull();
+  });
+
+  it('nome de verdade na coluna de nome é aproveitado', () => {
+    const p = mapPagamento(pago({ conta_pagamento: 'Conta Sicoob' }))!;
+
+    expect(p.caixa.nome).toBe('Conta Sicoob');
+  });
+
   it('conta os dias de atraso pelo dia civil', () => {
     expect(mapPagamento(pago())!.diasDeAtraso).toBe(0);
     expect(

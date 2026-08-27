@@ -204,7 +204,6 @@ export class PagamentosService {
       opcoes.contaPagamento ??
       parseIxcId(raw.id_contas) ??
       cfg.contaPagamentoId;
-    const contaContabilId = parseIxcId(raw.id_conta) ?? cfg.contaContabilAvulso;
     const filialId = parseIxcId(raw.filial_id) ?? cfg.filialId;
 
     /*
@@ -250,16 +249,27 @@ export class PagamentosService {
     ]);
 
     /*
-     * Sem o razão da conta de pagamento a baixa não lança no banco, e o
-     * pagamento não chega à conciliação. Cair na conta contábil do título é o
-     * comportamento antigo — errado, mas melhor do que recusar o pagamento por
-     * causa de uma consulta que não respondeu.
+     * Sem o razão da conta de pagamento, a baixa não sai daqui.
+     *
+     * O `id_conta` da baixa é a conta do razão do banco, e é nela que o IXC
+     * escreve a perna do dinheiro saindo — a que a conciliação lê. Sem ela,
+     * antes, ia a conta contábil do título: o IXC escrevia as duas pernas na
+     * conta da despesa, o título constava pago e a conciliação não tinha o que
+     * listar. Oito pagamentos de agosto ficaram assim, e cada um só se conserta
+     * estornando e refazendo à mão.
+     *
+     * Por isso agora recusa, e recusa **antes** de mandar a baixa: aqui nada
+     * saiu ainda, o título continua aprovado, e quem clicou repete o pagamento.
+     * O barato de deixar passar é caro depois — pagamento que não concilia só
+     * aparece no fechamento do mês, quando ninguém lembra de qual foi.
      */
     if (conta.planejamento === null) {
-      avisos.push(
-        `Não consegui ler a conta do razão da conta de pagamento ` +
-          `${contaPagamentoId} no IXC. A baixa foi feita, mas o lançamento pode ` +
-          'não aparecer na conciliação bancária — confira por lá.',
+      throw new ServiceUnavailableException(
+        `Não deu para ler no IXC a conta do razão da conta de pagamento ` +
+          `${contaPagamentoId}${conta.nome ? ` (${conta.nome})` : ''}. Sem ela ` +
+          'a baixa não entraria na conciliação bancária, então nada foi pago. ' +
+          'Tente de novo; se insistir, confira a "Conta contábil analítica" no ' +
+          'cadastro dessa conta no IXC.',
       );
     }
 
@@ -267,7 +277,7 @@ export class PagamentosService {
       idFnApagar,
       contaPagamentoId,
       contaPagamentoNome: conta.nome,
-      contaPlanejamentoId: conta.planejamento ?? contaContabilId,
+      contaPlanejamentoId: conta.planejamento,
       filialId,
       filialNome,
       valor,

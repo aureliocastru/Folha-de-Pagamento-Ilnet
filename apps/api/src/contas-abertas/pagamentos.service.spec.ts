@@ -220,15 +220,23 @@ describe('PagamentosService.pagar', () => {
     expect(baixa.id_conta).not.toBe(2420);
   });
 
-  it('sem a conta do razão, paga assim mesmo e avisa', async () => {
-    // Uma consulta que não respondeu não pode barrar um pagamento. Mas quem
-    // pagou precisa saber que aquele lançamento pode não chegar à conciliação.
-    const { service } = montarServico({ contaSemPlanejamento: true });
+  /**
+   * Antes, sem o razão a baixa saía assim mesmo, com a conta contábil no lugar
+   * dele, e um aviso na tela. O aviso não salvou ninguém: oito pagamentos de
+   * agosto foram para a conta da despesa, o título constou pago, e a
+   * conciliação ficou sem o que listar até alguém estornar e refazer à mão.
+   *
+   * Recusar sai mais barato — e recusa antes de mandar a baixa, com o título
+   * ainda aprovado e nada pago: quem clicou tenta de novo.
+   */
+  it('sem a conta do razão, não paga — e não deixa rastro no IXC', async () => {
+    const { service, criados } = montarServico({ contaSemPlanejamento: true });
 
-    const r = await service.pagar(4242, { contaPagamento: 23 }, 'Aurelio');
+    await expect(
+      service.pagar(4242, { contaPagamento: 23 }, 'Aurelio'),
+    ).rejects.toThrow(/conciliação bancária/i);
 
-    expect(r.paga).toBe(true);
-    expect(r.avisos.join(' ')).toMatch(/conciliação bancária/i);
+    expect(criados.some((c) => c.recurso.includes('botao_pagar'))).toBe(false);
   });
 
   it('título já pago não é pago de novo', async () => {
