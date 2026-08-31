@@ -137,6 +137,14 @@ export function inferirTipoChavePix(chave?: string | null): TipoChavePix | null 
   if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)) {
     return 'Aleatória';
   }
+  /*
+   * A chave aleatória sem os hífens.
+   *
+   * Alguns bancos mostram os 32 caracteres corridos, e quem copia de lá cola
+   * assim. Sem esta linha ela não era nenhum dos tipos, o rádio ia em branco —
+   * e conta a pagar com PIX sem tipo da chave o banco não paga.
+   */
+  if (/^[0-9a-f]{32}$/i.test(s.replace(/-/g, ''))) return 'Aleatória';
 
   const digitos = s.replace(/\D/g, '');
   if (digitos.length === 13 && digitos.startsWith('55')) return 'Celular';
@@ -299,6 +307,40 @@ export function codificarTipoChavePix(
   return { campo, valor: tipo };
 }
 
+/**
+ * As colunas que vão levar o tipo da chave no POST — no plural, de propósito.
+ *
+ * O rádio "Tipo da chave Pix" mora numa coluna cujo nome varia por instalação,
+ * e é por isso que ele é aprendido. Só que aprender pode errar: o mapa sai de
+ * contas que já existem no IXC, e basta uma delas ter sido marcada com um tipo
+ * que não combina com a chave para o código aprendido daquele tipo sair torto.
+ * Quando isso acontece o IXC não reclama — ele grava o que veio, o rádio
+ * aparece **em branco** na tela, e o banco não paga uma conta assim.
+ *
+ * Então, quando o aprendizado aponta uma coluna diferente da conhecida, as
+ * duas vão: a aprendida com o código dela, e a `tipo_pix` com o código que o
+ * IXC usa onde já se viu. Coluna que a base não tem, o IXC ignora em silêncio
+ * — o custo de mandar as duas é um campo a mais no corpo; o de mandar só a
+ * errada é um pagamento parado.
+ *
+ * Na mesma coluna nunca vão dois valores: o aprendido manda, porque ele veio
+ * desta base.
+ */
+export function camposDoTipoChavePix(
+  tipo: TipoChavePix | null,
+  mapa?: MapaTipoChavePix | null,
+): Record<string, string> {
+  const radio = codificarTipoChavePix(tipo, mapa);
+  const campos: Record<string, string> = { [radio.campo]: radio.valor };
+
+  if (tipo && radio.campo !== MAPA_TIPO_PIX_CONHECIDO.campo) {
+    const conhecido = MAPA_TIPO_PIX_CONHECIDO.codigos[tipo];
+    if (conhecido) campos[MAPA_TIPO_PIX_CONHECIDO.campo] = conhecido;
+  }
+
+  return campos;
+}
+
 /** Monta o corpo do POST /fn_apagar (conta a pagar). */
 export function buildContaPagarPayload(
   input: ContaPagarInput,
@@ -308,7 +350,6 @@ export function buildContaPagarPayload(
   // "Dados bancários" do fornecedor, e a conta a pagar tem que repetir. Só
   // quando o cadastro não diz é que se deduz pelo formato da chave.
   const tipoChave = input.tipoChavePix ?? inferirTipoChavePix(chave);
-  const radio = codificarTipoChavePix(tipoChave, input.mapaTipoChave);
 
   return {
     id_fornecedor: String(input.idFornecedor),
@@ -323,8 +364,9 @@ export function buildContaPagarPayload(
     // inválida!") o celular reescrito em +55DDD9XXXXXXXX, mesmo o IXC guardando
     // a chave com máscara na aba de dados bancários do fornecedor.
     chave_pix: chave,
-    // Rádio "Tipo da chave Pix" da tela de contas a pagar.
-    [radio.campo]: radio.valor,
+    // Rádio "Tipo da chave Pix" da tela de contas a pagar. Ver
+    // `camposDoTipoChavePix` para o motivo de poder ser mais de uma coluna.
+    ...camposDoTipoChavePix(tipoChave, input.mapaTipoChave),
     // O boleto só é pagável no IXC com o código; sem ele a conta chega lá e
     // fica parada esperando alguém digitar à mão.
     codigo_barras: somenteDigitosDoBoleto(input.codigoBarras),

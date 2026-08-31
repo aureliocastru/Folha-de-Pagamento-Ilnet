@@ -1,5 +1,6 @@
 import {
   aprenderTipoChavePix,
+  camposDoTipoChavePix,
   buildAuditoriaPayload,
   buildContaPagarPayload,
   buildFornecedorPayload,
@@ -291,9 +292,55 @@ describe('inferirTipoChavePix', () => {
     ).toBe('Aleatória');
   });
 
+  it('a chave aleatória sem hífen também é aleatória', () => {
+    // Alguns bancos mostram os 32 caracteres corridos, e é assim que a pessoa
+    // copia. Sem reconhecer, o rádio ia em branco e o banco não pagava.
+    expect(inferirTipoChavePix('3f2504e04f8911d39a0c0305e82c3301')).toBe(
+      'Aleatória',
+    );
+  });
+
   it('sem chave, sem tipo', () => {
     expect(inferirTipoChavePix('')).toBeNull();
     expect(inferirTipoChavePix(null)).toBeNull();
+  });
+});
+
+/**
+ * O rádio "Tipo da chave Pix" pode ir em duas colunas.
+ *
+ * A coluna certa é aprendida da própria base, e o aprendizado pode apontar
+ * outra que não seja a que a tela lê — aí o IXC grava calado, o rádio fica em
+ * branco e o banco não paga. Mandando também a coluna conhecida, o pior caso
+ * vira um campo ignorado em vez de um pagamento parado.
+ */
+describe('camposDoTipoChavePix', () => {
+  it('coluna conhecida: vai uma só', () => {
+    expect(camposDoTipoChavePix('CPF/CNPJ', null)).toEqual({
+      tipo_pix: 'CPF_CNPJ',
+    });
+  });
+
+  it('coluna aprendida diferente: vão as duas', () => {
+    const campos = camposDoTipoChavePix('CPF/CNPJ', {
+      campo: 'pix_tipo_chave',
+      codigos: { 'CPF/CNPJ': '1' },
+    });
+
+    expect(campos).toEqual({ pix_tipo_chave: '1', tipo_pix: 'CPF_CNPJ' });
+  });
+
+  it('na mesma coluna, o aprendido manda — ele veio desta base', () => {
+    const campos = camposDoTipoChavePix('Celular', {
+      campo: 'tipo_pix',
+      codigos: { Celular: 'CEL' },
+    });
+
+    expect(campos).toEqual({ tipo_pix: 'CEL' });
+  });
+
+  it('sem tipo, a coluna vai vazia e nenhuma outra é inventada', () => {
+    expect(camposDoTipoChavePix(null, null)).toEqual({ tipo_pix: '' });
   });
 });
 
