@@ -536,12 +536,21 @@ export class FechamentoCaixaService {
   /**
    * Liga o recibo assinado de cada diária à saída dela no caixa.
    *
-   * O que existe dos dois lados é o valor e o nome de quem recebeu: a
-   * movimentação do IXC guarda o histórico da baixa ("Pag. Fulano - doc.: 9"),
-   * e a diária guarda o diarista. Não há um número em comum — o que a baixa
-   * devolve é o id do título, e a conferência é indexada pelo id do lançamento.
-   * Então o casamento é por valor mais nome, dentro do período, e só sobre
-   * saídas que ainda não têm nota nenhuma.
+   * O que existe dos dois lados é o valor, o nome de quem recebeu e o **dia**:
+   * a movimentação do IXC guarda o histórico da baixa ("Pag. Fulano - doc.:
+   * 9"), e a diária guarda o diarista e a data. Não há um número em comum — o
+   * que a baixa devolve é o id do título, e a conferência é indexada pelo id
+   * do lançamento. Então o casamento é por esses três, sobre saídas que ainda
+   * não têm nota nenhuma.
+   *
+   * O dia entrou depois, e por um erro que aconteceu: a diarista recebe toda
+   * semana o mesmo valor, e casando só por valor e nome o recibo da semana
+   * passada virava a nota do pagamento desta. Quem abria a saída do dia 28 via
+   * um recibo dizendo dia 21 — um documento verdadeiro, no lugar errado, que é
+   * pior do que nenhum. A baixa de uma diária vai ao IXC com a data dela
+   * (`quitarNoAto`), então o dia bate por construção; a folga de dois dias
+   * existe para o pagamento que foi lançado fora do dia, e é curta de
+   * propósito: com uma semana de folga o erro voltaria.
    *
    * Uma diária só é ligada uma vez: o índice único em `diaria_id` é o que
    * garante isso mesmo se duas leituras acontecerem juntas.
@@ -578,27 +587,49 @@ export class FechamentoCaixaService {
         select: {
           id: true,
           valor: true,
+          data: true,
           diarista: { select: { nome: true, nomeFantasia: true } },
         },
       });
       if (candidatas.length === 0) return;
 
-      const usados = new Set<number>();
-      for (const d of candidatas) {
-        const valor = Number(d.valor);
-        const nomes = [d.diarista.nome, d.diarista.nomeFantasia]
-          .filter((n): n is string => !!n)
-          .map((n) => n.trim().split(/\s+/)[0].toLowerCase())
-          .filter((n) => n.length >= 3);
+      const usadas = new Set<string>();
 
-        const achado = semNota.find(
-          (l) =>
-            !usados.has(l.id) &&
-            Math.abs(l.valor - valor) < 0.005 &&
-            nomes.some((n) => l.historico.toLowerCase().includes(n)),
-        );
-        if (!achado) continue;
-        usados.add(achado.id);
+      /*
+       * A varredura é pelos lançamentos, e não pelas diárias.
+       *
+       * É o lançamento que precisa de nota, e para cada um se escolhe a diária
+       * **mais próxima no dia** entre as que servem. Pelo outro lado — uma
+       * diária procurando o primeiro lançamento que casasse — a de duas
+       * semanas atrás pegava o pagamento de hoje só por ter sido lida antes.
+       */
+      for (const l of semNota) {
+        let melhor: { diaria: (typeof candidatas)[number]; distancia: number } | null =
+          null;
+
+        for (const d of candidatas) {
+          if (usadas.has(d.id)) continue;
+          if (Math.abs(l.valor - Number(d.valor)) >= 0.005) continue;
+
+          const nomes = [d.diarista.nome, d.diarista.nomeFantasia]
+            .filter((n): n is string => !!n)
+            .map((n) => n.trim().split(/\s+/)[0].toLowerCase())
+            .filter((n) => n.length >= 3);
+          if (!nomes.some((n) => l.historico.toLowerCase().includes(n))) {
+            continue;
+          }
+
+          const distancia = diasEntreDatas(l.data, d.data);
+          if (distancia > FOLGA_DE_DIAS_DO_RECIBO) continue;
+          if (!melhor || distancia < melhor.distancia) {
+            melhor = { diaria: d, distancia };
+          }
+        }
+
+        if (!melhor) continue;
+        const d = melhor.diaria;
+        const achado = l;
+        usadas.add(d.id);
 
         const conferencia = await this.prisma.conferenciaCaixa.upsert({
           where: {
@@ -1805,6 +1836,24 @@ function mesesAntes(d: Date, meses: number): Date {
   const antes = new Date(d);
   antes.setMonth(antes.getMonth() - meses);
   return antes;
+}
+
+/**
+ * Quantos dias o recibo assinado pode estar longe da saída do caixa.
+ *
+ * A baixa de uma diária vai ao IXC com a data dela, então o normal é zero. A
+ * folga cobre o pagamento lançado um ou dois dias depois; mais que isso
+ * alcançaria o pagamento da semana seguinte, que é justamente o erro que esta
+ * conta existe para não cometer.
+ */
+const FOLGA_DE_DIAS_DO_RECIBO = 2;
+
+/** Distância em dias entre duas datas, sem sinal. */
+function diasEntreDatas(a: Date, b: Date): number {
+  const umDia = 24 * 60 * 60 * 1000;
+  const dia = (d: Date) =>
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+  return Math.abs(Math.round((dia(a) - dia(b)) / umDia));
 }
 
 /** O último instante do dia de uma data. */

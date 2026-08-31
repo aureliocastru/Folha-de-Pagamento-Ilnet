@@ -462,7 +462,12 @@ describe('extrato do caixa', () => {
         { ...saida(90, 290), historico: 'Pag. João da Silva - doc.: 12' },
       ],
       diariasAssinadas: [
-        { id: 'dia1', valor: 290, diarista: { nome: 'João da Silva', nomeFantasia: null } },
+        {
+          id: 'dia1',
+          valor: 290,
+          data: HOJE,
+          diarista: { nome: 'João da Silva', nomeFantasia: null },
+        },
       ],
     });
 
@@ -480,7 +485,12 @@ describe('extrato do caixa', () => {
         { ...saida(90, 290), historico: 'Pag. Auto Peças Silva - doc.: 12' },
       ],
       diariasAssinadas: [
-        { id: 'dia1', valor: 290, diarista: { nome: 'Jeferson Alves', nomeFantasia: null } },
+        {
+          id: 'dia1',
+          valor: 290,
+          data: HOJE,
+          diarista: { nome: 'Jeferson Alves', nomeFantasia: null },
+        },
       ],
     });
 
@@ -496,13 +506,109 @@ describe('extrato do caixa', () => {
       ],
       conferencias: [{ idLancamentoIxc: 90, conferido: false, qtdNotas: 1 }],
       diariasAssinadas: [
-        { id: 'dia1', valor: 290, diarista: { nome: 'João da Silva', nomeFantasia: null } },
+        {
+          id: 'dia1',
+          valor: 290,
+          data: HOJE,
+          diarista: { nome: 'João da Silva', nomeFantasia: null },
+        },
       ],
     });
 
     await service.extrato(7, '2026-08-01', '2026-08-31');
 
     expect(prisma.fotoDaNota.create).not.toHaveBeenCalled();
+  });
+
+  /*
+   * O erro que aconteceu de verdade: a diarista recebe toda semana o mesmo
+   * valor, e o recibo da semana passada virava a nota do pagamento desta.
+   * Quem abria a saída do dia 28 via um recibo dizendo dia 21 -- um documento
+   * verdadeiro, no lugar errado.
+   */
+  it('com dois pagamentos iguais, cada recibo vai para o dia dele', async () => {
+    const dia21 = new Date(2026, 7, 21, 10);
+    const dia28 = new Date(2026, 7, 28, 10);
+    const { service, prisma } = montarServico({
+      lancamentos: [
+        { ...saidaEm(21, 100, dia21), historico: 'Pag. Eduarda Amaral Porto' },
+        { ...saidaEm(28, 100, dia28), historico: 'Pag. Eduarda Amaral Porto' },
+      ],
+      diariasAssinadas: [
+        {
+          id: 'da21',
+          valor: 100,
+          data: dia21,
+          diarista: { nome: 'Eduarda Amaral Porto', nomeFantasia: null },
+        },
+        {
+          id: 'da28',
+          valor: 100,
+          data: dia28,
+          diarista: { nome: 'Eduarda Amaral Porto', nomeFantasia: null },
+        },
+      ],
+    });
+
+    await service.extrato(7, '2026-08-01', '2026-08-31');
+
+    const ligados = prisma.fotoDaNota.create.mock.calls.map(
+      ([{ data }]: [{ data: { diariaId: string; conferenciaId: string } }]) =>
+        data.diariaId,
+    );
+    expect(ligados).toEqual(['da21', 'da28']);
+  });
+
+  it('o recibo de outra semana não vira a nota deste pagamento', async () => {
+    // Só a saída do dia 28 está na tela, e o único recibo solto é o do dia 21.
+    // Ficar sem nota é o certo: a foto do papel ainda pode ser anexada, e o
+    // recibo do dia 21 continua esperando a saída dele.
+    const { service, prisma } = montarServico({
+      lancamentos: [
+        {
+          ...saidaEm(28, 100, new Date(2026, 7, 28, 10)),
+          historico: 'Pag. Eduarda Amaral Porto',
+        },
+      ],
+      diariasAssinadas: [
+        {
+          id: 'da21',
+          valor: 100,
+          data: new Date(2026, 7, 21, 10),
+          diarista: { nome: 'Eduarda Amaral Porto', nomeFantasia: null },
+        },
+      ],
+    });
+
+    await service.extrato(7, '2026-08-01', '2026-08-31');
+
+    expect(prisma.fotoDaNota.create).not.toHaveBeenCalled();
+  });
+
+  it('o pagamento lançado um dia depois ainda casa com o recibo', async () => {
+    // A baixa vai ao IXC com a data da diária, então o normal é o mesmo dia.
+    // Um ou dois dias de folga cobrem o que foi lançado fora da hora.
+    const { service, prisma } = montarServico({
+      lancamentos: [
+        {
+          ...saidaEm(30, 100, new Date(2026, 7, 22, 10)),
+          historico: 'Pag. Eduarda Amaral Porto',
+        },
+      ],
+      diariasAssinadas: [
+        {
+          id: 'da21',
+          valor: 100,
+          data: new Date(2026, 7, 21, 10),
+          diarista: { nome: 'Eduarda Amaral Porto', nomeFantasia: null },
+        },
+      ],
+    });
+
+    await service.extrato(7, '2026-08-01', '2026-08-31');
+
+    const [{ data }] = prisma.fotoDaNota.create.mock.calls[0];
+    expect(data.diariaId).toBe('da21');
   });
 
   it('recusa período de trás para frente', async () => {

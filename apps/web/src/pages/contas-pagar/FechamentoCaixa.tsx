@@ -1522,6 +1522,7 @@ function NotasDoLancamento({
             diariaId={n.diariaId!}
             numero={i + 1}
             total={notas.data.length}
+            onDesligar={() => apagar.mutate(n.id)}
           />
         ) : (
           <UmaFoto
@@ -1615,10 +1616,13 @@ function UmRecibo({
   diariaId,
   numero,
   total,
+  onDesligar,
 }: {
   diariaId: string;
   numero: number;
   total: number;
+  /** Tira o recibo desta saída — ele volta a ficar sem lançamento. */
+  onDesligar: () => void;
 }) {
   const [erro, setErro] = useState<string | null>(null);
 
@@ -1656,6 +1660,28 @@ function UmRecibo({
           className="btn btn-p btn-primario"
         >
           {abrir.isPending ? 'Abrindo…' : 'Ver o recibo'}
+        </button>
+        {/* O recibo é ligado à saída por valor, nome e dia — e onde a pessoa
+            recebe todo mês o mesmo valor, a ligação pode cair na saída
+            vizinha. Quem abre o recibo e vê outra data precisa poder
+            desfazer: o recibo volta a ficar solto e é religado na próxima
+            leitura do caixa, agora pelo dia certo. */}
+        <button
+          type="button"
+          onClick={() => {
+            if (
+              confirm(
+                'Tirar este recibo deste pagamento? Ele volta a ficar sem ' +
+                  'lançamento e pode ser ligado ao pagamento certo. O recibo ' +
+                  'assinado não é apagado.',
+              )
+            ) {
+              onDesligar();
+            }
+          }}
+          className="btn btn-p btn-sutil"
+        >
+          Não é deste pagamento
         </button>
         {erro && <p className="text-xs text-rose-600">{erro}</p>}
       </div>
