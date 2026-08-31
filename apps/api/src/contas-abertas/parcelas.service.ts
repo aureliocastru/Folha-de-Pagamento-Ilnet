@@ -10,7 +10,7 @@ import { motivoDeNaoEstarAberto, primeiraData } from './contas-abertas.mapper';
  * soltos, sem nada que os ligue. Ver `agruparParcelas` para o que se assume.
  */
 export interface ParcelaDoTitulo {
-  /** A posição deste título na sequência, por vencimento (1 = a primeira). */
+  /** A posição deste título na sequência (1 = a primeira). */
   posicao: number;
   total: number;
   pagas: number;
@@ -19,6 +19,25 @@ export interface ParcelaDoTitulo {
   valor: number;
   primeiroVencimento: Date | null;
   ultimoVencimento: Date | null;
+  /**
+   * De onde saiu a contagem — e é a diferença entre um dado e um palpite:
+   *
+   * - `nota` = está escrito no título, no "Número da nota" do IXC ("29/36");
+   * - `observacao` = está escrito na observação, no formato "(3/6)" que esta
+   *   casa escreve ao lançar uma nota parcelada;
+   * - `deducao` = ninguém escreveu nada, e a sequência foi deduzida de mesmo
+   *   fornecedor + mesmo valor. É a única que pode estar errada.
+   */
+  fonte: FonteDaParcela;
+}
+
+export type FonteDaParcela = 'nota' | 'observacao' | 'deducao';
+
+/** "29 de 36" escrito num título — a numeração que veio pronta do IXC. */
+export interface MarcacaoDeParcela {
+  posicao: number;
+  total: number;
+  fonte: 'nota' | 'observacao';
 }
 
 export interface ParcelasEncontradas {
@@ -34,6 +53,69 @@ export interface TituloParaAgrupar {
   valor: number;
   vencimento: Date | null;
   paga: boolean;
+  /**
+   * A numeração escrita no próprio título ("29/36"), quando ela existe. É o
+   * que dispensa deduzir — e o que corrige a dedução quando ela errou.
+   */
+  marcacao?: MarcacaoDeParcela | null;
+}
+
+/**
+ * O teto do total de parcelas que uma marcação pode declarar.
+ *
+ * Serve para não ler como parcela o que não é: "123/2024" num campo de número
+ * de nota é nota com série, não parcela 123 de 2024. Trezentos e sessenta são
+ * trinta anos de parcela mensal — acima disso é outra coisa.
+ */
+const TETO_DE_PARCELAS_MARCADAS = 360;
+
+/**
+ * A numeração escrita no título, se houver alguma.
+ *
+ * Dois lugares, nesta ordem:
+ *
+ * 1. **Número da nota** (`numero_nota`), onde o financiamento e o consórcio
+ *    já vinham numerados de antes deste app existir — é lá que está o "29/36"
+ *    da parcela da Hilux;
+ * 2. **observação**, no "(3/6)" que esta casa escreve ao lançar uma nota
+ *    parcelada.
+ *
+ * O que está escrito ganha do que se deduz, sempre: a dedução compara
+ * fornecedor e valor porque não tem nada melhor, e aqui tem.
+ */
+export function marcacaoDeParcela(
+  raw: Record<string, unknown>,
+): MarcacaoDeParcela | null {
+  const nota = lerNumeroDeParcela(String(raw.numero_nota ?? ''), /^(\d{1,4})\s*\/\s*(\d{1,4})$/);
+  if (nota) return { ...nota, fonte: 'nota' };
+
+  // Na observação a marca vem entre parênteses e no fim do texto ("Cabo UTP
+  // (3/6)"): sem os parênteses, um "1/2" solto no meio de uma descrição de
+  // material viraria parcela.
+  const obs = String(raw.obs ?? raw.observacao ?? '');
+  const emParenteses = /\((\d{1,4})\s*\/\s*(\d{1,4})\)/g;
+  let ultima: { posicao: number; total: number } | null = null;
+  for (const achado of obs.matchAll(emParenteses)) {
+    const lido = lerNumeroDeParcela(`${achado[1]}/${achado[2]}`, /^(\d{1,4})\/(\d{1,4})$/);
+    if (lido) ultima = lido;
+  }
+  return ultima ? { ...ultima, fonte: 'observacao' } : null;
+}
+
+function lerNumeroDeParcela(
+  texto: string,
+  formato: RegExp,
+): { posicao: number; total: number } | null {
+  const m = formato.exec(texto.trim());
+  if (!m) return null;
+
+  const posicao = Number(m[1]);
+  const total = Number(m[2]);
+  // "0/6" e "7/6" não são parcela de nada; "1/1" é compra à vista escrita de
+  // um jeito esquisito, e não uma sequência.
+  if (posicao < 1 || total < 2 || posicao > total) return null;
+  if (total > TETO_DE_PARCELAS_MARCADAS) return null;
+  return { posicao, total };
 }
 
 /**
@@ -167,6 +249,7 @@ export class ParcelasService {
           'data_vencimento_original',
         ]),
         paga: fora !== null,
+        marcacao: marcacaoDeParcela(raw),
       });
     }
 
@@ -192,20 +275,107 @@ export class ParcelasService {
 /**
  * Quais títulos são parcelas da mesma coisa — e em que ordem.
  *
- * A regra é a que quem olha a lista já usa de cabeça: **mesmo fornecedor, mesmo
- * valor**. É um palpite, e é o único palpite possível, porque o vínculo não
- * existe no IXC. Ele erra num caso conhecido — dois negócios diferentes de
- * valor igual com a mesma pessoa viram uma sequência só — e por isso a tela diz
- * de onde a contagem saiu, em vez de apresentá-la como um dado do IXC.
+ * São dois caminhos, e o primeiro sempre ganha:
  *
- * Título sozinho no seu par (fornecedor, valor) não vira parcela de nada: uma
- * compra à vista não é "parcela 1 de 1".
+ * 1. **está escrito no título.** Financiamento e consórcio chegam ao IXC com a
+ *    parcela no "Número da nota" ("29/36"), e o que esta casa lança parcelado
+ *    leva "(3/6)" na observação. Aí não há o que deduzir: a numeração é a que
+ *    está lá, e o total é o da compra inteira — inclusive as parcelas que
+ *    ainda nem foram lançadas no IXC.
+ * 2. **não está escrito em lugar nenhum.** Sobra o palpite que quem olha a
+ *    lista já faz de cabeça: **mesmo fornecedor, mesmo valor**. Ele erra num
+ *    caso conhecido — dois negócios diferentes de valor igual com a mesma
+ *    pessoa viram uma sequência só — e é por isso que cada contagem diz de
+ *    onde saiu (`fonte`), em vez de se apresentar como um dado do IXC.
+ *
+ * Foi a mistura dos dois que fazia a Hilux aparecer errada: as trinta e seis
+ * parcelas do financiamento não têm todas o mesmo valor (o juro muda a
+ * última), então a dedução partia a sequência em pedaços e mostrava "parcela 2
+ * de 3" numa conta que o próprio IXC diz ser a 29 de 36.
+ *
+ * Título sozinho não vira parcela de nada quando é deduzido — uma compra à
+ * vista não é "parcela 1 de 1" —, mas vira quando está marcado: um título
+ * escrito "29/36" conta a sequência inteira sozinho, mesmo que as outras
+ * trinta e cinco não estejam no IXC.
+ */
+export function agruparParcelas(
+  titulos: TituloParaAgrupar[],
+): Record<string, ParcelaDoTitulo> {
+  const marcados = titulos.filter((t) => t.marcacao);
+  const semMarca = titulos.filter((t) => !t.marcacao);
+
+  return {
+    ...deduzidas(semMarca),
+    // Os marcados por último: título que tem numeração escrita manda sobre
+    // qualquer dedução que o tenha alcançado por outro caminho.
+    ...marcadas(marcados),
+  };
+}
+
+/**
+ * As sequências que vêm numeradas do IXC.
+ *
+ * O que junta os títulos aqui é o fornecedor e o **total** declarado, não o
+ * valor: parcela de financiamento muda de valor no meio do caminho, e exigir
+ * valores iguais partiria a compra em pedaços — que é justamente o defeito que
+ * a numeração escrita conserta.
+ *
+ * `pagas` recebe um piso: um título que se diz a parcela 29 tem, por
+ * definição, vinte e oito antes dele. Elas podem não estar no IXC (o
+ * financiamento começou antes deste sistema), e contá-las como "a pagar" faria
+ * a tela dizer "36 a pagar" numa compra que está no fim. O piso vale como
+ * "já passaram", e o que a tela mostra é a soma que fecha: pagas + faltam =
+ * total.
+ */
+function marcadas(
+  titulos: TituloParaAgrupar[],
+): Record<string, ParcelaDoTitulo> {
+  const grupos = new Map<string, TituloParaAgrupar[]>();
+
+  for (const t of titulos) {
+    const chave = `${t.idFornecedor}|n${t.marcacao!.total}`;
+    const atual = grupos.get(chave);
+    if (atual) atual.push(t);
+    else grupos.set(chave, [t]);
+  }
+
+  const out: Record<string, ParcelaDoTitulo> = {};
+
+  for (const grupo of grupos.values()) {
+    const total = grupo[0].marcacao!.total;
+    const menorPosicao = Math.min(...grupo.map((t) => t.marcacao!.posicao));
+    const pagasNoIxc = grupo.filter((t) => t.paga).length;
+    const pagas = Math.min(total, Math.max(pagasNoIxc, menorPosicao - 1));
+    const datas = grupo
+      .map((t) => t.vencimento)
+      .filter((d): d is Date => d !== null)
+      .sort((a, b) => a.getTime() - b.getTime());
+
+    for (const t of grupo) {
+      out[String(t.idFnApagar)] = {
+        posicao: t.marcacao!.posicao,
+        total,
+        pagas,
+        faltam: Math.max(0, total - pagas),
+        valor: t.valor,
+        primeiroVencimento: datas[0] ?? null,
+        ultimoVencimento: datas[datas.length - 1] ?? null,
+        fonte: t.marcacao!.fonte,
+      };
+    }
+  }
+
+  return out;
+}
+
+/**
+ * As sequências deduzidas de mesmo fornecedor + mesmo valor.
  *
  * A ordem é por vencimento, que é a ordem em que as parcelas caem. Sem
  * vencimento vai para o fim, pelo código — é o que sobra quando a data falta, e
  * é estável entre duas leituras.
  */
-export function agruparParcelas(
+function deduzidas(
   titulos: TituloParaAgrupar[],
 ): Record<string, ParcelaDoTitulo> {
   const grupos = new Map<string, TituloParaAgrupar[]>();
@@ -239,6 +409,7 @@ export function agruparParcelas(
         valor: t.valor,
         primeiroVencimento: datas[0] ?? null,
         ultimoVencimento: datas[datas.length - 1] ?? null,
+        fonte: 'deducao',
       };
     });
   }

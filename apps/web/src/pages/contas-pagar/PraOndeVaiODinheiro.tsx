@@ -310,6 +310,21 @@ function ContasDaFatia({
     [fatia, parcelas.data],
   );
 
+  /*
+   * A ressalva é só sobre o que foi deduzido.
+   *
+   * Título que traz a parcela escrita ("29/36" no número da nota) não é
+   * palpite nenhum, e avisar que "as parcelas são deduzidas" numa lista em que
+   * elas estão escritas ensina a desconfiar do que está certo.
+   */
+  const achouDeducao = useMemo(
+    () =>
+      fatia.linhas.some(
+        (l) => parcelas.data?.titulos[String(l.chave)]?.fonte === 'deducao',
+      ),
+    [fatia, parcelas.data],
+  );
+
   /** Uma subcategoria só não precisa de sanfona: ela é a fatia inteira. */
   const [abertas, setAbertas] = useState<Set<string>>(
     () => new Set(porSubcategoria.length === 1 ? [porSubcategoria[0].nome] : []),
@@ -374,9 +389,9 @@ function ContasDaFatia({
               desconfiar não precisa ler um parágrafo para chegar à lista. */}
           {achouParcela && (
             <p className="ajuda mt-3">
-              As parcelas são deduzidas do fornecedor e do valor — o IXC não
-              guarda esse vínculo. Passe o mouse numa para ver de quando até
-              quando ela vai.
+              {achouDeducao
+                ? 'Parcela escrita no título (número da nota ou observação) vale como está; o resto é deduzido do fornecedor e do valor, porque o IXC não guarda esse vínculo. Passe o mouse numa para ver de onde a contagem saiu.'
+                : 'A numeração das parcelas está escrita nos próprios títulos do IXC. Passe o mouse numa para ver de quando até quando ela vai.'}
             </p>
           )}
 
@@ -528,10 +543,24 @@ function explicarParcela(p: ParcelaDoTitulo): string {
     p.primeiroVencimento && p.ultimoVencimento
       ? `, de ${formatData(p.primeiroVencimento)} a ${formatData(p.ultimoVencimento)}`
       : '';
+
+  if (p.fonte !== 'deducao') {
+    const onde =
+      p.fonte === 'nota'
+        ? 'no número da nota'
+        : 'na observação do lançamento';
+    return (
+      `Está escrito ${onde} do título no IXC: ${p.posicao}/${p.total}. Os ` +
+      `títulos desta sequência somam ${p.total} parcelas${quando}. As ` +
+      `anteriores a esta contam como já passadas, mesmo as que foram pagas ` +
+      'antes de existir registro aqui.'
+    );
+  }
+
   return (
     `${p.total} títulos de ${formatBRL(p.valor)} para este fornecedor${quando}. ` +
-    'O IXC não guarda o vínculo entre parcelas: a sequência é deduzida do ' +
-    'fornecedor e do valor.'
+    'O IXC não guarda o vínculo entre parcelas, e este título não traz a ' +
+    'numeração escrita: a sequência é deduzida do fornecedor e do valor.'
   );
 }
 
