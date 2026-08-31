@@ -11,6 +11,7 @@ import { Dashboard as ContasPagarDashboard } from './pages/contas-pagar/Dashboar
 import { FechamentoCaixa } from './pages/contas-pagar/FechamentoCaixa';
 import { Transferencias } from './pages/contas-pagar/Transferencias';
 import { HistoricoDePagamentos } from './pages/contas-pagar/HistoricoDePagamentos';
+import { ContasContrato } from './pages/contas-pagar/ContasContrato';
 import { Recorrentes } from './pages/contas-pagar/Recorrentes';
 import { Avulsos } from './pages/folha/Avulsos';
 import { Configuracoes } from './pages/folha/Configuracoes';
@@ -133,6 +134,9 @@ export default function App() {
             folha continua sendo a lista de cá. */}
         <Route path="avulsos" element={<Avulsos modulo="contas-pagar" />} />
         <Route path="recorrentes" element={<Recorrentes />} />
+        {/* A conta de luz de cada endereço: o cadastro das contas contrato e
+            o botão que faz a fatura do mês virar conta a pagar. */}
+        <Route path="contas-contrato" element={<ContasContrato />} />
         <Route path="categorias" element={<ContasPagarCategorias />} />
         <Route path="fechamento-caixa" element={<FechamentoCaixa />} />
         {/* Só ADMIN, e ainda pede a senha ao abrir: a tela move saldo entre

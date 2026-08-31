@@ -105,6 +105,10 @@ const contasPagar: Modulo = {
     // caminho custa menos que obrigar a trocar de módulo no meio do trabalho.
     { to: 'avulsos', label: 'Pagamentos Avulsos', icone: IconeRecibo },
     { to: 'recorrentes', label: 'Recorrentes', icone: IconeCalendarioVolta },
+    // A conta de luz de cada endereço. Fica ao lado das recorrentes porque é
+    // a mesma pergunta — o que se paga todo mês —, e separada porque o valor
+    // desta só se sabe quando a fatura chega.
+    { to: 'contas-contrato', label: 'Contas Contrato', icone: IconePredio },
     { to: 'categorias', label: 'Categorias', icone: IconeEtiqueta },
     // Bater o caixa do dinheiro em mãos: conferir as saídas do período,
     // fotografar a nota e declarar o que ainda está na rua com alguém.

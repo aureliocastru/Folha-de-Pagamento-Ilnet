@@ -896,6 +896,72 @@ model DespesaRecorrente {
   @@map("despesas_recorrentes")
 }
 
+// ---------------------------------------------------------------------------
+// Contas contrato: a conta de luz de cada endereco da empresa.
+//
+// Toda unidade consumidora tem um numero de conta contrato na distribuidora, e
+// e por ele que a fatura se acha. Elas chegam juntas, uma vez por mes, cada uma
+// com um valor diferente — e ate aqui cada uma virava um lancamento a mao:
+// procurar o fornecedor, escolher a conta contabil, escrever de que endereco
+// era. Onze vezes, todo mes, no mesmo dia.
+//
+// O que se guarda e o que nao muda (o endereco, o numero, para quem se paga,
+// como a conta sai). O que muda — quanto veio este mes — se digita na hora de
+// gerar, porque conta de luz nao se sabe de antemao.
+// ---------------------------------------------------------------------------
+
+/// Uma unidade consumidora: o endereco e o numero da conta contrato dele.
+model ContaContrato {
+  id String @id @default(uuid())
+
+  /// O endereco como a casa o chama ("Lago Verde", "Garagem", "Loja")
+  apelido String
+  /// O numero da conta contrato na distribuidora. E por ele que a fatura se
+  /// acha no site dela, e e ele que vai no documento do titulo no IXC — o que
+  /// permite achar de que endereco era uma conta ja paga, meses depois.
+  numero  String @unique
+
+  /// Quem recebe, no cadastro de fornecedores do IXC (a distribuidora)
+  idFornecedorIxc Int    @map("id_fornecedor_ixc")
+  fornecedorNome  String @map("fornecedor_nome")
+
+  /// Dia do mes em que a fatura costuma chegar. Nao e promessa da
+  /// distribuidora: e o que se observou, e serve para a tela saber cobrar
+  /// ("a do Lago Verde chega dia 5 e ainda nao foi lancada").
+  diaDeChegada Int @map("dia_de_chegada")
+  /// Dia do mes em que ela costuma vencer, para a geracao ja sugerir a data
+  diaDeVencimento Int @map("dia_de_vencimento")
+
+  /// Quanto costuma vir, para a tela estranhar o que fugir disso. Vazio ate a
+  /// primeira conta ser gerada — dai em diante e a media do que ja passou.
+  valorDeReferencia Decimal? @map("valor_de_referencia") @db.Decimal(14, 2)
+
+  // --- Como a conta sai (o mesmo do lancamento avulso) ---
+  contaContabil    Int?    @map("conta_contabil")
+  contaPagamento   Int?    @map("conta_pagamento")
+  tipoPagamentoIxc String? @map("tipo_pagamento_ixc")
+
+  /// Etiqueta desta casa, aplicada a cada conta gerada
+  categoria   CategoriaDespesa? @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
+  categoriaId String?           @map("categoria_id")
+
+  /// O que vai junto na observacao do titulo, quando o endereco pede explicacao
+  observacao String?
+
+  /// Desligada some da lista do mes — o imovel foi vendido, o ponto desativado.
+  /// O que ela ja gerou continua de pe: sao contas de verdade no IXC.
+  ativa Boolean @default(true)
+
+  contas ContaPagar[]
+
+  criadoPor String?  @map("criado_por")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([ativa])
+  @@map("contas_contrato")
+}
+
 enum StatusContaPagar {
   RASCUNHO // criada localmente, ainda não enviada ao IXC
   AGUARDANDO_APROVACAO // salva no IXC (fn_apagar criado), pendente auditoria
@@ -971,6 +1037,12 @@ model ContaPagar {
   recorrente   DespesaRecorrente? @relation(fields: [recorrenteId], references: [id], onDelete: SetNull)
   recorrenteId String?            @map("recorrente_id")
 
+  /// A conta contrato (energia de um endereço) que gerou esta conta.
+  /// Com a `competencia` preenchida, é o par que responde "a de agosto do Lago
+  /// Verde já foi lançada?" — e o que impede lançá-la duas vezes.
+  contaContrato   ContaContrato? @relation(fields: [contaContratoId], references: [id], onDelete: SetNull)
+  contaContratoId String?        @map("conta_contrato_id")
+
   status StatusContaPagar @default(RASCUNHO)
   erro   String?
 
@@ -1005,6 +1077,7 @@ model ContaPagar {
   @@index([diaristaId])
   @@index([idFnApagarIxc])
   @@index([origem])
+  @@index([contaContratoId, competencia])
   @@map("contas_pagar")
 }
 
@@ -1234,6 +1307,8 @@ model CategoriaDespesa {
 
   classificacoes            ClassificacaoConta[]
   recorrentes               DespesaRecorrente[]
+  /// As contas de energia por endereço que caem nesta categoria.
+  contasContrato            ContaContrato[]
   /// Quem recebe fora da folha e costuma entrar nesta categoria.
   beneficiarios             BeneficiarioAvulso[]
   /// As configurações que apontam esta categoria — a padrão da folha e a de
