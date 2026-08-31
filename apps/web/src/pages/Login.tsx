@@ -4,6 +4,19 @@ import { mensagemErro } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { destinoDepoisDoLogin } from '../lib/modulos';
 
+/**
+ * A porta de entrada, igual para todo mundo.
+ *
+ * Ela já foi um painel da folha de pagamento: "Finance", adiantamento do dia
+ * 25, saldo do quinto dia. Isso deixou de servir quando o app passou a ser de
+ * mais de um setor — quem mais abre esta tela hoje é o técnico que vai
+ * preencher a APR antes de subir no poste, no celular, e ele era recebido por
+ * um texto sobre salários que não é da conta dele.
+ *
+ * Sobrou o nome da empresa. Nada de coluna de marca escondida no `lg:`: a
+ * tela é a mesma no celular e no computador, porque o celular é o caso comum
+ * e não a exceção que se degrada.
+ */
 export function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -28,120 +41,64 @@ export function Login() {
   }
 
   return (
-    <div className="flex min-h-screen">
-      {/* Painel da marca: fibra óptica é luz dentro de vidro escuro. */}
-      <div className="relative hidden overflow-hidden bg-barra lg:flex lg:w-[46%] lg:flex-col lg:justify-between">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute -left-32 top-1/4 h-[520px] w-[520px] rounded-full opacity-40 blur-3xl"
-          style={{
-            background:
-              'radial-gradient(circle, rgba(58,159,243,0.55) 0%, rgba(10,16,32,0) 70%)',
-          }}
+    // `100dvh` e não `100vh`: no celular a barra do navegador entra e sai, e
+    // com `vh` o botão Entrar nasce empurrado para fora da tela.
+    <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-tinta-50 px-6 py-12">
+      <form onSubmit={onSubmit} className="surgir w-full max-w-[360px]">
+        {/* O `-mr` cancela o espaço que a última letra ganha do `tracking`:
+            sem ele o nome fica meio caractere à esquerda do fio. */}
+        <h1 className="-mr-[0.16em] mb-3.5 text-center font-display text-[22px] font-semibold uppercase leading-none tracking-[0.16em] text-tinta-900 sm:text-[28px]">
+          ILNET TELECOM
+        </h1>
+        {/* Um fio da cor da casa, só para o nome não flutuar solto. */}
+        <div aria-hidden className="mx-auto mb-9 h-px w-16 bg-brand-500/60" />
+
+        {erro && (
+          <div className="mb-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+            {erro}
+          </div>
+        )}
+
+        <label className="rotulo" htmlFor="email">
+          E-mail
+        </label>
+        <input
+          id="email"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          required
+          autoComplete="username"
+          // O teclado do celular abre com maiúscula e corretor ligados, e o
+          // e-mail volta como "Joao@Empresa.com" com sublinhado vermelho.
+          autoCapitalize="none"
+          spellCheck={false}
+          className="campo mb-5"
+          placeholder="voce@empresa.com"
         />
-        <div className="relative px-12 pt-12">
-          <img
-            src="/logo-ilnet.png"
-            alt="ilnet"
-            width={132}
-            height={81}
-            className="h-auto w-[116px]"
-          />
-          <div className="mt-2.5 text-[10px] font-medium uppercase tracking-[0.18em] text-white/45">
-            Finance
-          </div>
-        </div>
 
-        <div className="relative px-12 pb-16">
-          <p className="eyebrow mb-4 text-brand-300">Painel interno</p>
-          <h2 className="max-w-md font-display text-[38px] font-semibold leading-[1.1] tracking-[-0.03em] text-white">
-            Todo pagamento conferido antes de sair.
-          </h2>
-          <p className="mt-5 max-w-sm text-sm leading-relaxed text-white/70">
-            Salário, adiantamento, comissão, horas extras e vales calculados por
-            competência e enviados ao IXC como contas a pagar.
-          </p>
-        </div>
+        <label className="rotulo" htmlFor="senha">
+          Senha
+        </label>
+        <input
+          id="senha"
+          type="password"
+          value={senha}
+          onChange={(e) => setSenha(e.target.value)}
+          required
+          autoComplete="current-password"
+          className="campo mb-7"
+          placeholder="••••••••"
+        />
 
-        <div className="relative flex gap-8 border-t border-white/10 px-12 py-6">
-          {[
-            ['Dia 25', 'adiantamento'],
-            ['Quinto dia', 'salário'],
-          ].map(([q, o]) => (
-            <div key={q}>
-              <div className="font-display text-sm font-semibold text-white">
-                {q}
-              </div>
-              <div className="text-[11px] uppercase tracking-[0.14em] text-white/45">
-                {o}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Formulário */}
-      <div className="flex flex-1 items-center justify-center bg-tinta-50 px-6 py-12">
-        <form onSubmit={onSubmit} className="surgir w-full max-w-[380px]">
-          <div className="mb-8 lg:hidden">
-            <img
-              src="/logo-ilnet.png"
-              alt="ilnet"
-              width={112}
-              height={69}
-              className="h-auto w-[98px]"
-            />
-            <div className="mt-2 text-[10px] font-medium uppercase tracking-[0.18em] text-tinta-400">
-              Finance
-            </div>
-          </div>
-
-          <p className="eyebrow mb-2">Acesso</p>
-          <h1 className="titulo-pagina mb-8">Entrar</h1>
-
-          {erro && (
-            <div className="mb-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-              {erro}
-            </div>
-          )}
-
-          <label className="rotulo" htmlFor="email">
-            E-mail
-          </label>
-          <input
-            id="email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            autoComplete="username"
-            className="campo mb-5"
-            placeholder="voce@empresa.com"
-          />
-
-          <label className="rotulo" htmlFor="senha">
-            Senha
-          </label>
-          <input
-            id="senha"
-            type="password"
-            value={senha}
-            onChange={(e) => setSenha(e.target.value)}
-            required
-            autoComplete="current-password"
-            className="campo mb-7"
-            placeholder="••••••••"
-          />
-
-          <button
-            type="submit"
-            disabled={carregando}
-            className="btn btn-primario w-full py-3"
-          >
-            {carregando ? 'Entrando…' : 'Entrar'}
-          </button>
-        </form>
-      </div>
+        <button
+          type="submit"
+          disabled={carregando}
+          className="btn btn-primario w-full py-3"
+        >
+          {carregando ? 'Entrando…' : 'Entrar'}
+        </button>
+      </form>
     </div>
   );
 }
