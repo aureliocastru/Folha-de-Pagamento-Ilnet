@@ -133,8 +133,12 @@ export class LancamentoDeContratoDto {
   /** Vencimento desta fatura (AAAA-MM-DD). Vazio = o dia de sempre do cadastro. */
   @IsOptional() @IsISO8601() dataVencimento?: string;
 
-  /** Linha digitável, quando a fatura vem com código de barras. */
-  @IsOptional() @IsString() @MaxLength(60) codigoBarras?: string;
+  /**
+   * O código com que a fatura se paga: a linha digitável do boleto ou o copia
+   * e cola do PIX. O serviço distingue os dois — o teto de 512 cabe o payload
+   * inteiro de um QR Code.
+   */
+  @IsOptional() @IsString() @MaxLength(512) codigo?: string;
 
   /** Substitui a observação montada ("Energia Garagem agosto/2026"). */
   @IsOptional() @IsString() @MaxLength(500) observacao?: string;

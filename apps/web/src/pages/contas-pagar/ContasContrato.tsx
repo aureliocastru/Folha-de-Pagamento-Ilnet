@@ -1,5 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
+import {
+  LeitorDeCodigo,
+  type AlvoDaLeitura,
+} from '../../components/LeitorDeCodigo';
 import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
 import {
   Aviso,
@@ -106,6 +110,16 @@ export function ContasContrato() {
   /** O que foi digitado em cada linha: `id da conta contrato` → valor. */
   const [valores, setValores] = useState<Record<string, string>>({});
   const [vencimentos, setVencimentos] = useState<Record<string, string>>({});
+  /**
+   * O código com que cada fatura se paga — a linha digitável do boleto ou o
+   * copia e cola do PIX. Um campo só: é uma coisa só para quem digita (o que
+   * veio impresso na conta), e quem distingue os dois é o servidor.
+   */
+  const [codigos, setCodigos] = useState<Record<string, string>>({});
+  /** A câmera aberta para ler o código de uma linha. */
+  const [lendo, setLendo] = useState<{ id: string; alvo: AlvoDaLeitura } | null>(
+    null,
+  );
   const [cadastrando, setCadastrando] = useState(false);
   const [editando, setEditando] = useState<ContaContrato | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
@@ -145,6 +159,7 @@ export function ContasContrato() {
   useEffect(() => {
     setValores({});
     setVencimentos({});
+    setCodigos({});
   }, [competencia]);
 
   const gerar = useMutation({
@@ -159,6 +174,7 @@ export function ContasContrato() {
           id,
           valor: Number(valores[id]),
           dataVencimento: vencimentos[id] || undefined,
+          codigo: codigos[id]?.trim() || undefined,
         })),
       });
       return data;
@@ -177,6 +193,11 @@ export function ContasContrato() {
       // O que deu certo sai dos campos; o que falhou continua digitado, para
       // não ter de escrever de novo o valor de uma fatura que já está na mão.
       setValores((atual) => {
+        const proximo = { ...atual };
+        for (const g of r.geradas) delete proximo[g.id];
+        return proximo;
+      });
+      setCodigos((atual) => {
         const proximo = { ...atual };
         for (const g of r.geradas) delete proximo[g.id];
         return proximo;
@@ -321,14 +342,15 @@ export function ContasContrato() {
           </Vazio>
         ) : (
           <div className="overflow-x-auto rolagem-fina">
-            <table className="w-full min-w-[1000px] table-fixed text-sm">
+            <table className="w-full min-w-[1180px] table-fixed text-sm">
               <colgroup>
-                <col className="w-[26%]" />
-                <col className="w-[15%]" />
-                <col className="w-[14%]" />
-                <col className="w-[15%]" />
-                <col className="w-[14%]" />
-                <col className="w-[16%]" />
+                <col className="w-[20%]" />
+                <col className="w-[13%]" />
+                <col className="w-[12%]" />
+                <col className="w-[13%]" />
+                <col className="w-[12%]" />
+                <col className="w-[17%]" />
+                <col className="w-[13%]" />
               </colgroup>
               <thead>
                 <tr>
@@ -337,6 +359,7 @@ export function ContasContrato() {
                   <th className="th text-right">Costuma vir</th>
                   <th className="th text-right">Valor desta</th>
                   <th className="th">Vence</th>
+                  <th className="th">Código de pagamento</th>
                   <th className="th text-right">Ação</th>
                 </tr>
               </thead>
@@ -348,12 +371,17 @@ export function ContasContrato() {
                     competencia={competencia}
                     valor={valores[linha.contrato.id] ?? ''}
                     vencimento={vencimentos[linha.contrato.id] ?? ''}
+                    codigo={codigos[linha.contrato.id] ?? ''}
                     onValor={(v) =>
                       setValores((a) => ({ ...a, [linha.contrato.id]: v }))
                     }
                     onVencimento={(v) =>
                       setVencimentos((a) => ({ ...a, [linha.contrato.id]: v }))
                     }
+                    onCodigo={(v) =>
+                      setCodigos((a) => ({ ...a, [linha.contrato.id]: v }))
+                    }
+                    onLer={(alvo) => setLendo({ id: linha.contrato.id, alvo })}
                     onGerar={() => gerar.mutate([linha.contrato.id])}
                     gerando={gerar.isPending}
                     onEditar={() => setEditando(linha.contrato)}
@@ -409,6 +437,17 @@ export function ContasContrato() {
         par endereço + mês é conferido antes.
       </p>
 
+      {lendo && (
+        <LeitorDeCodigo
+          alvo={lendo.alvo}
+          onLido={(codigo) => {
+            setCodigos((a) => ({ ...a, [lendo.id]: codigo }));
+            setLendo(null);
+          }}
+          onFechar={() => setLendo(null)}
+        />
+      )}
+
       {(cadastrando || editando) && (
         <CadastroDoEndereco
           contrato={editando}
@@ -435,8 +474,11 @@ function LinhaDoEndereco({
   competencia,
   valor,
   vencimento,
+  codigo,
   onValor,
   onVencimento,
+  onCodigo,
+  onLer,
   onGerar,
   gerando,
   onEditar,
@@ -447,8 +489,11 @@ function LinhaDoEndereco({
   competencia: string;
   valor: string;
   vencimento: string;
+  codigo: string;
   onValor: (v: string) => void;
   onVencimento: (v: string) => void;
+  onCodigo: (v: string) => void;
+  onLer: (alvo: AlvoDaLeitura) => void;
   onGerar: () => void;
   gerando: boolean;
   onEditar: () => void;
@@ -575,6 +620,47 @@ function LinhaDoEndereco({
             {!vencimento && (
               <div className="text-[11px] text-tinta-400">
                 em branco: dia {c.diaDeVencimento} ({vencimentoSugerido})
+              </div>
+            )}
+          </>
+        )}
+      </td>
+
+      {/* O código com que a fatura se paga. Sem ele o título chega ao IXC sem
+          como ser pago — some no meio dos outros e só reaparece vencido. A
+          câmera está aqui porque a fatura costuma estar na mão de quem digita:
+          ler o código de barras é mais rápido e não erra dígito. */}
+      <td className="td">
+        {gerada ? (
+          <span className="text-xs text-tinta-400">—</span>
+        ) : (
+          <>
+            <input
+              value={codigo}
+              onChange={(e) => onCodigo(e.target.value)}
+              className="campo num py-1 text-xs"
+              placeholder="boleto ou PIX copia e cola"
+              title="A linha digitável do boleto (44, 47 ou 48 dígitos) ou o copia e cola do PIX. Em branco, a conta vai sem código."
+            />
+            <div className="mt-1 flex gap-1.5">
+              <button
+                type="button"
+                onClick={() => onLer('boleto')}
+                className="btn btn-sutil btn-p"
+              >
+                Ler boleto
+              </button>
+              <button
+                type="button"
+                onClick={() => onLer('pix')}
+                className="btn btn-sutil btn-p"
+              >
+                Ler QR
+              </button>
+            </div>
+            {codigo.trim() !== '' && (
+              <div className="mt-1 text-[11px] text-tinta-400">
+                {classificarCodigo(codigo)}
               </div>
             )}
           </>
@@ -991,6 +1077,23 @@ function CadastroDoEndereco({
       </div>
     </Janela>
   );
+}
+
+/**
+ * O que o código colado parece ser — a mesma leitura que o servidor faz, dita
+ * na hora de digitar. Serve para pegar o copia e cola truncado antes de o
+ * lançamento ir embora, e não depois, na recusa.
+ */
+function classificarCodigo(codigo: string): string {
+  const texto = codigo.trim();
+  if (/^000201/.test(texto) || /br\.gov\.bcb\.pix/i.test(texto)) {
+    return 'PIX copia e cola — a conta vai como Pix';
+  }
+  const digitos = texto.replace(/\D/g, '');
+  if ([44, 47, 48].includes(digitos.length)) {
+    return `boleto de ${digitos.length} dígitos — a conta vai como Boleto`;
+  }
+  return `não parece boleto (44, 47 ou 48 dígitos — este tem ${digitos.length}) nem PIX copia e cola`;
 }
 
 /** O valor foge tanto do que o endereço custa que vale conferir a fatura. */

@@ -1,5 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
-import { ContasContratoService, foraDoPadrao } from './contas-contrato.service';
+import {
+  ContasContratoService,
+  foraDoPadrao,
+  lerCodigoDaFatura,
+} from './contas-contrato.service';
 
 /**
  * A conta de luz de cada endereço. O que este arquivo protege:
@@ -173,6 +177,32 @@ describe('ContasContratoService.gerar', () => {
     expect(criadas[0].dataVencimento).toEqual(new Date(Date.UTC(2026, 2, 2)));
   });
 
+  it('o código da fatura decide como a conta vai ser paga', async () => {
+    const { service, criadas } = montarServico();
+    const emv = '00020126580014br.gov.bcb.pix0136abc6304ABCD';
+
+    await service.gerar('2026-08', [{ id: 'cc1', valor: 100, codigo: emv }]);
+
+    // O cadastro diz "Boleto"; a fatura chegou com QR Code, e é ela que manda.
+    expect(criadas[0]).toMatchObject({
+      chavePix: emv,
+      tipoChavePix: 'Código copia e cola',
+      tipoPagamentoIxc: 'Pix',
+      codigoBarras: null,
+    });
+  });
+
+  it('código irreconhecível não vira conta no IXC', async () => {
+    const { service, contasPagar } = montarServico();
+
+    const r = await service.gerar('2026-08', [
+      { id: 'cc1', valor: 100, codigo: '123456' },
+    ]);
+
+    expect(r.falhas[0].erro).toMatch(/linha digitável|copia e cola/i);
+    expect(contasPagar.criarDespesa).not.toHaveBeenCalled();
+  });
+
   it('a data informada manda sobre o dia de sempre', async () => {
     const { service, criadas } = montarServico();
 
@@ -259,6 +289,47 @@ describe('ContasContratoService.listar', () => {
 
     expect(r.contas[0].gerada).toMatchObject({ valor: 9000 });
     expect(r.contas[0].media).toBe(300);
+  });
+});
+
+/**
+ * O código com que a fatura se paga. Boleto e PIX moram em campos diferentes
+ * do título no IXC: trocá-los deixa uma conta que nenhum banco paga.
+ */
+describe('lerCodigoDaFatura', () => {
+  it('a linha digitável vira código de barras, e a conta vira boleto', () => {
+    const linha = '8'.repeat(48);
+    expect(lerCodigoDaFatura(linha)).toEqual({
+      codigoBarras: linha,
+      tipoPagamento: 'Boleto',
+    });
+  });
+
+  it('a máscara do banco não vai junto', () => {
+    const digitado = '84670000001-9 03390261202-3 40000063000-4 07110570460-2';
+    expect(lerCodigoDaFatura(digitado).codigoBarras).toBe(
+      digitado.replace(/\D/g, ''),
+    );
+  });
+
+  it('o copia e cola vira chave PIX, e a conta vira Pix', () => {
+    const emv = '00020126580014br.gov.bcb.pix0136abc6304ABCD';
+    expect(lerCodigoDaFatura(emv)).toEqual({
+      chavePix: emv,
+      tipoChavePix: 'Código copia e cola',
+      tipoPagamento: 'Pix',
+    });
+  });
+
+  it('em branco não muda nada — a conta vai sem código', () => {
+    expect(lerCodigoDaFatura('')).toEqual({});
+    expect(lerCodigoDaFatura(undefined)).toEqual({});
+  });
+
+  it('o que não é nem um nem outro é recusado, e não chutado', () => {
+    // Copia e cola truncado na cópia, ou meia linha digitável: mandar isso ao
+    // IXC criaria um título sem como ser pago.
+    expect(() => lerCodigoDaFatura('123456')).toThrow(BadRequestException);
   });
 });
 

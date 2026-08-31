@@ -6,6 +6,10 @@ import {
 } from '@nestjs/common';
 import { ContaContrato, ContaPagar, Prisma } from '@prisma/client';
 import { ContasPagarService } from '../financeiro/contas-pagar.service';
+import {
+  pareceCodigoDeBoleto,
+  somenteDigitosDoBoleto,
+} from '../ixc/ixc.financeiro';
 import { PrismaService } from '../prisma/prisma.service';
 import { CategoriasService } from './categorias.service';
 import { proximoDiaUtil } from './dias-uteis';
@@ -66,10 +70,61 @@ export interface LancamentoDeContrato {
   valor: number;
   /** Vencimento desta fatura (AAAA-MM-DD). Vazio = o dia de sempre do cadastro. */
   dataVencimento?: string;
-  /** Linha digitável, quando a fatura vem com código de barras. */
-  codigoBarras?: string;
+  /**
+   * O código com que a fatura se paga: a linha digitável do boleto ou o copia
+   * e cola do PIX. Um campo só porque é uma coisa só para quem digita — o que
+   * veio impresso na conta —, e é o serviço que sabe distinguir os dois.
+   */
+  codigo?: string;
   /** O que a tela quiser acrescentar à observação do título. */
   observacao?: string;
+}
+
+/** O que o código da fatura significa para o título no IXC. */
+interface CodigoDaFatura {
+  codigoBarras?: string;
+  chavePix?: string;
+  tipoChavePix?: string;
+  /** Boleto ou Pix — o código manda sobre o tipo padrão do cadastro. */
+  tipoPagamento?: string;
+}
+
+/**
+ * O que fazer com o código que veio na fatura.
+ *
+ * São dois formatos, e a conta a pagar os guarda em campos diferentes no IXC:
+ * a linha digitável vai em `codigo_barras` e o copia e cola do PIX vai na
+ * chave. Trocá-los deixa um título que nenhum banco paga — e é por isso que
+ * aqui se recusa o que não se reconhece, em vez de chutar um dos dois.
+ *
+ * O tipo de pagamento vem junto: a fatura de energia às vezes chega com
+ * boleto, às vezes com QR Code, e é o código na mão que diz qual foi desta
+ * vez — não o padrão do cadastro.
+ */
+export function lerCodigoDaFatura(codigo?: string): CodigoDaFatura {
+  const texto = (codigo ?? '').trim();
+  if (!texto) return {};
+
+  // O copia e cola é o payload do QR Code: começa em "000201" e termina no
+  // CRC. É o mesmo reconhecimento que a leitura das guias de imposto faz.
+  if (/^000201/.test(texto) || /br\.gov\.bcb\.pix/i.test(texto)) {
+    return {
+      chavePix: texto,
+      tipoChavePix: 'Código copia e cola',
+      tipoPagamento: 'Pix',
+    };
+  }
+
+  const digitos = somenteDigitosDoBoleto(texto);
+  if (pareceCodigoDeBoleto(digitos)) {
+    return { codigoBarras: digitos, tipoPagamento: 'Boleto' };
+  }
+
+  throw new BadRequestException(
+    `O código informado não é uma linha digitável (44, 47 ou 48 dígitos — ` +
+      `este tem ${digitos.length}) nem um copia e cola do PIX. Confira o que ` +
+      'foi colado: o título iria para o IXC sem como ser pago.',
+  );
 }
 
 /**
@@ -446,6 +501,14 @@ export class ContasContratoService {
       .join(' — ')
       .slice(0, 500);
 
+    /*
+     * O código da fatura é lido antes de qualquer escrita: se ele não for
+     * reconhecido, a conta não chega a ser criada. Conta a pagar no IXC sem
+     * como ser paga é pior do que conta nenhuma — ela some no meio das outras
+     * e só reaparece vencida.
+     */
+    const codigo = lerCodigoDaFatura(linha.codigo);
+
     const conta = await this.contasPagar.criarDespesa(
       {
         idFornecedorIxc: contrato.idFornecedorIxc,
@@ -456,8 +519,13 @@ export class ContasContratoService {
         observacao: linha.observacao?.trim() || observacao,
         contaContabil: contrato.contaContabil ?? undefined,
         contaPagamento: contrato.contaPagamento ?? undefined,
-        tipoPagamentoIxc: contrato.tipoPagamentoIxc ?? undefined,
-        codigoBarras: linha.codigoBarras ?? null,
+        // O que veio na fatura manda sobre o tipo do cadastro: a conta que
+        // chega com QR Code é paga por PIX, mesmo que o padrão diga boleto.
+        tipoPagamentoIxc:
+          codigo.tipoPagamento ?? contrato.tipoPagamentoIxc ?? undefined,
+        codigoBarras: codigo.codigoBarras ?? null,
+        chavePix: codigo.chavePix ?? null,
+        tipoChavePix: codigo.tipoChavePix ?? null,
         // O número da conta contrato vai no documento do título: é o que
         // permite, meses depois, saber de que endereço era uma conta paga sem
         // depender de o texto da observação ter sido escrito igual.
