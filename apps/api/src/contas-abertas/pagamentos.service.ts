@@ -42,7 +42,15 @@ export interface ResultadoDoPagamento {
   aprovada: boolean;
   /** Deu baixa: o IXC passa a considerar a conta quitada. */
   paga: boolean;
+  /** O que o título devia. */
   valor: number;
+  /** Quanto de fato saiu do caixa: `valor` menos o desconto. */
+  valorPago: number;
+  /**
+   * O desconto obtido nesta baixa — quanto a empresa deixou de gastar por
+   * pagar adiantado. Zero no caso comum.
+   */
+  desconto: number;
   /** Conta de onde o dinheiro saiu (ou vai sair, no caso do ModoBank). */
   contaPagamento: number;
   /**
@@ -132,6 +140,15 @@ export class PagamentosService {
        * existe mais — e a baixa aqui é a mesma que se daria à mão no IXC.
        */
       jaSaiu?: boolean;
+      /**
+       * Desconto por pagar adiantado, em reais.
+       *
+       * O título continua devendo o que devia — o que muda é quanto sai do
+       * caixa. Vai ao IXC como desconto da baixa, e é ele que faz a
+       * movimentação financeira sair pelo valor líquido, que é o que a
+       * conciliação vai achar no extrato.
+       */
+      desconto?: number;
       /** @deprecated A conta escolhida é quem manda; fica por compatibilidade. */
       forma?: FormaDePagar;
     },
@@ -171,6 +188,21 @@ export class PagamentosService {
         `O título ${idFnApagar} está sem saldo a pagar.`,
       );
     }
+
+    /*
+     * O desconto é conferido contra o saldo lido agora, e não contra o valor
+     * que a tela mostrava: entre abrir a janela e confirmar, alguém pode ter
+     * editado o título no IXC. Desconto que come o título inteiro não é
+     * pagamento — é baixa por zero, e quem quer isso quer cancelar a conta.
+     */
+    const desconto = Math.round(Math.max(0, opcoes.desconto ?? 0) * 100) / 100;
+    if (desconto >= valor) {
+      throw new BadRequestException(
+        `O desconto (${moeda(desconto)}) não pode alcançar o valor do título ` +
+          `${idFnApagar} (${moeda(valor)}) — não sobraria pagamento nenhum.`,
+      );
+    }
+    const valorPago = Math.round((valor - desconto) * 100) / 100;
 
     // --- 1. Auditoria ---
     // Reprovado é decisão de alguém: destravar isso daqui por baixo seria
@@ -217,11 +249,26 @@ export class PagamentosService {
      * depois de já ter sido paga, então não há pagamento futuro para esperar.
      */
     if (contaPagamentoId === cfg.contaPagamentoId && !opcoes.jaSaiu) {
+      /*
+       * Aqui nenhum desconto é aplicado, e o aviso diz isso: quem paga é o
+       * banco, pela tela dele, e é lá que o abatimento teria de ser informado.
+       * Guardá-lo em silêncio faria a economia aparecer neste app sem que um
+       * centavo a menos tivesse saído.
+       */
+      if (desconto > 0) {
+        avisos.push(
+          `O desconto de ${moeda(desconto)} não foi aplicado: por esta conta o ` +
+            'pagamento sai pela tela do banco no IXC, e é lá que ele precisa ' +
+            'ser informado.',
+        );
+      }
       return {
         idFnApagar,
         aprovada,
         paga: false,
         valor,
+        valorPago: valor,
+        desconto: 0,
         contaPagamento: contaPagamentoId,
         aguardandoBanco: true,
         avisos,
@@ -281,6 +328,7 @@ export class PagamentosService {
       filialId,
       filialNome,
       valor,
+      desconto,
       data: opcoes.data ? dataUtc(opcoes.data) : new Date(),
       documento,
       tipoPagamento: codigoTipoPagamentoBaixa(
@@ -371,7 +419,10 @@ export class PagamentosService {
 
     if (paga) {
       this.logger.log(
-        `Título ${idFnApagar} baixado no IXC: ${valor} pela conta ${contaPagamentoId}.`,
+        `Título ${idFnApagar} baixado no IXC: ${valorPago} pela conta ` +
+          `${contaPagamentoId}` +
+          (desconto > 0 ? ` (${valor} com ${desconto} de desconto)` : '') +
+          '.',
       );
     }
 
@@ -380,6 +431,8 @@ export class PagamentosService {
       aprovada,
       paga,
       valor,
+      valorPago,
+      desconto,
       contaPagamento: contaPagamentoId,
       aguardandoBanco: false,
       avisos,
@@ -400,18 +453,42 @@ export class PagamentosService {
       contaPagamento?: number;
       data?: string;
       jaSaiu?: boolean;
+      /**
+       * Desconto por pagar adiantado. Vale para o lote de **uma** conta só —
+       * ver a recusa logo abaixo.
+       */
+      desconto?: number;
       forma?: FormaDePagar;
     },
     usuarioNome?: string,
   ): Promise<{
     pagas: ResultadoDoPagamento[];
     falhas: Array<{ idFnApagar: number; erro: string }>;
+    /** Quanto saiu do caixa ao todo — já com os descontos abatidos. */
     total: number;
+    /** Quanto se deixou de gastar: a soma dos descontos obtidos. */
+    economia: number;
   }> {
     const pagas: ResultadoDoPagamento[] = [];
     const falhas: Array<{ idFnApagar: number; erro: string }> = [];
+    const unicos = [...new Set(ids)];
 
-    for (const id of [...new Set(ids)]) {
+    /*
+     * Um desconto para várias contas não tem resposta certa: rateá-lo pelos
+     * valores inventaria um abatimento em cada título que ninguém combinou, e
+     * aplicá-lo inteiro em todos multiplicaria a economia por quantas contas o
+     * lote tiver. Quem negociou desconto negociou por uma conta — então essa
+     * conta é paga sozinha.
+     */
+    if ((opcoes.desconto ?? 0) > 0 && unicos.length > 1) {
+      throw new BadRequestException(
+        'Desconto vale para uma conta de cada vez: não há como dividir um ' +
+          `abatimento entre as ${unicos.length} deste lote. Pague com desconto ` +
+          'a conta que o teve, e as outras à parte.',
+      );
+    }
+
+    for (const id of unicos) {
       try {
         pagas.push(await this.pagar(id, opcoes, usuarioNome));
       } catch (err) {
@@ -424,7 +501,12 @@ export class PagamentosService {
     return {
       pagas,
       falhas,
-      total: Math.round(pagas.reduce((s, p) => s + p.valor, 0) * 100) / 100,
+      // O que saiu do caixa, e não o que os títulos valiam: com desconto os
+      // dois números são diferentes, e o que a tela precisa mostrar depois de
+      // pagar é o primeiro.
+      total: Math.round(pagas.reduce((s, p) => s + p.valorPago, 0) * 100) / 100,
+      economia:
+        Math.round(pagas.reduce((s, p) => s + p.desconto, 0) * 100) / 100,
     };
   }
 
@@ -798,6 +880,11 @@ function formatDataIxcDeIso(valor: string): string {
 function dataUtc(iso: string): Date {
   const [ano, mes, dia] = iso.slice(0, 10).split('-').map(Number);
   return new Date(Date.UTC(ano, mes - 1, dia));
+}
+
+/** Reais como quem lê a mensagem de erro os escreveria. */
+function moeda(valor: number): string {
+  return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
 function textoOuNull(valor: unknown): string | null {

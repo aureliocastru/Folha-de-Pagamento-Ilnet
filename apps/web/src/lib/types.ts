@@ -732,7 +732,12 @@ export interface ResultadoDoPagamento {
   aprovada: boolean;
   /** O IXC passou a considerar a conta quitada. */
   paga: boolean;
+  /** O que o título devia. */
   valor: number;
+  /** Quanto saiu do caixa: o valor menos o desconto. */
+  valorPago: number;
+  /** O desconto obtido por antecipar o pagamento. Zero no caso comum. */
+  desconto: number;
   avisos: string[];
 }
 
@@ -742,6 +747,8 @@ export interface PagamentosDoMes {
   mes: string;
   total: number;
   quantidade: number;
+  /** Quanto se deixou de gastar no mês: a soma dos descontos obtidos */
+  economia: number;
   lidoEm: string;
   /** false = a leitura bateu no teto e o total pode faltar coisa. */
   completo: boolean;
@@ -814,14 +821,16 @@ export interface ContasAbertas {
 }
 
 /**
- * Onde um título cai na sequência de parcelas de que ele parece fazer parte.
+ * Onde um título cai na sequência de parcelas de que ele faz parte.
  *
  * O IXC não guarda o vínculo entre as parcelas de uma compra — elas são
- * títulos soltos. Isto aqui é inferido de "mesmo fornecedor, mesmo valor", e a
- * tela precisa dizer isso a quem lê.
+ * títulos soltos. Quando a numeração está escrita no título ("29/36" no número
+ * da nota), é ela que vale; sem ela, a sequência é inferida de "mesmo
+ * fornecedor, mesmo valor" — e aí a tela precisa dizer isso a quem lê. Ver
+ * `fonte`.
  */
 export interface ParcelaDoTitulo {
-  /** 1 = a primeira da sequência, por vencimento */
+  /** 1 = a primeira da sequência */
   posicao: number;
   total: number;
   pagas: number;
@@ -830,6 +839,11 @@ export interface ParcelaDoTitulo {
   valor: number;
   primeiroVencimento: string | null;
   ultimoVencimento: string | null;
+  /**
+   * De onde a contagem saiu: `nota` e `observacao` estão escritas no título —
+   * são dado. `deducao` é palpite de mesmo fornecedor + mesmo valor.
+   */
+  fonte: 'nota' | 'observacao' | 'deducao';
 }
 
 export interface ParcelasEncontradas {

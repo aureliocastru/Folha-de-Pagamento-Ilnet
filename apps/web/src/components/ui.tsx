@@ -47,12 +47,15 @@ export function CampoDinheiro({
   onChange,
   className = 'campo',
   placeholder = '0,00',
+  id,
 }: {
   /** Valor canônico: "2107.03" ou "" quando vazio. */
   valor: string;
   onChange: (valor: string) => void;
   className?: string;
   placeholder?: string;
+  /** Para o `htmlFor` do rótulo: sem ele, clicar no rótulo não faz nada. */
+  id?: string;
 }) {
   /** O que está escrito, guardado como os dígitos que o compõem. */
   const [digitos, setDigitos] = useState(() => digitosDoValor(valor));
@@ -96,6 +99,7 @@ export function CampoDinheiro({
   return (
     <input
       ref={campo}
+      id={id}
       type="text"
       // Só dígitos são teclados aqui, então o celular abre o teclado numérico
       // em vez do de decimais com vírgula que ninguém precisa mais usar.

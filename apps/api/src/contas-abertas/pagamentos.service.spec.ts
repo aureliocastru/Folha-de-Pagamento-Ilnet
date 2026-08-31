@@ -197,6 +197,82 @@ describe('PagamentosService.pagar', () => {
     expect(r.paga).toBe(true);
   });
 
+  /*
+   * Desconto por antecipação.
+   *
+   * O que vai para o IXC é o líquido: é ele que vira a linha da movimentação
+   * financeira, e é essa linha que a conciliação casa com o extrato. Mandar o
+   * valor cheio poria lá uma saída que o banco não teve, e a conta não
+   * conciliaria nunca.
+   */
+  it('com desconto, para o IXC vai o que saiu — e o título continua devendo o cheio', async () => {
+    const { service, criados } = montarServico();
+
+    const r = await service.pagar(
+      4242,
+      { contaPagamento: CFG.contaPagamentoCaixaId, data: '2026-08-15', desconto: 100 },
+      'Aurelio',
+    );
+
+    expect(criados[1].payload).toMatchObject({
+      vdesconto: '100,00',
+      debito: '1500,00',
+      valor_total_pago: '1400,00',
+    });
+    expect(r).toMatchObject({ valor: 1500, valorPago: 1400, desconto: 100 });
+  });
+
+  it('desconto que come o título inteiro não é pagamento', async () => {
+    const { service, criados } = montarServico();
+
+    await expect(
+      service.pagar(
+        4242,
+        { contaPagamento: CFG.contaPagamentoCaixaId, desconto: 1500 },
+        'Aurelio',
+      ),
+    ).rejects.toThrow(BadRequestException);
+
+    // E recusa antes de escrever qualquer coisa no IXC.
+    expect(criados).toEqual([]);
+  });
+
+  it('pelo ModoBank o desconto não é aplicado, e a tela fica sabendo', async () => {
+    // Lá quem paga é o banco, pela tela dele: o abatimento tem de ser
+    // informado ali. Guardá-lo em silêncio faria a economia aparecer neste
+    // app sem um centavo a menos ter saído.
+    const { service } = montarServico();
+
+    const r = await service.pagar(4242, { contaPagamento: 18, desconto: 100 });
+
+    expect(r).toMatchObject({ aguardandoBanco: true, desconto: 0, valorPago: 1500 });
+    expect(r.avisos.join(' ')).toMatch(/desconto/i);
+  });
+
+  it('o lote recusa desconto para várias contas de uma vez', async () => {
+    // Ratear inventaria abatimento em título que ninguém negociou; repetir
+    // multiplicaria a economia pelo tamanho do lote.
+    const { service } = montarServico();
+
+    await expect(
+      service.pagarEmLote([4242, 4243], {
+        contaPagamento: CFG.contaPagamentoCaixaId,
+        desconto: 100,
+      }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('o lote soma o que saiu do caixa e o que se economizou', async () => {
+    const { service } = montarServico();
+
+    const r = await service.pagarEmLote([4242], {
+      contaPagamento: CFG.contaPagamentoCaixaId,
+      desconto: 100,
+    });
+
+    expect(r).toMatchObject({ total: 1400, economia: 100 });
+  });
+
   it('a baixa lança na conta do razão do banco, que é o que a conciliação lê', async () => {
     /*
      * A baixa cria um par de linhas em `fn_movim_finan`: uma `M`, o dinheiro

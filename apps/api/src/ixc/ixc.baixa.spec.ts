@@ -156,4 +156,38 @@ describe('buildBaixaContaPagarPayload', () => {
   it('a data vai no dia informado, não no dia do registro', () => {
     expect(buildBaixaContaPagarPayload(base).data).toBe('08/08/2026');
   });
+
+  /*
+   * Desconto de antecipação. O que ele muda é só um número: o que saiu do
+   * caixa. O título continua devendo o que devia, e é a diferença entre os
+   * dois que o IXC entende como desconto.
+   */
+  it('o desconto separa o que se devia do que se pagou', () => {
+    const payload = buildBaixaContaPagarPayload({
+      ...base,
+      valor: 8217.95,
+      desconto: 200,
+    });
+
+    expect(payload.vdesconto).toBe('200,00');
+    // O título devia 8.217,95...
+    expect(payload.valor_parcela).toBe('8217,95');
+    expect(payload.debito).toBe('8217,95');
+    // ...e do banco saíram 8.017,95, que é a linha que a conciliação procura
+    // no extrato.
+    expect(payload.valor_total_pago).toBe('8017,95');
+  });
+
+  it('sem desconto, os três valores continuam iguais e o campo vai vazio', () => {
+    const payload = buildBaixaContaPagarPayload(base);
+    expect(payload.vdesconto).toBe('');
+    expect(payload.valor_total_pago).toBe('167,00');
+  });
+
+  it('o desconto vai em valor, nunca em percentual', () => {
+    // Percentual sairia de uma divisão que arredonda, e o IXC recalcularia
+    // dele um desconto de centavos diferentes do combinado.
+    const payload = buildBaixaContaPagarPayload({ ...base, desconto: 50 });
+    expect(payload.pdesconto).toBe('');
+  });
 });

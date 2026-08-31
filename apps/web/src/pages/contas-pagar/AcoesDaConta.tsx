@@ -65,9 +65,18 @@ export function PagarEmMaos({
    * registrar depois, com a data em que o dinheiro de fato saiu.
    */
   const [jaSaiu, setJaSaiu] = useState(false);
+  /**
+   * O abatimento de quem paga adiantado, em reais.
+   *
+   * Fica só no pagamento de uma conta: um desconto negociado é de uma conta, e
+   * dividi-lo por um lote inventaria abatimento em título que ninguém
+   * negociou. A API recusa o lote com desconto pelo mesmo motivo.
+   */
+  const [desconto, setDesconto] = useState('');
   const [resultado, setResultado] = useState<{
     pagas: number;
     total: number;
+    economia: number;
     aguardandoBanco: number;
     falhas: Array<{ idFnApagar: number; erro: string }>;
   } | null>(null);
@@ -100,17 +109,34 @@ export function PagarEmMaos({
 
   const total = contas.reduce((s, c) => s + c.valorAberto, 0);
 
+  /**
+   * O desconto só existe onde há baixa, e para uma conta de cada vez.
+   *
+   * Pelo ModoBank a conta é apenas aprovada aqui — o pagamento sai na tela
+   * dele, e é lá que o abatimento teria de ser informado. Mostrar o campo
+   * neste caso ofereceria uma economia que este app não tem como fazer
+   * acontecer.
+   */
+  const cabeDesconto = !soAprova && contas.length === 1;
+  const descontoNumero = cabeDesconto ? Number(desconto) || 0 : 0;
+  /** O que de fato sai do caixa — e o número que vai para o IXC. */
+  const aPagar = Math.round((total - descontoNumero) * 100) / 100;
+  /** Desconto que come a conta inteira não é pagamento: a API também recusa. */
+  const descontoAlto = descontoNumero >= total;
+
   const pagar = useMutation({
     mutationFn: async () => {
       const { data: r } = await api.post<{
         pagas: Array<{ idFnApagar: number; aguardandoBanco: boolean }>;
         falhas: Array<{ idFnApagar: number; erro: string }>;
         total: number;
+        economia: number;
       }>('/contas-abertas/pagar-lote', {
         idsFnApagar: contas.map((c) => c.idFnApagar),
         contaPagamento: contaAtual,
         data,
         jaSaiu,
+        desconto: descontoNumero || undefined,
       });
       return r;
     },
@@ -118,6 +144,7 @@ export function PagarEmMaos({
       setResultado({
         pagas: r.pagas.length,
         total: r.total,
+        economia: r.economia,
         aguardandoBanco: r.pagas.filter((p) => p.aguardandoBanco).length,
         falhas: r.falhas,
       });
@@ -144,6 +171,17 @@ export function PagarEmMaos({
             ? `Estão liberadas no IXC para o ${escolhida?.nome ?? 'banco'} pagar — é lá que o pagamento sai.`
             : `Saiu de ${escolhida?.nome ?? 'conta escolhida'}. No IXC as contas constam quitadas; estornar, se precisar, é por lá.`}
         </p>
+
+        {/* A economia fica na tela do "pronto", e não só no painel do mês:
+            quem acabou de negociar o desconto é quem confere se ele entrou
+            pelo valor combinado. */}
+        {resultado.economia > 0 && (
+          <p className="mt-2 text-sm text-emerald-700 dark:text-emerald-300">
+            Economia de {formatBRL(resultado.economia)} — o título era de{' '}
+            {formatBRL(resultado.total + resultado.economia)} e no IXC ele
+            consta quitado com esse desconto.
+          </p>
+        )}
 
         {resultado.falhas.length > 0 && (
           <div className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
@@ -180,7 +218,16 @@ export function PagarEmMaos({
             <div className="text-sm text-tinta-500">
               {soAprova ? 'Vai ser liberado para o banco' : 'Vai sair de'}
             </div>
-            <div className="valor text-3xl">{formatBRL(total)}</div>
+            <div className="valor text-3xl">{formatBRL(aPagar)}</div>
+            {/* Com desconto o número grande deixa de ser o do título, e é o
+                do título que a pessoa tem na frente ao conferir. Os dois
+                aparecem: o que sai, grande, e de onde ele veio, embaixo. */}
+            {descontoNumero > 0 && !descontoAlto && (
+              <div className="mt-0.5 text-xs text-tinta-400">
+                título de {formatBRL(total)} −{' '}
+                {formatBRL(descontoNumero)} de desconto
+              </div>
+            )}
           </div>
           <div className="min-w-[240px]">
             <label className="rotulo" htmlFor="conta-do-pagamento">
@@ -278,17 +325,35 @@ export function PagarEmMaos({
 
       {!soAprova && (
         <div className="mt-4">
-          <div className="max-w-[200px]">
-            <label className="rotulo" htmlFor="data-pagamento-lote">
-              Dia em que saiu
-            </label>
-            <input
-              id="data-pagamento-lote"
-              type="date"
-              value={data}
-              onChange={(e) => setData(e.target.value)}
-              className="campo"
-            />
+          <div className="flex flex-wrap gap-4">
+            <div className="max-w-[200px] flex-1">
+              <label className="rotulo" htmlFor="data-pagamento-lote">
+                Dia em que saiu
+              </label>
+              <input
+                id="data-pagamento-lote"
+                type="date"
+                value={data}
+                onChange={(e) => setData(e.target.value)}
+                className="campo"
+              />
+            </div>
+
+            {/* Desconto por antecipação: o campo fica ao lado da data porque
+                as duas perguntas são a mesma — em que condições o dinheiro
+                saiu —, e quem paga adiantado responde as duas de uma vez. */}
+            {cabeDesconto && (
+              <div className="max-w-[200px] flex-1">
+                <label className="rotulo" htmlFor="desconto-pagamento">
+                  Desconto (antecipação)
+                </label>
+                <CampoDinheiro
+                  id="desconto-pagamento"
+                  valor={desconto}
+                  onChange={setDesconto}
+                />
+              </div>
+            )}
           </div>
           {/* É esta data que vai para a movimentação financeira do IXC, e é
               por ela que o movimento encontra a linha do extrato. O dia em
@@ -299,7 +364,27 @@ export function PagarEmMaos({
             que a conciliação acha a linha do extrato — não vale o dia de hoje
             se o dinheiro saiu antes.
           </p>
+          {/* O desconto muda o valor do pagamento, não o do título: é o que
+              explica a diferença entre o que o IXC diz que se devia e o que o
+              extrato do banco vai mostrar. */}
+          {cabeDesconto && (
+            <p className="mt-1 text-xs text-tinta-400">
+              Desconto é o abatimento por pagar antes do vencimento. O título
+              continua valendo {formatBRL(total)}; para o IXC vai o que saiu de
+              verdade, {formatBRL(aPagar)} — é esse valor que a conciliação
+              procura no extrato. A diferença entra como economia no painel do
+              mês.
+            </p>
+          )}
         </div>
+      )}
+
+      {descontoAlto && (
+        <Aviso tom="erro">
+          O desconto de {formatBRL(descontoNumero)} alcança o valor do título (
+          {formatBRL(total)}) — assim não sobra pagamento nenhum. Para uma conta
+          que não vai ser paga, o caminho é cancelá-la no IXC.
+        </Aviso>
       )}
 
       {pagar.isError && <Aviso tom="erro">{mensagemErro(pagar.error)}</Aviso>}
@@ -315,7 +400,7 @@ export function PagarEmMaos({
         </button>
         <button
           onClick={() => pagar.mutate()}
-          disabled={pagar.isPending}
+          disabled={pagar.isPending || descontoAlto}
           className="btn btn-primario"
         >
           {pagar.isPending
@@ -323,8 +408,8 @@ export function PagarEmMaos({
             : soAprova
               ? `Aprovar ${formatBRL(total)} para o banco pagar`
               : jaSaiu
-                ? `Registrar ${formatBRL(total)} como pago`
-                : `Confirmar pagamento de ${formatBRL(total)}`}
+                ? `Registrar ${formatBRL(aPagar)} como pago`
+                : `Confirmar pagamento de ${formatBRL(aPagar)}`}
         </button>
       </div>
     </Janela>
@@ -442,7 +527,7 @@ export function EditarConta({
           <label className="rotulo" htmlFor="ed-valor">
             Valor
           </label>
-          <CampoDinheiro valor={valor} onChange={setValor} />
+          <CampoDinheiro id="ed-valor" valor={valor} onChange={setValor} />
         </div>
         <div>
           <label className="rotulo" htmlFor="ed-vencimento">

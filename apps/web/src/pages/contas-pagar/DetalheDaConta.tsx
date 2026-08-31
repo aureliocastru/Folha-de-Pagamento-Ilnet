@@ -360,9 +360,19 @@ function PagarConta({
       <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-500/30 dark:bg-emerald-500/10">
         <p className="font-semibold text-emerald-800 dark:text-emerald-200">
           {feito.paga
-            ? `Pago — ${formatBRL(feito.valor)} baixado no IXC`
+            ? `Pago — ${formatBRL(feito.valorPago)} baixado no IXC`
             : 'Aprovado no IXC, pronto para o banco pagar'}
         </p>
+        {/* Desconto obtido: aqui ele não se informa, mas a baixa pode ter
+            vindo com um (de outra tela, ou do próprio IXC). Mostrar de onde
+            veio a diferença evita a leitura de que o título foi pago a menos
+            sem explicação. */}
+        {feito.desconto > 0 && (
+          <p className="mt-1 text-sm text-emerald-700 dark:text-emerald-300">
+            Economia de {formatBRL(feito.desconto)} — o título era de{' '}
+            {formatBRL(feito.valor)}.
+          </p>
+        )}
         <p className="mt-1 text-sm text-emerald-700 dark:text-emerald-300">
           {feito.paga
             ? 'O título consta quitado no IXC. Estornar, se precisar, é por lá.'

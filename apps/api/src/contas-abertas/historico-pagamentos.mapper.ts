@@ -266,7 +266,7 @@ export function mapPagamento(
   const valorPago = quantoSaiu(raw, valor, valorAberto);
   const juros = primeiroValor(raw, ['valor_juros', 'juros']);
   const multa = primeiroValor(raw, ['valor_multa', 'multa']);
-  const desconto = primeiroValor(raw, ['valor_desconto', 'desconto']);
+  const desconto = descontoDoTitulo(raw);
   const status = String(raw.status ?? '').trim().toUpperCase() || null;
   const parcial = valorAberto > 0.005;
 
@@ -609,6 +609,19 @@ function diasEntre(de: Date, ate: Date): number {
 }
 
 /** O primeiro dos nomes conhecidos que tiver valor. */
+/**
+ * O desconto que o título registra — o abatimento de quem pagou adiantado.
+ *
+ * Mora aqui, e não solto em cada tela, porque duas leituras diferentes dele
+ * fariam a economia do painel discordar da economia do histórico, que saem da
+ * mesma coluna do mesmo título. O nome da coluna varia entre instalações do
+ * IXC; a lista é a mesma de sempre, fechada, para não sair somando qualquer
+ * campo com "desconto" no nome.
+ */
+export function descontoDoTitulo(raw: Record<string, unknown>): number {
+  return primeiroValor(raw, ['valor_desconto', 'desconto']);
+}
+
 function primeiroValor(raw: Record<string, unknown>, campos: string[]): number {
   for (const campo of campos) {
     const n = parseIxcDecimal(raw[campo]);

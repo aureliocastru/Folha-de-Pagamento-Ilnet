@@ -51,6 +51,19 @@ export class PagarTituloDto {
    */
   @IsOptional() @IsBoolean() jaSaiu?: boolean;
 
+  /**
+   * Desconto por pagar adiantado, em reais.
+   *
+   * Não muda o que o título vale: o que ele muda é quanto sai do caixa. Vai
+   * ao IXC como desconto da baixa, e é por isso que a movimentação financeira
+   * sai pelo líquido — que é o valor que a conciliação acha no extrato.
+   */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsNumber()
+  @Min(0)
+  desconto?: number;
+
   /** O que aparece no histórico do lançamento no IXC. */
   @IsOptional() @IsString() @MaxLength(200) historico?: string;
 
@@ -80,6 +93,16 @@ export class PagarLoteDto {
 
   /** O dinheiro de todas elas já saiu. Ver `PagarTituloDto`. */
   @IsOptional() @IsBoolean() jaSaiu?: boolean;
+
+  /**
+   * Desconto por pagar adiantado. Só é aceito quando o lote tem uma conta:
+   * ver `PagamentosService.pagarEmLote`.
+   */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsNumber()
+  @Min(0)
+  desconto?: number;
 
   /** @deprecated A conta escolhida manda; fica por compatibilidade. */
   @IsOptional() @IsIn(['BANCO', 'EM_MAOS']) forma?: 'BANCO' | 'EM_MAOS';

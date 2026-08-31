@@ -4,6 +4,7 @@ import { IxcClient } from '../ixc/ixc.client';
 import { lerSituacaoContaPagar } from '../ixc/ixc.financeiro';
 import { PrismaService } from '../prisma/prisma.service';
 import { CategoriasService } from './categorias.service';
+import { descontoDoTitulo } from './historico-pagamentos.mapper';
 import {
   explicarFiltro,
   mapContaAberta,
@@ -56,6 +57,14 @@ export interface PagamentosDoMes {
   mes: string;
   total: number;
   quantidade: number;
+  /**
+   * Quanto se deixou de gastar no mês: a soma dos descontos dos títulos pagos.
+   *
+   * Sai do próprio título no IXC, e não do que este app registrou ao pagar —
+   * assim o número inclui o desconto conseguido por quem baixou a conta direto
+   * na tela do IXC, que é dinheiro economizado do mesmo jeito.
+   */
+  economia: number;
   lidoEm: Date;
   /** false = a leitura bateu no teto de páginas e o total pode faltar coisa. */
   completo: boolean;
@@ -277,6 +286,7 @@ export class ContasAbertasService {
     const alvo = mes ?? mesAtual();
     const lidoEm = new Date();
     let total = 0;
+    let economia = 0;
     let quantidade = 0;
     let paginasLidas = 0;
 
@@ -318,6 +328,7 @@ export class ContasAbertasService {
           if (mesDoPagamento === alvo) {
             algumaDoMes = true;
             total += situacao.valorPago;
+            economia += descontoDoTitulo(raw);
             quantidade += 1;
           } else if (mesDoPagamento > alvo) {
             // Pagamento posterior ao mês pedido: ainda não chegamos nele.
@@ -341,6 +352,7 @@ export class ContasAbertasService {
     return {
       mes: alvo,
       total: Math.round(total * 100) / 100,
+      economia: Math.round(economia * 100) / 100,
       quantidade,
       lidoEm,
       completo: paginasLidas < TETO_DE_PAGINAS_PAGAS,

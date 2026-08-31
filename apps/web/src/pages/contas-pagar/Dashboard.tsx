@@ -422,6 +422,19 @@ function FechamentoDoMes({
         O que ainda tem de sair inclui o atraso: conta vencida continua sendo
         dinheiro que este mês precisa cobrir.
       </p>
+
+      {/* A economia não entra na barra: ela não é uma fatia do mês, é dinheiro
+          que não saiu. Somá-la ao pago inflaria o mês com uma despesa que não
+          existiu, e por isso ela vem como uma linha à parte — só quando houve
+          alguma, para não pôr "R$ 0,00 economizado" em todo mês comum. */}
+      {pagas.economia > 0 && (
+        <p className="mt-2 text-sm text-emerald-700 dark:text-emerald-300">
+          <span className="valor">{formatBRL(pagas.economia)}</span> de economia
+          no mês — desconto obtido por antecipar pagamentos. Os títulos valiam{' '}
+          {formatBRL(pagas.total + pagas.economia)} e saíram por{' '}
+          {formatBRL(pagas.total)}.
+        </p>
+      )}
     </div>
   );
 }
