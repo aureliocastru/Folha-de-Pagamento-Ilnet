@@ -8,6 +8,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
   Min,
   MinLength,
@@ -40,6 +41,15 @@ export class CriarBeneficiarioDto {
   valorPorVenda?: number | null;
 
   @IsOptional() @IsEnum(FormaPagamento) formaPagamento?: FormaPagamento;
+
+  /**
+   * Categoria em que os pagamentos dessa pessoa costumam entrar. Vazio limpa o
+   * padrão — cadastro que não tem um faz a tela perguntar, que é o certo.
+   */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? null : value))
+  @IsUUID()
+  categoriaId?: string | null;
 
   @IsOptional() @IsString() observacoes?: string;
 
@@ -74,6 +84,16 @@ export class UpdateBeneficiarioDto extends CriarBeneficiarioDto {
  * `pagamento.calc`, compartilhado com a diária.
  */
 export class PagarAvulsoDto {
+  /**
+   * De qual módulo saiu este pagamento — é o que decide em que relatório ele
+   * conta. Vazio = folha, que é quem não precisa dizer nada.
+   *
+   * É da tela, e não do cadastro: a mesma pessoa pode receber pela folha (uma
+   * comissão de venda, que vai para o gráfico de vendas) e pelo Contas a Pagar
+   * (um serviço prestado, que é despesa da empresa).
+   */
+  @IsOptional() @IsString() modulo?: string;
+
   /** Dia do pagamento (AAAA-MM-DD). Vazio = hoje. */
   @IsOptional() @IsISO8601() data?: string;
 
@@ -141,6 +161,19 @@ export class PagarAvulsoDto {
   @Transform(({ value }) => (value === '' || value == null ? undefined : value))
   @IsIn([...TIPOS_CHAVE_PIX])
   tipoChavePix?: string;
+
+  /**
+   * A que se refere este pagamento — a etiqueta desta casa, que é por onde o
+   * dashboard separa os gastos.
+   *
+   * Vazio = a categoria do cadastro de quem recebe. A tela sempre manda a
+   * escolhida, e o que vier aqui vira o padrão dele para a próxima vez, como
+   * já acontece com a chave PIX.
+   */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : value))
+  @IsUUID()
+  categoriaId?: string;
 }
 
 export class QueryPagamentosAvulsosDto {
@@ -156,6 +189,14 @@ export class VincularFornecedorIxcDto {
   @IsInt()
   @Min(1)
   idFornecedorIxc!: number;
+
+  /**
+   * De qual tela veio. Decide em que lista o cadastro novo aparece.
+   *
+   * Só vale para o cadastro que nasce agora: o que já existe fica com a origem
+   * que tem. Quem manda no relatório é a origem do pagamento.
+   */
+  @IsOptional() @IsString() modulo?: string;
 }
 
 export class QueryFornecedorIxcDto {

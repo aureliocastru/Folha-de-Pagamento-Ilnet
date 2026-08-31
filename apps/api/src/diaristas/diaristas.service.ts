@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  ContaPagar,
   Diaria,
   Diarista,
   FormaPagamento,
@@ -12,6 +13,7 @@ import {
   StatusContaPagar,
   TipoLancamento,
 } from '@prisma/client';
+import { PagamentosService } from '../contas-abertas/pagamentos.service';
 import { ConfigFinanceiraService } from '../financeiro/config-financeira.service';
 import { ContasPagarService } from '../financeiro/contas-pagar.service';
 import {
@@ -95,6 +97,10 @@ export class DiaristasService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigFinanceiraService,
     private readonly contasPagar: ContasPagarService,
+    // Quem aprova e dá baixa no IXC. É o mesmo caminho da despesa lançada
+    // como "já paga" — um segundo jeito de quitar seria um segundo lugar
+    // para a quitação divergir.
+    private readonly pagamentos: PagamentosService,
     private readonly caixa: CaixaService,
     private readonly fornecedores: FornecedorService,
   ) {}
@@ -528,8 +534,80 @@ export class DiaristasService {
       usuarioId,
     );
 
-    return this.prisma.diaria.create({
+    const diaria = await this.prisma.diaria.create({
       data: { ...base, contaPagarId: conta.id },
+      include: {
+        contaPagar: {
+          select: { id: true, status: true, erro: true, idFnApagarIxc: true },
+        },
+      },
+    });
+
+    return emMaos ? this.quitarNoAto(diaria, conta) : diaria;
+  }
+
+  /**
+   * Em mãos, a conta nasce e morre no mesmo gesto.
+   *
+   * Pagar pelo banco tem três tempos que são três decisões: lança-se o título,
+   * alguém aprova, o banco paga. Em mãos não tem nenhum — o dinheiro saiu da
+   * gaveta antes de o título existir, e o diarista foi embora com ele. Deixar a
+   * conta em aberto no IXC depois disso não guarda decisão nenhuma: guarda uma
+   * tarefa que alguém vai ter de lembrar de fazer, num lugar onde ela se parece
+   * com as contas que ainda esperam dinheiro de verdade.
+   *
+   * Então aprova e baixa aqui mesmo, pela mesma porta da despesa lançada como
+   * "já paga" (`jaSaiu`): não há banco a esperar quando o pagamento aconteceu
+   * antes do lançamento.
+   *
+   * O que falhar não derruba a diária. O dinheiro já saiu — negar o registro
+   * seria negar o fato —, então a diária fica gravada e a conta fica em aberto
+   * no IXC, que é onde a tela já mostra "aguardando" e onde dá para terminar à
+   * mão. O log diz o motivo, que é o que permite consertar sem adivinhar.
+   */
+  private async quitarNoAto(
+    diaria: Diaria,
+    conta: ContaPagar,
+  ): Promise<Diaria> {
+    if (!conta.idFnApagarIxc) {
+      this.logger.warn(
+        `Diária ${diaria.id}: a conta ${conta.id} não recebeu número do IXC, ` +
+          'então não deu para baixá-la. Ela fica em aberto lá.',
+      );
+      return diaria;
+    }
+
+    try {
+      const r = await this.pagamentos.pagar(conta.idFnApagarIxc, {
+        // A conta de onde o dinheiro saiu é a do caixa, que o título já traz.
+        contaPagamento: conta.contaPagamento ?? undefined,
+        // O dia da diária, e não o de hoje: é quando a gaveta abriu.
+        data: diaISO(diaria.data),
+        jaSaiu: true,
+      });
+      if (!r.paga) {
+        this.logger.warn(
+          `Diária ${diaria.id}: o IXC aprovou a conta ${conta.idFnApagarIxc} ` +
+            'mas não a deu por paga. Confira por lá.',
+        );
+      }
+      for (const aviso of r.avisos) {
+        this.logger.warn(`Diária ${diaria.id}: ${aviso}`);
+      }
+    } catch (err) {
+      const motivo = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `Diária ${diaria.id}: a conta foi lançada mas a baixa não saiu ` +
+          `(${motivo}). Ela fica em aberto no IXC.`,
+      );
+      return diaria;
+    }
+
+    // O status daqui vem de lá, e não de uma suposição nossa: quem diz que a
+    // conta está paga é o IXC, relido depois da baixa.
+    await this.contasPagar.sincronizarStatus(conta.id);
+    return this.prisma.diaria.findUniqueOrThrow({
+      where: { id: diaria.id },
       include: {
         contaPagar: {
           select: { id: true, status: true, erro: true, idFnApagarIxc: true },
@@ -725,6 +803,14 @@ function pendenteNoCaixa(d: {
     d.idLancamentoIxc === null &&
     !d.lancadoManual
   );
+}
+
+/**
+ * O dia de calendário de uma data guardada, no formato que o IXC espera na
+ * baixa. Sem hora e sem fuso: a diária é de um dia, não de um instante.
+ */
+function diaISO(d: Date): string {
+  return d.toISOString().slice(0, 10);
 }
 
 function hojeUtc(): Date {

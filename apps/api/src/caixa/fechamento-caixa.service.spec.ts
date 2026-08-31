@@ -52,6 +52,14 @@ interface ConsultaDeEntrega {
 const dentro = (d: Date | undefined, faixa: { gte: Date; lte: Date }) =>
   d === undefined || (d >= faixa.gte && d <= faixa.lte);
 
+/** O filtro com que o serviço distingue as duas perguntas de conferência. */
+interface ConsultaDeConferencia {
+  where?: {
+    dataLancamento?: { not?: null; lt?: Date } | null;
+    idLancamentoIxc?: { in: number[] };
+  };
+}
+
 function montarServico(
   opts: {
     lancamentos?: Array<{
@@ -65,6 +73,14 @@ function montarServico(
       idLancamentoIxc: number;
       conferido: boolean;
       qtdNotas?: number;
+      /** Preenchida = a conferência sabe de que dia é o lançamento dela. */
+      dataLancamento?: Date | null;
+      valor?: number | null;
+      historico?: string | null;
+      id?: string;
+      observacao?: string | null;
+      /** Fora da conta do saldo esperado. */
+      foraDaGaveta?: boolean;
     }>;
     /** Contas abertas agora, com os acertos que já tiveram. */
     naRua?: Array<Record<string, unknown>>;
@@ -95,13 +111,59 @@ function montarServico(
 
   const prisma = {
     conferenciaCaixa: {
-      findMany: jest.fn().mockResolvedValue(
-        (opts.conferencias ?? []).map((c) => ({
+      /*
+       * Duas perguntas à mesma tabela, distinguidas pelo filtro: as
+       * conferências do recorte (por `idLancamentoIxc`) e as que ficaram para
+       * trás (por `dataLancamento` anterior ao início). Devolver a mesma lista
+       * às duas faria toda conferência do período aparecer também como
+       * atrasada.
+       */
+      findMany: jest.fn(async (args: ConsultaDeConferencia = {}) => {
+        const todas = (opts.conferencias ?? []).map((c) => ({
           _count: { fotos: c.qtdNotas ?? 0 },
           ...c,
-        })),
+        }));
+        const where = args.where ?? {};
+
+        // A terceira pergunta à mesma tabela: quais lançamentos ficam fora da
+        // conta da gaveta. Vem só com o caixa e a marca, sem data nenhuma.
+        if ((where as { foraDaGaveta?: boolean }).foraDaGaveta === true) {
+          return todas
+            .filter((c) => c.foraDaGaveta)
+            .map((c) => ({ idLancamentoIxc: c.idLancamentoIxc }));
+        }
+
+        if (!('dataLancamento' in where)) return todas;
+
+        // `dataLancamento: null` é a busca do retrato que falta; com `lt`, a
+        // das que ficaram para trás. As duas passam por aqui.
+        const filtro = where.dataLancamento;
+        if (filtro === null) {
+          return todas.filter((c) => !c.dataLancamento);
+        }
+        return todas.filter(
+          (c) =>
+            c.conferido !== true &&
+            c.dataLancamento instanceof Date &&
+            c.dataLancamento < (filtro?.lt as Date),
+        );
+      }),
+      update: jest.fn(
+        async ({
+          data,
+        }: {
+          where: { id: string };
+          data: Record<string, unknown>;
+        }) => data,
       ),
-      upsert: jest.fn(async ({ create }: { create: Record<string, unknown> }) => ({
+      upsert: jest.fn(async ({
+        create,
+      }: {
+        create: Record<string, unknown>;
+        // O `update` não é lido pelo fake, mas é o que os testes conferem: sem
+        // ele no tipo, a chamada gravada não deixa ler o que foi escrito.
+        update?: Record<string, unknown>;
+      }) => ({
         id: 'cf1',
         notaFoto: 'data:image/png;base64,AAAA',
         ...create,
@@ -1412,5 +1474,351 @@ describe('corrigir a contagem de um fechamento', () => {
     await expect(service.corrigirContagem('f9', 100)).rejects.toThrow(
       /não existe/i,
     );
+  });
+});
+
+/**
+ * O que ficou para trás esperando conferência.
+ *
+ * A nota do acerto da rua chega quando chega: a pessoa levou dinheiro em
+ * agosto, comprou em agosto e trouxe o papel em setembro. O acerto entra pelo
+ * dia em que aconteceu — que é o certo, porque foi aí que a gaveta mudou —, e a
+ * saída que ele cria no IXC nasce com aquela data. Só que a tela olha o recorte
+ * de agora, e aquele dia já passou: a saída ia para a fila de conferir e
+ * ninguém mais a via.
+ */
+describe('saídas atrasadas na fila de conferir', () => {
+  const RECORTE = { de: '2026-08-19', ate: '2026-08-31' };
+
+  it('a saída por conferir de dia anterior ao recorte aparece', async () => {
+    const { service } = montarServico({
+      conferencias: [
+        {
+          id: 'cf-atrasada',
+          idLancamentoIxc: 5001,
+          conferido: false,
+          dataLancamento: new Date('2026-08-17T00:00:00Z'),
+          valor: 45,
+          historico: 'Pag. Monark Pecas',
+          qtdNotas: 1,
+        },
+      ],
+    });
+
+    const extrato = await service.extrato(7, RECORTE.de, RECORTE.ate);
+
+    expect(extrato.atrasados).toHaveLength(1);
+    expect(extrato.atrasados[0]).toMatchObject({
+      idLancamentoIxc: 5001,
+      historico: 'Pag. Monark Pecas',
+      qtdNotas: 1,
+    });
+  });
+
+  it('o que já foi conferido não fica na fila', async () => {
+    const { service } = montarServico({
+      conferencias: [
+        {
+          id: 'cf-ok',
+          idLancamentoIxc: 5002,
+          conferido: true,
+          dataLancamento: new Date('2026-08-17T00:00:00Z'),
+        },
+      ],
+    });
+
+    const extrato = await service.extrato(7, RECORTE.de, RECORTE.ate);
+
+    expect(extrato.atrasados).toHaveLength(0);
+  });
+
+  /* Do próprio recorte não é atrasado: já está na lista de cima. */
+  it('a saída do próprio recorte não se repete como atrasada', async () => {
+    const { service } = montarServico({
+      conferencias: [
+        {
+          id: 'cf-hoje',
+          idLancamentoIxc: 5003,
+          conferido: false,
+          dataLancamento: new Date('2026-08-25T00:00:00Z'),
+        },
+      ],
+    });
+
+    const extrato = await service.extrato(7, RECORTE.de, RECORTE.ate);
+
+    expect(extrato.atrasados).toHaveLength(0);
+  });
+});
+
+/**
+ * O período fechado que dizia "133 saídas conferidas" e listava seis.
+ *
+ * As conferências do primeiro caixa batido guardaram só o número do lançamento
+ * no IXC — o retrato (data, valor, histórico) passou a ser copiado depois
+ * delas. Como o histórico procura por data, o que não tem data não é achado por
+ * recorte nenhum.
+ */
+describe('histórico de um período fechado', () => {
+  const FECHAMENTO = {
+    id: 'f1',
+    caixaId: 7,
+    de: new Date('2026-08-17T00:00:00Z'),
+    ate: new Date('2026-08-18T23:59:59.999Z'),
+  };
+
+  it('completa do IXC o retrato que a conferência não guardou', async () => {
+    const { service, prisma } = montarServico({
+      fechamento: FECHAMENTO,
+      lancamentos: [saidaEm(5001, 45, new Date('2026-08-17T10:00:00Z'))],
+      conferencias: [
+        {
+          id: 'cf-sem-data',
+          idLancamentoIxc: 5001,
+          conferido: true,
+          dataLancamento: null,
+        },
+      ],
+    });
+
+    const r = await service.historicoDoFechamento('f1');
+
+    expect(r.completados).toBe(1);
+    const [chamada] = prisma.conferenciaCaixa.update.mock.calls[0] as Array<{
+      where: { id: string };
+      data: Record<string, unknown>;
+    }>;
+    expect(chamada.where.id).toBe('cf-sem-data');
+    expect(chamada.data).toMatchObject({
+      dataLancamento: new Date('2026-08-17T10:00:00Z'),
+      historico: 'saída 5001',
+    });
+  });
+
+  /* O que já tem retrato não se relê: a segunda abertura não toca no IXC. */
+  it('período já completo não lê o IXC', async () => {
+    const { service, caixa } = montarServico({
+      fechamento: FECHAMENTO,
+      conferencias: [
+        {
+          id: 'cf-ok',
+          idLancamentoIxc: 5002,
+          conferido: true,
+          dataLancamento: new Date('2026-08-17T00:00:00Z'),
+        },
+      ],
+    });
+
+    await service.historicoDoFechamento('f1');
+
+    expect(caixa.listarLancamentos).not.toHaveBeenCalled();
+  });
+
+  it('fechamento que não existe é recusado', async () => {
+    const { service } = montarServico({ fechamento: null });
+
+    await expect(service.historicoDoFechamento('f9')).rejects.toThrow(
+      /não existe/i,
+    );
+  });
+});
+
+/**
+ * A despesa lançada por fora, direto no IXC.
+ *
+ * É o caso que a caixinha "Lançar a conta a pagar deste gasto" desmarcada
+ * sempre disse servir — "use assim quando a despesa já tiver sido lançada no
+ * IXC por outro caminho" — e que a conta da gaveta não sabia compensar: a
+ * entrega descontava o dinheiro uma vez, a saída lançada lá descontava de
+ * novo, e R$ 300,00 entregues viravam R$ 600,00 fora da gaveta.
+ *
+ * A data da saída no IXC é o que fecha isso: é ela que o `gastoPagoEm` guarda,
+ * e é por ele que o período soma o gasto de volta.
+ */
+describe('acerto com a despesa já lançada no IXC', () => {
+  const conta = {
+    id: 'r1',
+    caixaId: 7,
+    pessoa: 'Jeferson',
+    valor: 300,
+    entregueEm: new Date(2026, 7, 20),
+    baixadoEm: null,
+    movimentos: [],
+  };
+
+  it('grava a data da saída de lá, que é o que compensa a gaveta', async () => {
+    const { service, prisma } = montarServico({ entrega: conta });
+
+    await service.lancarMovimento('r1', {
+      tipo: 'NOTA',
+      valor: 300,
+      data: '2026-08-26',
+      gastoJaNoIxcEm: '2026-08-26',
+    });
+
+    const [{ data }] = prisma.movimentoDaRua.create.mock.calls[0];
+    expect(data.gastoPagoEm).toEqual(new Date(2026, 7, 26));
+  });
+
+  it('não guarda o número do título: desfazer não pode apagar o que não criou', async () => {
+    const { service, prisma } = montarServico({ entrega: conta });
+
+    await service.lancarMovimento('r1', {
+      tipo: 'NOTA',
+      valor: 300,
+      gastoJaNoIxcEm: '2026-08-26',
+    });
+
+    const [{ data }] = prisma.movimentoDaRua.create.mock.calls[0];
+    expect(data.idFnApagarIxc).toBeUndefined();
+  });
+
+  it('recusa as duas juntas: seria o mesmo gasto compensado duas vezes', async () => {
+    const { service } = montarServico({ entrega: conta });
+
+    await expect(
+      service.lancarMovimento('r1', {
+        tipo: 'NOTA',
+        valor: 300,
+        gastoJaNoIxcEm: '2026-08-26',
+        despesa: {
+          idFornecedorIxc: 55,
+          fornecedorNome: 'Auto Peças Silva',
+          descricao: 'Correia',
+        },
+      }),
+    ).rejects.toThrow(/duas vezes/i);
+  });
+
+  it('recusa em troco e reforço, que não saem no caixa do IXC', async () => {
+    const { service } = montarServico({ entrega: conta });
+
+    await expect(
+      service.lancarMovimento('r1', {
+        tipo: 'TROCO',
+        valor: 10,
+        gastoJaNoIxcEm: '2026-08-26',
+      }),
+    ).rejects.toThrow(/troco e reforço/i);
+  });
+
+  it('recusa a saída anterior à entrega, que cairia num fechamento já assinado', async () => {
+    const { service } = montarServico({ entrega: conta });
+
+    await expect(
+      service.lancarMovimento('r1', {
+        tipo: 'NOTA',
+        valor: 300,
+        gastoJaNoIxcEm: '2026-08-19',
+      }),
+    ).rejects.toThrow(/antes de o dinheiro ter sido entregue/i);
+  });
+
+  it('aceita a saída no mesmo dia da entrega', async () => {
+    const { service, prisma } = montarServico({ entrega: conta });
+
+    await service.lancarMovimento('r1', {
+      tipo: 'NOTA',
+      valor: 300,
+      gastoJaNoIxcEm: '2026-08-20',
+    });
+
+    const [{ data }] = prisma.movimentoDaRua.create.mock.calls[0];
+    expect(data.gastoPagoEm).toEqual(new Date(2026, 7, 20));
+  });
+
+  it('sem a data, segue como antes: nada a compensar', async () => {
+    const { service, prisma } = montarServico({ entrega: conta });
+
+    await service.lancarMovimento('r1', { tipo: 'NOTA', valor: 300 });
+
+    const [{ data }] = prisma.movimentoDaRua.create.mock.calls[0];
+    expect(data.gastoPagoEm).toBeUndefined();
+  });
+});
+
+/**
+ * O lançamento de acerto, que não pode pesar na gaveta.
+ *
+ * R$ 300,00 saíram da gaveta e a saída nunca chegou ao IXC. O caixa de lá ficou
+ * R$ 300,00 acima do real, e foi lançada uma saída à mão para acertá-lo. Do
+ * lado daqui, que lê as saídas do IXC, aquela saída virou um segundo desconto
+ * de um dinheiro que já tinha saído — e o saldo esperado foi para negativo.
+ *
+ * Marcado, o lançamento sai da conta do saldo e continua em todo o resto: na
+ * lista, na fila de conferência, no histórico. Ele é uma saída que aconteceu.
+ */
+describe('lançamento fora da conta da gaveta', () => {
+  it('a saída marcada não desconta do saldo esperado', async () => {
+    const { service } = montarServico({
+      anterior: { saldoFinal: 1000 },
+      lancamentos: [saida(1, 50), saida(2, 300)],
+      conferencias: [{ idLancamentoIxc: 2, conferido: false, foraDaGaveta: true }],
+    });
+
+    const e = await service.extrato(7, '2026-08-01', '2026-08-31');
+
+    // 1000 - 50. Os 300 do acerto ficam de fora.
+    expect(e.resumo.saldoEsperado).toBe(950);
+  });
+
+  it('sem marcar, ela desconta como qualquer outra', async () => {
+    const { service } = montarServico({
+      anterior: { saldoFinal: 1000 },
+      lancamentos: [saida(1, 50), saida(2, 300)],
+    });
+
+    const e = await service.extrato(7, '2026-08-01', '2026-08-31');
+
+    expect(e.resumo.saldoEsperado).toBe(650);
+  });
+
+  it('marcada, ela continua na lista — é uma saída que aconteceu', async () => {
+    const { service } = montarServico({
+      anterior: { saldoFinal: 1000 },
+      lancamentos: [saida(1, 50), saida(2, 300)],
+      conferencias: [{ idLancamentoIxc: 2, conferido: false, foraDaGaveta: true }],
+    });
+
+    const e = await service.extrato(7, '2026-08-01', '2026-08-31');
+
+    expect(e.lancamentos).toHaveLength(2);
+    expect(e.lancamentos.find((l) => l.id === 2)?.foraDaGaveta).toBe(true);
+    expect(e.lancamentos.find((l) => l.id === 1)?.foraDaGaveta).toBe(false);
+  });
+
+  it('exige o motivo ao tirar da conta', async () => {
+    const { service } = montarServico();
+
+    await expect(
+      service.marcarForaDaGaveta(7, 2, { fora: true }),
+    ).rejects.toThrow(/por que/i);
+  });
+
+  it('guarda o motivo de quem tirou', async () => {
+    const { service, prisma } = montarServico();
+
+    await service.marcarForaDaGaveta(7, 2, {
+      fora: true,
+      motivo: 'Acerto: o dinheiro já tinha saído da gaveta antes',
+    });
+
+    const [chamada] = prisma.conferenciaCaixa.upsert.mock.calls[0] as Array<{
+      update: Record<string, unknown>;
+    }>;
+    expect(chamada.update.foraDaGaveta).toBe(true);
+    expect(chamada.update.motivoForaDaGaveta).toContain('Acerto');
+  });
+
+  it('devolver à conta não pede motivo, e limpa o que estava escrito', async () => {
+    const { service, prisma } = montarServico();
+
+    await service.marcarForaDaGaveta(7, 2, { fora: false });
+
+    const [chamada] = prisma.conferenciaCaixa.upsert.mock.calls[0] as Array<{
+      update: Record<string, unknown>;
+    }>;
+    expect(chamada.update.foraDaGaveta).toBe(false);
+    expect(chamada.update.motivoForaDaGaveta).toBeNull();
   });
 });

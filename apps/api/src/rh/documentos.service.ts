@@ -5,10 +5,16 @@ import {
   lerDataUrl as lerArquivo,
 } from '../arquivos/data-url';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  ConversaoPdfService,
+  nomeComoPdf,
+  podeVirarPdf,
+} from './conversao-pdf.service';
 import type {
   EditarDocumentoDto,
   GuardarDocumentoDto,
   PastaDto,
+  SubstituirDocumentoDto,
 } from './dto/documento.dto';
 
 /**
@@ -47,8 +53,41 @@ export const LIMITE_BYTES = 15 * 1024 * 1024;
 /** Documento que vence dentro disto está "a vencer" na tela. */
 const DIAS_DE_AVISO = 30;
 
-/** Quantos níveis de pasta dentro de pasta. Ver `exigirEspacoNaArvore`. */
-const NIVEIS = 3;
+/**
+ * O fundo da árvore — um limite de segurança, e não uma regra de organização.
+ *
+ * Aqui havia um teto de três níveis, com o argumento de que mais fundo do que
+ * isso ninguém acha o papel. O argumento estava errado sobre esta casa: a pasta
+ * da empresa sozinha já pede "Empresa / M A CASTRO / Balanços / 2024", e quem
+ * guarda o papel é quem sabe como ele se procura depois. O teto não organizava
+ * nada — só recusava a quarta pasta com uma frase que soava a explicação.
+ *
+ * O que sobrou é o que ele deveria ter sido desde o começo: um número grande o
+ * bastante para nunca aparecer no caminho de ninguém, e finito o bastante para
+ * que um `paiId` em círculo — que só um bug criaria — trave numa consulta a
+ * mais em vez de num laço infinito.
+ */
+const NIVEIS = 20;
+
+/**
+ * A gaveta do papel que foi trocado.
+ *
+ * Nasce sozinha na primeira substituição feita naquela pasta, do mesmo jeito
+ * que "Recibos de pagamento" nasce no primeiro recibo. Fica dentro da pasta em
+ * que o documento estava — a certidão velha da empresa interessa a quem abre a
+ * pasta da empresa, e não a um arquivo morto do sistema inteiro.
+ */
+export const PASTA_DOS_SUBSTITUIDOS = 'Substituídos';
+
+/**
+ * Até onde a árvore pode ir de verdade.
+ *
+ * `NIVEIS` é o teto de quem cria pasta à mão. A gaveta dos substituídos nasce
+ * do sistema e pode cair um degrau abaixo dele — "Empresa / M A CASTRO /
+ * Certidões" já ocupa os três, e o papel trocado tem de ir para algum lugar.
+ * É por este número que a árvore se percorre; pelo outro, que ela se cria.
+ */
+const NIVEIS_NA_ARVORE = NIVEIS + 1;
 
 /**
  * A estante de documentos.
@@ -63,7 +102,10 @@ const NIVEIS = 3;
 export class DocumentosRhService {
   private readonly logger = new Logger(DocumentosRhService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly conversao: ConversaoPdfService,
+  ) {}
 
   /**
    * A estante inteira, com o que há em cada pasta.
@@ -120,7 +162,9 @@ export class DocumentosRhService {
     for (const p of pastas) {
       const meu = resumos.get(p.id) ?? vazio();
       let atual: string | null = p.id;
-      while (atual) {
+      // O mesmo teto de segurança da criação: sem ele, um `paiId` em círculo
+      // travaria a estante inteira em vez de desenhar uma pasta errada.
+      for (let passo = 0; atual && passo <= NIVEIS; passo += 1) {
         const soma = naArvore.get(atual) ?? vazio();
         soma.qtd += meu.qtd;
         soma.vencidos += meu.vencidos;
@@ -137,7 +181,7 @@ export class DocumentosRhService {
       id: p.id,
       // O cadastro manda no nome: quem trocou de sobrenome no IXC não pode
       // ficar com o nome antigo na estante.
-      nome: p.funcionario?.nome ?? p.nome,
+      nome: p.nomeManual ? p.nome : (p.funcionario?.nome ?? p.nome),
       apelido: p.funcionario?.apelido ?? null,
       funcao: p.funcionario?.funcao ?? null,
       daEmpresa: p.daEmpresa,
@@ -149,8 +193,10 @@ export class DocumentosRhService {
       subpastas: p._count.subpastas,
       /** Pasta de quem já saiu da empresa. */
       inativo: p.funcionario ? !p.funcionario.ativo : false,
-      /** Pasta que não veio do cadastro: só ela se renomeia e se apaga. */
+      /** Pasta que não veio do cadastro: RH também a renomeia e a apaga. */
       avulsa: !p.funcionarioId && !p.daEmpresa,
+      /** O nome foi escrito à mão e o cadastro deixou de mandar nele. */
+      nomeManual: p.nomeManual,
       ...(resumos.get(p.id) ?? vazio()),
       /** O mesmo, contando o que está nas subpastas. */
       naArvore: naArvore.get(p.id) ?? vazio(),
@@ -219,18 +265,35 @@ export class DocumentosRhService {
     const paiId = dto.paiId ?? null;
 
     if (paiId) await this.exigirEspacoNaArvore(paiId);
+    await this.exigirNomeLivre(nome, cpf, paiId);
 
-    /*
-     * O nome só briga com os irmãos.
-     *
-     * Duas pastas "Exames" na estante seriam confusão; uma dentro de cada
-     * funcionário é o desenho normal de uma gaveta. Na estante o CPF também
-     * conta: duas pastas da mesma pessoa é como metade dos documentos some —
-     * eles ficam na outra.
-     */
+    return this.prisma.pastaRh.create({
+      data: { nome, cpf, paiId, criadoPor: usuarioId ?? null },
+    });
+  }
+
+  /**
+   * O nome só briga com os irmãos.
+   *
+   * Duas pastas "Exames" na estante seriam confusão; uma dentro de cada
+   * funcionário é o desenho normal de uma gaveta. Na estante o CPF também
+   * conta: duas pastas da mesma pessoa é como metade dos documentos some —
+   * eles ficam na outra.
+   *
+   * Vale para quem cria e para quem renomeia, inclusive o administrador: a
+   * regra não é de permissão, é do que acontece com o papel depois.
+   */
+  private async exigirNomeLivre(
+    nome: string,
+    cpf: string | null,
+    paiId: string | null,
+    /** A própria pasta, quando é ela que está sendo renomeada. */
+    exceto?: string,
+  ) {
     const igual = await this.prisma.pastaRh.findFirst({
       where: {
         paiId,
+        ...(exceto ? { id: { not: exceto } } : {}),
         ...(cpf && !paiId
           ? { OR: [{ cpf }, { nome: { equals: nome, mode: 'insensitive' } }] }
           : { nome: { equals: nome, mode: 'insensitive' } }),
@@ -245,10 +308,6 @@ export class DocumentosRhService {
             'como metade dos documentos some: eles ficam na outra.',
       );
     }
-
-    return this.prisma.pastaRh.create({
-      data: { nome, cpf, paiId, criadoPor: usuarioId ?? null },
-    });
   }
 
   /**
@@ -335,11 +394,10 @@ export class DocumentosRhService {
   }
 
   /**
-   * Até onde a árvore pode ir.
+   * Trava de segurança da árvore.
    *
-   * Três níveis dão "Fulano / Recibos de pagamento / 2026", que é mais fundo do
-   * que uma gaveta de RH costuma precisar. Sem teto, a estante vira um labirinto
-   * que ninguém percorre até o fim para achar um papel.
+   * Não é regra de organização: quem guarda o papel decide como ele se procura
+   * depois. É só o fundo em que um `paiId` em círculo pararia de andar.
    */
   private async exigirEspacoNaArvore(paiId: string) {
     let nivel = 1;
@@ -354,8 +412,8 @@ export class DocumentosRhService {
       nivel += 1;
       if (nivel > NIVEIS) {
         throw new BadRequestException(
-          `Dá para aninhar até ${NIVEIS} níveis de pasta. Mais fundo que ` +
-            'isso, ninguém acha o papel.',
+          `Esta pasta já está ${NIVEIS} níveis abaixo da estante. Mais fundo ` +
+            'que isso o sistema não sabe percorrer.',
         );
       }
       atual = pasta.paiId;
@@ -363,59 +421,183 @@ export class DocumentosRhService {
   }
 
   /**
-   * Renomeia uma pasta avulsa.
+   * Renomeia uma pasta.
    *
-   * A de funcionário não: o nome dela é o do cadastro, e um nome escrito aqui
-   * sumiria na primeira sincronização, sem ninguém entender por quê.
+   * A avulsa, qualquer um do RH renomeia — ela não tem cadastro atrás. A de
+   * funcionário e a da empresa seguem o nome do cadastro, e um nome escrito
+   * aqui sumiria na primeira sincronização sem ninguém entender por quê: só o
+   * administrador as renomeia, e a pasta fica marcada como escrita à mão para
+   * o nome não sumir depois. O do cadastro continua guardado no funcionário, e
+   * `seguirCadastro` devolve a pasta a ele.
    */
-  async renomearPasta(id: string, dto: PastaDto) {
+  async renomearPasta(id: string, dto: PastaDto, ehAdmin = false) {
     const pasta = await this.exigirPasta(id);
-    if (pasta.funcionarioId || pasta.daEmpresa) {
+    const doCadastro = !!pasta.funcionarioId || pasta.daEmpresa;
+
+    if (doCadastro && !ehAdmin) {
       throw new BadRequestException(
         'Esta pasta é do cadastro; o nome dela vem de lá. Renomeie o ' +
-          'funcionário no IXC e a estante acompanha.',
+          'funcionário no IXC e a estante acompanha — ou peça a um ' +
+          'administrador, que pode escrever o nome à mão aqui.',
       );
     }
+
+    // Voltar a seguir o cadastro. O que está escrito em `nome` fica onde está:
+    // ninguém mais o lê, e ele é o registro do que a pasta já se chamou.
+    if (doCadastro && dto.seguirCadastro) {
+      const volta = await this.prisma.pastaRh.update({
+        where: { id },
+        data: { nomeManual: false },
+      });
+      this.logger.log(`Pasta ${id} voltou a seguir o nome do cadastro.`);
+      return volta;
+    }
+
+    const nome = dto.nome.trim();
+    const cpf = soDigitos(dto.cpf) || null;
+    await this.exigirNomeLivre(nome, cpf, pasta.paiId, id);
+
     return this.prisma.pastaRh.update({
       where: { id },
-      data: { nome: dto.nome.trim(), cpf: soDigitos(dto.cpf) || null },
+      data: {
+        nome,
+        cpf,
+        // Só a pasta que seguia o cadastro tem o que desobedecer; a avulsa
+        // nunca seguiu ninguém, e marcá-la não diria nada.
+        ...(doCadastro ? { nomeManual: true } : {}),
+      },
     });
   }
 
-  /** Apaga uma pasta avulsa e vazia. */
-  async apagarPasta(id: string) {
+  /**
+   * Apaga uma pasta.
+   *
+   * Para o RH, só a avulsa e vazia: apagar uma pasta cheia por engano é perder
+   * o contrato de alguém, e a mensagem que recusa vale mais que o clique que
+   * ela custa. O administrador não tem essa trava — ele apaga o que há dentro
+   * junto, subpastas inclusive, e é por isso que a tela dele conta antes
+   * quantos papéis vão embora.
+   *
+   * A pasta do cadastro apagada volta vazia na próxima abertura da estante: o
+   * funcionário continua lá, e é dele que a pasta nasce. Quem apaga precisa
+   * saber disso antes, e por isso a resposta diz.
+   */
+  async apagarPasta(id: string, ehAdmin = false) {
     const pasta = await this.exigirPasta(id);
-    if (pasta.funcionarioId || pasta.daEmpresa) {
+    const doCadastro = !!pasta.funcionarioId || pasta.daEmpresa;
+
+    if (doCadastro && !ehAdmin) {
       throw new BadRequestException(
-        'Esta pasta é do cadastro e não se apaga por aqui.',
+        'Esta pasta é do cadastro e não se apaga por aqui. Um administrador ' +
+          'pode, mas ela volta vazia enquanto o funcionário existir.',
       );
     }
-    const [dentro, subpastas] = await Promise.all([
-      this.prisma.documentoRh.count({ where: { pastaId: id } }),
-      this.prisma.pastaRh.count({ where: { paiId: id } }),
-    ]);
-    if (dentro > 0) {
-      throw new BadRequestException(
-        `A pasta tem ${dentro} documento(s) dentro. Apague-os primeiro — ou ` +
-          'deixe a pasta onde está, que ela não atrapalha ninguém.',
-      );
+
+    const alvo = await this.deDentroParaFora(id);
+    const documentos = await this.prisma.documentoRh.count({
+      where: { pastaId: { in: alvo } },
+    });
+    const subpastas = alvo.length - 1;
+
+    if (!ehAdmin) {
+      if (documentos > 0) {
+        throw new BadRequestException(
+          `A pasta tem ${documentos} documento(s) dentro. Apague-os primeiro ` +
+            '— ou deixe a pasta onde está, que ela não atrapalha ninguém.',
+        );
+      }
+      if (subpastas > 0) {
+        throw new BadRequestException(
+          `A pasta tem ${subpastas} subpasta(s) dentro. Apague-as primeiro.`,
+        );
+      }
     }
-    if (subpastas > 0) {
-      throw new BadRequestException(
-        `A pasta tem ${subpastas} subpasta(s) dentro. Apague-as primeiro.`,
-      );
+
+    /*
+     * De dentro para fora, e numa transação.
+     *
+     * O `RESTRICT` do banco recusa apagar a pasta de cima antes do que há
+     * nela — é ele que impede um documento de ficar órfão —, então a ordem não
+     * é detalhe de implementação: é a única em que o banco aceita. E ou some a
+     * árvore inteira, ou não some nada: pela metade sobra uma subpasta sem pai,
+     * que não aparece em tela nenhuma.
+     */
+    await this.prisma.$transaction(async (tx) => {
+      await tx.documentoRh.deleteMany({ where: { pastaId: { in: alvo } } });
+      for (const pastaId of alvo) {
+        await tx.pastaRh.delete({ where: { id: pastaId } });
+      }
+    });
+
+    this.logger.warn(
+      `Pasta "${pasta.nome}" apagada com ${documentos} documento(s) e ` +
+        `${subpastas} subpasta(s).`,
+    );
+    return {
+      apagada: true,
+      documentos,
+      subpastas,
+      /** Ela renasce do cadastro, vazia, na próxima abertura da estante. */
+      voltaDoCadastro: doCadastro,
+    };
+  }
+
+  /**
+   * Esta pasta e tudo que está dentro dela, da mais funda para a mais rasa.
+   *
+   * É a ordem em que o banco aceita apagá-las. Desce por nível em vez de
+   * recursão porque a árvore tem teto (ver `NIVEIS`) e cada nível é uma
+   * consulta só, em vez de uma por pasta.
+   */
+  private async deDentroParaFora(id: string): Promise<string[]> {
+    const ordem: string[] = [];
+    let nivel = [id];
+    for (let i = 0; i < NIVEIS_NA_ARVORE && nivel.length > 0; i += 1) {
+      ordem.unshift(...nivel);
+      const filhas = await this.prisma.pastaRh.findMany({
+        where: { paiId: { in: nivel } },
+        select: { id: true },
+      });
+      nivel = filhas.map((f) => f.id);
     }
-    await this.prisma.pastaRh.delete({ where: { id } });
-    return { apagada: true };
+    return ordem;
+  }
+
+  /**
+   * Esta pasta e as de dentro dela, menos a gaveta do papel trocado.
+   *
+   * Serve a quem precisa ver tudo que uma pasta tem sem abrir divisória por
+   * divisória — montar a pasta de uma licitação, por exemplo. Os substituídos
+   * ficam de fora de propósito: eles são a prova do que já valeu, e listá-los
+   * junto seria oferecer a certidão velha ao lado da nova, com o mesmo título.
+   */
+  private async arvoreUtil(id: string): Promise<string[]> {
+    const todas = [id];
+    let nivel = [id];
+    for (let i = 0; i < NIVEIS_NA_ARVORE && nivel.length > 0; i += 1) {
+      const filhas = await this.prisma.pastaRh.findMany({
+        where: {
+          paiId: { in: nivel },
+          NOT: {
+            nome: { equals: PASTA_DOS_SUBSTITUIDOS, mode: 'insensitive' },
+          },
+        },
+        select: { id: true },
+      });
+      nivel = filhas.map((f) => f.id);
+      todas.push(...nivel);
+    }
+    return todas;
   }
 
   /** Os documentos de uma pasta, sem os arquivos. */
-  async listar(pastaId: string, termo?: string) {
+  async listar(pastaId: string, termo?: string, comSubpastas = false) {
     const busca = termo?.trim();
+    const pastas = comSubpastas ? await this.arvoreUtil(pastaId) : null;
 
     const documentos = await this.prisma.documentoRh.findMany({
       where: {
-        pastaId,
+        ...(pastas ? { pastaId: { in: pastas } } : { pastaId }),
         ...(busca
           ? {
               OR: [
@@ -457,9 +639,17 @@ export class DocumentosRhService {
 
   /** Guarda um documento novo. */
   async guardar(dto: GuardarDocumentoDto, usuarioId?: string) {
-    const { conteudo, tipoDoArquivo } = lerDataUrl(dto.arquivo);
-    conferirArquivo(conteudo, tipoDoArquivo);
+    const original = lerDataUrl(dto.arquivo);
+    conferirArquivo(original.conteudo, original.tipoDoArquivo);
     await this.exigirPasta(dto.pastaId);
+
+    const { conteudo, tipoDoArquivo, nome, avisoDaConversao } =
+      await this.converterSePedido(
+        original.conteudo,
+        original.tipoDoArquivo,
+        dto.arquivoNome.trim(),
+        dto.converterParaPdf === true,
+      );
 
     const doc = await this.prisma.documentoRh.create({
       data: {
@@ -469,7 +659,7 @@ export class DocumentosRhService {
         descricao: dto.descricao?.trim() || null,
         emitidoEm: diaOuNulo(dto.emitidoEm),
         valeAte: diaOuNulo(dto.valeAte),
-        arquivoNome: dto.arquivoNome.trim(),
+        arquivoNome: nome,
         arquivoTipo: tipoDoArquivo,
         arquivoTamanho: conteudo.length,
         // `Uint8Array` e não `Buffer`: o tipo que o Prisma 6 espera na coluna
@@ -485,7 +675,68 @@ export class DocumentosRhService {
       `Documento "${doc.titulo}" (${doc.tipo}, ` +
         `${emMegabytes(doc.arquivoTamanho)}) guardado na pasta ${doc.pastaId}.`,
     );
-    return paraTela(doc);
+    // O aviso viaja junto com o documento, e não como erro: o papel entrou. Só
+    // entrou em Word, e quem subiu pediu PDF — é o tipo de coisa que a pessoa
+    // precisa saber na hora, e não ao abrir o anexo três dias depois.
+    return { ...paraTela(doc), avisoDaConversao };
+  }
+
+  /**
+   * O arquivo como ele vai ser guardado — em PDF, se foi pedido e deu.
+   *
+   * Não deu **nunca** derruba o upload. Um documento de licitação que não sobe
+   * porque o conversor caiu é pior que um documento em Word na pasta: o prazo
+   * do edital não espera o servidor, e o Word ali dentro ainda é o documento.
+   * O que se perde é a conversão, e o aviso diz isso a quem subiu.
+   */
+  private async converterSePedido(
+    conteudo: Buffer,
+    tipoDoArquivo: string,
+    nome: string,
+    pedido: boolean,
+  ): Promise<{
+    conteudo: Buffer;
+    tipoDoArquivo: string;
+    nome: string;
+    avisoDaConversao?: string;
+  }> {
+    const semConverter = { conteudo, tipoDoArquivo, nome };
+
+    // PDF e imagem não têm o que converter, e dizer isso em aviso seria avisar
+    // do que ninguém pediu: a caixa fica marcada para o lote inteiro.
+    if (!pedido || !podeVirarPdf(tipoDoArquivo)) return semConverter;
+
+    const feito = await this.conversao.paraPdf(conteudo, nome);
+
+    if (!feito.convertido) {
+      this.logger.warn(`"${nome}" não virou PDF: ${feito.motivo}.`);
+      return {
+        ...semConverter,
+        avisoDaConversao: `"${nome}" foi guardado como veio: ${feito.motivo}.`,
+      };
+    }
+
+    // O PDF do LibreOffice pode passar do teto que o Word cabia — Word compacta
+    // imagem, o PDF nem sempre. Guardar o original é melhor que recusar o
+    // documento por causa de uma conversão que ninguém exigiu.
+    if (feito.pdf.length > LIMITE_BYTES) {
+      this.logger.warn(
+        `O PDF de "${nome}" passou do teto (${emMegabytes(feito.pdf.length)}).`,
+      );
+      return {
+        ...semConverter,
+        avisoDaConversao:
+          `"${nome}" foi guardado como veio: em PDF ele ficaria com ` +
+          `${emMegabytes(feito.pdf.length)}, acima do limite de ` +
+          `${emMegabytes(LIMITE_BYTES)}.`,
+      };
+    }
+
+    return {
+      conteudo: feito.pdf,
+      tipoDoArquivo: 'application/pdf',
+      nome: nomeComoPdf(nome),
+    };
   }
 
   /**
@@ -515,11 +766,169 @@ export class DocumentosRhService {
     return paraTela(doc);
   }
 
+  /**
+   * Muda de divisória os documentos marcados, de uma vez.
+   *
+   * Mover é o gesto que faltava para a pasta poder ser arrumada: guardar dez
+   * papéis é rápido, e separá-los depois em "Balanços", "Certidões" e
+   * "Contratos" era abrir a ficha de cada um e trocar a pasta ali dentro, dez
+   * vezes. O documento não muda em nada ao mudar de gaveta — é o mesmo papel,
+   * com o mesmo arquivo e as mesmas datas, noutro lugar.
+   *
+   * O que já estava no destino não é erro: quem marcou "todos" e mandou para a
+   * subpasta contava com isso. Eles entram na conta de movidos como quem já
+   * chegou.
+   */
+  async mover(documentoIds: string[], pastaId: string) {
+    const destino = await this.exigirPasta(pastaId);
+
+    const ids = [...new Set(documentoIds)];
+    const achados = await this.prisma.documentoRh.findMany({
+      where: { id: { in: ids } },
+      select: { id: true },
+    });
+
+    // Documento que sumiu no meio do caminho não derruba a mudança dos outros:
+    // a tela mandou o que ela via, e o que ela via pode ter sido apagado noutra
+    // aba. O que existe se move, e a resposta conta a diferença.
+    if (achados.length === 0) {
+      throw new BadRequestException(
+        'Nenhum destes documentos existe mais. Recarregue a pasta.',
+      );
+    }
+
+    const { count } = await this.prisma.documentoRh.updateMany({
+      where: { id: { in: achados.map((d) => d.id) } },
+      data: { pastaId },
+    });
+
+    this.logger.log(
+      `${count} documento(s) movidos para a pasta "${destino.nome}" ` +
+        `(${destino.id}).`,
+    );
+
+    return {
+      movidos: count,
+      /** Os que a tela mandou e que não existem mais. */
+      sumiram: ids.length - achados.length,
+      pasta: { id: destino.id, nome: destino.nome },
+    };
+  }
+
+  /**
+   * Troca um documento pelo que veio no lugar dele.
+   *
+   * É o gesto que a estante não tinha nome para: a certidão venceu, chegou a
+   * nova, e as duas não podem ficar lado a lado na mesma gaveta com o mesmo
+   * título — quem for pegar "a CND estadual" acha duas e não sabe qual das duas
+   * é a que vale. Apagar a velha também não serve: ela é a prova de que a
+   * empresa estava regular naquele mês, e é ela que se apresenta quando alguém
+   * pergunta do ano passado.
+   *
+   * Então a velha desce uma gaveta, para "Substituídos", e a nova ocupa o lugar
+   * dela. O arquivo antigo não se toca: continua o mesmo documento, com as
+   * mesmas datas, noutra divisória.
+   */
+  async substituir(id: string, dto: SubstituirDocumentoDto, usuarioId?: string) {
+    const velho = await this.prisma.documentoRh.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        pastaId: true,
+        titulo: true,
+        pasta: { select: { nome: true } },
+      },
+    });
+    if (!velho) throw new BadRequestException('Este documento não existe mais.');
+
+    const { conteudo, tipoDoArquivo } = lerDataUrl(dto.arquivo);
+    conferirArquivo(conteudo, tipoDoArquivo);
+
+    /*
+     * Substituir o que já está na gaveta dos substituídos não abre outra dentro
+     * dela. O papel trocado duas vezes continua no mesmo lugar — é sempre a
+     * mesma resposta à mesma pergunta ("o que já não vale?"), e uma boneca
+     * russa de "Substituídos / Substituídos" não responde a nenhuma.
+     */
+    const jaEstaNoArquivo = velho.pasta.nome === PASTA_DOS_SUBSTITUIDOS;
+    const destinoDoVelho = jaEstaNoArquivo
+      ? velho.pastaId
+      : await this.garantirSubpasta(velho.pastaId, PASTA_DOS_SUBSTITUIDOS);
+
+    const novo = await this.prisma.$transaction(async (tx) => {
+      await tx.documentoRh.update({
+        where: { id },
+        data: { pastaId: destinoDoVelho },
+      });
+      return tx.documentoRh.create({
+        data: {
+          // O novo fica onde o velho estava: é o lugar em que alguém vai
+          // procurá-lo, e é o velho que sai de cena.
+          pastaId: velho.pastaId,
+          titulo: dto.titulo.trim(),
+          tipo: dto.tipo.trim(),
+          descricao: dto.descricao?.trim() || null,
+          emitidoEm: diaOuNulo(dto.emitidoEm),
+          valeAte: diaOuNulo(dto.valeAte),
+          arquivoNome: dto.arquivoNome.trim(),
+          arquivoTipo: tipoDoArquivo,
+          arquivoTamanho: conteudo.length,
+          arquivo: new Uint8Array(conteudo),
+          criadoPor: usuarioId ?? null,
+        },
+        select: SEM_O_ARQUIVO,
+      });
+    });
+
+    this.logger.log(
+      `Documento "${velho.titulo}" substituído por "${novo.titulo}"; o ` +
+        `anterior foi para "${PASTA_DOS_SUBSTITUIDOS}".`,
+    );
+    return {
+      documento: paraTela(novo),
+      /** Para a tela dizer para onde o antigo foi. */
+      guardadoEm: jaEstaNoArquivo ? velho.pasta.nome : PASTA_DOS_SUBSTITUIDOS,
+    };
+  }
+
   async apagar(id: string) {
     const doc = await this.exigirDocumento(id);
     await this.prisma.documentoRh.delete({ where: { id } });
     this.logger.log(`Documento "${doc.titulo}" apagado da pasta.`);
     return { apagado: true };
+  }
+
+  /**
+   * Apaga de uma vez os documentos marcados.
+   *
+   * Os títulos são lidos **antes** de apagar e vão para o log. Depois não há
+   * mais onde ler: a linha some com o arquivo dentro dela, e "sete documentos
+   * apagados" não responde a pergunta que se faz uma semana depois, que é qual
+   * era o sétimo. É o único registro que sobra.
+   */
+  async apagarVarios(documentoIds: string[]) {
+    const ids = [...new Set(documentoIds)];
+    const achados = await this.prisma.documentoRh.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, titulo: true, pastaId: true },
+    });
+
+    if (achados.length === 0) {
+      throw new BadRequestException(
+        'Nenhum destes documentos existe mais. Recarregue a pasta.',
+      );
+    }
+
+    const { count } = await this.prisma.documentoRh.deleteMany({
+      where: { id: { in: achados.map((d) => d.id) } },
+    });
+
+    this.logger.log(
+      `${count} documento(s) apagados: ` +
+        achados.map((d) => `"${d.titulo}"`).join(', '),
+    );
+
+    return { apagados: count, sumiram: ids.length - achados.length };
   }
 
   /** Os tipos que já existem, do mais usado para o menos. */

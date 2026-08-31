@@ -242,7 +242,7 @@ export function HistoricoDePagamentos() {
  * ontem?", "quanto pagamos este mês?", "fecha o mês passado?". As datas soltas
  * ficam ao lado para quem procura um pagamento específico.
  */
-function SeletorDePeriodo({
+export function SeletorDePeriodo({
   periodo,
   onEscolher,
 }: {
@@ -356,7 +356,15 @@ function Linha({
             </Selo>
           )}
           {pagamento.classificacao && (
-            <Selo pequeno tom="info">
+            <Selo
+              pequeno
+              tom="info"
+              titulo={
+                pagamento.classificacao.grupo
+                  ? `${pagamento.classificacao.grupo.nome} · ${pagamento.classificacao.nome}`
+                  : undefined
+              }
+            >
               {pagamento.classificacao.nome}
             </Selo>
           )}
@@ -457,6 +465,10 @@ function baixarCsv(pagamentos: PagamentoFeito[], periodo: Janela): void {
     'Caixa',
     'Categoria',
     'Classificacao',
+    // A categoria de cima vai em coluna separada de propósito: é por ela que
+    // uma tabela dinâmica soma "quanto custou a frota" sem ter de reconhecer,
+    // no texto, quais linhas falam de veículo.
+    'Categoria-mae',
     'Titulo no IXC',
     'Status no IXC',
     'Conferencia',
@@ -480,6 +492,7 @@ function baixarCsv(pagamentos: PagamentoFeito[], periodo: Janela): void {
     p.caixa.nome ?? (p.caixa.id ? `caixa ${p.caixa.id}` : ''),
     p.categoria.nome ?? '',
     p.classificacao?.nome ?? '',
+    p.classificacao?.grupo?.nome ?? '',
     String(p.idFnApagar),
     p.statusNoIxc ?? '',
     p.conferencia.fecha ? 'fecha' : p.conferencia.ressalvas.join(' | '),
@@ -510,12 +523,12 @@ function numero(valor: number): string {
 }
 
 /** Um período em datas ISO, do jeito que o input date e a API usam. */
-interface Janela {
+export interface Janela {
   de: string;
   ate: string;
 }
 
-function ultimosDias(dias: number): Janela {
+export function ultimosDias(dias: number): Janela {
   const hoje = new Date();
   const inicio = new Date(hoje);
   inicio.setDate(inicio.getDate() - (dias - 1));
@@ -523,7 +536,7 @@ function ultimosDias(dias: number): Janela {
 }
 
 /** O mês corrente, ou um mês para trás com `deslocamento = -1`. */
-function mesCorrente(deslocamento: number): Janela {
+export function mesCorrente(deslocamento: number): Janela {
   const hoje = new Date();
   const primeiro = new Date(
     hoje.getFullYear(),

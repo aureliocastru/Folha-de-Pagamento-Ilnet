@@ -124,6 +124,24 @@ export function IconePasta({ className }: IconeProps) {
   );
 }
 
+/**
+ * Um prédio de janelas: a empresa, e não uma pessoa da casa.
+ *
+ * O menu do RH lista gente; a pasta da empresa fica no meio deles e precisa se
+ * distinguir de relance. Pasta amarela ali diria "mais uma pasta", que é o que
+ * ela justamente não é.
+ */
+export function IconePredio({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M4.5 20.5V5.5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v15" />
+      <path d="M15.5 10.5h2a2 2 0 0 1 2 2v8" />
+      <path d="M3 20.5h18" />
+      <path d="M8 7.5h1.5M8 11h1.5M8 14.5h1.5M12 7.5h1.5M12 11h1.5M12 14.5h1.5" />
+    </svg>
+  );
+}
+
 /** Uma folha de papel com a ponta dobrada: um documento guardado. */
 export function IconeDocumento({ className }: IconeProps) {
   return (
@@ -161,6 +179,24 @@ export function IconeGuia({ className }: IconeProps) {
       <path d="M5.5 2.5h13v19h-13z" />
       <path d="M9 7h6M9 10.5h6" />
       <path d="M9 16v2.5M11.5 16v2.5M14 16v2.5" />
+    </svg>
+  );
+}
+
+/** Licitação: o martelo do pregão, de viés, sobre a base. */
+export function IconeMartelo({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <rect
+        x="11.5"
+        y="3.5"
+        width="9"
+        height="5"
+        rx="1.2"
+        transform="rotate(45 16 6)"
+      />
+      <path d="M14.4 7.6 7.6 14.4" />
+      <path d="M4.5 19.5h9.5" />
     </svg>
   );
 }

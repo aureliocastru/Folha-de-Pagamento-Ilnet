@@ -95,7 +95,10 @@ export class AvulsosController {
   @Post('beneficiarios/do-ixc')
   @HttpCode(200)
   garantirDoIxc(@Body() dto: VincularFornecedorIxcDto) {
-    return this.service.garantirBeneficiarioDoIxc(dto.idFornecedorIxc);
+    return this.service.garantirBeneficiarioDoIxc(
+      dto.idFornecedorIxc,
+      origemDoModulo(dto.modulo),
+    );
   }
 
   /**
@@ -147,7 +150,14 @@ export class AvulsosController {
     @Body() dto: PagarAvulsoDto,
     @Req() req: Request,
   ) {
-    return this.service.pagar(id, dto, usuarioId(req));
+    // Sem `modulo` no corpo, o serviço cai na regra antiga (a origem do
+    // cadastro). É por isso que aqui não se usa o padrão de `origemDoModulo`.
+    return this.service.pagar(
+      id,
+      dto,
+      usuarioId(req),
+      dto.modulo ? origemDoModulo(dto.modulo) : undefined,
+    );
   }
 
   /** Tenta de novo a saída no caixa do IXC. */

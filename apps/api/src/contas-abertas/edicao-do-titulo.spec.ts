@@ -115,6 +115,7 @@ describe('editar conta aprovada', () => {
       ixc as never,
       { obter: jest.fn().mockResolvedValue({}) } as never,
       { contaPagar: { deleteMany: jest.fn() } } as never,
+      { apagarLocalPorTituloIxc: jest.fn() } as never,
     );
     return { service, passos };
   }

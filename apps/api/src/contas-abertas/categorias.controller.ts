@@ -12,7 +12,9 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 import type { Request } from 'express';
+import { Roles } from '../auth/roles.decorator';
 import { CategoriasService } from './categorias.service';
 import {
   AtualizarCategoriaDto,
@@ -38,7 +40,7 @@ export class CategoriasController {
   @Post('categorias-despesa')
   @HttpCode(201)
   criar(@Body() dto: CriarCategoriaDto) {
-    return this.service.criar(dto.nome);
+    return this.service.criar(dto.nome, dto.paiId ?? null);
   }
 
   @Patch('categorias-despesa/:id')
@@ -70,6 +72,35 @@ export class CategoriasController {
       usuarioId(req),
     );
     return { ok: true, classificadas };
+  }
+
+  /**
+   * Trocar a etiqueta de um pagamento **que já saiu** — e isso é de ADMIN.
+   *
+   * A conta paga é a que já entrou em relatório: o mês foi fechado com ela
+   * naquela fatia, e quem olhou o painel decidiu alguma coisa com aquele
+   * número. Reclassificar depois é reescrever um número que alguém já leu —
+   * às vezes é exatamente o certo a fazer (a etiqueta estava errada), mas é
+   * decisão de quem responde pelo relatório, não de quem lança o dia a dia.
+   *
+   * É a mesma etiqueta e a mesma tabela da conta em aberto; o que muda é o
+   * perfil que pode mexer. Por isso a rota é outra, com o `@Roles` nela: uma
+   * rota só, aberta a todos, não teria onde pendurar essa diferença.
+   */
+  @Put('pagamentos/:idFnApagar/categoria')
+  @Roles(UserRole.ADMIN)
+  @HttpCode(200)
+  async reclassificarPagamento(
+    @Param('idFnApagar', ParseIntPipe) idFnApagar: number,
+    @Body() dto: ClassificarContaDto,
+    @Req() req: Request,
+  ) {
+    await this.service.classificar(
+      idFnApagar,
+      dto.categoriaId ?? null,
+      usuarioId(req),
+    );
+    return { ok: true };
   }
 
   /** A que se refere este débito. Corpo vazio tira a etiqueta. */

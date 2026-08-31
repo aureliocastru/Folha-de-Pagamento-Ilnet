@@ -25,6 +25,7 @@ import type {
   PagamentosDoMes,
 } from '../../lib/types';
 import { DetalheDaConta } from './DetalheDaConta';
+import { PraOndeVaiODinheiro } from './PraOndeVaiODinheiro';
 
 /**
  * O dashboard do que a empresa deve, na ordem em que as perguntas aparecem para
@@ -78,10 +79,12 @@ export function Dashboard() {
   // mudado.
   const contas = useMemo(() => consulta.data?.contas ?? [], [consulta.data]);
 
-  const porCategoria = useMemo(
-    () => agrupar(contas.filter((c) => c.classificacao), (c) => c.classificacao!.nome),
-    [contas],
-  );
+  /*
+   * O "com o quê" mora agora no bloco "Para onde está indo o dinheiro", que
+   * soma por categoria-mãe, faz o mesmo para o que já foi pago e abre cada
+   * barra nas contas que a compõem. Aqui ficou o que ele não responde: a quem
+   * se deve, quando vence, e o que precisa sair primeiro.
+   */
   const porFornecedor = useMemo(
     () => agrupar(contas, (c) => c.fornecedor.nome || 'Sem fornecedor'),
     [contas],
@@ -256,28 +259,11 @@ export function Dashboard() {
               listas de barras curtas: lado a lado numa tela larga cabem sem
               apertar e poupam uma rolagem inteira. */}
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-            <Bloco
-              titulo="Com o que a empresa está devendo"
-              className="surgir surgir-4"
-              esticado
-            >
-              {porCategoria.length === 0 ? (
-                <Vazio titulo="Nada classificado ainda">
-                  Este gráfico sai da classificação de cada débito. Marque as
-                  contas na aba "Em aberto" e escolha a que elas se referem — a
-                  partir da primeira, o gráfico começa a existir.
-                </Vazio>
-              ) : (
-                <BarrasComparadas itens={paraBarras(porCategoria, total)} />
-              )}
-              {semClassificar.length > 0 && (
-                <p className="ajuda">
-                  {formatBRL(somar(semClassificar))} em {semClassificar.length}{' '}
-                  título(s) ainda sem classificação — esse dinheiro não está em
-                  nenhuma barra acima.
-                </p>
-              )}
-            </Bloco>
+            {/* Para onde o dinheiro vai: por categoria-mãe, dos dois lados —
+                o que ainda vai sair e o que já saiu —, e cada barra abre nas
+                contas que a somam. O bloco anterior mostrava só o que se deve,
+                e o número morria na barra. */}
+            <PraOndeVaiODinheiro contas={contas} />
 
             <Bloco titulo="Maiores credores" className="surgir surgir-4" esticado>
               <BarrasComparadas itens={paraBarras(porFornecedor, total)} />
@@ -436,6 +422,19 @@ function FechamentoDoMes({
         O que ainda tem de sair inclui o atraso: conta vencida continua sendo
         dinheiro que este mês precisa cobrir.
       </p>
+
+      {/* A economia não entra na barra: ela não é uma fatia do mês, é dinheiro
+          que não saiu. Somá-la ao pago inflaria o mês com uma despesa que não
+          existiu, e por isso ela vem como uma linha à parte — só quando houve
+          alguma, para não pôr "R$ 0,00 economizado" em todo mês comum. */}
+      {pagas.economia > 0 && (
+        <p className="mt-2 text-sm text-emerald-700 dark:text-emerald-300">
+          <span className="valor">{formatBRL(pagas.economia)}</span> de economia
+          no mês — desconto obtido por antecipar pagamentos. Os títulos valiam{' '}
+          {formatBRL(pagas.total + pagas.economia)} e saíram por{' '}
+          {formatBRL(pagas.total)}.
+        </p>
+      )}
     </div>
   );
 }
@@ -585,7 +584,14 @@ function FilaDePagamento({
                       : `em ${dias} dia(s)`}
                 </Selo>
                 {c.classificacao ? (
-                  <span className="text-[11px] text-tinta-400">
+                  <span
+                    className="text-[11px] text-tinta-400"
+                    title={
+                      c.classificacao.grupo
+                        ? `${c.classificacao.grupo.nome} · ${c.classificacao.nome}`
+                        : undefined
+                    }
+                  >
                     {c.classificacao.nome}
                   </span>
                 ) : (

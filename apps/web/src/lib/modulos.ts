@@ -6,14 +6,16 @@ import {
   IconeChave,
   IconeChecklist,
   IconeDia,
+  IconeDocumento,
   IconeEngrenagem,
   IconeEtiqueta,
   IconeGuia,
+  IconeMartelo,
   IconeMoeda,
-  IconeDocumento,
   IconePainel,
   IconePasta,
   IconePessoas,
+  IconePredio,
   IconeRecibo,
   IconeSaida,
   IconeSol,
@@ -109,6 +111,10 @@ const contasPagar: Modulo = {
     // caminho custa menos que obrigar a trocar de módulo no meio do trabalho.
     { to: 'avulsos', label: 'Pagamentos Avulsos', icone: IconeRecibo },
     { to: 'recorrentes', label: 'Recorrentes', icone: IconeCalendarioVolta },
+    // A conta de luz de cada endereço. Fica ao lado das recorrentes porque é
+    // a mesma pergunta — o que se paga todo mês —, e separada porque o valor
+    // desta só se sabe quando a fatura chega.
+    { to: 'contas-contrato', label: 'Contas Contrato', icone: IconePredio },
     { to: 'categorias', label: 'Categorias', icone: IconeEtiqueta },
     // Bater o caixa do dinheiro em mãos: conferir as saídas do período,
     // fotografar a nota e declarar o que ainda está na rua com alguém.
@@ -170,7 +176,26 @@ const rh: Modulo = {
   papeis: ['ADMIN', 'RH'],
   menu: [
     { to: 'pastas', label: 'Pastas', icone: IconePasta },
+    /*
+     * A pasta da empresa tem porta própria.
+     *
+     * A estante lista gente — quarenta e poucas pastas em ordem alfabética —, e
+     * a da empresa é a única que não é de ninguém e a única em que se entra
+     * várias vezes por semana: contrato social, alvará, as certidões que a
+     * licitação pede. Achá-la caçando "Empresa" no meio dos nomes é o caminho
+     * mais longo para o lugar mais visitado.
+     */
+    { to: 'empresa', label: 'Empresa', icone: IconePredio },
     { to: 'recibos', label: 'Recibos da folha', icone: IconeDocumento },
+    /*
+     * A pasta que se monta para entregar.
+     *
+     * Ela sai da pasta da empresa e volta para lá — as mesmas certidões —, mas
+     * a pergunta é outra: não é "o que a empresa tem?", é "o que foi entregue
+     * naquele pregão?". A segunda só tem resposta se houver um lugar em que a
+     * cópia do dia fica guardada, e é este.
+     */
+    { to: 'licitacoes', label: 'Licitações', icone: IconeMartelo },
   ],
 };
 

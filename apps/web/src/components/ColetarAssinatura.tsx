@@ -38,7 +38,11 @@ export function ColetarAssinatura({
     // Enquanto a janela está aberta e ninguém assinou, ela fica perguntando.
     // É o que faz a tela de quem pagou virar "assinado" sozinha no instante em
     // que a pessoa levanta o dedo do celular dela, do outro lado da cidade.
-    refetchInterval: (q) => (q.state.data?.assinadoEm ? false : 4000),
+    // Durante a recoleta ela continua perguntando: `assinadoEm` já está
+    // preenchido pela assinatura velha, e parar aqui deixaria a janela sem
+    // saber que a nova chegou.
+    refetchInterval: (q) =>
+      q.state.data?.assinadoEm && !q.state.data?.recoletandoDesde ? false : 4000,
     // Perguntando **mesmo com a aba no fundo**, que é o caso normal: quem
     // copiou o link foi para o WhatsApp mandar, e é enquanto está lá que a
     // assinatura chega. O app inteiro desliga isto (`refetchOnWindowFocus`
@@ -118,7 +122,18 @@ export function ColetarAssinatura({
   });
 
   const atual = assinatura.data;
-  const assinado = Boolean(atual?.assinadoEm);
+  /*
+   * Assinado, e ainda assim esperando assinatura.
+   *
+   * Pedida a recoleta, os dois são verdade ao mesmo tempo: a assinatura antiga
+   * fica guardada de propósito — o recibo dela pode já ser a nota de um
+   * lançamento do caixa — e mesmo assim é o link novo que tem de aparecer.
+   * Decidir por `assinadoEm` sozinho fazia o "Sim, substituir" gerar o link e
+   * a janela continuar mostrando o comprovante de sempre: o clique parecia não
+   * fazer nada, e o link novo ficava atrás de uma tela que dizia "já assinado".
+   */
+  const recoletando = Boolean(atual?.recoletandoDesde);
+  const assinado = Boolean(atual?.assinadoEm) && !recoletando;
   const vencido = Boolean(
     atual && !assinado && new Date(atual.expiraEm) < new Date(),
   );
@@ -182,8 +197,8 @@ export function ColetarAssinatura({
           <div className="mt-5">
             <div className="flex items-center gap-2 rounded-xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
               <span className="text-base">✓</span>
-              Assinado por {atual.nomeAssinante} em{' '}
-              {formatDataHora(atual.assinadoEm!)}.
+              Assinado por {atual.nomeAssinante ?? diaria.diarista?.nome ?? 'quem recebeu'}{' '}
+              em {formatDataHora(atual.assinadoEm!)}.
             </div>
 
             {atual.assinaturaPng && (
@@ -194,7 +209,7 @@ export function ColetarAssinatura({
                   className="mx-auto max-h-24"
                 />
                 <div className="mx-auto mt-2 max-w-xs border-t border-tinta-200 pt-2 text-center text-sm font-semibold text-tinta-800">
-                  {atual.nomeAssinante}
+                  {atual.nomeAssinante ?? diaria.diarista?.nome}
                 </div>
                 {atual.modo === 'DIGITADA' && (
                   <p className="mt-2 text-center text-xs italic text-tinta-400">
@@ -269,6 +284,17 @@ export function ColetarAssinatura({
               <p className="text-sm text-tinta-400">Preparando o recibo…</p>
             ) : (
               <>
+                {/* Quem pediu a troca precisa saber que não ficou sem recibo
+                    no intervalo: a assinatura velha responde por ele até a
+                    nova chegar, e é por isso que ela não foi apagada agora. */}
+                {recoletando && (
+                  <div className="mb-4">
+                    <Aviso tom="atencao">
+                      Link novo gerado. A assinatura anterior continua valendo
+                      até alguém assinar outra vez — e o recibo dela também.
+                    </Aviso>
+                  </div>
+                )}
                 <div className="rotulo">Link de assinatura</div>
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <input

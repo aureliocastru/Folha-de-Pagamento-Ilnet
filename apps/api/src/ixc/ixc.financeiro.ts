@@ -387,8 +387,18 @@ export interface BaixaContaPagarInput {
    */
   contaPlanejamentoId: number;
   filialId: number;
-  /** Quanto foi pago. Igual ao saldo em aberto quando se quita de uma vez. */
+  /** Quanto o título deve. Igual ao saldo em aberto quando se quita de uma vez. */
   valor: number;
+  /**
+   * Desconto obtido nesta baixa — o abatimento de quem paga adiantado.
+   *
+   * Ele não muda o que o título vale: o título continua devendo `valor`, e o
+   * que sai do caixa é `valor - desconto`. Os dois números vão para o IXC em
+   * campos diferentes de propósito (`vdesconto` e `valor_total_pago`), porque
+   * são perguntas diferentes — quanto se devia e quanto se pagou —, e é a
+   * segunda que a conciliação procura no extrato.
+   */
+  desconto?: number;
   data: Date;
   /** Vai para o histórico do lançamento no IXC. */
   historico: string;
@@ -486,6 +496,8 @@ export function codigoTipoPagamentoBaixa(
 export function buildBaixaContaPagarPayload(
   input: BaixaContaPagarInput,
 ): Record<string, unknown> {
+  const desconto = Math.round(Math.max(0, input.desconto ?? 0) * 100) / 100;
+  const pago = Math.round((input.valor - desconto) * 100) / 100;
   const valor = formatValorBaixaIxc(input.valor);
   return {
     id_pagar: input.idFnApagar,
@@ -526,15 +538,34 @@ export function buildBaixaContaPagarPayload(
     id_conta_class_finan_a_label: '',
     data: formatDataIxc(input.data),
     documento: input.documento ?? '',
+    /*
+     * O desconto vai em valor, nunca em percentual.
+     *
+     * Quem paga adiantado combina "tira cinquenta reais", não "tira 0,608%":
+     * o percentual sairia de uma divisão que arredonda, e o IXC recalcularia
+     * dele um desconto de centavos diferentes do que foi combinado. Com
+     * `vdesconto` preenchido e `pdesconto` vazio, o valor é o que manda.
+     */
     pdesconto: '',
-    vdesconto: '',
+    vdesconto: desconto > 0 ? formatValorBaixaIxc(desconto) : '',
     pacrescimo: '',
     vacrescimo: '',
-    // As três dizem a mesma coisa numa quitação de uma vez: o que a parcela
-    // vale, o que se deve dela e o que foi pago.
+    /*
+     * As duas primeiras são o que o título deve; a terceira é o que saiu do
+     * caixa. Sem desconto as três dizem a mesma coisa, e era por isso que uma
+     * só bastava.
+     *
+     * `valor_total_pago` é o número que vira a linha da movimentação
+     * financeira — a perna do dinheiro saindo do banco, que a conciliação
+     * casa com o extrato. Mandar nele o valor cheio de um pagamento com
+     * desconto poria no IXC uma saída que o extrato não tem, e a conta não
+     * conciliaria nunca. `debito` continua o valor cheio porque é o que o
+     * título devia: é a diferença entre os dois que o IXC entende como
+     * desconto e usa para dar o título por quitado.
+     */
     valor_parcela: valor,
     debito: valor,
-    valor_total_pago: valor,
+    valor_total_pago: formatValorBaixaIxc(pago),
     historico: input.historico,
     tipo_p: 'T',
     tipo_lanc: 'P',

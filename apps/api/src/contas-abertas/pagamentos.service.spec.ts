@@ -97,6 +97,7 @@ function montarServico(
       if (opts.recusaABaixa) throw new Error(opts.recusaABaixa);
       return {};
     }),
+    remove: jest.fn(async () => ({})),
   };
 
   const config = { obter: jest.fn().mockResolvedValue(CFG) };
@@ -108,12 +109,15 @@ function montarServico(
       findFirst: jest.fn().mockResolvedValue(null),
     },
   };
+  // O quarto: quem sabe o que cai junto ao apagar uma conta a pagar daqui.
+  const contasPagar = { apagarLocalPorTituloIxc: jest.fn() };
   const service = new PagamentosService(
     ixc as never,
     config as never,
     prisma as never,
+    contasPagar as never,
   );
-  return { service, ixc, criados, prisma };
+  return { service, ixc, criados, prisma, contasPagar };
 }
 
 describe('PagamentosService.pagar', () => {
@@ -193,6 +197,82 @@ describe('PagamentosService.pagar', () => {
     expect(r.paga).toBe(true);
   });
 
+  /*
+   * Desconto por antecipação.
+   *
+   * O que vai para o IXC é o líquido: é ele que vira a linha da movimentação
+   * financeira, e é essa linha que a conciliação casa com o extrato. Mandar o
+   * valor cheio poria lá uma saída que o banco não teve, e a conta não
+   * conciliaria nunca.
+   */
+  it('com desconto, para o IXC vai o que saiu — e o título continua devendo o cheio', async () => {
+    const { service, criados } = montarServico();
+
+    const r = await service.pagar(
+      4242,
+      { contaPagamento: CFG.contaPagamentoCaixaId, data: '2026-08-15', desconto: 100 },
+      'Aurelio',
+    );
+
+    expect(criados[1].payload).toMatchObject({
+      vdesconto: '100,00',
+      debito: '1500,00',
+      valor_total_pago: '1400,00',
+    });
+    expect(r).toMatchObject({ valor: 1500, valorPago: 1400, desconto: 100 });
+  });
+
+  it('desconto que come o título inteiro não é pagamento', async () => {
+    const { service, criados } = montarServico();
+
+    await expect(
+      service.pagar(
+        4242,
+        { contaPagamento: CFG.contaPagamentoCaixaId, desconto: 1500 },
+        'Aurelio',
+      ),
+    ).rejects.toThrow(BadRequestException);
+
+    // E recusa antes de escrever qualquer coisa no IXC.
+    expect(criados).toEqual([]);
+  });
+
+  it('pelo ModoBank o desconto não é aplicado, e a tela fica sabendo', async () => {
+    // Lá quem paga é o banco, pela tela dele: o abatimento tem de ser
+    // informado ali. Guardá-lo em silêncio faria a economia aparecer neste
+    // app sem um centavo a menos ter saído.
+    const { service } = montarServico();
+
+    const r = await service.pagar(4242, { contaPagamento: 18, desconto: 100 });
+
+    expect(r).toMatchObject({ aguardandoBanco: true, desconto: 0, valorPago: 1500 });
+    expect(r.avisos.join(' ')).toMatch(/desconto/i);
+  });
+
+  it('o lote recusa desconto para várias contas de uma vez', async () => {
+    // Ratear inventaria abatimento em título que ninguém negociou; repetir
+    // multiplicaria a economia pelo tamanho do lote.
+    const { service } = montarServico();
+
+    await expect(
+      service.pagarEmLote([4242, 4243], {
+        contaPagamento: CFG.contaPagamentoCaixaId,
+        desconto: 100,
+      }),
+    ).rejects.toThrow(BadRequestException);
+  });
+
+  it('o lote soma o que saiu do caixa e o que se economizou', async () => {
+    const { service } = montarServico();
+
+    const r = await service.pagarEmLote([4242], {
+      contaPagamento: CFG.contaPagamentoCaixaId,
+      desconto: 100,
+    });
+
+    expect(r).toMatchObject({ total: 1400, economia: 100 });
+  });
+
   it('a baixa lança na conta do razão do banco, que é o que a conciliação lê', async () => {
     /*
      * A baixa cria um par de linhas em `fn_movim_finan`: uma `M`, o dinheiro
@@ -216,15 +296,23 @@ describe('PagamentosService.pagar', () => {
     expect(baixa.id_conta).not.toBe(2420);
   });
 
-  it('sem a conta do razão, paga assim mesmo e avisa', async () => {
-    // Uma consulta que não respondeu não pode barrar um pagamento. Mas quem
-    // pagou precisa saber que aquele lançamento pode não chegar à conciliação.
-    const { service } = montarServico({ contaSemPlanejamento: true });
+  /**
+   * Antes, sem o razão a baixa saía assim mesmo, com a conta contábil no lugar
+   * dele, e um aviso na tela. O aviso não salvou ninguém: oito pagamentos de
+   * agosto foram para a conta da despesa, o título constou pago, e a
+   * conciliação ficou sem o que listar até alguém estornar e refazer à mão.
+   *
+   * Recusar sai mais barato — e recusa antes de mandar a baixa, com o título
+   * ainda aprovado e nada pago: quem clicou tenta de novo.
+   */
+  it('sem a conta do razão, não paga — e não deixa rastro no IXC', async () => {
+    const { service, criados } = montarServico({ contaSemPlanejamento: true });
 
-    const r = await service.pagar(4242, { contaPagamento: 23 }, 'Aurelio');
+    await expect(
+      service.pagar(4242, { contaPagamento: 23 }, 'Aurelio'),
+    ).rejects.toThrow(/conciliação bancária/i);
 
-    expect(r.paga).toBe(true);
-    expect(r.avisos.join(' ')).toMatch(/conciliação bancária/i);
+    expect(criados.some((c) => c.recurso.includes('botao_pagar'))).toBe(false);
   });
 
   it('título já pago não é pago de novo', async () => {
@@ -429,5 +517,48 @@ describe('PagamentosService.pagar — quando o IXC recusa a baixa', () => {
 
     expect(r.paga).toBe(true);
     expect(r.avisos).toEqual([]);
+  });
+});
+
+/**
+ * Apagado é apagado.
+ *
+ * Aqui havia um `deleteMany` na `ContaPagar` e mais nada. A FK do pagamento
+ * avulso é `SetNull`: o pagamento não ia junto, ficava sem conta a pagar e sem
+ * lançamento no caixa, e nesse estado o painel o lia como "já saiu" — contado
+ * no gasto e invisível como pendente. Foi assim que um acerto de teste apagado
+ * continuou somando duas vendas no gráfico.
+ *
+ * A regra do que cai junto mora no `ContasPagarService`. O que este arquivo
+ * protege é que este caminho a chame, em vez de decidir por conta própria.
+ */
+describe('apagar o título leva junto o que só existia por causa dele', () => {
+  const emAberto = {
+    id: '4242',
+    status: 'A',
+    valor: '100,00',
+    valor_aberto: '100,00',
+    data_pagamento: '',
+  };
+
+  it('chama quem sabe o que cai junto, e não apaga a conta por fora', async () => {
+    const { service, contasPagar, prisma } = montarServico({
+      titulo: emAberto,
+    });
+
+    await service.excluir(4242);
+
+    expect(contasPagar.apagarLocalPorTituloIxc).toHaveBeenCalledWith(4242);
+    // O `deleteMany` solto era justamente o que deixava o pagamento órfão.
+    expect(prisma.contaPagar.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('título com baixa não é apagado, e nada cai junto', async () => {
+    const { service, contasPagar } = montarServico({
+      titulo: { ...emAberto, status: 'F' },
+    });
+
+    await expect(service.excluir(4242)).rejects.toThrow(/baixa/i);
+    expect(contasPagar.apagarLocalPorTituloIxc).not.toHaveBeenCalled();
   });
 });

@@ -49,6 +49,9 @@ interface PagamentoDoTeste {
   diaristaId?: string;
   beneficiarioId?: string;
   contaPagar: { status: StatusContaPagar } | null;
+  /** A prova de que o em mãos sem conta a pagar saiu mesmo da gaveta. */
+  idLancamentoIxc?: number | null;
+  lancadoManual?: boolean;
 }
 
 function montarServico(dados: {
@@ -512,6 +515,9 @@ describe('gasto com vendas', () => {
           forma: FormaPagamento.EM_MAOS,
           beneficiarioId: 'b1',
           contaPagar: null,
+          // Em maos antigo: a saida foi direto para a movimentacao
+          // financeira, e o numero do lancamento e a prova disso.
+          idLancamentoIxc: 8801,
         },
       ],
     });
@@ -676,5 +682,125 @@ describe('custo com pessoal', () => {
 
     const r = await service.resumo(COMP, 1);
     expect(r.custoPessoal[0]).toMatchObject({ encargos: 0, total: 1000 });
+  });
+});
+
+/**
+ * A venda só conta depois que o pagamento sai.
+ *
+ * Antes bastava o pagamento não estar travado, e "a caminho" — a conta a pagar
+ * criada, esperando aprovação ou baixa no IXC — já entrava no gráfico. Um
+ * acerto lançado para conferir aparecia como venda fechada no mesmo instante, e
+ * ficava lá enquanto ninguém aprovasse nem cancelasse.
+ *
+ * A comissão é o pagamento de uma venda: enquanto o dinheiro não saiu, o que
+ * existe é intenção de pagar. O que está a caminho vai para `aCaminho`, e não
+ * some da resposta — venda que a empresa já deve não pode sumir da tela.
+ */
+describe('venda a caminho não conta como venda do mês', () => {
+  const avulso = (status: StatusContaPagar | null) => ({
+    data: new Date('2026-07-20T00:00:00.000Z'),
+    valor: 200,
+    comissaoVendas: 200,
+    vendas: 4,
+    forma: FormaPagamento.IXC,
+    beneficiarioId: 'b1',
+    contaPagar: status ? { status } : null,
+  });
+
+  it('esperando aprovação: fica fora da série e aparece em "a caminho"', async () => {
+    const { service } = montarServico({
+      avulsos: [avulso(StatusContaPagar.AGUARDANDO_APROVACAO)],
+    });
+
+    const r = await service.resumo(COMP, 1);
+
+    expect(r.vendas.serie[0]).toMatchObject({ foraDaFolha: 0, vendas: 0 });
+    expect(r.vendas.aCaminho).toEqual({ comissao: 200, vendas: 4 });
+  });
+
+  it('aprovado mas ainda não pago também não conta', async () => {
+    const { service } = montarServico({
+      avulsos: [avulso(StatusContaPagar.APROVADO)],
+    });
+
+    const r = await service.resumo(COMP, 1);
+
+    expect(r.vendas.serie[0].vendas).toBe(0);
+    expect(r.vendas.aCaminho.vendas).toBe(4);
+  });
+
+  it('pago conta, e não aparece como a caminho', async () => {
+    const { service } = montarServico({
+      avulsos: [avulso(StatusContaPagar.PAGO)],
+    });
+
+    const r = await service.resumo(COMP, 1);
+
+    expect(r.vendas.serie[0]).toMatchObject({ foraDaFolha: 200, vendas: 4 });
+    expect(r.vendas.aCaminho).toEqual({ comissao: 0, vendas: 0 });
+  });
+
+  it('cancelado não conta em lugar nenhum — nem como a caminho', async () => {
+    const { service } = montarServico({
+      avulsos: [avulso(StatusContaPagar.CANCELADO)],
+    });
+
+    const r = await service.resumo(COMP, 1);
+
+    expect(r.vendas.serie[0].vendas).toBe(0);
+    expect(r.vendas.aCaminho).toEqual({ comissao: 0, vendas: 0 });
+  });
+
+  /*
+   * O em mãos antigo saiu mesmo: a saída ia direto para a movimentação
+   * financeira, e ele carrega a prova — o número do lançamento no caixa. Esse
+   * continua contando.
+   */
+  it('o em mãos antigo, com lançamento no caixa, continua contando', async () => {
+    const { service } = montarServico({
+      avulsos: [
+        {
+          ...avulso(null),
+          forma: FormaPagamento.EM_MAOS,
+          idLancamentoIxc: 8801,
+        },
+      ],
+    });
+
+    const r = await service.resumo(COMP, 1);
+
+    expect(r.vendas.serie[0].vendas).toBe(4);
+  });
+
+  /*
+   * O caso do acerto de teste: lançado, apagado pela metade, nunca finalizado.
+   *
+   * Um avulso em mãos sem conta a pagar e sem lançamento no caixa é pagamento
+   * que não chegou a existir do outro lado. Contá-lo como saído foi o que fez
+   * duas vendas de teste continuarem somando no gráfico sem aparecer em lugar
+   * nenhum como pendente.
+   */
+  it('o em mãos sem conta e sem lançamento não conta: dinheiro nenhum saiu', async () => {
+    const { service } = montarServico({
+      avulsos: [{ ...avulso(null), forma: FormaPagamento.EM_MAOS }],
+    });
+
+    const r = await service.resumo(COMP, 1);
+
+    expect(r.vendas.serie[0].vendas).toBe(0);
+    expect(r.vendas.serie[0].foraDaFolha).toBe(0);
+  });
+
+  it('marcado como lançado à mão também conta', async () => {
+    const { service } = montarServico({
+      avulsos: [
+        { ...avulso(null), forma: FormaPagamento.EM_MAOS, lancadoManual: true },
+      ],
+    });
+
+    const r = await service.resumo(COMP, 1);
+
+    expect(r.vendas.serie[0].vendas).toBe(4);
   });
 });

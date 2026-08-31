@@ -20,6 +20,7 @@ import { Dashboard as ContasPagarDashboard } from './pages/contas-pagar/Dashboar
 import { FechamentoCaixa } from './pages/contas-pagar/FechamentoCaixa';
 import { Transferencias } from './pages/contas-pagar/Transferencias';
 import { HistoricoDePagamentos } from './pages/contas-pagar/HistoricoDePagamentos';
+import { ContasContrato } from './pages/contas-pagar/ContasContrato';
 import { Recorrentes } from './pages/contas-pagar/Recorrentes';
 import { Avulsos } from './pages/folha/Avulsos';
 import { Configuracoes } from './pages/folha/Configuracoes';
@@ -34,7 +35,8 @@ import { Impostos } from './pages/folha/Impostos';
 import { MinhaConta } from './pages/folha/MinhaConta';
 import { Usuarios } from './pages/folha/Usuarios';
 import { Vales } from './pages/folha/Vales';
-import { PastaRhAberta } from './pages/rh/Pasta';
+import { PastaDaEmpresa, PastaRhAberta } from './pages/rh/Pasta';
+import { Licitacoes } from './pages/rh/Licitacoes';
 import { PastasRh } from './pages/rh/Pastas';
 import { RecibosDaFolha } from './pages/rh/RecibosDaFolha';
 import type { ReactNode } from 'react';
@@ -151,8 +153,11 @@ export default function App() {
             Aqui ela abre pelo cadastro de fornecedores do IXC: neste módulo se
             paga qualquer um deles, e não só quem esta casa já cadastrou. Na
             folha continua sendo a lista de cá. */}
-        <Route path="avulsos" element={<Avulsos doIxc />} />
+        <Route path="avulsos" element={<Avulsos modulo="contas-pagar" />} />
         <Route path="recorrentes" element={<Recorrentes />} />
+        {/* A conta de luz de cada endereço: o cadastro das contas contrato e
+            o botão que faz a fatura do mês virar conta a pagar. */}
+        <Route path="contas-contrato" element={<ContasContrato />} />
         <Route path="categorias" element={<ContasPagarCategorias />} />
         <Route path="fechamento-caixa" element={<FechamentoCaixa />} />
         {/* A mesma tela de sempre, com o caminho deste módulo. Ela morava só
@@ -178,9 +183,11 @@ export default function App() {
       >
         <Route index element={<Navigate to="pastas" replace />} />
         <Route path="pastas" element={<PastasRh />} />
+        <Route path="empresa" element={<PastaDaEmpresa />} />
         <Route path="pastas/:id" element={<PastaRhAberta />} />
         <Route path="recibos" element={<RecibosDaFolha />} />
         <Route path="minha-conta" element={<MinhaConta />} />
+        <Route path="licitacoes" element={<Licitacoes />} />
       </Route>
 
       {/* Segurança do Trabalho — a visão de quem supervisiona: as APRs da

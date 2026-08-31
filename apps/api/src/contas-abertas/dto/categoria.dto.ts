@@ -15,11 +15,20 @@ import {
 
 export class CriarCategoriaDto {
   @IsString() @MinLength(2) @MaxLength(60) nome!: string;
+  /** Dentro de que categoria ela nasce. Vazio = categoria de primeiro nível. */
+  @IsOptional() @IsUUID() paiId?: string | null;
 }
 
+/**
+ * O que muda numa categoria.
+ *
+ * `paiId` ausente é "não mexeu na mãe" e `paiId: null` é "tirou do grupo" —
+ * são coisas diferentes, e por isso ele aceita nulo em vez de só o id.
+ */
 export class AtualizarCategoriaDto {
   @IsOptional() @IsString() @MinLength(2) @MaxLength(60) nome?: string;
   @IsOptional() @IsBoolean() ativa?: boolean;
+  @IsOptional() @IsUUID() paiId?: string | null;
 }
 
 /** A que categoria um débito se refere. Vazio tira a etiqueta. */

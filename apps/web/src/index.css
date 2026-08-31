@@ -388,6 +388,24 @@
     background-color: rgb(var(--faixa));
   }
   /*
+   * A linha que abre um grupo — a categoria-mãe, com as subcategorias dela
+   * embaixo.
+   *
+   * A cor é a da marca, e não um cinza a mais: ela já é, em toda a casa, o que
+   * diz "isto encabeça o que vem abaixo". O que mudou foi a força. Na tinta da
+   * faixa de título (7%) a linha se lia num cartão pequeno, mas não numa
+   * tabela de trinta linhas com faixa alternada por baixo: ali ela ficava a um
+   * fio de distância da linha comum, e o grupo voltava a se confundir com as
+   * filhas. Agora é uma faixa cheia, com a barra da marca à esquerda fechando
+   * o bloco por cima do trilho das filhas.
+   */
+  .faixa-do-grupo {
+    @apply bg-brand-500/[0.18] dark:bg-brand-400/[0.22];
+  }
+  .faixa-do-grupo > td:first-child {
+    @apply border-l-[3px] border-brand-500 dark:border-brand-400;
+  }
+  /*
    * A mesma divisória para as listas que não são tabela — as de `divide-y` e
    * as de `border-b … last:border-0`. Elas separam item de item igual, e sem
    * isto a correção valeria só para metade das telas.

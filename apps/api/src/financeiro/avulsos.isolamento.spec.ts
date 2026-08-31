@@ -153,9 +153,10 @@ describe('origem do pagamento avulso', () => {
     expect(itens[0].origem).toBe(OrigemLancamento.FOLHA);
   });
 
-  it('a origem vem do cadastro, não da tela', async () => {
-    // Mesmo que alguém chegue por outro caminho — um link antigo, um script —
-    // quem manda é de quem é o cadastro.
+  it('sem o módulo, a origem vem do cadastro', async () => {
+    // Quem chega por outro caminho — um link antigo, um script — não diz o
+    // módulo, e aí quem manda continua sendo de quem é o cadastro. É o que
+    // impede um caminho velho de despejar na folha o que é do outro lado.
     const { service, prisma } = montarServico({
       beneficiario: { origem: OrigemLancamento.CONTAS_PAGAR },
     });
@@ -204,5 +205,87 @@ describe('listagens de cada lado', () => {
         beneficiarioId: 'b1',
       }),
     );
+  });
+});
+
+/**
+ * Quem paga é a tela, quando ela diz quem é.
+ *
+ * A folha passou a listar os fornecedores do IXC, como o Contas a Pagar já
+ * fazia. Pelo desenho antigo — origem sempre do cadastro — todo pagamento feito
+ * ali nasceria "do Contas a Pagar", e a comissão de venda paga pela folha
+ * sumiria do gráfico de vendas, que só conta pagamento com origem FOLHA.
+ *
+ * Então a tela pode dizer de onde está pagando. O que ela não pode é a ausência
+ * dela mudar alguma coisa: sem módulo, vale o cadastro, como sempre valeu.
+ */
+describe('o módulo que paga decide a origem', () => {
+  it('a folha paga como folha, mesmo quem foi puxado do IXC', async () => {
+    const { service, prisma, contasPagar } = montarServico({
+      beneficiario: {
+        origem: OrigemLancamento.CONTAS_PAGAR,
+        idFornecedorIxc: 196,
+      },
+    });
+
+    await service.pagar(
+      'b1',
+      { vendas: 3, valorPorVenda: 50, descricao: 'comissão de agosto' },
+      undefined,
+      OrigemLancamento.FOLHA,
+    );
+
+    const [{ data }] = prisma.pagamentoAvulso.create.mock.calls[0];
+    expect(data.origem).toBe(OrigemLancamento.FOLHA);
+    // A comissão também: é ela que o gráfico de vendas soma.
+    expect(Number(data.comissaoVendas)).toBe(150);
+
+    const [{ itens }] = contasPagar.criar.mock.calls[0];
+    expect(itens[0].origem).toBe(OrigemLancamento.FOLHA);
+  });
+
+  it('o contas a pagar paga como contas a pagar, mesmo quem é da folha', async () => {
+    const { service, prisma, contasPagar } = montarServico();
+
+    await service.pagar(
+      'b1',
+      { valorServico: 500, descricao: 'pintura' },
+      undefined,
+      OrigemLancamento.CONTAS_PAGAR,
+    );
+
+    const [{ data }] = prisma.pagamentoAvulso.create.mock.calls[0];
+    expect(data.origem).toBe(OrigemLancamento.CONTAS_PAGAR);
+
+    const [{ itens }] = contasPagar.criar.mock.calls[0];
+    expect(itens[0].origem).toBe(OrigemLancamento.CONTAS_PAGAR);
+  });
+
+  it('o cadastro puxado do IXC pela folha nasce da folha', async () => {
+    const { service, criados } = montarServico();
+
+    await service.garantirBeneficiarioDoIxc(196, OrigemLancamento.FOLHA);
+
+    expect(criados[0].origem).toBe(OrigemLancamento.FOLHA);
+  });
+
+  it('o cadastro que já existe não troca de lado ao ser puxado pela outra tela', async () => {
+    const { service, prisma, criados } = montarServico();
+    // Já puxado antes pelo Contas a Pagar: é o que o `findFirst` acha.
+    prisma.beneficiarioAvulso.findFirst.mockResolvedValue({
+      ...BENEFICIARIO,
+      origem: OrigemLancamento.CONTAS_PAGAR,
+      idFornecedorIxc: 196,
+    });
+
+    const b = await service.garantirBeneficiarioDoIxc(
+      196,
+      OrigemLancamento.FOLHA,
+    );
+
+    // Trocar a origem aqui o faria sumir da lista do outro módulo no meio de
+    // um pagamento. Quem decide o relatório é a origem do pagamento.
+    expect(b.origem).toBe(OrigemLancamento.CONTAS_PAGAR);
+    expect(criados).toHaveLength(0);
   });
 });

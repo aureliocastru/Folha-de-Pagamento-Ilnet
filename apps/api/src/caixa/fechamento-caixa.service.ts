@@ -39,6 +39,14 @@ export interface LancamentoConferido extends LancamentoDoCaixa {
   /** Quantas fotos de nota há. As fotos em si vêm sob demanda. */
   qtdNotas: number;
   observacao: string | null;
+  /**
+   * Não entra na conta do que deve estar na gaveta.
+   *
+   * A saída de acerto: criada no IXC só para corrigir um saldo que já estava
+   * errado lá, de um dinheiro que saiu da gaveta antes por outro caminho.
+   */
+  foraDaGaveta: boolean;
+  motivoForaDaGaveta: string | null;
 }
 
 /**
@@ -199,6 +207,10 @@ export class FechamentoCaixaService {
         // Quem quer ver pede as daquele lançamento.
         qtdNotas: c?._count.fotos ?? 0,
         observacao: c?.observacao ?? null,
+        // Fora da conta do saldo, mas na lista e na fila de conferência do
+        // mesmo jeito: é uma saída que aconteceu.
+        foraDaGaveta: c?.foraDaGaveta ?? false,
+        motivoForaDaGaveta: c?.motivoForaDaGaveta ?? null,
       };
     });
 
@@ -218,6 +230,33 @@ export class FechamentoCaixaService {
     const fechamentos = await this.prisma.fechamentoCaixa.findMany({
       where: { caixaId, ate: { gte: inicio }, de: { lte: fim } },
       orderBy: { de: 'desc' },
+    });
+
+    /*
+     * O que ficou para trás esperando conferência.
+     *
+     * A nota do acerto da rua chega quando chega: a pessoa levou dinheiro em
+     * agosto, comprou em agosto e trouxe o papel em setembro. O acerto entra
+     * pelo dia em que aconteceu — que é o certo, porque foi aí que a gaveta
+     * mudou —, e a saída que ele cria no IXC nasce com aquela data. Só que a
+     * tela olha o recorte de agora, e aquele dia já passou: a saída ia para a
+     * fila de conferir e ninguém mais a via. Ficava pendente para sempre, num
+     * lugar onde ninguém pensa em procurar.
+     *
+     * Então ela aparece aqui, seja qual for o recorte, até alguém conferi-la.
+     * Sai do que esta casa guardou — o retrato que o acerto copiou —, e não de
+     * uma varredura do IXC por datas antigas: é essa varredura que já derrubou
+     * esta página, e ela não é necessária para responder "o que ficou".
+     */
+    const atrasados = await this.prisma.conferenciaCaixa.findMany({
+      where: {
+        caixaId,
+        conferido: false,
+        dataLancamento: { not: null, lt: inicio },
+      },
+      orderBy: { dataLancamento: 'asc' },
+      take: 100,
+      include: { _count: { select: { fotos: true } } },
     });
 
     /*
@@ -339,10 +378,31 @@ export class FechamentoCaixaService {
           .reduce((s, l) => s + l.valor, 0),
       );
 
+    /*
+     * Os lançamentos marcados como fora da gaveta.
+     *
+     * São as saídas de acerto: criadas no IXC só para corrigir um saldo que já
+     * estava errado lá, de um dinheiro que saiu da gaveta antes por outro
+     * caminho. Descontá-las de novo tiraria duas vezes o mesmo dinheiro.
+     *
+     * A busca é por caixa, e não pela janela: são poucas linhas — só as que
+     * alguém marcou à mão — e a janela da gaveta muda a cada fechamento.
+     */
+    const foraDaGaveta = new Set(
+      (
+        await this.prisma.conferenciaCaixa.findMany({
+          where: { caixaId, foraDaGaveta: true },
+          select: { idLancamentoIxc: true },
+        })
+      ).map((c) => c.idLancamentoIxc),
+    );
+
     /** A mesma soma, na janela da gaveta — que pode ser maior que o recorte. */
     const somaDaGaveta = (t: 'ENTRADA' | 'SAIDA') =>
       arredondar(
-        daGaveta.filter((l) => l.tipo === t).reduce((s, l) => s + l.valor, 0),
+        daGaveta
+          .filter((l) => l.tipo === t && !foraDaGaveta.has(l.id))
+          .reduce((s, l) => s + l.valor, 0),
       );
 
     return {
@@ -350,6 +410,16 @@ export class FechamentoCaixaService {
       de,
       ate,
       lancamentos: comConferencia,
+      /** Saídas por conferir de dias anteriores ao recorte. Ver `atrasados`. */
+      atrasados: atrasados.map((c) => ({
+        id: c.id,
+        idLancamentoIxc: c.idLancamentoIxc,
+        dataLancamento: c.dataLancamento,
+        valor: c.valor,
+        historico: c.historico,
+        observacao: c.observacao,
+        qtdNotas: c._count.fotos,
+      })),
       naRua: naRua.map(comSaldo),
       resumo: {
         entradas: soma('ENTRADA'),
@@ -602,6 +672,61 @@ export class FechamentoCaixaService {
   }
 
   /**
+   * Tira (ou devolve) um lançamento da conta do que deve estar na gaveta.
+   *
+   * É para a saída de acerto: aquela criada no IXC só para corrigir um saldo
+   * que já estava errado lá, de um dinheiro que saiu da gaveta antes por outro
+   * caminho. Sem isto ela desconta de novo, e a contagem nunca fecha.
+   *
+   * O lançamento continua na lista e na fila de conferência — ele é uma saída
+   * que aconteceu, e alguém ainda precisa dizer que a olhou. O que ele deixa de
+   * fazer é pesar no saldo esperado.
+   *
+   * O motivo é obrigatório ao tirar: valor que some da conta sem explicação
+   * escrita é o começo de uma contagem em que ninguém confia — inclusive quem
+   * a tirou, seis meses depois.
+   */
+  async marcarForaDaGaveta(
+    caixaId: number,
+    idLancamentoIxc: number,
+    dados: {
+      fora: boolean;
+      motivo?: string;
+      dataLancamento?: string;
+      valor?: number;
+      historico?: string;
+    },
+    usuarioId?: string,
+  ) {
+    const motivo = dados.motivo?.trim() || '';
+    if (dados.fora && motivo.length < 3) {
+      throw new BadRequestException(
+        'Diga por que este lançamento fica fora da conta da gaveta.',
+      );
+    }
+
+    const base = {
+      foraDaGaveta: dados.fora,
+      motivoForaDaGaveta: dados.fora ? motivo : null,
+      ...retratoDoLancamento(dados),
+    };
+
+    const salvo = await this.prisma.conferenciaCaixa.upsert({
+      where: { caixaId_idLancamentoIxc: { caixaId, idLancamentoIxc } },
+      create: { caixaId, idLancamentoIxc, ...base },
+      update: base,
+    });
+
+    this.logger.log(
+      `Lançamento ${idLancamentoIxc} do caixa ${caixaId} ` +
+        (dados.fora ? `fora da gaveta: ${motivo}` : 'de volta à gaveta') +
+        (usuarioId ? ` (por ${usuarioId})` : ''),
+    );
+
+    return { ...salvo, qtdNotas: await this.contarNotas(salvo.id) };
+  }
+
+  /**
    * Anexa mais uma foto à nota de um lançamento.
    *
    * Mais uma, e não "a" foto: uma nota nem sempre cabe numa só — cupom
@@ -788,6 +913,8 @@ export class FechamentoCaixaService {
       observacao?: string;
       /** Só para NOTA: a conta a pagar a lançar pelo que foi gasto. */
       despesa?: DespesaDaPrestacao;
+      /** Só para NOTA sem despesa: o dia em que ela já saiu do caixa no IXC. */
+      gastoJaNoIxcEm?: string;
     },
     usuarioId?: string,
     usuarioNome?: string,
@@ -825,6 +952,45 @@ export class FechamentoCaixaService {
     if (dados.despesa && dados.tipo !== 'NOTA') {
       throw new BadRequestException(
         'Só a nota vira conta a pagar: troco e reforço não são despesa.',
+      );
+    }
+
+    if (dados.gastoJaNoIxcEm && dados.tipo !== 'NOTA') {
+      throw new BadRequestException(
+        'Só a nota tem despesa: troco e reforço não saem no caixa do IXC.',
+      );
+    }
+
+    /*
+     * Ou o app lança a despesa, ou ela já está lá — nunca as duas.
+     *
+     * Aceitar as duas juntas seria descontar o gasto duas vezes da gaveta: uma
+     * pela compensação da despesa lançada aqui, outra pela data informada à
+     * mão. E ainda deixaria dois títulos no IXC para a mesma nota.
+     */
+    if (dados.despesa && dados.gastoJaNoIxcEm) {
+      throw new BadRequestException(
+        'Escolha um dos dois: ou o app lança a conta a pagar, ou ela já está ' +
+          'no IXC. As duas juntas descontariam o mesmo gasto duas vezes.',
+      );
+    }
+
+    /*
+     * A data da saída lá não pode ser anterior à entrega.
+     *
+     * Ela existe para compensar o dinheiro que saiu da gaveta nesta conta, e
+     * compensação em período anterior à saída joga o acerto num fechamento que
+     * já foi assinado sem ele.
+     */
+    const gastoJaNoIxc = dados.gastoJaNoIxcEm
+      ? dataDoDia(dados.gastoJaNoIxcEm, 'da saída no IXC')
+      : null;
+    // Pelo dia, e não pelo instante: a entrega guarda a hora em que foi
+    // anotada, e uma saída no IXC do mesmo dia às 00:00 pareceria anterior.
+    if (gastoJaNoIxc && diaISO(gastoJaNoIxc) < diaISO(conta.entregueEm)) {
+      throw new BadRequestException(
+        'A saída no IXC é de antes de o dinheiro ter sido entregue. Confira a ' +
+          'data: ela é a do dia em que a despesa saiu do caixa lá.',
       );
     }
 
@@ -871,6 +1037,15 @@ export class FechamentoCaixaService {
               gastoPagoEm: lancada.pagoEm,
             }
           : {}),
+        /*
+         * A despesa lançada por fora entra só com a data.
+         *
+         * `idFnApagarIxc` fica vazio de propósito, mesmo que se saiba o número
+         * do título: é ele que faz o "desfazer" apagar o título no IXC, e
+         * apagar um título que este app não criou seria mexer no lançamento
+         * que alguém fez à mão do outro lado.
+         */
+        ...(gastoJaNoIxc ? { gastoPagoEm: gastoJaNoIxc } : {}),
       },
     });
 
@@ -1433,6 +1608,97 @@ export class FechamentoCaixaService {
       orderBy: { de: 'desc' },
       take: 50,
     });
+  }
+
+  /**
+   * O histórico de um período fechado, completo.
+   *
+   * O `historicoConferido` procura por data, e por isso não achava o que não
+   * tem data: as conferências do primeiro caixa batido guardaram só o número do
+   * lançamento no IXC — o retrato (data, valor, histórico) passou a ser copiado
+   * depois delas. Eram 133 de 149 neste caixa, e o período abria dizendo "133
+   * saídas conferidas" e listando seis.
+   *
+   * Então, antes de listar, este caminho completa o que falta lendo o IXC uma
+   * vez na janela do próprio período. É a única leitura do IXC em todo o
+   * histórico, e ela existe porque um retrato que falta não se inventa daqui —
+   * e porque, uma vez copiado, ele fica: a segunda abertura do mesmo período já
+   * não lê nada.
+   */
+  async historicoDoFechamento(fechamentoId: string) {
+    const f = await this.prisma.fechamentoCaixa.findUnique({
+      where: { id: fechamentoId },
+    });
+    if (!f) throw new BadRequestException('Este fechamento não existe mais.');
+
+    const completados = await this.completarRetratos(f.caixaId, f.de, f.ate);
+    const itens = await this.historicoConferido(f.caixaId, {
+      de: diaISO(f.de),
+      ate: diaISO(f.ate),
+      limite: 1000,
+    });
+    return { itens, completados };
+  }
+
+  /**
+   * Copia do IXC o retrato das conferências que não guardaram nenhum.
+   *
+   * Só as que ficaram sem data — as outras já respondem por si. A leitura é uma
+   * só, da janela pedida, e o que casa por número de lançamento é preenchido; o
+   * que não casa ficou fora da janela e espera a janela dele.
+   *
+   * Falhar aqui não pode derrubar a tela: sem o IXC o período abre como abria
+   * antes, incompleto, que é melhor do que não abrir.
+   */
+  private async completarRetratos(
+    caixaId: number,
+    inicio: Date,
+    fim: Date,
+  ): Promise<number> {
+    const semRetrato = await this.prisma.conferenciaCaixa.findMany({
+      where: { caixaId, dataLancamento: null },
+      select: { id: true, idLancamentoIxc: true },
+    });
+    if (semRetrato.length === 0) return 0;
+
+    try {
+      const cfg = await this.config.obter();
+      const { lancamentos } = await this.caixa.listarLancamentos(
+        caixaId,
+        inicio,
+        fim,
+        cfg,
+      );
+      const porId = new Map(lancamentos.map((l) => [l.id, l]));
+
+      let completados = 0;
+      for (const c of semRetrato) {
+        const l = porId.get(c.idLancamentoIxc);
+        if (!l) continue;
+        await this.prisma.conferenciaCaixa.update({
+          where: { id: c.id },
+          data: {
+            dataLancamento: l.data,
+            valor: new Prisma.Decimal(arredondar(l.valor)),
+            historico: l.historico,
+          },
+        });
+        completados += 1;
+      }
+      if (completados > 0) {
+        this.logger.log(
+          `Caixa #${caixaId}: ${completados} conferência(s) recuperaram do IXC ` +
+            'a data, o valor e o histórico que não tinham guardado.',
+        );
+      }
+      return completados;
+    } catch (err) {
+      this.logger.warn(
+        `Caixa #${caixaId}: não deu para completar o retrato das conferências ` +
+          `antigas (${err instanceof Error ? err.message : String(err)}).`,
+      );
+      return 0;
+    }
   }
 }
 

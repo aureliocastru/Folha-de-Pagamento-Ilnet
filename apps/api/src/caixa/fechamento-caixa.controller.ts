@@ -6,6 +6,7 @@ import {
   HttpCode,
   Param,
   ParseIntPipe,
+  Patch,
   Post,
   Put,
   Query,
@@ -20,6 +21,7 @@ import {
   ContagemDaGavetaDto,
   EntregarDinheiroDto,
   FecharCaixaDto,
+  ForaDaGavetaDto,
   MovimentoDaRuaDto,
   NotaDto,
   PeriodoDoCaixaDto,
@@ -82,6 +84,27 @@ export class FechamentoCaixaController {
     @Req() req: Request,
   ) {
     return this.service.conferir(caixaId, idLancamento, dto, usuarioId(req));
+  }
+
+  /**
+   * Tira este lançamento da conta do saldo esperado — ou o devolve a ela.
+   *
+   * O lançamento continua na lista e na fila de conferência: ele é uma saída
+   * que aconteceu. O que ele deixa de fazer é pesar na gaveta.
+   */
+  @Patch(':caixaId/lancamentos/:idLancamento/fora-da-gaveta')
+  foraDaGaveta(
+    @Param('caixaId', ParseIntPipe) caixaId: number,
+    @Param('idLancamento', ParseIntPipe) idLancamento: number,
+    @Body() dto: ForaDaGavetaDto,
+    @Req() req: Request,
+  ) {
+    return this.service.marcarForaDaGaveta(
+      caixaId,
+      idLancamento,
+      dto,
+      usuarioId(req),
+    );
   }
 
   /**
@@ -223,6 +246,19 @@ export class FechamentoCaixaController {
   @Get(':caixaId/fechamentos')
   fechamentos(@Param('caixaId', ParseIntPipe) caixaId: number) {
     return this.service.listarFechamentos(caixaId);
+  }
+
+  /**
+   * O que este período fechado tem dentro, completo.
+   *
+   * Rota própria, e não o `historico` com de/ate, porque só ela pode ler o
+   * IXC: as conferências antigas não guardaram data, e sem essa leitura o
+   * período diz "133 saídas conferidas" e lista seis. A procura continua sem
+   * tocar no IXC, que é o que a mantém rápida.
+   */
+  @Get('fechamentos/:id/historico')
+  historicoDoFechamento(@Param('id') id: string) {
+    return this.service.historicoDoFechamento(id);
   }
 
   /**

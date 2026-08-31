@@ -328,6 +328,16 @@ export interface ConfigFinanceira {
   /** Pagamentos avulsos (mão de obra, serviço pontual, patrocínio) */
   contaContabilAvulso: number;
   cidadePadraoId: number;
+  /**
+   * A etiqueta que todo pagamento da folha recebe sozinho. Null desliga a
+   * automação: a folha volta a nascer sem categoria.
+   */
+  categoriaFolhaId: string | null;
+  /** A etiqueta de cada tipo. Null = usa a de cima. */
+  categoriaSalarioId: string | null;
+  categoriaFeriasId: string | null;
+  categoriaAdiantamentoId: string | null;
+  categoriaBonusId: string | null;
   /** Quem paga, como sai impresso no recibo assinado da diária */
   empresaNome: string;
   empresaCnpj: string;
@@ -378,6 +388,11 @@ export interface BeneficiarioAvulso {
   /** Quanto ganha por venda — cliente da empresa também vende e comissiona */
   valorPorVenda: string | null;
   formaPagamento: FormaPagamento;
+  /**
+   * Em que categoria o que se paga a essa pessoa costuma entrar. É ela que já
+   * vem escolhida no pagamento seguinte; null = a tela pergunta.
+   */
+  categoriaId: string | null;
   observacoes: string | null;
   ativo: boolean;
   idFornecedorIxc: number | null;
@@ -449,6 +464,12 @@ export interface PagamentoAvulso {
   lancadoEm: string | null;
   lancadoManual: boolean;
   erroIxc: string | null;
+  /**
+   * Por que a categoria não ficou gravada no título (null = ficou). Vem só na
+   * resposta de quem acabou de pagar — a etiqueta é presa ao número do IXC, e
+   * esse passo pode falhar sozinho, com o dinheiro já a caminho.
+   */
+  avisoCategoria?: string | null;
   beneficiario?: { nome: string };
   contaPagar?: {
     id: string;
@@ -624,6 +645,17 @@ export interface AssinaturaDiaria {
   token: string;
   expiraEm: string;
   assinadoEm: string | null;
+  /**
+   * Desde quando se espera outra assinatura, pedida lá de dentro.
+   *
+   * Com este e `assinadoEm` juntos, a assinatura que vale ainda é a antiga —
+   * ela fica guardada até a nova chegar, porque o recibo dela pode já ser a
+   * nota de um lançamento do caixa. Quem decide se a janela mostra o link ou o
+   * comprovante é este campo, e não o outro.
+   */
+  recoletandoDesde: string | null;
+  /** Quantas vezes a assinatura já foi refeita. */
+  recoletas: number;
   nomeAssinante: string | null;
   assinaturaPng: string | null;
   modo: ModoAssinatura;
@@ -641,6 +673,14 @@ export interface ReciboPublico {
   detalhamento: string | null;
   data: string;
   assinado: boolean;
+  /**
+   * Pediram outra assinatura lá de dentro.
+   *
+   * Durante a recoleta este e o `assinado` são verdade ao mesmo tempo — a
+   * antiga fica guardada até a nova chegar —, e é este que decide se a tela
+   * mostra a prancheta ou o comprovante.
+   */
+  recoletando: boolean;
   assinadoEm: string | null;
   assinaturaPng: string | null;
   modo: ModoAssinatura;
@@ -678,7 +718,7 @@ export interface ContaAberta {
    * A que se refere o débito, na classificação desta casa. É o eixo dos
    * relatórios. Null = ninguém classificou ainda.
    */
-  classificacao: { id: string; nome: string } | null;
+  classificacao: EtiquetaDaConta | null;
   origem: OrigemNaFolha | null;
 }
 
@@ -692,7 +732,12 @@ export interface ResultadoDoPagamento {
   aprovada: boolean;
   /** O IXC passou a considerar a conta quitada. */
   paga: boolean;
+  /** O que o título devia. */
   valor: number;
+  /** Quanto saiu do caixa: o valor menos o desconto. */
+  valorPago: number;
+  /** O desconto obtido por antecipar o pagamento. Zero no caso comum. */
+  desconto: number;
   avisos: string[];
 }
 
@@ -702,6 +747,8 @@ export interface PagamentosDoMes {
   mes: string;
   total: number;
   quantidade: number;
+  /** Quanto se deixou de gastar no mês: a soma dos descontos obtidos */
+  economia: number;
   lidoEm: string;
   /** false = a leitura bateu no teto e o total pode faltar coisa. */
   completo: boolean;
@@ -715,6 +762,23 @@ export interface CategoriaDespesa {
   ordem: number;
   /** Quantas contas já foram etiquetadas com ela */
   emUso: number;
+  /** A categoria de cima, quando esta é uma subcategoria */
+  pai: { id: string; nome: string } | null;
+  /** Tem subcategorias dentro dela — então ela é um grupo, e não uma folha */
+  temFilhas: boolean;
+}
+
+/**
+ * A etiqueta que um débito carrega, com o grupo em que ela mora.
+ *
+ * `grupo` é a categoria de cima ("Veículos") e `nome` é a subcategoria
+ * ("Manutenção de veículos"): o dashboard soma pelo primeiro e destrincha pelo
+ * segundo. Null quando a categoria não está dentro de nenhuma.
+ */
+export interface EtiquetaDaConta {
+  id: string;
+  nome: string;
+  grupo: { id: string; nome: string } | null;
 }
 
 export interface FatiaDoResumo {
@@ -753,6 +817,38 @@ export interface ContasAbertas {
   resumo: ResumoContasAbertas;
   /** Quando a lista foi lida do IXC — ela é de agora, não de um espelho */
   lidoEm: string;
+  avisos: string[];
+}
+
+/**
+ * Onde um título cai na sequência de parcelas de que ele faz parte.
+ *
+ * O IXC não guarda o vínculo entre as parcelas de uma compra — elas são
+ * títulos soltos. Quando a numeração está escrita no título ("29/36" no número
+ * da nota), é ela que vale; sem ela, a sequência é inferida de "mesmo
+ * fornecedor, mesmo valor" — e aí a tela precisa dizer isso a quem lê. Ver
+ * `fonte`.
+ */
+export interface ParcelaDoTitulo {
+  /** 1 = a primeira da sequência */
+  posicao: number;
+  total: number;
+  pagas: number;
+  /** Quantas ainda não foram pagas — inclui esta, quando esta está aberta */
+  faltam: number;
+  valor: number;
+  primeiroVencimento: string | null;
+  ultimoVencimento: string | null;
+  /**
+   * De onde a contagem saiu: `nota` e `observacao` estão escritas no título —
+   * são dado. `deducao` é palpite de mesmo fornecedor + mesmo valor.
+   */
+  fonte: 'nota' | 'observacao' | 'deducao';
+}
+
+export interface ParcelasEncontradas {
+  /** `idFnApagar` → o lugar daquele título. Só os que estão em sequência. */
+  titulos: Record<string, ParcelaDoTitulo>;
   avisos: string[];
 }
 
@@ -884,6 +980,14 @@ export interface Dashboard {
     }[];
     total: number;
     vendas: number;
+    /**
+     * Venda lançada cujo pagamento ainda não saiu — fora da série.
+     *
+     * A comissão é o pagamento de uma venda: enquanto o dinheiro não saiu, o
+     * que existe é intenção de pagar. Fica à parte para não sumir da tela:
+     * venda que a empresa já deve não pode desaparecer.
+     */
+    aCaminho: { comissao: number; vendas: number };
   };
   impostos: ResumoImpostos;
   /**
@@ -1257,7 +1361,7 @@ export interface PagamentoFeito {
    */
   statusEhDePago: boolean;
   categoria: { id: number | null; nome: string | null };
-  classificacao: { id: string; nome: string } | null;
+  classificacao: EtiquetaDaConta | null;
   origem: OrigemNaFolha | null;
   conferencia: ConferenciaDoPagamento;
 }
@@ -1306,6 +1410,16 @@ export interface LancamentoDoCaixa {
   /** Quantas fotos de nota há. As imagens vêm sob demanda, uma a uma. */
   qtdNotas: number;
   observacao: string | null;
+  /**
+   * Não entra na conta do que deve estar na gaveta.
+   *
+   * A saída de acerto: criada no IXC só para corrigir um saldo que já estava
+   * errado lá, de um dinheiro que saiu da gaveta antes por outro caminho.
+   * Continua na lista e na conferência — o que ela deixa de fazer é pesar no
+   * saldo esperado.
+   */
+  foraDaGaveta: boolean;
+  motivoForaDaGaveta: string | null;
 }
 
 /**
@@ -1322,6 +1436,17 @@ export interface ItemDoHistorico {
   historico: string | null;
   observacao: string | null;
   conferidoEm: string | null;
+  qtdNotas: number;
+}
+
+/** Uma saída de dia já passado que ainda espera conferência. */
+export interface SaidaAtrasada {
+  id: string;
+  idLancamentoIxc: number;
+  dataLancamento: string | null;
+  valor: string | null;
+  historico: string | null;
+  observacao: string | null;
   qtdNotas: number;
 }
 
@@ -1418,6 +1543,15 @@ export interface ExtratoDoCaixa {
   de: string;
   ate: string;
   lancamentos: LancamentoDoCaixa[];
+  /**
+   * Saídas por conferir de dias anteriores ao recorte.
+   *
+   * A nota do acerto da rua chega quando chega, e o acerto entra pelo dia em
+   * que aconteceu — que já passou. Sem esta lista, a saída que ele cria ia para
+   * a fila de conferir num dia que a tela não mostra mais, e ficava pendente
+   * para sempre.
+   */
+  atrasados: SaidaAtrasada[];
   naRua: ContaDaRua[];
   resumo: {
     entradas: number;
@@ -1512,8 +1646,13 @@ export interface PastaRh extends ResumoDaPasta {
   subpastas: number;
   /** Funcionário que já saiu da empresa. A pasta continua. */
   inativo: boolean;
-  /** Criada à mão: só ela se renomeia e se apaga. */
+  /** Criada à mão: o RH também a renomeia e a apaga. O ADMIN mexe em todas. */
   avulsa: boolean;
+  /**
+   * O nome foi escrito à mão e o cadastro deixou de mandar nele. Só o ADMIN
+   * marca isso, e só ele desfaz.
+   */
+  nomeManual: boolean;
   /** O mesmo resumo, contando o que está nas subpastas. */
   naArvore: ResumoDaPasta;
 }
@@ -1522,6 +1661,23 @@ export interface EstanteRh {
   pastas: PastaRh[];
   /** Os tipos já usados, para sugerir em vez de perguntar. */
   tipos: string[];
+}
+
+/**
+ * Uma licitação: a pasta em que se monta o que vai ser entregue.
+ *
+ * Os documentos entram nela por cópia, e não por atalho — ela é a fotografia
+ * do que foi mandado naquele dia, e renovar a certidão na pasta da empresa no
+ * mês seguinte não reescreve o que já foi entregue.
+ */
+export interface Licitacao {
+  id: string;
+  nome: string;
+  criadaEm: string;
+  /** Quantos documentos já estão dentro dela. */
+  qtd: number;
+  vencidos: number;
+  aVencer: number;
 }
 
 /** Onde um documento está no prazo dele. */

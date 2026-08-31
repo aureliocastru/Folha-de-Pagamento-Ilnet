@@ -195,21 +195,37 @@ export function CartaoDaPasta({ pasta }: { pasta: PastaRh }) {
   );
 }
 
-/** Nome e CPF: o CPF é o que faz o recibo do mês achar esta pasta sozinho. */
+/**
+ * Nome e CPF: o CPF é o que faz o recibo do mês achar esta pasta sozinho.
+ *
+ * O mesmo formulário cria e renomeia. Renomeando, os campos já chegam
+ * preenchidos — o nome que se corrige é quase sempre o que já está lá, com uma
+ * letra a menos.
+ */
 export function FormularioDaPasta({
+  pasta,
   pendente,
   erro,
   semCpf = false,
   onSalvar,
+  onSeguirCadastro,
 }: {
+  /** Preenchida = renomear esta pasta. Vazia = criar uma nova. */
+  pasta?: PastaRh;
   pendente: boolean;
   erro: string | null;
   /** Subpasta é divisória, e não pessoa: ali o CPF não quer dizer nada. */
   semCpf?: boolean;
   onSalvar: (dados: { nome: string; cpf?: string }) => void;
+  /**
+   * Devolver a pasta ao nome do cadastro. Só existe na pasta que veio de lá e
+   * já foi renomeada à mão — sem isto, renomear seria porta de uma via só.
+   */
+  onSeguirCadastro?: () => void;
 }) {
-  const [nome, setNome] = useState('');
-  const [cpf, setCpf] = useState('');
+  const [nome, setNome] = useState(pasta?.nome ?? '');
+  const [cpf, setCpf] = useState(pasta?.cpf ?? '');
+  const renomeando = !!pasta;
 
   return (
     <form
@@ -223,7 +239,7 @@ export function FormularioDaPasta({
       <div className="grid gap-4 sm:grid-cols-2">
         <div className={semCpf ? 'sm:col-span-2' : ''}>
           <label className="rotulo" htmlFor="nome-da-pasta">
-            {semCpf ? 'Nome da pasta' : 'De quem é a pasta'}
+            {semCpf || renomeando ? 'Nome da pasta' : 'De quem é a pasta'}
           </label>
           <input
             id="nome-da-pasta"
@@ -233,6 +249,27 @@ export function FormularioDaPasta({
             className="campo"
             autoFocus
           />
+          {/* O aviso é do administrador que está prestes a desligar esta pasta
+              do cadastro — quem faz isso precisa saber que fez. */}
+          {renomeando && !pasta.avulsa && !pasta.nomeManual && (
+            <p className="ajuda">
+              Esta pasta segue o nome do cadastro. Escrevendo um nome aqui, ela
+              para de segui-lo — e passa a ser este que aparece na estante.
+            </p>
+          )}
+          {renomeando && pasta.nomeManual && onSeguirCadastro && (
+            <p className="ajuda">
+              O nome desta pasta foi escrito à mão.{' '}
+              <button
+                type="button"
+                onClick={onSeguirCadastro}
+                className="font-semibold text-brand-700 underline underline-offset-2 dark:text-brand-300"
+              >
+                Voltar ao nome do cadastro
+              </button>
+              .
+            </p>
+          )}
         </div>
         <div className={semCpf ? 'hidden' : ''}>
           <label className="rotulo" htmlFor="cpf-da-pasta">
@@ -265,7 +302,13 @@ export function FormularioDaPasta({
           disabled={nome.trim().length < 2 || pendente}
           className="btn btn-primario"
         >
-          {pendente ? 'Criando…' : 'Criar pasta'}
+          {pendente
+            ? renomeando
+              ? 'Salvando…'
+              : 'Criando…'
+            : renomeando
+              ? 'Salvar nome'
+              : 'Criar pasta'}
         </button>
       </div>
     </form>

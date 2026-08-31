@@ -46,6 +46,11 @@ function montarServico(
     fornecedorReaproveitado?: boolean;
     /** Por que a chave PIX não foi para a aba "Dados bancários". */
     motivoEspelhoPix?: string;
+    /** O IXC não devolveu número para a conta criada. */
+    contaSemNumeroIxc?: boolean;
+    /** O que a baixa da conta em mãos devolve — ou o erro que ela levanta. */
+    erroDaBaixa?: string;
+    baixaNaoPagou?: boolean;
   } = {},
 ) {
   const diarias = new Map<string, Record<string, unknown>>();
@@ -89,6 +94,11 @@ function montarServico(
       findUnique: jest.fn(async ({ where }: { where: { id: string } }) =>
         diarias.get(where.id) ?? null,
       ),
+      findUniqueOrThrow: jest.fn(async ({ where }: { where: { id: string } }) => {
+        const d = diarias.get(where.id);
+        if (!d) throw new Error(`diária ${where.id} não existe`);
+        return d;
+      }),
       count: jest.fn().mockResolvedValue(0),
       delete: jest.fn().mockResolvedValue({}),
       deleteMany: jest.fn(async ({ where }: { where: { id: string } }) => {
@@ -101,9 +111,32 @@ function montarServico(
   const config = { obter: jest.fn().mockResolvedValue(CFG) } as any;
 
   const contasPagar = {
-    criar: jest.fn().mockResolvedValue([{ id: 'conta-1' }]),
+    criar: jest.fn().mockResolvedValue([
+      {
+        id: 'conta-1',
+        // O número que o IXC devolve ao criar o título. Sem ele não há o que
+        // baixar, que é um dos caminhos que este arquivo cobre.
+        idFnApagarIxc: opts.contaSemNumeroIxc ? null : 9001,
+        contaPagamento: CFG.contaPagamentoCaixaId,
+      },
+    ]),
     remover: jest.fn().mockResolvedValue(undefined),
+    sincronizarStatus: jest.fn().mockResolvedValue(undefined),
   } as any;
+
+  const pagar = jest.fn(async () => {
+    if (opts.erroDaBaixa) throw new Error(opts.erroDaBaixa);
+    return {
+      idFnApagar: 9001,
+      aprovada: true,
+      paga: !opts.baixaNaoPagou,
+      valor: 120,
+      contaPagamento: CFG.contaPagamentoCaixaId,
+      aguardandoBanco: false,
+      avisos: [],
+    };
+  });
+  const pagamentos = { pagar } as any;
 
   const lancarSaida = jest.fn(async () => {
     if (opts.erroLancamento) throw new Error(opts.erroLancamento);
@@ -161,10 +194,12 @@ function montarServico(
       prisma,
       config,
       contasPagar,
+      pagamentos,
       caixa,
       fornecedores as never,
     ),
     contasPagar,
+    pagar,
     lancarSaida,
     prisma,
     diariaAntigaEmMaos,
@@ -172,6 +207,85 @@ function montarServico(
     espelharPixNoIxc,
   };
 }
+
+/**
+ * Em mãos, a conta nasce e morre no mesmo gesto.
+ *
+ * O dinheiro saiu da gaveta antes de o título existir e o diarista foi embora
+ * com ele: não há banco a esperar, nem decisão a tomar. Uma conta em aberto no
+ * IXC depois disso não guarda decisão nenhuma — guarda uma tarefa que alguém
+ * vai ter de lembrar de fazer, no meio das contas que ainda esperam dinheiro
+ * de verdade.
+ */
+describe('diária paga em mãos quita no ato', () => {
+  it('aprova e dá baixa na conta, no dia da diária', async () => {
+    const { service, pagar, contasPagar } = montarServico();
+
+    await service.pagar(
+      'd1',
+      {
+        data: '2026-08-14',
+        quantidade: 1,
+        descricao: 'Roçada',
+        forma: FormaPagamento.EM_MAOS,
+      },
+      'user-1',
+    );
+
+    expect(pagar).toHaveBeenCalledWith(9001, {
+      contaPagamento: CFG.contaPagamentoCaixaId,
+      // O dia da diária, e não o de hoje: é quando a gaveta abriu.
+      data: '2026-08-14',
+      // Não há banco a esperar quando o pagamento aconteceu antes do título.
+      jaSaiu: true,
+    });
+    // O status daqui vem de lá, relido depois da baixa.
+    expect(contasPagar.sincronizarStatus).toHaveBeenCalledWith('conta-1');
+  });
+
+  it('paga pelo banco não é baixada aqui: o banco ainda tem de pagar', async () => {
+    const { service, pagar, contasPagar } = montarServico();
+
+    await service.pagar(
+      'd1',
+      { quantidade: 1, descricao: 'Roçada', forma: FormaPagamento.IXC },
+      'user-1',
+    );
+
+    expect(pagar).not.toHaveBeenCalled();
+    expect(contasPagar.sincronizarStatus).not.toHaveBeenCalled();
+  });
+
+  /*
+   * O dinheiro já saiu. Negar o registro seria negar o fato — então a diária
+   * fica gravada de todo jeito, e a conta fica em aberto no IXC, que é onde a
+   * tela mostra "aguardando" e onde dá para terminar à mão.
+   */
+  it('baixa que falha não derruba a diária', async () => {
+    const { service } = montarServico({ erroDaBaixa: 'IXC fora do ar' });
+
+    const diaria = await service.pagar(
+      'd1',
+      { quantidade: 1, descricao: 'Roçada', forma: FormaPagamento.EM_MAOS },
+      'user-1',
+    );
+
+    expect(diaria).toMatchObject({ contaPagarId: 'conta-1' });
+  });
+
+  it('conta sem número do IXC não tenta baixa nenhuma', async () => {
+    const { service, pagar } = montarServico({ contaSemNumeroIxc: true });
+
+    const diaria = await service.pagar(
+      'd1',
+      { quantidade: 1, descricao: 'Roçada', forma: FormaPagamento.EM_MAOS },
+      'user-1',
+    );
+
+    expect(pagar).not.toHaveBeenCalled();
+    expect(diaria).toMatchObject({ contaPagarId: 'conta-1' });
+  });
+});
 
 describe('pagar pelo IXC', () => {
   it('vira conta a pagar de diária, com a observação montada', async () => {

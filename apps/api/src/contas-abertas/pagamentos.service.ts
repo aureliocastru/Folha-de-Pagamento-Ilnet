@@ -5,6 +5,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigFinanceiraService } from '../financeiro/config-financeira.service';
+import { ContasPagarService } from '../financeiro/contas-pagar.service';
 import { IxcClient } from '../ixc/ixc.client';
 import {
   buildAuditoriaPayload,
@@ -16,6 +17,7 @@ import {
 } from '../ixc/ixc.financeiro';
 import { parseIxcId } from '../ixc/ixc.parse';
 import { PrismaService } from '../prisma/prisma.service';
+import { campoDeBaixa, statusDizPago } from './contas-abertas.mapper';
 
 /** Por onde o dinheiro sai. */
 export type FormaDePagar = 'BANCO' | 'EM_MAOS';
@@ -40,7 +42,15 @@ export interface ResultadoDoPagamento {
   aprovada: boolean;
   /** Deu baixa: o IXC passa a considerar a conta quitada. */
   paga: boolean;
+  /** O que o título devia. */
   valor: number;
+  /** Quanto de fato saiu do caixa: `valor` menos o desconto. */
+  valorPago: number;
+  /**
+   * O desconto obtido nesta baixa — quanto a empresa deixou de gastar por
+   * pagar adiantado. Zero no caso comum.
+   */
+  desconto: number;
   /** Conta de onde o dinheiro saiu (ou vai sair, no caso do ModoBank). */
   contaPagamento: number;
   /**
@@ -100,6 +110,8 @@ export class PagamentosService {
     private readonly ixc: IxcClient,
     private readonly config: ConfigFinanceiraService,
     private readonly prisma: PrismaService,
+    // Quem sabe o que cai junto quando uma conta a pagar some daqui.
+    private readonly contasPagar: ContasPagarService,
   ) {}
 
   async pagar(
@@ -128,6 +140,15 @@ export class PagamentosService {
        * existe mais — e a baixa aqui é a mesma que se daria à mão no IXC.
        */
       jaSaiu?: boolean;
+      /**
+       * Desconto por pagar adiantado, em reais.
+       *
+       * O título continua devendo o que devia — o que muda é quanto sai do
+       * caixa. Vai ao IXC como desconto da baixa, e é ele que faz a
+       * movimentação financeira sair pelo valor líquido, que é o que a
+       * conciliação vai achar no extrato.
+       */
+      desconto?: number;
       /** @deprecated A conta escolhida é quem manda; fica por compatibilidade. */
       forma?: FormaDePagar;
     },
@@ -168,6 +189,21 @@ export class PagamentosService {
       );
     }
 
+    /*
+     * O desconto é conferido contra o saldo lido agora, e não contra o valor
+     * que a tela mostrava: entre abrir a janela e confirmar, alguém pode ter
+     * editado o título no IXC. Desconto que come o título inteiro não é
+     * pagamento — é baixa por zero, e quem quer isso quer cancelar a conta.
+     */
+    const desconto = Math.round(Math.max(0, opcoes.desconto ?? 0) * 100) / 100;
+    if (desconto >= valor) {
+      throw new BadRequestException(
+        `O desconto (${moeda(desconto)}) não pode alcançar o valor do título ` +
+          `${idFnApagar} (${moeda(valor)}) — não sobraria pagamento nenhum.`,
+      );
+    }
+    const valorPago = Math.round((valor - desconto) * 100) / 100;
+
     // --- 1. Auditoria ---
     // Reprovado é decisão de alguém: destravar isso daqui por baixo seria
     // passar por cima de quem reprovou.
@@ -200,7 +236,6 @@ export class PagamentosService {
       opcoes.contaPagamento ??
       parseIxcId(raw.id_contas) ??
       cfg.contaPagamentoId;
-    const contaContabilId = parseIxcId(raw.id_conta) ?? cfg.contaContabilAvulso;
     const filialId = parseIxcId(raw.filial_id) ?? cfg.filialId;
 
     /*
@@ -214,11 +249,26 @@ export class PagamentosService {
      * depois de já ter sido paga, então não há pagamento futuro para esperar.
      */
     if (contaPagamentoId === cfg.contaPagamentoId && !opcoes.jaSaiu) {
+      /*
+       * Aqui nenhum desconto é aplicado, e o aviso diz isso: quem paga é o
+       * banco, pela tela dele, e é lá que o abatimento teria de ser informado.
+       * Guardá-lo em silêncio faria a economia aparecer neste app sem que um
+       * centavo a menos tivesse saído.
+       */
+      if (desconto > 0) {
+        avisos.push(
+          `O desconto de ${moeda(desconto)} não foi aplicado: por esta conta o ` +
+            'pagamento sai pela tela do banco no IXC, e é lá que ele precisa ' +
+            'ser informado.',
+        );
+      }
       return {
         idFnApagar,
         aprovada,
         paga: false,
         valor,
+        valorPago: valor,
+        desconto: 0,
         contaPagamento: contaPagamentoId,
         aguardandoBanco: true,
         avisos,
@@ -246,16 +296,27 @@ export class PagamentosService {
     ]);
 
     /*
-     * Sem o razão da conta de pagamento a baixa não lança no banco, e o
-     * pagamento não chega à conciliação. Cair na conta contábil do título é o
-     * comportamento antigo — errado, mas melhor do que recusar o pagamento por
-     * causa de uma consulta que não respondeu.
+     * Sem o razão da conta de pagamento, a baixa não sai daqui.
+     *
+     * O `id_conta` da baixa é a conta do razão do banco, e é nela que o IXC
+     * escreve a perna do dinheiro saindo — a que a conciliação lê. Sem ela,
+     * antes, ia a conta contábil do título: o IXC escrevia as duas pernas na
+     * conta da despesa, o título constava pago e a conciliação não tinha o que
+     * listar. Oito pagamentos de agosto ficaram assim, e cada um só se conserta
+     * estornando e refazendo à mão.
+     *
+     * Por isso agora recusa, e recusa **antes** de mandar a baixa: aqui nada
+     * saiu ainda, o título continua aprovado, e quem clicou repete o pagamento.
+     * O barato de deixar passar é caro depois — pagamento que não concilia só
+     * aparece no fechamento do mês, quando ninguém lembra de qual foi.
      */
     if (conta.planejamento === null) {
-      avisos.push(
-        `Não consegui ler a conta do razão da conta de pagamento ` +
-          `${contaPagamentoId} no IXC. A baixa foi feita, mas o lançamento pode ` +
-          'não aparecer na conciliação bancária — confira por lá.',
+      throw new ServiceUnavailableException(
+        `Não deu para ler no IXC a conta do razão da conta de pagamento ` +
+          `${contaPagamentoId}${conta.nome ? ` (${conta.nome})` : ''}. Sem ela ` +
+          'a baixa não entraria na conciliação bancária, então nada foi pago. ' +
+          'Tente de novo; se insistir, confira a "Conta contábil analítica" no ' +
+          'cadastro dessa conta no IXC.',
       );
     }
 
@@ -263,10 +324,11 @@ export class PagamentosService {
       idFnApagar,
       contaPagamentoId,
       contaPagamentoNome: conta.nome,
-      contaPlanejamentoId: conta.planejamento ?? contaContabilId,
+      contaPlanejamentoId: conta.planejamento,
       filialId,
       filialNome,
       valor,
+      desconto,
       data: opcoes.data ? dataUtc(opcoes.data) : new Date(),
       documento,
       tipoPagamento: codigoTipoPagamentoBaixa(
@@ -357,7 +419,10 @@ export class PagamentosService {
 
     if (paga) {
       this.logger.log(
-        `Título ${idFnApagar} baixado no IXC: ${valor} pela conta ${contaPagamentoId}.`,
+        `Título ${idFnApagar} baixado no IXC: ${valorPago} pela conta ` +
+          `${contaPagamentoId}` +
+          (desconto > 0 ? ` (${valor} com ${desconto} de desconto)` : '') +
+          '.',
       );
     }
 
@@ -366,6 +431,8 @@ export class PagamentosService {
       aprovada,
       paga,
       valor,
+      valorPago,
+      desconto,
       contaPagamento: contaPagamentoId,
       aguardandoBanco: false,
       avisos,
@@ -386,18 +453,42 @@ export class PagamentosService {
       contaPagamento?: number;
       data?: string;
       jaSaiu?: boolean;
+      /**
+       * Desconto por pagar adiantado. Vale para o lote de **uma** conta só —
+       * ver a recusa logo abaixo.
+       */
+      desconto?: number;
       forma?: FormaDePagar;
     },
     usuarioNome?: string,
   ): Promise<{
     pagas: ResultadoDoPagamento[];
     falhas: Array<{ idFnApagar: number; erro: string }>;
+    /** Quanto saiu do caixa ao todo — já com os descontos abatidos. */
     total: number;
+    /** Quanto se deixou de gastar: a soma dos descontos obtidos. */
+    economia: number;
   }> {
     const pagas: ResultadoDoPagamento[] = [];
     const falhas: Array<{ idFnApagar: number; erro: string }> = [];
+    const unicos = [...new Set(ids)];
 
-    for (const id of [...new Set(ids)]) {
+    /*
+     * Um desconto para várias contas não tem resposta certa: rateá-lo pelos
+     * valores inventaria um abatimento em cada título que ninguém combinou, e
+     * aplicá-lo inteiro em todos multiplicaria a economia por quantas contas o
+     * lote tiver. Quem negociou desconto negociou por uma conta — então essa
+     * conta é paga sozinha.
+     */
+    if ((opcoes.desconto ?? 0) > 0 && unicos.length > 1) {
+      throw new BadRequestException(
+        'Desconto vale para uma conta de cada vez: não há como dividir um ' +
+          `abatimento entre as ${unicos.length} deste lote. Pague com desconto ` +
+          'a conta que o teve, e as outras à parte.',
+      );
+    }
+
+    for (const id of unicos) {
       try {
         pagas.push(await this.pagar(id, opcoes, usuarioNome));
       } catch (err) {
@@ -410,7 +501,12 @@ export class PagamentosService {
     return {
       pagas,
       falhas,
-      total: Math.round(pagas.reduce((s, p) => s + p.valor, 0) * 100) / 100,
+      // O que saiu do caixa, e não o que os títulos valiam: com desconto os
+      // dois números são diferentes, e o que a tela precisa mostrar depois de
+      // pagar é o primeiro.
+      total: Math.round(pagas.reduce((s, p) => s + p.valorPago, 0) * 100) / 100,
+      economia:
+        Math.round(pagas.reduce((s, p) => s + p.desconto, 0) * 100) / 100,
     };
   }
 
@@ -635,10 +731,24 @@ export class PagamentosService {
   /**
    * Apaga um título do IXC.
    *
-   * Só o que ainda não foi pago: apagar uma conta paga sumiria com o registro
-   * de uma saída de dinheiro que existiu. Se ela nasceu aqui, o registro deste
+   * Só o que nunca teve baixa: apagar um título baixado sumiria com o registro
+   * de uma saída de dinheiro que existiu. Se ele nasceu aqui, o registro deste
    * lado vai junto — deixá-lo apontando para um título que não existe mais
    * faria a conferência de pagamentos procurar um fantasma.
+   *
+   * A trava aqui é mais larga que a de pagar de propósito, e isso custou R$
+   * 300,00 para ser aprendido. Ela usava `lerSituacaoContaPagar().pago`, que
+   * pergunta "esta conta está quitada?" — e quitada, nesta base, quer dizer
+   * status "P" (que ela não usa: aqui é "F"), ou data de pagamento preenchida,
+   * ou saldo zerado. Um título baixado que não caísse em nenhuma das três
+   * passava por "não pago" e era apagado.
+   *
+   * O que apagar destrói não é a quitação: é a **baixa**. Ela move dinheiro no
+   * `fn_movim_finan` do IXC, e apagar o título de `fn_apagar` não desfaz esse
+   * movimento — sobra uma saída no caixa sem nada atrás dela, que foi
+   * exatamente o que aconteceu num acerto da rua. Por isso a pergunta certa é
+   * "houve baixa?", e não "está quitado?": baixa parcial também tirou dinheiro
+   * da gaveta.
    */
   async excluir(idFnApagar: number): Promise<{ idFnApagar: number }> {
     const raw = await this.ixc.getById<Record<string, unknown>>(
@@ -652,22 +762,67 @@ export class PagamentosService {
       );
     }
 
-    const situacao = lerSituacaoContaPagar(raw);
-    if (situacao.pago) {
+    const marca = marcaDeBaixa(raw);
+    if (marca) {
       throw new BadRequestException(
-        `O título ${idFnApagar} já foi pago. Apagar sumiria com o registro de ` +
-          'um dinheiro que saiu — estorne no IXC, se for o caso.',
+        `O título ${idFnApagar} já teve baixa no IXC (${marca}). Apagar ` +
+          'sumiria com o registro de um dinheiro que saiu, e a saída no caixa ' +
+          'ficaria sem nada atrás dela. Estorne o pagamento no IXC ' +
+          '(Pagar > Estornar pagamento recebido) e apague depois, se for o caso.',
       );
     }
 
     await this.ixc.remove('fn_apagar', idFnApagar);
-    await this.prisma.contaPagar.deleteMany({
-      where: { idFnApagarIxc: idFnApagar },
-    });
+    /*
+     * Apagado é apagado: vai junto o que só existia por causa desta conta.
+     *
+     * Aqui havia um `deleteMany` na `ContaPagar` e mais nada. A FK do pagamento
+     * avulso é `SetNull`, então o pagamento não ia junto — ficava sem conta a
+     * pagar e sem lançamento no caixa, contado como "já saiu" e invisível como
+     * pendente. Foi assim que um acerto de teste apagado continuou somando duas
+     * vendas no painel.
+     *
+     * A regra do que cai junto mora no `ContasPagarService`, que é quem já a
+     * tinha: dois lugares decidindo isso foi o que abriu o buraco.
+     */
+    await this.contasPagar.apagarLocalPorTituloIxc(idFnApagar);
     this.logger.log(`Título ${idFnApagar} apagado do IXC.`);
 
     return { idFnApagar };
   }
+}
+
+/**
+ * Por que este título não pode mais ser apagado — ou `null` se nunca teve
+ * baixa.
+ *
+ * Devolve o **motivo por extenso** e não um booleano porque a frase da recusa
+ * precisa dele: "já teve baixa" sem dizer por onde se soube manda a pessoa
+ * procurar no IXC uma coisa que ela não sabe nomear.
+ *
+ * As três perguntas são independentes de propósito. Cada uma pega um jeito
+ * diferente de a baixa ter acontecido, e nenhuma delas pega todos: o status
+ * desta base é "F" e não o "P" da documentação; a coluna da data varia de
+ * instalação para instalação (por isso `CAMPOS_DE_BAIXA` é uma lista); e há
+ * títulos baixados aqui cuja data não estava em nenhuma das colunas — é o caso
+ * que o histórico de pagamentos chama de `fonteDaData: 'titulo'`.
+ */
+export function marcaDeBaixa(raw: Record<string, unknown>): string | null {
+  if (statusDizPago(raw)) {
+    return `status "${String(raw.status ?? '').trim()}"`;
+  }
+
+  const campo = campoDeBaixa(raw);
+  if (campo) return `a coluna ${campo}`;
+
+  const situacao = lerSituacaoContaPagar(raw);
+  // Baixa parcial: sobrou saldo, mas dinheiro já saiu da gaveta por este
+  // título. Apagá-lo apaga o registro do que saiu.
+  if (situacao.valorPago > 0.005) {
+    return `R$ ${situacao.valorPago.toFixed(2)} já pagos`;
+  }
+
+  return null;
 }
 
 /**
@@ -725,6 +880,11 @@ function formatDataIxcDeIso(valor: string): string {
 function dataUtc(iso: string): Date {
   const [ano, mes, dia] = iso.slice(0, 10).split('-').map(Number);
   return new Date(Date.UTC(ano, mes - 1, dia));
+}
+
+/** Reais como quem lê a mensagem de erro os escreveria. */
+function moeda(valor: number): string {
+  return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
 function textoOuNull(valor: unknown): string | null {

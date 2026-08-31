@@ -168,6 +168,15 @@ const PAUSA_AUDITORIA_MS = 5 * 60_000;
  */
 const ESPERA_APRENDER_PIX_MS = 60_000;
 
+/**
+ * Como a categoria da folha costuma se chamar.
+ *
+ * Serve para achá-la uma vez, quando a configuração ainda não aponta para
+ * nenhuma — daí em diante quem manda é o id guardado, e o nome pode virar o
+ * que o usuário quiser.
+ */
+const NOMES_DA_FOLHA = ['Salários', 'Salarios', 'Salário', 'Salario'];
+
 @Injectable()
 export class ContasPagarService {
   private readonly logger = new Logger(ContasPagarService.name);
@@ -691,7 +700,7 @@ export class ContasPagarService {
       const { id: idFnApagar } = await this.ixc.create('fn_apagar', payload);
       if (!idFnApagar) throw new Error('IXC não retornou o id do fn_apagar');
 
-      return this.prisma.contaPagar.update({
+      const salva = await this.prisma.contaPagar.update({
         where: { id },
         data: {
           idFornecedorIxc: idFornecedor,
@@ -700,6 +709,11 @@ export class ContasPagarService {
           erro: null,
         },
       });
+
+      // Aqui é o único ponto em que o título ganha número no IXC — e é por
+      // esse número que a etiqueta é guardada.
+      await this.etiquetarComoFolha(salva, idFnApagar);
+      return salva;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.error(`Falha ao enviar conta ${id} ao IXC: ${message}`);
@@ -708,6 +722,191 @@ export class ContasPagarService {
         data: { status: StatusContaPagar.ERRO, erro: message },
       });
     }
+  }
+
+
+  /**
+   * Os tipos que são folha de pagamento de gente da casa.
+   *
+   * Diária e avulso ficam de fora. A diária é de diarista, e o avulso tem o
+   * próprio campo de categoria na tela em que é lançado — carimbar "Salários"
+   * neles seria trocar uma informação melhor por uma pior.
+   */
+  private static readonly TIPOS_DA_FOLHA = new Set<TipoLancamento>([
+    TipoLancamento.SALARIO,
+    TipoLancamento.FERIAS,
+    TipoLancamento.ADIANTAMENTO,
+    TipoLancamento.BONUS,
+  ]);
+
+  /**
+   * Etiqueta a conta recém-criada como despesa de folha.
+   *
+   * A folha gera dezenas de contas por mês e nenhuma delas passa pela tela de
+   * classificar: quem gera a folha não abre conta por conta para escolher
+   * categoria. Sem isto, o maior gasto da empresa era justamente o que ficava
+   * fora de todo gráfico por categoria.
+   *
+   * Não sobrescreve etiqueta que já existe — se alguém classificou aquele
+   * título à mão, a escolha de gente manda. E o que falhar aqui não derruba o
+   * lançamento: a conta já está no IXC, e uma etiqueta que não colou se resolve
+   * na tela de contas em aberto, com dois cliques.
+   */
+  private async etiquetarComoFolha(
+    conta: ContaPagar,
+    idFnApagar: number,
+  ): Promise<void> {
+    if (conta.origem !== OrigemLancamento.FOLHA) return;
+    if (!ContasPagarService.TIPOS_DA_FOLHA.has(conta.tipo)) return;
+
+    try {
+      const categoriaId = await this.categoriaDoTipo(conta.tipo);
+      if (!categoriaId) return;
+
+      await this.prisma.classificacaoConta.upsert({
+        where: { idFnApagar },
+        create: { idFnApagar, categoriaId },
+        // Vazio de propósito: já tendo etiqueta, ela fica como está.
+        update: {},
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `Conta ${conta.id} foi ao IXC, mas não deu para etiquetá-la como ` +
+          `folha: ${message}`,
+      );
+    }
+  }
+
+
+  /**
+   * Etiqueta de uma vez a folha que ficou para trás.
+   *
+   * A conta da folha passou a nascer etiquetada, e uma migração acertou o que
+   * já estava pago. Mas as duas coisas só valem para quem estava lá na hora:
+   * conta enviada enquanto a categoria não existia, base em que a migração não
+   * achou o que etiquetar, folha gerada por uma versão antiga da API — tudo
+   * isso deixa buraco, e buraco em relatório não se vê olhando.
+   *
+   * Então isto existe como botão, e não como um acerto escondido no arranque:
+   * roda quando alguém manda, diz quantas contas etiquetou, e pode rodar de
+   * novo sem estragar nada — o que já tem etiqueta não é tocado.
+   */
+  async etiquetarFolhaSemCategoria(): Promise<{
+    etiquetadas: number;
+    /** Quantas contas da folha existem ao todo, etiquetadas ou não. */
+    daFolha: number;
+    /** Sem categoria configurada não há o que etiquetar — e a tela diz isso. */
+    semCategoria: boolean;
+  }> {
+    const contas = await this.prisma.contaPagar.findMany({
+      where: {
+        origem: OrigemLancamento.FOLHA,
+        tipo: { in: [...ContasPagarService.TIPOS_DA_FOLHA] },
+        idFnApagarIxc: { not: null },
+      },
+      select: { idFnApagarIxc: true, tipo: true },
+    });
+    if (contas.length === 0) {
+      return { etiquetadas: 0, daFolha: 0, semCategoria: false };
+    }
+
+    /*
+     * Quem já tem etiqueta fica como está — inclusive quem tem outra.
+     *
+     * Alguém pode ter classificado um salário à mão, e escolha de gente não se
+     * sobrescreve por lote. Por isso a lista das que faltam é montada aqui, em
+     * vez de um `updateMany` que passaria por cima de tudo.
+     */
+    const ids = [...new Set(contas.map((c) => c.idFnApagarIxc!))];
+    const jaTem = await this.prisma.classificacaoConta.findMany({
+      where: { idFnApagar: { in: ids } },
+      select: { idFnApagar: true },
+    });
+    const etiquetados = new Set(jaTem.map((c) => c.idFnApagar));
+
+    /*
+     * Cada tipo com a etiqueta dele, e a busca da categoria feita uma vez por
+     * tipo — e não uma por conta: são oitenta contas para quatro respostas.
+     */
+    const porCategoria = new Map<string, number[]>();
+    let semCategoria = false;
+    const categorias = new Map<TipoLancamento, string | null>();
+
+    for (const conta of contas) {
+      const idFnApagar = conta.idFnApagarIxc!;
+      if (etiquetados.has(idFnApagar)) continue;
+
+      if (!categorias.has(conta.tipo)) {
+        categorias.set(conta.tipo, await this.categoriaDoTipo(conta.tipo));
+      }
+      const categoriaId = categorias.get(conta.tipo) ?? null;
+      if (!categoriaId) {
+        semCategoria = true;
+        continue;
+      }
+
+      const fila = porCategoria.get(categoriaId);
+      if (fila) fila.push(idFnApagar);
+      else porCategoria.set(categoriaId, [idFnApagar]);
+    }
+
+    let etiquetadas = 0;
+    for (const [categoriaId, deles] of porCategoria) {
+      await this.prisma.classificacaoConta.createMany({
+        data: deles.map((idFnApagar) => ({ idFnApagar, categoriaId })),
+        skipDuplicates: true,
+      });
+      etiquetadas += deles.length;
+    }
+
+    if (etiquetadas > 0) {
+      this.logger.log(
+        `${etiquetadas} conta(s) da folha etiquetadas de uma vez.`,
+      );
+    }
+
+    return { etiquetadas, daFolha: ids.length, semCategoria };
+  }
+
+  /**
+   * Qual categoria um pagamento da folha usa.
+   *
+   * Primeiro a do próprio tipo — "Adiantamento" para o adiantamento, "Férias"
+   * para as férias —, e só depois a geral. Uma etiqueta para a folha inteira
+   * responde "quanto custa a folha"; a do tipo responde a pergunta seguinte,
+   * que é a que se faz depois de olhar esse número.
+   *
+   * Tudo sai da configuração, e não de um nome fixo no código: o nome é do
+   * usuário, e renomear "Salários" não pode quebrar a automação. Vindo tudo
+   * vazio — banco novo, ou configuração criada antes destas colunas —, procura
+   * a geral pelo nome uma única vez e guarda o que achou.
+   */
+  private async categoriaDoTipo(
+    tipo: TipoLancamento,
+  ): Promise<string | null> {
+    const cfg = await this.config.obter();
+
+    const doTipo: Partial<Record<TipoLancamento, string | null>> = {
+      [TipoLancamento.SALARIO]: cfg.categoriaSalarioId,
+      [TipoLancamento.FERIAS]: cfg.categoriaFeriasId,
+      [TipoLancamento.ADIANTAMENTO]: cfg.categoriaAdiantamentoId,
+      [TipoLancamento.BONUS]: cfg.categoriaBonusId,
+    };
+    const escolhida = doTipo[tipo];
+    if (escolhida) return escolhida;
+
+    if (cfg.categoriaFolhaId) return cfg.categoriaFolhaId;
+
+    const achada = await this.prisma.categoriaDespesa.findFirst({
+      where: { nome: { in: NOMES_DA_FOLHA, mode: 'insensitive' } },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+    if (!achada) return null;
+
+    await this.config.definirCategoriaDaFolha(achada.id);
+    return achada.id;
   }
 
   // -------------------------------------------------------------------------
@@ -1147,6 +1346,27 @@ export class ContasPagarService {
       where: { contaPagarId: id },
     });
     await this.prisma.contaPagar.delete({ where: { id } });
+  }
+
+  /**
+   * O mesmo apagar, achando a conta pelo número do título no IXC.
+   *
+   * Existe porque há um segundo caminho que apaga título: o "excluir" da tela
+   * de contas a pagar, que conhece o `fn_apagar` e não o id daqui. Ele apagava
+   * a `ContaPagar` por conta própria, com um `deleteMany` — e a FK do
+   * pagamento avulso, que é `SetNull`, virava null em vez de levar o pagamento
+   * junto.
+   *
+   * O resultado era o pagamento órfão: sem conta a pagar, sem lançamento no
+   * caixa, contado como "já saiu" e invisível como pendente. Apagado tem de
+   * ficar apagado, e a regra do que vai junto mora num lugar só — aqui.
+   */
+  async apagarLocalPorTituloIxc(idFnApagar: number): Promise<void> {
+    const contas = await this.prisma.contaPagar.findMany({
+      where: { idFnApagarIxc: idFnApagar },
+      select: { id: true },
+    });
+    for (const c of contas) await this.apagarLocal(c.id);
   }
 
   /** O fornecedor do IXC de quem vai receber (cria na primeira vez). */

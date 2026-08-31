@@ -264,6 +264,35 @@ model ConfiguracaoFinanceira {
   /// Pagamentos avulsos (mão de obra, serviço pontual, patrocínio).
   contaContabilAvulso       Int @default(324) @map("conta_contabil_avulso")
 
+  /// A etiqueta que todo pagamento da folha recebe sozinho.
+  ///
+  /// A conta contábil acima é do plano de contas do IXC; esta é a nossa, a que
+  /// separa os números do painel. Salário, férias, adiantamento e bônus nascem
+  /// com ela — sem isso, o custo da folha ficava fora de todo gráfico por
+  /// categoria: são dezenas de contas por mês, e ninguém etiqueta uma a uma.
+  ///
+  /// `SetNull` porque apagar a categoria não pode derrubar a configuração: o
+  /// que acontece é a folha voltar a nascer sem etiqueta, e isso se vê na
+  /// própria tela de categorias.
+  categoriaFolha   CategoriaDespesa? @relation("CategoriaPadraoDaFolha", fields: [categoriaFolhaId], references: [id], onDelete: SetNull)
+  categoriaFolhaId String?           @map("categoria_folha_id")
+
+  /// A etiqueta de cada tipo, quando ele tem a sua.
+  ///
+  /// Uma categoria para a folha inteira responde "quanto custa a folha"; estas
+  /// respondem a pergunta seguinte, que é a que se faz depois — quanto foi
+  /// salário, quanto foi adiantamento, quanto foram as férias. Vazia, o tipo
+  /// cai na de cima: assim quem não quiser esse detalhe não precisa criar
+  /// categoria nenhuma.
+  categoriaSalario        CategoriaDespesa? @relation("CategoriaDoSalario", fields: [categoriaSalarioId], references: [id], onDelete: SetNull)
+  categoriaSalarioId      String?           @map("categoria_salario_id")
+  categoriaFerias         CategoriaDespesa? @relation("CategoriaDasFerias", fields: [categoriaFeriasId], references: [id], onDelete: SetNull)
+  categoriaFeriasId       String?           @map("categoria_ferias_id")
+  categoriaAdiantamento   CategoriaDespesa? @relation("CategoriaDoAdiantamento", fields: [categoriaAdiantamentoId], references: [id], onDelete: SetNull)
+  categoriaAdiantamentoId String?           @map("categoria_adiantamento_id")
+  categoriaBonus          CategoriaDespesa? @relation("CategoriaDoBonus", fields: [categoriaBonusId], references: [id], onDelete: SetNull)
+  categoriaBonusId        String?           @map("categoria_bonus_id")
+
   // --- Caixa de onde sai o dinheiro pago em mãos (Financeiro > Movimentação >
   // Financeira, "CX - Werick"). ---
   /// Código do caixa no IXC. 0 = não configurado (o app procura pelo nome).
@@ -531,6 +560,19 @@ model BeneficiarioAvulso {
 
   /// Forma habitual de pagar essa pessoa (dá para mudar em cada pagamento)
   formaPagamento FormaPagamento @default(IXC) @map("forma_pagamento")
+
+  /// Em que categoria o que se paga a essa pessoa costuma entrar.
+  ///
+  /// Quem paga o mesmo pedreiro pela quarta vez escolhe "Obras" pela quarta
+  /// vez, e é na quarta que alguém deixa passar — a conta vai para o IXC sem
+  /// etiqueta e some do dashboard, que é justamente onde ela seria procurada.
+  /// Guardando aqui, o pagamento seguinte já abre marcado, e mudar a escolha na
+  /// hora de pagar grava o novo padrão: quem trocou de ramo troca uma vez só.
+  ///
+  /// `SetNull` porque apagar a categoria não pode apagar quem recebe: o cadastro
+  /// fica sem padrão e a tela volta a perguntar, que é o pior que pode dar.
+  categoria   CategoriaDespesa? @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
+  categoriaId String?           @map("categoria_id")
 
   observacoes String?
   ativo       Boolean @default(true)
@@ -865,6 +907,72 @@ model DespesaRecorrente {
   @@map("despesas_recorrentes")
 }
 
+// ---------------------------------------------------------------------------
+// Contas contrato: a conta de luz de cada endereco da empresa.
+//
+// Toda unidade consumidora tem um numero de conta contrato na distribuidora, e
+// e por ele que a fatura se acha. Elas chegam juntas, uma vez por mes, cada uma
+// com um valor diferente — e ate aqui cada uma virava um lancamento a mao:
+// procurar o fornecedor, escolher a conta contabil, escrever de que endereco
+// era. Onze vezes, todo mes, no mesmo dia.
+//
+// O que se guarda e o que nao muda (o endereco, o numero, para quem se paga,
+// como a conta sai). O que muda — quanto veio este mes — se digita na hora de
+// gerar, porque conta de luz nao se sabe de antemao.
+// ---------------------------------------------------------------------------
+
+/// Uma unidade consumidora: o endereco e o numero da conta contrato dele.
+model ContaContrato {
+  id String @id @default(uuid())
+
+  /// O endereco como a casa o chama ("Lago Verde", "Garagem", "Loja")
+  apelido String
+  /// O numero da conta contrato na distribuidora. E por ele que a fatura se
+  /// acha no site dela, e e ele que vai no documento do titulo no IXC — o que
+  /// permite achar de que endereco era uma conta ja paga, meses depois.
+  numero  String @unique
+
+  /// Quem recebe, no cadastro de fornecedores do IXC (a distribuidora)
+  idFornecedorIxc Int    @map("id_fornecedor_ixc")
+  fornecedorNome  String @map("fornecedor_nome")
+
+  /// Dia do mes em que a fatura costuma chegar. Nao e promessa da
+  /// distribuidora: e o que se observou, e serve para a tela saber cobrar
+  /// ("a do Lago Verde chega dia 5 e ainda nao foi lancada").
+  diaDeChegada Int @map("dia_de_chegada")
+  /// Dia do mes em que ela costuma vencer, para a geracao ja sugerir a data
+  diaDeVencimento Int @map("dia_de_vencimento")
+
+  /// Quanto costuma vir, para a tela estranhar o que fugir disso. Vazio ate a
+  /// primeira conta ser gerada — dai em diante e a media do que ja passou.
+  valorDeReferencia Decimal? @map("valor_de_referencia") @db.Decimal(14, 2)
+
+  // --- Como a conta sai (o mesmo do lancamento avulso) ---
+  contaContabil    Int?    @map("conta_contabil")
+  contaPagamento   Int?    @map("conta_pagamento")
+  tipoPagamentoIxc String? @map("tipo_pagamento_ixc")
+
+  /// Etiqueta desta casa, aplicada a cada conta gerada
+  categoria   CategoriaDespesa? @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
+  categoriaId String?           @map("categoria_id")
+
+  /// O que vai junto na observacao do titulo, quando o endereco pede explicacao
+  observacao String?
+
+  /// Desligada some da lista do mes — o imovel foi vendido, o ponto desativado.
+  /// O que ela ja gerou continua de pe: sao contas de verdade no IXC.
+  ativa Boolean @default(true)
+
+  contas ContaPagar[]
+
+  criadoPor String?  @map("criado_por")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([ativa])
+  @@map("contas_contrato")
+}
+
 enum StatusContaPagar {
   RASCUNHO // criada localmente, ainda não enviada ao IXC
   AGUARDANDO_APROVACAO // salva no IXC (fn_apagar criado), pendente auditoria
@@ -940,6 +1048,12 @@ model ContaPagar {
   recorrente   DespesaRecorrente? @relation(fields: [recorrenteId], references: [id], onDelete: SetNull)
   recorrenteId String?            @map("recorrente_id")
 
+  /// A conta contrato (energia de um endereço) que gerou esta conta.
+  /// Com a `competencia` preenchida, é o par que responde "a de agosto do Lago
+  /// Verde já foi lançada?" — e o que impede lançá-la duas vezes.
+  contaContrato   ContaContrato? @relation(fields: [contaContratoId], references: [id], onDelete: SetNull)
+  contaContratoId String?        @map("conta_contrato_id")
+
   status StatusContaPagar @default(RASCUNHO)
   erro   String?
 
@@ -974,6 +1088,7 @@ model ContaPagar {
   @@index([diaristaId])
   @@index([idFnApagarIxc])
   @@index([origem])
+  @@index([contaContratoId, competencia])
   @@map("contas_pagar")
 }
 
@@ -1185,11 +1300,37 @@ model CategoriaDespesa {
   /// Ordem de exibição; empate resolve pelo nome.
   ordem Int     @default(0)
 
+  /// A categoria de cima, quando esta é uma subcategoria.
+  ///
+  /// Um nível só, de propósito: "Veículos" agrupa "Compra de veículos" e
+  /// "Manutenção de veículos", e para aí. Etiquetar é escolher a folha; o
+  /// dashboard soma pela mãe e destrincha pelas filhas — é isso que responde
+  /// "quanto custa a frota?" sem perder "quanto foi conserto".
+  ///
+  /// `Restrict` porque apagar a mãe deixaria as filhas órfãs em silêncio: quem
+  /// quiser desfazer o grupo tira as filhas de dentro dele primeiro.
+  pai    CategoriaDespesa?  @relation("SubcategoriaDespesa", fields: [paiId], references: [id], onDelete: Restrict)
+  paiId  String?            @map("pai_id")
+  filhas CategoriaDespesa[] @relation("SubcategoriaDespesa")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  classificacoes ClassificacaoConta[]
-  recorrentes    DespesaRecorrente[]
+  classificacoes            ClassificacaoConta[]
+  recorrentes               DespesaRecorrente[]
+  /// As contas de energia por endereço que caem nesta categoria.
+  contasContrato            ContaContrato[]
+  /// Quem recebe fora da folha e costuma entrar nesta categoria.
+  beneficiarios             BeneficiarioAvulso[]
+  /// As configurações que apontam esta categoria — a padrão da folha e a de
+  /// cada tipo de pagamento dela.
+  configuracoes             ConfiguracaoFinanceira[] @relation("CategoriaPadraoDaFolha")
+  configuracoesSalario      ConfiguracaoFinanceira[] @relation("CategoriaDoSalario")
+  configuracoesFerias       ConfiguracaoFinanceira[] @relation("CategoriaDasFerias")
+  configuracoesAdiantamento ConfiguracaoFinanceira[] @relation("CategoriaDoAdiantamento")
+  configuracoesBonus        ConfiguracaoFinanceira[] @relation("CategoriaDoBonus")
+
+  @@index([paiId])
 
   @@map("categorias_despesa")
 }
@@ -1246,6 +1387,22 @@ model ConferenciaCaixa {
   conferido    Boolean   @default(false)
   conferidoEm  DateTime? @map("conferido_em")
   conferidoPor String?   @map("conferido_por")
+
+  /// Este lançamento não entra na conta do que deve estar na gaveta.
+  ///
+  /// Existe para o lançamento de acerto: a saída criada no IXC só para corrigir
+  /// um saldo que já estava errado lá. O dinheiro dela saiu da gaveta antes, por
+  /// outro caminho — descontá-la de novo tira duas vezes o mesmo dinheiro, e a
+  /// contagem passa a nunca fechar.
+  ///
+  /// Não some da lista nem da conferência: ela continua sendo uma saída que
+  /// aconteceu e que alguém precisa conferir. O que ela deixa de fazer é pesar
+  /// no saldo esperado.
+  foraDaGaveta       Boolean @default(false) @map("fora_da_gaveta")
+  /// Por que ele ficou de fora. Sem isto, o número não se explica seis meses
+  /// depois — e um valor que some da conta sem motivo escrito é o começo de
+  /// uma contagem que ninguém confia.
+  motivoForaDaGaveta String? @map("motivo_fora_da_gaveta")
 
   /// As fotos da nota. Mais de uma porque uma nota nem sempre cabe numa só:
   /// cupom comprido, verso escrito, a foto tremida que pede a segunda.
@@ -1500,6 +1657,16 @@ model PastaRh {
   /// Como a pasta se chama na estante. Sendo de um funcionário, o nome dele
   /// manda; este fica como o que ela era quando nasceu.
   nome String
+
+  /// O nome foi escrito à mão, e o cadastro deixou de mandar nele.
+  ///
+  /// A regra normal é o cadastro ganhar: quem trocou de sobrenome no IXC não
+  /// pode ficar com o nome antigo na estante. Só que a razão social não é como
+  /// a casa chama a pasta ("M A CASTRO", e não o nome inteiro com o CNPJ), e o
+  /// administrador é quem decide isso. Marcada assim, a pasta passa a valer o
+  /// que está em `nome` — e desmarcá-la devolve o nome do cadastro, que
+  /// continuou lá o tempo todo.
+  nomeManual Boolean @default(false) @map("nome_manual")
 
   /// A prateleira da empresa — contrato social, alvará, certidão. Só uma.
   daEmpresa Boolean @default(false) @map("da_empresa")

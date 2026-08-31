@@ -81,6 +81,24 @@ export class ConferirLancamentoDto extends RetratoDoLancamentoDto {
   observacao?: string;
 }
 
+/**
+ * Tirar (ou devolver) um lançamento da conta do saldo esperado da gaveta.
+ *
+ * É para a saída de acerto: a que foi criada no IXC só para corrigir um saldo
+ * que já estava errado lá, de um dinheiro que saiu da gaveta antes por outro
+ * caminho.
+ */
+export class ForaDaGavetaDto extends RetratoDoLancamentoDto {
+  @IsBoolean()
+  fora!: boolean;
+
+  /** Obrigatório ao tirar — a validação do "por quê" mora no serviço. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  motivo?: string;
+}
+
 /** Mais uma foto para a nota de um lançamento. */
 export class AnexarNotaDto extends RetratoDoLancamentoDto {
   @IsString()
@@ -241,6 +259,24 @@ export class MovimentoDaRuaDto {
   @ValidateNested()
   @Type(() => DespesaDaPrestacaoDto)
   despesa?: DespesaDaPrestacaoDto;
+
+  /**
+   * O dia em que esta despesa já saiu do caixa no IXC, lançada por fora.
+   *
+   * É o par que faltava do `despesa` vazio. Sem despesa e sem esta data, o
+   * acerto desconta a entrega da gaveta e a saída lançada no IXC desconta de
+   * novo: o mesmo dinheiro sai duas vezes da conta do saldo. Com ela, o
+   * período que a contém soma o gasto de volta, exatamente como faz com a
+   * despesa que este app lançou.
+   *
+   * É a data da saída **no IXC**, e não a do acerto: é ela que decide em que
+   * período de lá o desconto aparece.
+   */
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'A data da saída no IXC precisa estar no formato AAAA-MM-DD.',
+  })
+  gastoJaNoIxcEm?: string;
 }
 
 export class FecharCaixaDto {

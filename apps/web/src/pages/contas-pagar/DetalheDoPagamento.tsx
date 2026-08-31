@@ -1,12 +1,15 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
+import { NotasDoTitulo } from '../../components/NotasDoTitulo';
+import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
 import { Carregando, Janela, Selo } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
 import { formatBRL, formatData } from '../../lib/format';
 import { TIPO_LABEL } from '../../lib/status';
 import type {
+  CategoriaDespesa,
   DetalheDoTitulo,
-  NotaDoTitulo,
   PagamentoFeito,
 } from '../../lib/types';
 
@@ -177,7 +180,7 @@ export function DetalheDoPagamento({
               (pagamento.categoria.id ? `conta ${pagamento.categoria.id}` : '—')}
           </Dado>
           <Dado rotulo="Classificação daqui">
-            {pagamento.classificacao?.nome ?? 'sem classificação'}
+            <ClassificacaoDoPagamento pagamento={pagamento} />
           </Dado>
           <Dado rotulo="Status no IXC">
             {pagamento.statusEhDePago
@@ -317,6 +320,96 @@ function Dado({ rotulo, children }: { rotulo: string; children: ReactNode }) {
 }
 
 /**
+ * A etiqueta deste pagamento — e, para o administrador, a chance de trocá-la.
+ *
+ * Etiqueta errada num pagamento já feito não se conserta em lugar nenhum: a
+ * tela de classificar é a das contas em aberto, e a conta paga saiu de lá. O
+ * gasto ficava na fatia errada do painel para sempre, e a única saída era
+ * lembrar de acertar antes de pagar — que é lembrar de uma coisa no pior
+ * momento para lembrar dela.
+ *
+ * Só o administrador troca. A conta paga já entrou em relatório: o mês foi
+ * fechado com ela naquela fatia, e alguém leu aquele número. Reclassificar
+ * depois às vezes é exatamente o certo — a etiqueta estava errada —, mas é
+ * decisão de quem responde pelo relatório, não de quem lança o dia a dia. Para
+ * os demais a ficha continua o que era: a etiqueta escrita, sem campo nenhum.
+ */
+function ClassificacaoDoPagamento({ pagamento }: { pagamento: PagamentoFeito }) {
+  const qc = useQueryClient();
+  const { usuario } = useAuth();
+  const ehAdmin = usuario?.role === 'ADMIN';
+
+  const [categoriaId, setCategoriaId] = useState(
+    pagamento.classificacao?.id ?? '',
+  );
+
+  const categorias = useQuery({
+    queryKey: ['categorias-despesa'],
+    queryFn: async () =>
+      (await api.get<CategoriaDespesa[]>('/categorias-despesa')).data,
+    // A lista só é lida por quem pode escolher: para os demais este bloco é
+    // texto, e uma consulta a mais na abertura de toda ficha não paga nada.
+    enabled: ehAdmin,
+  });
+
+  const reclassificar = useMutation({
+    mutationFn: async (id: string | null) => {
+      await api.put(`/pagamentos/${pagamento.idFnApagar}/categoria`, {
+        categoriaId: id,
+      });
+    },
+    onSuccess: () => {
+      // A lista de trás alimenta o painel do mês: sem recarregá-la, a ficha e
+      // o gráfico passariam a discordar sobre em que fatia está este gasto.
+      void qc.invalidateQueries({ queryKey: ['pagamentos-feitos'] });
+      void qc.invalidateQueries({ queryKey: ['categorias-despesa'] });
+    },
+  });
+
+  const escrita = pagamento.classificacao
+    ? pagamento.classificacao.grupo
+      ? `${pagamento.classificacao.grupo.nome} · ${pagamento.classificacao.nome}`
+      : pagamento.classificacao.nome
+    : 'sem classificação';
+
+  if (!ehAdmin) return <>{escrita}</>;
+
+  return (
+    <div className="mt-0.5">
+      <SeletorDeCategoria
+        categorias={categorias.data}
+        value={categoriaId}
+        vazio="Sem classificação"
+        carregando={categorias.isLoading}
+        desabilitado={reclassificar.isPending}
+        className="campo max-w-xs py-1 text-sm"
+        title="Trocar a etiqueta deste pagamento"
+        onChange={(id) => {
+          // Guardado aqui além de ir para a API: a lista de trás só volta
+          // depois, e até lá o `pagamento` que chegou por prop ainda é o
+          // antigo — sem este estado, o campo voltaria sozinho para a opção
+          // anterior na frente de quem acabou de escolher.
+          setCategoriaId(id);
+          reclassificar.mutate(id || null);
+        }}
+      />
+      <p className="ajuda">
+        {reclassificar.isPending
+          ? 'Salvando…'
+          : reclassificar.isSuccess
+            ? 'Etiqueta trocada — o painel do mês já conta este gasto na fatia nova.'
+            : 'Trocar aqui muda a fatia deste gasto no painel, inclusive em mês já fechado.'}
+      </p>
+      {reclassificar.isError && (
+        <p className="mt-1 text-sm text-rose-600">
+          {mensagemErro(reclassificar.error)}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
  * Pagou em dia ou atrasado. É a régua da casa lida ao contrário da tela de
  * contas em aberto: lá o verde é "ainda dá tempo", aqui é "saiu no prazo".
  */
@@ -386,85 +479,5 @@ export function PrazoDoPagamento({
     <Selo pequeno={pequeno} tom="pago">
       {adiantado === 1 ? 'pago 1 dia antes' : `pago ${adiantado} dias antes`}
     </Selo>
-  );
-}
-
-/**
- * As notas anexadas a este título, lidas do IXC.
- *
- * É a mesma lista da aba "Arquivos" da tela dele. Aparece aqui porque a
- * pergunta de quem abre a ficha de um pagamento é "cadê a nota disso?" — e
- * mandar a pessoa ao IXC para responder seria mandá-la embora da tela em que
- * ela já está.
- */
-function NotasDoTitulo({ idFnApagar }: { idFnApagar: number }) {
-  const [abrindo, setAbrindo] = useState<number | null>(null);
-  const [erro, setErro] = useState<string | null>(null);
-
-  const notas = useQuery({
-    queryKey: ['notas-do-titulo', idFnApagar],
-    queryFn: async () =>
-      (
-        await api.get<NotaDoTitulo[]>(
-          `/contas-abertas/${idFnApagar}/notas`,
-        )
-      ).data,
-    // Anexo é raro e o IXC é lento: não vale repetir a pergunta sozinho.
-    retry: 0,
-  });
-
-  /*
-   * O arquivo vem pela API autenticada, e não por um `href` direto: o token
-   * vive no cabeçalho, e uma aba aberta na mão chegaria lá sem ele.
-   */
-  async function abrir(nota: NotaDoTitulo) {
-    setAbrindo(nota.id);
-    setErro(null);
-    try {
-      const { data } = await api.get<Blob>(
-        `/contas-abertas/notas/${nota.id}/arquivo`,
-        { params: { extensao: nota.extensao || undefined }, responseType: 'blob' },
-      );
-      const url = URL.createObjectURL(data);
-      window.open(url, '_blank', 'noopener');
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    } catch (e) {
-      setErro(mensagemErro(e));
-    } finally {
-      setAbrindo(null);
-    }
-  }
-
-  const lista = notas.data ?? [];
-  // Sem nota e sem erro não há o que dizer: um bloco vazio em toda ficha seria
-  // ruído em quase todas elas.
-  if (lista.length === 0 && !erro) return null;
-
-  return (
-    <div className="mt-4">
-      <div className="rotulo">Notas anexadas</div>
-      <div className="flex flex-wrap gap-2">
-        {lista.map((nota) => (
-          <button
-            key={nota.id}
-            type="button"
-            onClick={() => abrir(nota)}
-            disabled={abrindo === nota.id}
-            className="btn btn-p btn-neutro"
-            title={
-              nota.data
-                ? `Anexada em ${nota.data}${nota.usuario ? ` por ${nota.usuario}` : ''}`
-                : undefined
-            }
-          >
-            {abrindo === nota.id ? 'Abrindo…' : nota.descricao}
-            {nota.extensao && (
-              <span className="ml-1 text-tinta-400">.{nota.extensao}</span>
-            )}
-          </button>
-        ))}
-      </div>
-      {erro && <p className="mt-1 text-sm text-rose-600">{erro}</p>}
-    </div>
   );
 }

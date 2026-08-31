@@ -3,6 +3,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsInt,
   IsOptional,
   IsString,
@@ -72,6 +73,35 @@ export class GuardarDocumentoDto extends DadosDoDocumentoDto {
     message: 'O arquivo não chegou num formato que eu saiba ler.',
   })
   arquivo!: string;
+
+  /**
+   * Guardar o Word (ou a planilha) já convertido em PDF.
+   *
+   * É escolha de quem sobe, e não regra da casa: o mesmo .docx que se manda
+   * para a licitação em PDF — porque em PDF ele não se altera no caminho e
+   * abre igual em qualquer máquina — é o que se guarda em Word quando ainda
+   * vai ser editado. Fora do Office o pedido é ignorado em silêncio: não há o
+   * que converter num PDF nem numa foto.
+   */
+  @IsOptional() @IsBoolean() converterParaPdf?: boolean;
+}
+
+/**
+ * O documento novo que toma o lugar de um que venceu.
+ *
+ * Traz o arquivo, como quem guarda um documento pela primeira vez — porque é
+ * isso que ele é: a certidão de setembro não é a de agosto corrigida, é outro
+ * papel. O que se herda do antigo é o nome e o tipo, que a tela já preenche;
+ * as datas, não, porque são justamente elas que mudaram.
+ */
+export class SubstituirDocumentoDto extends DadosDoDocumentoDto {
+  @IsString() @MinLength(1) @MaxLength(255) arquivoNome!: string;
+
+  @IsString({ message: 'Escolha o arquivo novo.' })
+  @Matches(/^data:[-\w.+]+\/[-\w.+]+;base64,/, {
+    message: 'O arquivo não chegou num formato que eu saiba ler.',
+  })
+  arquivo!: string;
 }
 
 /**
@@ -106,6 +136,17 @@ export class PastaDto {
   @IsOptional()
   @IsUUID('4', { message: 'Pasta inválida.' })
   paiId?: string;
+
+  /**
+   * Desfaz o nome escrito à mão: o cadastro volta a mandar nesta pasta.
+   *
+   * Só faz sentido renomeando, e só na pasta que veio do cadastro. Sem esta
+   * saída, um administrador que renomeasse a pasta do Fulano fecharia a porta
+   * atrás de si — o nome do IXC nunca mais apareceria ali.
+   */
+  @IsOptional()
+  @IsBoolean()
+  seguirCadastro?: boolean;
 }
 
 /** O PDF de recibos chegando para leitura. */
@@ -148,4 +189,61 @@ export class GuardarRecibosDto extends AnalisarRecibosDto {
   @ValidateNested({ each: true })
   @Type(() => ItemDoReciboDto)
   itens!: ItemDoReciboDto[];
+}
+
+/** Uma licitação nova: por enquanto ela é o nome da pasta dela. */
+export class LicitacaoDto {
+  @IsString({ message: 'Diga o nome da licitação.' })
+  @MinLength(2, { message: 'O nome ficou curto demais.' })
+  @MaxLength(120)
+  nome!: string;
+}
+
+/**
+ * Os documentos que vão para a pasta da licitação.
+ *
+ * O teto é o mesmo do serviço, e existe porque cada item traz o arquivo inteiro
+ * para ser regravado: sem ele, um clique em "marcar todos" numa estante grande
+ * viraria dezenas de megabytes num pedido só.
+ */
+export class CopiarParaLicitacaoDto {
+  @IsArray()
+  @ArrayMinSize(1, { message: 'Marque ao menos um documento.' })
+  @ArrayMaxSize(60)
+  @IsUUID('4', { each: true, message: 'Documento inválido.' })
+  documentoIds!: string[];
+}
+
+/**
+ * Documentos mudando de divisória, de uma vez.
+ *
+ * Aqui não viaja arquivo nenhum — só os códigos —, e por isso o teto é bem mais
+ * largo que o da licitação: arrumar uma pasta de duzentos papéis é justamente o
+ * caso em que mover um por um não se faz.
+ */
+export class MoverDocumentosDto {
+  @IsArray()
+  @ArrayMinSize(1, { message: 'Marque ao menos um documento.' })
+  @ArrayMaxSize(500)
+  @IsUUID('4', { each: true, message: 'Documento inválido.' })
+  documentoIds!: string[];
+
+  /** Para onde eles vão. */
+  @IsUUID('4', { message: 'Escolha a pasta de destino.' })
+  pastaId!: string;
+}
+
+/**
+ * Documentos saindo da estante de uma vez.
+ *
+ * O teto é menor que o de mover de propósito. Mover é reversível — o papel está
+ * na outra gaveta —, e apagar não é: quinhentos de uma vez é mais estrago do
+ * que qualquer confirmação de tela consegue deixar claro.
+ */
+export class ApagarDocumentosDto {
+  @IsArray()
+  @ArrayMinSize(1, { message: 'Marque ao menos um documento.' })
+  @ArrayMaxSize(100)
+  @IsUUID('4', { each: true, message: 'Documento inválido.' })
+  documentoIds!: string[];
 }

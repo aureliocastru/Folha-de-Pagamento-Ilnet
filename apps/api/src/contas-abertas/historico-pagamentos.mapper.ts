@@ -119,8 +119,15 @@ export interface PagamentoFeito {
   statusEhDePago: boolean;
   /** A conta de despesa do IXC. O nome é completado depois. */
   categoria: { id: number | null; nome: string | null };
-  /** A classificação desta casa — etiqueta nossa, o IXC não tem onde guardá-la */
-  classificacao: { id: string; nome: string } | null;
+  /**
+   * A classificação desta casa — etiqueta nossa, o IXC não tem onde guardá-la.
+   * `grupo` é a categoria de cima, quando ela é uma subcategoria.
+   */
+  classificacao: {
+    id: string;
+    nome: string;
+    grupo: { id: string; nome: string } | null;
+  } | null;
   /** Preenchido depois, cruzando com o que a folha lançou */
   origem: OrigemNaFolha | null;
   /** O que o registro do IXC confirma — e o que nele não fecha */
@@ -259,7 +266,7 @@ export function mapPagamento(
   const valorPago = quantoSaiu(raw, valor, valorAberto);
   const juros = primeiroValor(raw, ['valor_juros', 'juros']);
   const multa = primeiroValor(raw, ['valor_multa', 'multa']);
-  const desconto = primeiroValor(raw, ['valor_desconto', 'desconto']);
+  const desconto = descontoDoTitulo(raw);
   const status = String(raw.status ?? '').trim().toUpperCase() || null;
   const parcial = valorAberto > 0.005;
 
@@ -311,7 +318,7 @@ export function mapPagamento(
     ]),
     caixa: {
       id: parseIxcId(raw.id_contas ?? raw.id_conta_pagamento ?? raw.id_caixa),
-      nome: primeiroTexto(raw, ['conta_pagamento', 'nome_conta_pagamento']),
+      nome: nomeDeVerdade(raw, ['conta_pagamento', 'nome_conta_pagamento']),
     },
     baixadoPor: nomeDeQuemBaixou(raw),
     observacao: primeiroTexto(raw, ['obs', 'observacao', 'historico']),
@@ -344,6 +351,26 @@ export function mapPagamento(
       campoDaBaixa,
     }),
   };
+}
+
+/**
+ * O nome da conta, quando a coluna traz nome — e não o código de novo.
+ *
+ * `fn_apagar.conta_pagamento` não é o rótulo que o nome promete: nesta base ela
+ * repete o código da conta ("14"), e só vem preenchida nos títulos lançados pela
+ * tela do IXC. Lida como nome, ela fazia a lista de pagos mostrar "14" numa
+ * linha e "Conta Sicoob" na de baixo — a mesma conta com dois rostos, e o do
+ * código escondendo o defeito de quem procurava por nome.
+ *
+ * Texto que é só dígito, então, não é nome: fica para o índice de contas
+ * preencher, que é quem tem o nome de verdade.
+ */
+function nomeDeVerdade(
+  raw: Record<string, unknown>,
+  campos: string[],
+): string | null {
+  const texto = primeiroTexto(raw, campos);
+  return texto && /\D/.test(texto) ? texto : null;
 }
 
 /**
@@ -582,6 +609,19 @@ function diasEntre(de: Date, ate: Date): number {
 }
 
 /** O primeiro dos nomes conhecidos que tiver valor. */
+/**
+ * O desconto que o título registra — o abatimento de quem pagou adiantado.
+ *
+ * Mora aqui, e não solto em cada tela, porque duas leituras diferentes dele
+ * fariam a economia do painel discordar da economia do histórico, que saem da
+ * mesma coluna do mesmo título. O nome da coluna varia entre instalações do
+ * IXC; a lista é a mesma de sempre, fechada, para não sair somando qualquer
+ * campo com "desconto" no nome.
+ */
+export function descontoDoTitulo(raw: Record<string, unknown>): number {
+  return primeiroValor(raw, ['valor_desconto', 'desconto']);
+}
+
 function primeiroValor(raw: Record<string, unknown>, campos: string[]): number {
   for (const campo of campos) {
     const n = parseIxcDecimal(raw[campo]);

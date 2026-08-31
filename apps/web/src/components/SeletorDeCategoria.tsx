@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { api, mensagemErro } from '../lib/api';
+import { emArvore } from '../lib/categorias';
 import type { CategoriaDespesa } from '../lib/types';
 
 /**
@@ -144,6 +145,8 @@ export function SeletorDeCategoria({
     );
   }
 
+  const { grupos, soltas } = emArvore(opcoes);
+
   return (
     <select
       id={id}
@@ -160,10 +163,32 @@ export function SeletorDeCategoria({
       }}
     >
       <option value="">{vazio}</option>
-      {opcoes.map((c) => (
+      {/* As soltas primeiro: opção fora de `optgroup` depois de um grupo
+          aparece como se tivesse escapado dele. */}
+      {soltas.map((c) => (
         <option key={c.id} value={c.id}>
           {c.nome}
         </option>
+      ))}
+      {grupos.map(({ mae, filhas }) => (
+        <optgroup key={mae.id} label={mae.nome}>
+          {/*
+            A mãe só é escolhível quando já etiqueta alguma conta. Grupo é
+            cabeçalho — quem etiqueta é a subcategoria, senão o gasto para no
+            nível de cima e o dashboard não tem o que destrinchar. Mas quem
+            ganhou filhas depois de já ter contas etiquetadas continua na lista:
+            tirá-la seria mudar, sem avisar, a etiqueta de contas já
+            classificadas.
+          */}
+          {mae.emUso > 0 && (
+            <option value={mae.id}>{mae.nome} (sem subcategoria)</option>
+          )}
+          {filhas.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.nome}
+            </option>
+          ))}
+        </optgroup>
       ))}
       {extras}
       <option value={NOVA}>+ Criar nova categoria…</option>
