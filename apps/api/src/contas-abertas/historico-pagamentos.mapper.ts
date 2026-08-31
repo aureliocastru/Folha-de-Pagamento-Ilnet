@@ -25,10 +25,12 @@ import type { BaixaNoIxc } from './baixas-do-ixc.mapper';
 import {
   campoDeBaixa,
   campoDeCancelamento,
+  marcacaoDeParcela,
   primeiraData,
   primeiroTexto,
   statusDizPago,
   temValorDeVerdade,
+  type MarcacaoDeParcela,
   type OrigemNaFolha,
 } from './contas-abertas.mapper';
 
@@ -100,6 +102,11 @@ export interface PagamentoFeito {
    * IXC, e aí não há como dizer se foi em dia.
    */
   diasDeAtraso: number | null;
+  /**
+   * A parcela que este título era, quando ela está escrita nele ("29/36" no
+   * número da nota). Mesma leitura da lista de contas em aberto.
+   */
+  parcela: MarcacaoDeParcela | null;
   /** Como foi pago, no texto do IXC: Pix, Dinheiro, Boleto… */
   formaPagamento: string | null;
   /** A conta/caixa de onde o dinheiro saiu. O nome é completado depois. */
@@ -311,6 +318,7 @@ export function mapPagamento(
     // conteúdo ilegível não pode aparecer na ficha como se tivesse respondido.
     campoDoDia: doDebito ? campoDoDebito : campoDaBaixa,
     diasDeAtraso: vencimento === null ? null : diasEntre(vencimento, pagoEm),
+    parcela: marcacaoDeParcela(raw),
     formaPagamento: primeiroTexto(raw, [
       'tipo_pagamento',
       'forma_pagamento',

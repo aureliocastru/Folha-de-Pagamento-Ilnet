@@ -384,8 +384,15 @@ export function PagarEmMaos({
                   <div className="text-tinta-800">
                     {c.fornecedor.nome || `Fornecedor ${c.fornecedor.id ?? '?'}`}
                   </div>
-                  {c.observacao && (
-                    <div className="text-xs text-tinta-400">{c.observacao}</div>
+                  {(c.observacao || c.parcela) && (
+                    <div className="text-xs text-tinta-400">
+                      {c.observacao}
+                      {c.parcela && (
+                        <span className="num ml-1.5 text-tinta-500">
+                          parcela {c.parcela.posicao}/{c.parcela.total}
+                        </span>
+                      )}
+                    </div>
                   )}
                 </td>
                 <td className="td num whitespace-nowrap text-tinta-500">

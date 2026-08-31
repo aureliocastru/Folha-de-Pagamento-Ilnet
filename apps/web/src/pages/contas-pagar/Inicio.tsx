@@ -578,8 +578,20 @@ function Linha({
         <div className="text-tinta-800">
           {conta.fornecedor.nome || `Fornecedor ${conta.fornecedor.id ?? '?'}`}
         </div>
-        {conta.observacao && (
-          <div className="mt-0.5 text-xs text-tinta-400">{conta.observacao}</div>
+        {(conta.observacao || conta.parcela) && (
+          <div className="mt-0.5 text-xs text-tinta-400">
+            {conta.observacao}
+            {/* A parcela vem escrita no próprio título ("29/36" no número da
+                nota), e é a resposta de "esta é qual delas?" — a pergunta que
+                se faz olhando sete linhas iguais do mesmo financiamento. Sai
+                junto da observação porque é a mesma frase: do que é esta
+                conta. */}
+            {conta.parcela && (
+              <span className="num ml-1.5 text-tinta-500">
+                parcela {conta.parcela.posicao}/{conta.parcela.total}
+              </span>
+            )}
+          </div>
         )}
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
           {conta.classificacao ? (

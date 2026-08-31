@@ -145,6 +145,35 @@ describe('ler uma conta', () => {
   });
 });
 
+/**
+ * A parcela escrita no título.
+ *
+ * O financiamento chega ao IXC com "29/36" no número da nota, e é assim que se
+ * sabe qual das trinta e seis é aquela linha — sem contar nada, sem depender
+ * de o fornecedor ter poucos títulos.
+ */
+describe('a parcela que vem escrita no título', () => {
+  it('lê o número da nota e mostra de onde veio', () => {
+    const c = mapContaAberta(bruto({ numero_nota: '29/36' }), HOJE)!;
+    expect(c.parcela).toEqual({ posicao: 29, total: 36, fonte: 'nota' });
+  });
+
+  it('lê a marca que esta casa escreve na observação', () => {
+    const c = mapContaAberta(bruto({ obs: 'Cabo UTP (3/6)' }), HOJE)!;
+    expect(c.parcela).toEqual({ posicao: 3, total: 6, fonte: 'observacao' });
+  });
+
+  it('título sem marca nenhuma não inventa parcela', () => {
+    const c = mapContaAberta(bruto({ obs: 'Parcela Hilux' }), HOJE)!;
+    expect(c.parcela).toBeNull();
+  });
+
+  it('nota fiscal com série não vira parcela', () => {
+    const c = mapContaAberta(bruto({ numero_nota: '123/2024' }), HOJE)!;
+    expect(c.parcela).toBeNull();
+  });
+});
+
 describe('resumo', () => {
   function conta(dias: number | null, valorAberto: number): ContaAberta {
     return {
@@ -158,6 +187,7 @@ describe('resumo', () => {
       diasParaVencer: dias,
       vencida: dias !== null && dias < 0,
       observacao: null,
+      parcela: null,
       statusAuditoria: null,
       categoria: { id: null, nome: null },
       classificacao: null,

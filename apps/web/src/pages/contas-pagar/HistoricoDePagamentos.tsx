@@ -340,9 +340,17 @@ function Linha({
           {pagamento.fornecedor.nome ||
             `Fornecedor ${pagamento.fornecedor.id ?? '?'}`}
         </div>
-        {pagamento.observacao && (
+        {(pagamento.observacao || pagamento.parcela) && (
           <div className="mt-0.5 max-w-lg truncate text-xs text-tinta-400">
             {pagamento.observacao}
+            {/* Qual das parcelas era esta — escrito no próprio título, e não
+                deduzido. Num financiamento pago há anos, é o que diferencia
+                doze linhas iguais do mesmo banco. */}
+            {pagamento.parcela && (
+              <span className="num ml-1.5 text-tinta-500">
+                parcela {pagamento.parcela.posicao}/{pagamento.parcela.total}
+              </span>
+            )}
           </div>
         )}
         <div className="mt-1 flex flex-wrap items-center gap-1.5">

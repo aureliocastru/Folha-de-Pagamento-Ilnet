@@ -1,7 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { IxcClient } from '../ixc/ixc.client';
 import { parseIxcDecimal, parseIxcId } from '../ixc/ixc.parse';
-import { motivoDeNaoEstarAberto, primeiraData } from './contas-abertas.mapper';
+import {
+  marcacaoDeParcela,
+  motivoDeNaoEstarAberto,
+  primeiraData,
+  type MarcacaoDeParcela,
+} from './contas-abertas.mapper';
 
 /**
  * Onde um título cai na sequência de parcelas a que ele parece pertencer.
@@ -33,12 +38,14 @@ export interface ParcelaDoTitulo {
 
 export type FonteDaParcela = 'nota' | 'observacao' | 'deducao';
 
-/** "29 de 36" escrito num título — a numeração que veio pronta do IXC. */
-export interface MarcacaoDeParcela {
-  posicao: number;
-  total: number;
-  fonte: 'nota' | 'observacao';
-}
+/*
+ * A leitura do "29/36" mora no mapper das contas em aberto, e não aqui.
+ *
+ * Ela deixou de servir só à contagem por fornecedor: a lista de contas
+ * mostra a parcela de cada título direto do que está escrito nele, sem
+ * depender de consulta nenhuma. Reexportado para quem já a importava daqui.
+ */
+export type { MarcacaoDeParcela };
 
 export interface ParcelasEncontradas {
   /** `idFnApagar` → o lugar daquele título na sequência. Só os agrupados. */
@@ -58,64 +65,6 @@ export interface TituloParaAgrupar {
    * que dispensa deduzir — e o que corrige a dedução quando ela errou.
    */
   marcacao?: MarcacaoDeParcela | null;
-}
-
-/**
- * O teto do total de parcelas que uma marcação pode declarar.
- *
- * Serve para não ler como parcela o que não é: "123/2024" num campo de número
- * de nota é nota com série, não parcela 123 de 2024. Trezentos e sessenta são
- * trinta anos de parcela mensal — acima disso é outra coisa.
- */
-const TETO_DE_PARCELAS_MARCADAS = 360;
-
-/**
- * A numeração escrita no título, se houver alguma.
- *
- * Dois lugares, nesta ordem:
- *
- * 1. **Número da nota** (`numero_nota`), onde o financiamento e o consórcio
- *    já vinham numerados de antes deste app existir — é lá que está o "29/36"
- *    da parcela da Hilux;
- * 2. **observação**, no "(3/6)" que esta casa escreve ao lançar uma nota
- *    parcelada.
- *
- * O que está escrito ganha do que se deduz, sempre: a dedução compara
- * fornecedor e valor porque não tem nada melhor, e aqui tem.
- */
-export function marcacaoDeParcela(
-  raw: Record<string, unknown>,
-): MarcacaoDeParcela | null {
-  const nota = lerNumeroDeParcela(String(raw.numero_nota ?? ''), /^(\d{1,4})\s*\/\s*(\d{1,4})$/);
-  if (nota) return { ...nota, fonte: 'nota' };
-
-  // Na observação a marca vem entre parênteses e no fim do texto ("Cabo UTP
-  // (3/6)"): sem os parênteses, um "1/2" solto no meio de uma descrição de
-  // material viraria parcela.
-  const obs = String(raw.obs ?? raw.observacao ?? '');
-  const emParenteses = /\((\d{1,4})\s*\/\s*(\d{1,4})\)/g;
-  let ultima: { posicao: number; total: number } | null = null;
-  for (const achado of obs.matchAll(emParenteses)) {
-    const lido = lerNumeroDeParcela(`${achado[1]}/${achado[2]}`, /^(\d{1,4})\/(\d{1,4})$/);
-    if (lido) ultima = lido;
-  }
-  return ultima ? { ...ultima, fonte: 'observacao' } : null;
-}
-
-function lerNumeroDeParcela(
-  texto: string,
-  formato: RegExp,
-): { posicao: number; total: number } | null {
-  const m = formato.exec(texto.trim());
-  if (!m) return null;
-
-  const posicao = Number(m[1]);
-  const total = Number(m[2]);
-  // "0/6" e "7/6" não são parcela de nada; "1/1" é compra à vista escrita de
-  // um jeito esquisito, e não uma sequência.
-  if (posicao < 1 || total < 2 || posicao > total) return null;
-  if (total > TETO_DE_PARCELAS_MARCADAS) return null;
-  return { posicao, total };
 }
 
 /**
@@ -197,7 +146,17 @@ export class ParcelasService {
           query: String(idFornecedor),
           oper: '=',
           sortname: 'fn_apagar.data_vencimento',
-          sortorder: 'asc',
+          /*
+           * Do vencimento mais recente para o mais antigo.
+           *
+           * Só muda o que é lido quando o fornecedor passa do teto — e aí
+           * muda tudo: o banco da empresa tem milhares de títulos, e lendo do
+           * começo os seiscentos primeiros eram de anos atrás. O
+           * financiamento que ainda está sendo pago ficava de fora, e a conta
+           * aparecia sem parcela nenhuma. Quem tem título demais interessa
+           * pelo que ainda vai vencer.
+           */
+          sortorder: 'desc',
         },
         { pageSize: 300, maxPages: TETO_POR_FORNECEDOR / 300 },
       );
@@ -264,7 +223,9 @@ export class ParcelasService {
     if (brutos.length >= TETO_POR_FORNECEDOR) {
       avisos.push(
         `O fornecedor ${idFornecedor} tem mais de ${TETO_POR_FORNECEDOR} ` +
-          'títulos no IXC. A contagem de parcelas dele usou só os primeiros.',
+          'títulos no IXC. A contagem de parcelas dele usou os mais recentes; ' +
+          'a parcela escrita no próprio título (número da nota) continua ' +
+          'valendo para todos.',
       );
     }
 

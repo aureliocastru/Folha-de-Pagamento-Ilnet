@@ -14,6 +14,71 @@
 import { parseIxcDate, parseIxcDecimal, parseIxcId } from '../ixc/ixc.parse';
 import { lerStatusAuditoria, type StatusAuditoriaIxc } from '../ixc/ixc.financeiro';
 
+/** "29 de 36" escrito num título — a numeração que veio pronta do IXC. */
+export interface MarcacaoDeParcela {
+  posicao: number;
+  total: number;
+  fonte: 'nota' | 'observacao';
+}
+
+/**
+ * O teto do total de parcelas que uma marcação pode declarar.
+ *
+ * Serve para não ler como parcela o que não é: "123/2024" num campo de número
+ * de nota é nota com série, não parcela 123 de 2024. Trezentos e sessenta são
+ * trinta anos de parcela mensal — acima disso é outra coisa.
+ */
+const TETO_DE_PARCELAS_MARCADAS = 360;
+
+/**
+ * A numeração escrita no título, se houver alguma.
+ *
+ * Dois lugares, nesta ordem:
+ *
+ * 1. **Número da nota** (`numero_nota`), onde o financiamento e o consórcio
+ *    já vinham numerados de antes deste app existir — é lá que está o "29/36"
+ *    da parcela da Hilux;
+ * 2. **observação**, no "(3/6)" que esta casa escreve ao lançar uma nota
+ *    parcelada.
+ *
+ * O que está escrito ganha do que se deduz, sempre: a dedução compara
+ * fornecedor e valor porque não tem nada melhor, e aqui tem.
+ */
+export function marcacaoDeParcela(
+  raw: Record<string, unknown>,
+): MarcacaoDeParcela | null {
+  const nota = lerNumeroDeParcela(String(raw.numero_nota ?? ''), /^(\d{1,4})\s*\/\s*(\d{1,4})$/);
+  if (nota) return { ...nota, fonte: 'nota' };
+
+  // Na observação a marca vem entre parênteses e no fim do texto ("Cabo UTP
+  // (3/6)"): sem os parênteses, um "1/2" solto no meio de uma descrição de
+  // material viraria parcela.
+  const obs = String(raw.obs ?? raw.observacao ?? '');
+  const emParenteses = /\((\d{1,4})\s*\/\s*(\d{1,4})\)/g;
+  let ultima: { posicao: number; total: number } | null = null;
+  for (const achado of obs.matchAll(emParenteses)) {
+    const lido = lerNumeroDeParcela(`${achado[1]}/${achado[2]}`, /^(\d{1,4})\/(\d{1,4})$/);
+    if (lido) ultima = lido;
+  }
+  return ultima ? { ...ultima, fonte: 'observacao' } : null;
+}
+
+function lerNumeroDeParcela(
+  texto: string,
+  formato: RegExp,
+): { posicao: number; total: number } | null {
+  const m = formato.exec(texto.trim());
+  if (!m) return null;
+
+  const posicao = Number(m[1]);
+  const total = Number(m[2]);
+  // "0/6" e "7/6" não são parcela de nada; "1/1" é compra à vista escrita de
+  // um jeito esquisito, e não uma sequência.
+  if (posicao < 1 || total < 2 || posicao > total) return null;
+  if (total > TETO_DE_PARCELAS_MARCADAS) return null;
+  return { posicao, total };
+}
+
 /** Uma conta a pagar em aberto, como esta casa a lê. */
 export interface ContaAberta {
   idFnApagar: number;
@@ -33,6 +98,21 @@ export interface ContaAberta {
   diasParaVencer: number | null;
   vencida: boolean;
   observacao: string | null;
+  /**
+   * A parcela que este título é, quando ela está escrita nele: "29/36" no
+   * número da nota, ou "(3/6)" na observação.
+   *
+   * Sai do próprio título, e não da contagem por fornecedor e valor: aqui não
+   * há palpite nenhum — é o que alguém escreveu ao lançar. É também o único
+   * caminho que funciona para quem tem muitos títulos: no banco da empresa a
+   * contagem por fornecedor lê os primeiros seiscentos e não alcança os do ano
+   * que vem, e era por isso que a parcela do financiamento não aparecia em
+   * lugar nenhum.
+   *
+   * Null quando não há nada escrito — aí quem responde de que compra o título
+   * faz parte é a contagem por fornecedor e valor.
+   */
+  parcela: MarcacaoDeParcela | null;
   statusAuditoria: StatusAuditoriaIxc | null;
   /**
    * A conta de despesa do IXC — terreno, veículo, equipamento, energia. É o
@@ -466,6 +546,7 @@ export function mapContaAberta(
     // Vence hoje ainda não está vencida: o dia de pagar é hoje.
     vencida: dias !== null && dias < 0,
     observacao: primeiroTexto(raw, ['obs', 'observacao', 'historico']),
+    parcela: marcacaoDeParcela(raw),
     statusAuditoria: lerStatusAuditoria(raw),
     categoria: {
       id: parseIxcId(raw.id_conta ?? raw.id_conta_despesa ?? raw.conta_despesa),

@@ -306,7 +306,13 @@ function ContasDaFatia({
    * etiqueta.
    */
   const achouParcela = useMemo(
-    () => fatia.linhas.some((l) => parcelas.data?.titulos[String(l.chave)]),
+    () =>
+      fatia.linhas.some(
+        (l) =>
+          parcelas.data?.titulos[String(l.chave)] ||
+          l.conta?.parcela ||
+          l.pagamento?.parcela,
+      ),
     [fatia, parcelas.data],
   );
 
@@ -429,6 +435,18 @@ function ContasDaFatia({
                     <tbody>
                       {sub.linhas.map((l) => {
                         const parcela = parcelas.data?.titulos[String(l.chave)];
+                        /*
+                         * A parcela escrita no próprio título vale mesmo sem
+                         * a contagem por fornecedor.
+                         *
+                         * O banco da empresa tem milhares de títulos, e a
+                         * contagem lê os primeiros seiscentos — os do
+                         * financiamento do ano que vem ficavam de fora, e a
+                         * linha aparecia sem parcela nenhuma. O "29/36" está
+                         * escrito no título: não depende de contar nada.
+                         */
+                        const escrita =
+                          l.conta?.parcela ?? l.pagamento?.parcela ?? null;
                         return (
                         <tr key={l.chave} className="linha">
                           <td className="td">
@@ -473,7 +491,7 @@ function ContasDaFatia({
                                   nada que o texto já não dissesse. A hierarquia
                                   aqui é de tom, não de cor: nome, do que é, e
                                   em que pé está. */}
-                              {parcela && (
+                              {parcela ? (
                                 <span
                                   className="block text-xs text-tinta-400"
                                   title={explicarParcela(parcela)}
@@ -483,6 +501,19 @@ function ContasDaFatia({
                                   {parcela.pagas === 1 ? '' : 's'},{' '}
                                   {parcela.faltam} a pagar
                                 </span>
+                              ) : (
+                                escrita && (
+                                  <span
+                                    className="block text-xs text-tinta-400"
+                                    title={
+                                      escrita.fonte === 'nota'
+                                        ? 'Está escrito no número da nota do título, no IXC.'
+                                        : 'Está escrito na observação do lançamento.'
+                                    }
+                                  >
+                                    parcela {escrita.posicao} de {escrita.total}
+                                  </span>
+                                )
                               )}
                             </button>
                           </td>

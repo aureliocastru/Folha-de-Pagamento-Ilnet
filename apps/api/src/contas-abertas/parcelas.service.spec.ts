@@ -1,8 +1,5 @@
-import {
-  agruparParcelas,
-  marcacaoDeParcela,
-  type TituloParaAgrupar,
-} from './parcelas.service';
+import { marcacaoDeParcela } from './contas-abertas.mapper';
+import { agruparParcelas, type TituloParaAgrupar } from './parcelas.service';
 
 /**
  * O IXC não guarda o vínculo entre as parcelas de uma compra: são títulos

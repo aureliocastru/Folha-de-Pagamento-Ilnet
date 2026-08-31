@@ -697,6 +697,17 @@ export interface OrigemNaFolha {
   beneficiario: string | null;
 }
 
+/**
+ * A parcela escrita no próprio título — "29/36" no número da nota do IXC, ou
+ * "(3/6)" na observação. Diferente de `ParcelaDoTitulo`, que é a contagem
+ * deduzida por fornecedor e valor: esta não é palpite, está escrita lá.
+ */
+export interface MarcacaoDeParcela {
+  posicao: number;
+  total: number;
+  fonte: 'nota' | 'observacao';
+}
+
 export interface ContaAberta {
   idFnApagar: number;
   documento: string | null;
@@ -711,6 +722,8 @@ export interface ContaAberta {
   diasParaVencer: number | null;
   vencida: boolean;
   observacao: string | null;
+  /** A parcela escrita no título, quando há uma. Null = não está escrita. */
+  parcela: MarcacaoDeParcela | null;
   statusAuditoria: 'A' | 'R' | 'C' | null;
   /** A conta de despesa do IXC: terreno, veículo, equipamento, energia… */
   categoria: { id: number | null; nome: string | null };
@@ -1346,6 +1359,8 @@ export interface PagamentoFeito {
   campoDoDia: string | null;
   /** 0 = pagou no dia, positivo = atrasado, negativo = adiantado, null = sem vencimento */
   diasDeAtraso: number | null;
+  /** A parcela escrita no título, quando há uma. */
+  parcela: MarcacaoDeParcela | null;
   formaPagamento: string | null;
   /** De qual conta/caixa o dinheiro saiu */
   caixa: { id: number | null; nome: string | null };
