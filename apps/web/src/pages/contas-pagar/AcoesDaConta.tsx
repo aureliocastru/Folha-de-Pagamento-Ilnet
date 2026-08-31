@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { Aviso, CampoDinheiro, Janela } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
-import { formatBRL, formatData } from '../../lib/format';
+import { formatBRL, formatData, formatNumeroBR } from '../../lib/format';
 import type { ContaAberta } from '../../lib/types';
 
 /** Uma conta de onde o dinheiro sai, como o IXC a tem. */
@@ -66,13 +66,18 @@ export function PagarEmMaos({
    */
   const [jaSaiu, setJaSaiu] = useState(false);
   /**
-   * O abatimento de quem paga adiantado, em reais.
+   * Quanto de fato saiu, quando saiu menos do que o título pedia.
    *
-   * Fica só no pagamento de uma conta: um desconto negociado é de uma conta, e
+   * O campo pergunta o **valor pago**, e não o desconto: quem paga um boleto
+   * com abatimento tem na mão o valor que o banco cobrou, não a diferença. A
+   * diferença é conta de cabeça — e conta de cabeça na hora de pagar é onde
+   * nasce o erro de centavo. Aqui ela é calculada e mostrada.
+   *
+   * Vale só no pagamento de uma conta: um desconto negociado é de uma conta, e
    * dividi-lo por um lote inventaria abatimento em título que ninguém
    * negociou. A API recusa o lote com desconto pelo mesmo motivo.
    */
-  const [desconto, setDesconto] = useState('');
+  const [valorPago, setValorPago] = useState('');
   const [resultado, setResultado] = useState<{
     pagas: number;
     total: number;
@@ -118,11 +123,18 @@ export function PagarEmMaos({
    * acontecer.
    */
   const cabeDesconto = !soAprova && contas.length === 1;
-  const descontoNumero = cabeDesconto ? Number(desconto) || 0 : 0;
+  /** O que foi digitado no campo. Vazio (ou zero) = pagou o valor cheio. */
+  const pagoDigitado = cabeDesconto ? Number(valorPago) || 0 : 0;
   /** O que de fato sai do caixa — e o número que vai para o IXC. */
-  const aPagar = Math.round((total - descontoNumero) * 100) / 100;
-  /** Desconto que come a conta inteira não é pagamento: a API também recusa. */
-  const descontoAlto = descontoNumero >= total;
+  const aPagar = pagoDigitado > 0 ? pagoDigitado : total;
+  /** A diferença, que é o que a empresa deixou de gastar. */
+  const descontoNumero = Math.round((total - aPagar) * 100) / 100;
+  /**
+   * Pagar mais que o título é juros e multa, não desconto — e isso esta tela
+   * não sabe registrar. Recusar aqui é melhor do que mandar ao IXC um
+   * "desconto" negativo, que ele aceitaria calado.
+   */
+  const pagouAMais = pagoDigitado > total + 0.005;
 
   const pagar = useMutation({
     mutationFn: async () => {
@@ -136,7 +148,9 @@ export function PagarEmMaos({
         contaPagamento: contaAtual,
         data,
         jaSaiu,
-        desconto: descontoNumero || undefined,
+        // Para a API vai o desconto, que é o campo que o IXC entende na baixa;
+        // o valor pago é o jeito de digitá-lo, não o jeito de guardá-lo.
+        desconto: descontoNumero > 0 ? descontoNumero : undefined,
       });
       return r;
     },
@@ -222,7 +236,7 @@ export function PagarEmMaos({
             {/* Com desconto o número grande deixa de ser o do título, e é o
                 do título que a pessoa tem na frente ao conferir. Os dois
                 aparecem: o que sai, grande, e de onde ele veio, embaixo. */}
-            {descontoNumero > 0 && !descontoAlto && (
+            {descontoNumero > 0 && !pagouAMais && (
               <div className="mt-0.5 text-xs text-tinta-400">
                 título de {formatBRL(total)} −{' '}
                 {formatBRL(descontoNumero)} de desconto
@@ -343,15 +357,24 @@ export function PagarEmMaos({
                 as duas perguntas são a mesma — em que condições o dinheiro
                 saiu —, e quem paga adiantado responde as duas de uma vez. */}
             {cabeDesconto && (
-              <div className="max-w-[200px] flex-1">
-                <label className="rotulo" htmlFor="desconto-pagamento">
-                  Desconto (antecipação)
+              <div className="max-w-[220px] flex-1">
+                <label className="rotulo" htmlFor="valor-pago">
+                  Valor pago
                 </label>
                 <CampoDinheiro
-                  id="desconto-pagamento"
-                  valor={desconto}
-                  onChange={setDesconto}
+                  id="valor-pago"
+                  valor={valorPago}
+                  onChange={setValorPago}
+                  placeholder={formatNumeroBR(total)}
                 />
+                {/* O desconto é dito aqui, embaixo do que foi digitado: é a
+                    conferência de quem acabou de digitar o valor do banco. */}
+                {descontoNumero > 0 && !pagouAMais && (
+                  <p className="mt-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                    {formatBRL(descontoNumero)} de desconto (
+                    {((descontoNumero / total) * 100).toFixed(1).replace('.', ',')}%)
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -369,21 +392,21 @@ export function PagarEmMaos({
               extrato do banco vai mostrar. */}
           {cabeDesconto && (
             <p className="mt-1 text-xs text-tinta-400">
-              Desconto é o abatimento por pagar antes do vencimento. O título
-              continua valendo {formatBRL(total)}; para o IXC vai o que saiu de
-              verdade, {formatBRL(aPagar)} — é esse valor que a conciliação
-              procura no extrato. A diferença entra como economia no painel do
-              mês.
+              Em branco, sai o valor cheio. Preencha quando o banco cobrou
+              menos por antecipação: o título continua valendo{' '}
+              {formatBRL(total)}, e para o IXC vai o que saiu de verdade — é
+              esse valor que a conciliação procura no extrato. A diferença
+              entra como economia no painel do mês.
             </p>
           )}
         </div>
       )}
 
-      {descontoAlto && (
+      {pagouAMais && (
         <Aviso tom="erro">
-          O desconto de {formatBRL(descontoNumero)} alcança o valor do título (
-          {formatBRL(total)}) — assim não sobra pagamento nenhum. Para uma conta
-          que não vai ser paga, o caminho é cancelá-la no IXC.
+          {formatBRL(aPagar)} é mais do que o título pede ({formatBRL(total)}).
+          Pagar a mais é juros e multa, e isso não entra por aqui: registre a
+          diferença no IXC, ou corrija o valor.
         </Aviso>
       )}
 
@@ -400,7 +423,7 @@ export function PagarEmMaos({
         </button>
         <button
           onClick={() => pagar.mutate()}
-          disabled={pagar.isPending || descontoAlto}
+          disabled={pagar.isPending || pagouAMais}
           className="btn btn-primario"
         >
           {pagar.isPending
