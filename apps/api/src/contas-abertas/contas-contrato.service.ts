@@ -6,11 +6,17 @@ import {
 } from '@nestjs/common';
 import { ContaContrato, ContaPagar, Prisma } from '@prisma/client';
 import { ContasPagarService } from '../financeiro/contas-pagar.service';
+import { IxcClient } from '../ixc/ixc.client';
 import {
   pareceCodigoDeBoleto,
   somenteDigitosDoBoleto,
 } from '../ixc/ixc.financeiro';
+import { parseIxcDecimal, parseIxcId } from '../ixc/ixc.parse';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  primeiraData,
+  primeiroTexto,
+} from './contas-abertas.mapper';
 import { CategoriasService } from './categorias.service';
 import { proximoDiaUtil } from './dias-uteis';
 
@@ -27,6 +33,45 @@ const MESES_NA_REFERENCIA = 6;
  */
 const FORA_DO_PADRAO_ACIMA = 2;
 const FORA_DO_PADRAO_ABAIXO = 0.5;
+
+/**
+ * Quantos títulos se lê do IXC por conta contrato ao vasculhar o histórico.
+ *
+ * Dez anos de conta de luz cabem em 120 linhas; duzentas dão folga e ainda
+ * são uma consulta só por endereço.
+ */
+const TETO_DO_HISTORICO_IXC = 200;
+
+/** O que o histórico do IXC contou sobre um endereço. */
+export interface DescobertaDoHistorico {
+  numero: string;
+  /** O nome que veio na lista colada, quando veio. */
+  apelido: string | null;
+  /** Quantos títulos daquele número foram achados no IXC. */
+  titulos: number;
+  fornecedor: { id: number; nome: string | null } | null;
+  contaContabil: number | null;
+  contaPagamento: number | null;
+  tipoPagamento: string | null;
+  /** O dia do mês em que essas contas costumam vencer. */
+  diaDeVencimento: number | null;
+  ultimoVencimento: Date | null;
+  /** As últimas faturas achadas, da mais recente para a mais antiga. */
+  valores: Array<{ competencia: string; valor: number }>;
+  media: number | null;
+  /** Já existe cadastro com este número — importar de novo seria repetir. */
+  jaCadastrada: boolean;
+  /** O que não deu para descobrir, em uma linha. */
+  aviso: string | null;
+}
+
+/** O que o histórico sugere para todos os endereços de uma vez. */
+export interface SugestaoDeImportacao {
+  fornecedor: { id: number; nome: string | null } | null;
+  contaContabil: number | null;
+  contaPagamento: number | null;
+  tipoPagamento: string | null;
+}
 
 /** Uma conta contrato com o que a tela do mês precisa saber sem abrir nada. */
 export interface ContaContratoDoMes {
@@ -156,6 +201,9 @@ export class ContasContratoService {
     private readonly prisma: PrismaService,
     private readonly contasPagar: ContasPagarService,
     private readonly categorias: CategoriasService,
+    // Para vasculhar o histórico: as contas de luz de anos anteriores estão no
+    // IXC, e é de lá que sai o dia em que cada endereço vence.
+    private readonly ixc: IxcClient,
   ) {}
 
   /**
@@ -233,6 +281,300 @@ export class ContasContratoService {
         };
       }),
     };
+  }
+
+  /**
+   * O que o IXC já sabe sobre cada conta contrato — lido dos títulos que
+   * alguém lançou à mão nos anos anteriores.
+   *
+   * A conta de luz não é novidade nenhuma para a empresa: ela é paga há anos, e
+   * cada fatura virou um `fn_apagar` com o número da conta contrato escrito na
+   * observação. É esse rastro que responde o que o cadastro precisa saber e
+   * ninguém tem de cabeça: em que dia cada endereço vence, para quem se paga,
+   * em que conta contábil aquilo entra, e quanto costuma custar.
+   *
+   * O dia é o **mais frequente** entre os vencimentos, e não o do último
+   * título: uma fatura paga com atraso e relançada com outra data não pode
+   * mudar o dia do endereço inteiro.
+   *
+   * Só lê. O que sai daqui é uma proposta para alguém conferir antes de virar
+   * cadastro.
+   */
+  async descobrirNoHistorico(
+    pedidos: Array<{ numero: string; apelido?: string }>,
+  ): Promise<{
+    descobertas: DescobertaDoHistorico[];
+    sugestao: SugestaoDeImportacao;
+  }> {
+    const vistos = new Set<string>();
+    const descobertas: DescobertaDoHistorico[] = [];
+
+    const fornecedores: number[] = [];
+    const contabeis: number[] = [];
+    const pagamentos: number[] = [];
+    const tipos: string[] = [];
+
+    for (const pedido of pedidos) {
+      const numero = somenteDigitos(pedido.numero);
+      if (!numero || vistos.has(numero)) continue;
+      vistos.add(numero);
+
+      const jaCadastrada = !!(await this.prisma.contaContrato.findUnique({
+        where: { numero },
+        select: { id: true },
+      }));
+
+      const achado = await this.lerHistoricoDoNumero(numero);
+      descobertas.push({
+        numero,
+        apelido: pedido.apelido?.trim() || null,
+        jaCadastrada,
+        ...achado,
+      });
+
+      if (achado.fornecedor) fornecedores.push(achado.fornecedor.id);
+      if (achado.contaContabil) contabeis.push(achado.contaContabil);
+      if (achado.contaPagamento) pagamentos.push(achado.contaPagamento);
+      if (achado.tipoPagamento) tipos.push(achado.tipoPagamento);
+    }
+
+    /*
+     * A sugestão de cima é a moda de todos os endereços juntos: eles pagam a
+     * mesma distribuidora, na mesma conta contábil, pela mesma conta bancária.
+     * O endereço cujo histórico não trouxe nada herda daí, em vez de ficar sem
+     * — e quem conferir vê o mesmo valor repetido em todas as linhas, que é
+     * justamente o sinal de que está certo.
+     */
+    const idFornecedor = maisFrequente(fornecedores);
+    const nomeDoFornecedor =
+      descobertas.find((d) => d.fornecedor?.id === idFornecedor)?.fornecedor
+        ?.nome ?? null;
+
+    return {
+      descobertas,
+      sugestao: {
+        fornecedor:
+          idFornecedor === null
+            ? null
+            : { id: idFornecedor, nome: nomeDoFornecedor },
+        contaContabil: maisFrequente(contabeis),
+        contaPagamento: maisFrequente(pagamentos),
+        tipoPagamento: maisFrequente(tipos),
+      },
+    };
+  }
+
+  /**
+   * Os títulos que trazem aquele número na observação.
+   *
+   * A busca é pelo `obs` com LIKE, que é como o número foi escrito lá: o IXC
+   * não tem campo para conta contrato, e é por isso que ele acabou no texto.
+   * Título cancelado fica de fora — ele não foi pago e não diz nada sobre
+   * quanto o endereço custa.
+   *
+   * Falhar aqui não derruba a descoberta inteira: o endereço volta com o
+   * aviso, e os outros continuam respondendo.
+   */
+  private async lerHistoricoDoNumero(
+    numero: string,
+  ): Promise<Omit<DescobertaDoHistorico, 'numero' | 'apelido' | 'jaCadastrada'>> {
+    const vazio = {
+      titulos: 0,
+      fornecedor: null,
+      contaContabil: null,
+      contaPagamento: null,
+      tipoPagamento: null,
+      diaDeVencimento: null,
+      ultimoVencimento: null,
+      valores: [],
+      media: null,
+    };
+
+    let registros: Record<string, unknown>[];
+    try {
+      const res = await this.ixc.list<Record<string, unknown>>('fn_apagar', {
+        qtype: 'fn_apagar.obs',
+        query: numero,
+        // "L" é o LIKE do webservice: o número está no meio de um texto
+        // ("ENERGIA LOJA 3010664470"), nunca sozinho.
+        oper: 'L',
+        rp: TETO_DO_HISTORICO_IXC,
+        sortname: 'fn_apagar.data_vencimento',
+        sortorder: 'desc',
+      });
+      registros = res.registros;
+    } catch (err) {
+      const motivo = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `Nao deu para ler o historico da conta contrato ${numero}: ${motivo}`,
+      );
+      return { ...vazio, aviso: `O IXC nao respondeu a busca (${motivo}).` };
+    }
+
+    const dias: number[] = [];
+    const fornecedores: number[] = [];
+    const contabeis: number[] = [];
+    const pagamentos: number[] = [];
+    const tipos: string[] = [];
+    const faturas: Array<{ competencia: string; valor: number }> = [];
+    let nomeDoFornecedor: string | null = null;
+    let ultimoVencimento: Date | null = null;
+    let contados = 0;
+
+    for (const raw of registros) {
+      // Base que ignore o filtro devolve tudo: sem conferir o número de novo,
+      // o dia de vencimento sairia da conta de outro endereço.
+      const obs = String(raw.obs ?? raw.observacao ?? '');
+      if (!somenteDigitos(obs).includes(numero)) continue;
+
+      // Cancelado não foi pago e não conta para nada — nem para o dia, nem
+      // para a média.
+      if (String(raw.status ?? '').trim().toUpperCase() === 'C') continue;
+
+      contados += 1;
+
+      const vencimento = primeiraData(raw, [
+        'data_vencimento',
+        'data_venc',
+        'vencimento',
+      ]);
+      if (vencimento) {
+        dias.push(vencimento.getUTCDate());
+        if (!ultimoVencimento || vencimento > ultimoVencimento) {
+          ultimoVencimento = vencimento;
+        }
+        const valor = parseIxcDecimal(raw.valor ?? raw.valor_documento);
+        if (valor > 0 && faturas.length < MESES_NA_REFERENCIA) {
+          faturas.push({ competencia: mesDaData(vencimento), valor });
+        }
+      }
+
+      const idFornecedor = parseIxcId(raw.id_fornecedor ?? raw.fornecedor_id);
+      if (idFornecedor) {
+        fornecedores.push(idFornecedor);
+        nomeDoFornecedor =
+          nomeDoFornecedor ??
+          primeiroTexto(raw, ['fornecedor', 'razao', 'nome_fornecedor']);
+      }
+
+      const contabil = parseIxcId(raw.id_conta);
+      if (contabil) contabeis.push(contabil);
+      const pagamento = parseIxcId(raw.id_contas);
+      if (pagamento) pagamentos.push(pagamento);
+      const tipo = primeiroTexto(raw, ['tipo_pagamento']);
+      if (tipo) tipos.push(tipo);
+    }
+
+    if (contados === 0) {
+      return {
+        ...vazio,
+        aviso:
+          'Nenhum titulo com este numero na observacao. Ou ele nunca foi ' +
+          'lancado aqui, ou foi escrito de outro jeito.',
+      };
+    }
+
+    const idFornecedor = maisFrequente(fornecedores);
+
+    return {
+      titulos: contados,
+      fornecedor:
+        idFornecedor === null
+          ? null
+          : { id: idFornecedor, nome: nomeDoFornecedor },
+      contaContabil: maisFrequente(contabeis),
+      contaPagamento: maisFrequente(pagamentos),
+      tipoPagamento: maisFrequente(tipos),
+      diaDeVencimento: maisFrequente(dias),
+      ultimoVencimento,
+      valores: faturas,
+      media: media(faturas.map((f) => f.valor)),
+      aviso:
+        dias.length === 0
+          ? 'Os titulos achados nao tem vencimento no IXC: o dia precisa ser informado a mao.'
+          : null,
+    };
+  }
+
+  /**
+   * Cadastra vários endereços de uma vez, a partir do que a descoberta achou.
+   *
+   * Um por um, e o que entrou fica: cadastro repetido (o número já existe) é
+   * recusado sozinho, sem levar os outros junto. É o mesmo desenho da geração
+   * das faturas, e pelo mesmo motivo — o maço é o trabalho, e ele não pode
+   * parar na terceira linha.
+   */
+  async importar(
+    padroes: {
+      idFornecedorIxc: number;
+      fornecedorNome: string;
+      contaContabil?: number;
+      contaPagamento?: number;
+      tipoPagamentoIxc?: string;
+      categoriaId?: string | null;
+    },
+    itens: Array<{
+      apelido: string;
+      numero: string;
+      diaDeChegada: number;
+      diaDeVencimento: number;
+      /** A média que o histórico do IXC mostrou, quando houve. */
+      valorDeReferencia?: number;
+    }>,
+    usuarioId?: string,
+  ): Promise<{
+    criadas: Array<{ id: string; apelido: string }>;
+    falhas: Array<{ apelido: string; numero: string; erro: string }>;
+  }> {
+    const criadas: Array<{ id: string; apelido: string }> = [];
+    const falhas: Array<{ apelido: string; numero: string; erro: string }> = [];
+
+    for (const item of itens) {
+      try {
+        const criada = await this.criar(
+          {
+            apelido: item.apelido,
+            numero: item.numero,
+            idFornecedorIxc: padroes.idFornecedorIxc,
+            fornecedorNome: padroes.fornecedorNome,
+            diaDeChegada: item.diaDeChegada,
+            diaDeVencimento: item.diaDeVencimento,
+            contaContabil: padroes.contaContabil,
+            contaPagamento: padroes.contaPagamento,
+            tipoPagamentoIxc: padroes.tipoPagamentoIxc,
+            categoriaId: padroes.categoriaId ?? null,
+          },
+          usuarioId,
+        );
+
+        /*
+         * A média vem do histórico do IXC, e não de zero.
+         *
+         * Sem isto, a tela só começaria a estranhar valor fora do padrão
+         * depois de alguns meses de uso — justamente o período em que ninguém
+         * ainda tem o costume de conferir a lista.
+         */
+        if (item.valorDeReferencia && item.valorDeReferencia > 0) {
+          await this.prisma.contaContrato.update({
+            where: { id: criada.id },
+            data: {
+              valorDeReferencia: new Prisma.Decimal(item.valorDeReferencia),
+            },
+          });
+        }
+
+        criadas.push({ id: criada.id, apelido: criada.apelido });
+      } catch (err) {
+        const erro = err instanceof Error ? err.message : String(err);
+        falhas.push({ apelido: item.apelido, numero: item.numero, erro });
+      }
+    }
+
+    this.logger.log(
+      `Importacao de contas contrato: ${criadas.length} cadastradas, ` +
+        `${falhas.length} recusadas.`,
+    );
+    return { criadas, falhas };
   }
 
   async criar(
@@ -493,12 +835,23 @@ export class ContasContratoService {
          */
         proximoDiaUtil(diaDaCompetencia(competencia, contrato.diaDeVencimento));
 
+    /*
+     * O número da conta contrato vai escrito na observação, e não só no campo
+     * do documento.
+     *
+     * É a convenção da casa, de antes deste app existir: no IXC as contas de
+     * luz são achadas procurando o número no texto da observação, porque não
+     * há campo próprio para ele. Manter o costume é o que faz a busca de lá
+     * continuar encontrando as contas lançadas daqui — e é dela que sai o
+     * histórico de cada endereço.
+     */
     const observacao = [
       `Energia ${contrato.apelido} ${mesPorExtenso(competencia)}`,
+      `conta contrato ${contrato.numero}`,
       contrato.observacao,
     ]
       .filter(Boolean)
-      .join(' — ')
+      .join(' - ')
       .slice(0, 500);
 
     /*
@@ -601,6 +954,36 @@ export function foraDoPadrao(valor: number, media: number | null): boolean {
   return valor > media * FORA_DO_PADRAO_ACIMA || valor < media * FORA_DO_PADRAO_ABAIXO;
 }
 
+/**
+ * O valor que mais se repete numa lista — a moda.
+ *
+ * É ela que responde "em que dia isto vence": o último título pode ter sido
+ * relançado com outra data depois de um atraso, e a média entre o dia 5 e o
+ * dia 25 daria o dia 15, que não é dia de vencimento de nada. Empate fica com
+ * o que apareceu primeiro — na busca por vencimento decrescente, o mais
+ * recente.
+ */
+function maisFrequente<T extends string | number>(valores: T[]): T | null {
+  if (valores.length === 0) return null;
+  const contagem = new Map<T, number>();
+  for (const v of valores) contagem.set(v, (contagem.get(v) ?? 0) + 1);
+
+  let campeao: T | null = null;
+  let melhor = 0;
+  for (const [valor, quantas] of contagem) {
+    if (quantas > melhor) {
+      campeao = valor;
+      melhor = quantas;
+    }
+  }
+  return campeao;
+}
+
+/** "AAAA-MM" da data — a competência a que aquela fatura se refere. */
+function mesDaData(data: Date): string {
+  return `${data.getUTCFullYear()}-${String(data.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
 function media(valores: number[]): number | null {
   if (valores.length === 0) return null;
   const soma = valores.reduce((s, v) => s + v, 0);
@@ -681,6 +1064,7 @@ function dataUtc(iso: string): Date {
 function somenteDigitos(texto: string): string {
   return String(texto ?? '').replace(/\D/g, '');
 }
+
 
 function moeda(valor: number): string {
   return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });

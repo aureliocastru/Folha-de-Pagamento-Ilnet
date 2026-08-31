@@ -44,6 +44,8 @@ function montarServico(
     contratos?: Record<string, unknown>[];
     /** As contas a pagar que já existem ligadas a uma conta contrato. */
     jaLancadas?: Record<string, unknown>[];
+    /** Os títulos que o IXC devolve ao procurar o número na observação. */
+    historicoIxc?: Record<string, unknown>[];
     erroAoCriar?: string;
   } = {},
 ) {
@@ -81,12 +83,19 @@ function montarServico(
 
   const categorias = { classificar: jest.fn() };
 
+  // O quarto: quem vasculha o histórico do IXC atrás do que cada endereço
+  // vem custando e do dia em que ele vence.
+  const ixc = {
+    list: jest.fn(async () => ({ registros: opts.historicoIxc ?? [], total: 0 })),
+  };
+
   const service = new ContasContratoService(
     prisma as never,
     contasPagar as never,
     categorias as never,
+    ixc as never,
   );
-  return { service, prisma, contasPagar, categorias, criadas, vinculos };
+  return { service, prisma, contasPagar, categorias, ixc, criadas, vinculos };
 }
 
 describe('ContasContratoService.gerar', () => {
@@ -107,7 +116,11 @@ describe('ContasContratoService.gerar', () => {
       contaPagamento: 18,
       tipoPagamentoIxc: 'Boleto',
     });
-    expect(criadas[0].observacao).toBe('Energia Garagem agosto/2026');
+    // O número vai escrito na observação, e não só no documento: é assim que
+    // as contas de luz são procuradas no IXC.
+    expect(criadas[0].observacao).toBe(
+      'Energia Garagem agosto/2026 - conta contrato 3009834981',
+    );
     // O vínculo é o que responde "a de agosto da Garagem já foi lançada?".
     expect(vinculos[0]).toMatchObject({
       contaContratoId: 'cc1',
@@ -330,6 +343,184 @@ describe('lerCodigoDaFatura', () => {
     // Copia e cola truncado na cópia, ou meia linha digitável: mandar isso ao
     // IXC criaria um título sem como ser pago.
     expect(() => lerCodigoDaFatura('123456')).toThrow(BadRequestException);
+  });
+});
+
+/**
+ * A descoberta no histórico do IXC.
+ *
+ * A conta de luz é paga há anos, e cada fatura virou um título com o número da
+ * conta contrato escrito na observação. É de lá que sai o que o cadastro
+ * pergunta e ninguém tem de cabeça — e o que este bloco protege é o cuidado de
+ * não trazer o dado do endereço errado.
+ */
+describe('ContasContratoService.descobrirNoHistorico', () => {
+  function titulo(over: Record<string, unknown> = {}) {
+    return {
+      id: '1',
+      obs: 'ENERGIA LOJA 3010664470',
+      data_vencimento: '2026-07-10',
+      valor: '1800.00',
+      id_fornecedor: '3',
+      id_conta: '54',
+      id_contas: '14',
+      tipo_pagamento: 'Boleto',
+      status: 'F',
+      ...over,
+    };
+  }
+
+  it('lê o dia do vencimento, o fornecedor e a média do que já foi pago', async () => {
+    const { service, ixc } = montarServico({
+      historicoIxc: [
+        titulo({ id: '1', data_vencimento: '2026-07-10', valor: '1800.00' }),
+        titulo({ id: '2', data_vencimento: '2026-06-10', valor: '1600.00' }),
+        titulo({ id: '3', data_vencimento: '2026-05-10', valor: '1700.00' }),
+      ],
+    });
+
+    const r = await service.descobrirNoHistorico([
+      { numero: '3010664470', apelido: 'Loja' },
+    ]);
+
+    expect(r.descobertas[0]).toMatchObject({
+      numero: '3010664470',
+      apelido: 'Loja',
+      titulos: 3,
+      diaDeVencimento: 10,
+      contaContabil: 54,
+      contaPagamento: 14,
+      media: 1700,
+      jaCadastrada: false,
+    });
+    expect(r.descobertas[0].fornecedor).toMatchObject({ id: 3 });
+    // A busca é pelo texto da observação, que é onde o número mora no IXC.
+    expect(ixc.list).toHaveBeenCalledWith(
+      'fn_apagar',
+      expect.objectContaining({ qtype: 'fn_apagar.obs', oper: 'L' }),
+    );
+  });
+
+  it('o dia é o mais frequente, não o do último título', async () => {
+    // Uma fatura paga com atraso e relançada com outra data não pode mudar o
+    // dia do endereço inteiro.
+    const { service } = montarServico({
+      historicoIxc: [
+        titulo({ id: '1', data_vencimento: '2026-07-28' }),
+        titulo({ id: '2', data_vencimento: '2026-06-10' }),
+        titulo({ id: '3', data_vencimento: '2026-05-10' }),
+      ],
+    });
+
+    const r = await service.descobrirNoHistorico([{ numero: '3010664470' }]);
+
+    expect(r.descobertas[0].diaDeVencimento).toBe(10);
+  });
+
+  it('não conta o título de outro endereço que o IXC devolveu junto', async () => {
+    const { service } = montarServico({
+      historicoIxc: [
+        titulo({ id: '1', obs: 'ENERGIA LOJA 3010664470' }),
+        titulo({ id: '2', obs: 'ENERGIA GARAGEM 3009834981', valor: '99.00' }),
+      ],
+    });
+
+    const r = await service.descobrirNoHistorico([{ numero: '3010664470' }]);
+
+    expect(r.descobertas[0].titulos).toBe(1);
+  });
+
+  it('título cancelado não entra na média nem no dia', async () => {
+    const { service } = montarServico({
+      historicoIxc: [
+        titulo({ id: '1', status: 'C', valor: '99999.00' }),
+        titulo({ id: '2', valor: '1800.00' }),
+      ],
+    });
+
+    const r = await service.descobrirNoHistorico([{ numero: '3010664470' }]);
+
+    expect(r.descobertas[0]).toMatchObject({ titulos: 1, media: 1800 });
+  });
+
+  it('sem nenhum título achado, diz o que houve em vez de inventar', async () => {
+    const { service } = montarServico({ historicoIxc: [] });
+
+    const r = await service.descobrirNoHistorico([{ numero: '3010664470' }]);
+
+    expect(r.descobertas[0]).toMatchObject({
+      titulos: 0,
+      diaDeVencimento: null,
+      media: null,
+    });
+    expect(r.descobertas[0].aviso).toMatch(/nenhum titulo/i);
+  });
+
+  it('a sugestão de cima é o que se repete em todos os endereços', async () => {
+    const { service } = montarServico({ historicoIxc: [titulo()] });
+
+    const r = await service.descobrirNoHistorico([
+      { numero: '3010664470' },
+      { numero: '3009834981' },
+    ]);
+
+    expect(r.sugestao).toMatchObject({
+      contaContabil: 54,
+      contaPagamento: 14,
+      tipoPagamento: 'Boleto',
+    });
+    expect(r.sugestao.fornecedor).toMatchObject({ id: 3 });
+  });
+
+  it('o mesmo número duas vezes na lista é uma consulta só', async () => {
+    const { service, ixc } = montarServico({ historicoIxc: [titulo()] });
+
+    const r = await service.descobrirNoHistorico([
+      { numero: '3010664470' },
+      { numero: '3.010.664-470' },
+    ]);
+
+    expect(r.descobertas).toHaveLength(1);
+    expect(ixc.list).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('ContasContratoService.importar', () => {
+  it('cadastra o que dá, e o repetido sai com o motivo', async () => {
+    const { service, prisma } = montarServico();
+    // O segundo número já está no cadastro: `criar` recusa por causa disso.
+    prisma.contaContrato.findUnique = jest.fn(async ({ where }: never) =>
+      (where as { numero?: string }).numero === '3009834981'
+        ? { id: 'x', apelido: 'Garagem' }
+        : null,
+    ) as never;
+    prisma.contaContrato.create = jest.fn(async ({ data }: never) => ({
+      ...(data as object),
+      id: 'novo',
+    })) as never;
+
+    const r = await service.importar(
+      { idFornecedorIxc: 3, fornecedorNome: 'CEMAR', contaContabil: 54 },
+      [
+        {
+          apelido: 'Loja',
+          numero: '3010664470',
+          diaDeChegada: 10,
+          diaDeVencimento: 10,
+          valorDeReferencia: 1700,
+        },
+        {
+          apelido: 'Garagem',
+          numero: '3009834981',
+          diaDeChegada: 12,
+          diaDeVencimento: 12,
+        },
+      ],
+    );
+
+    expect(r.criadas).toHaveLength(1);
+    expect(r.falhas[0]).toMatchObject({ apelido: 'Garagem' });
+    expect(r.falhas[0].erro).toMatch(/já está cadastrada/i);
   });
 });
 

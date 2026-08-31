@@ -81,6 +81,39 @@ interface ContaDoPlano {
   nome: string;
 }
 
+/** O que o histórico do IXC contou sobre um número de conta contrato. */
+interface DescobertaDoHistorico {
+  numero: string;
+  apelido: string | null;
+  titulos: number;
+  fornecedor: { id: number; nome: string | null } | null;
+  contaContabil: number | null;
+  contaPagamento: number | null;
+  tipoPagamento: string | null;
+  diaDeVencimento: number | null;
+  ultimoVencimento: string | null;
+  valores: Array<{ competencia: string; valor: number }>;
+  media: number | null;
+  jaCadastrada: boolean;
+  aviso: string | null;
+}
+
+interface RespostaDaDescoberta {
+  descobertas: DescobertaDoHistorico[];
+  sugestao: {
+    fornecedor: { id: number; nome: string | null } | null;
+    contaContabil: number | null;
+    contaPagamento: number | null;
+    tipoPagamento: string | null;
+  };
+}
+
+/** O que a tela precisa saber da configuração para dizer qual é o padrão. */
+interface ConfigDaCasa {
+  contaPagamentoId: number;
+  contaContabilAvulso: number;
+}
+
 /**
  * De quanto o valor precisa fugir da média para a tela estranhar. É o mesmo
  * limite do servidor: conta de luz varia sozinha com a estação, o que não é
@@ -89,6 +122,29 @@ interface ContaDoPlano {
  */
 const FORA_DO_PADRAO_ACIMA = 2;
 const FORA_DO_PADRAO_ABAIXO = 0.5;
+
+/**
+ * A distribuidora, a conta contábil e a conta de onde a luz é paga.
+ *
+ * Ficam escritas aqui porque nesta tela elas são sempre as mesmas: são todas
+ * contas de energia da mesma companhia, lançadas na mesma conta de despesa e
+ * pagas pela mesma conta bancária. Cadastrar onze endereços escolhendo as três
+ * onze vezes é onze chances de escolher diferente — e uma conta na conta
+ * contábil errada só aparece no fechamento do mês.
+ *
+ * Nada aqui é obrigatório: os três campos continuam editáveis no formulário,
+ * para o endereço que fugir da regra.
+ */
+const DISTRIBUIDORA_PADRAO = {
+  id: 3,
+  nome: 'Companhia Energética do Maranhão',
+};
+/** "Luz (despesas)" no plano de contas do IXC. */
+const CONTA_CONTABIL_DA_LUZ = '54';
+/** Sicoob — de onde as faturas de energia saem. */
+const CONTA_DE_PAGAMENTO_DA_LUZ = '14';
+/** O nome da categoria desta casa que estas contas recebem. */
+const CATEGORIA_DA_LUZ = /energia|luz/i;
 
 /**
  * Contas Contrato — a conta de luz de cada endereço da empresa.
@@ -121,6 +177,7 @@ export function ContasContrato() {
     null,
   );
   const [cadastrando, setCadastrando] = useState(false);
+  const [importando, setImportando] = useState(false);
   const [editando, setEditando] = useState<ContaContrato | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [erro, setErro] = useState(false);
@@ -251,12 +308,24 @@ export function ContasContrato() {
         titulo="Contas Contrato"
         descricao="A conta de luz de cada endereço. O cadastro guarda o que não muda; o valor da fatura se digita quando ela chega, e vira conta a pagar no IXC num clique."
         acoes={
-          <button
-            onClick={() => setCadastrando(true)}
-            className="btn btn-acao"
-          >
-            Cadastrar endereço
-          </button>
+          <>
+            {/* O caminho de encher a tela na primeira vez: os endereços já são
+                pagos há anos, e o IXC sabe de cada um o que este cadastro
+                precisa. Digitar onze vezes o que já está escrito lá seria o
+                trabalho que esta tela existe para tirar. */}
+            <button
+              onClick={() => setImportando(true)}
+              className="btn btn-neutro"
+            >
+              Importar do histórico
+            </button>
+            <button
+              onClick={() => setCadastrando(true)}
+              className="btn btn-acao"
+            >
+              Cadastrar endereço
+            </button>
+          </>
         }
       />
 
@@ -445,6 +514,18 @@ export function ContasContrato() {
             setLendo(null);
           }}
           onFechar={() => setLendo(null)}
+        />
+      )}
+
+      {importando && (
+        <ImportarDoHistorico
+          onFechar={() => setImportando(false)}
+          onPronto={(mensagem, houveFalha) => {
+            setErro(houveFalha);
+            setAviso(mensagem);
+            setImportando(false);
+            invalidar();
+          }}
         />
       )}
 
@@ -731,11 +812,21 @@ function CadastroDoEndereco({
   const [diaDeVencimento, setDiaDeVencimento] = useState(
     String(contrato?.diaDeVencimento ?? ''),
   );
+  // O cadastro novo já abre com o que vale para toda conta de luz; a edição
+  // abre com o que está gravado, que é o que se foi conferir.
   const [contaContabil, setContaContabil] = useState(
-    contrato?.contaContabil ? String(contrato.contaContabil) : '',
+    contrato
+      ? contrato.contaContabil
+        ? String(contrato.contaContabil)
+        : ''
+      : CONTA_CONTABIL_DA_LUZ,
   );
   const [contaPagamento, setContaPagamento] = useState(
-    contrato?.contaPagamento ? String(contrato.contaPagamento) : '',
+    contrato
+      ? contrato.contaPagamento
+        ? String(contrato.contaPagamento)
+        : ''
+      : CONTA_DE_PAGAMENTO_DA_LUZ,
   );
   const [tipoPagamento, setTipoPagamento] = useState(
     contrato?.tipoPagamentoIxc ?? 'Boleto',
@@ -750,7 +841,8 @@ function CadastroDoEndereco({
   } | null>(
     contrato
       ? { id: contrato.idFornecedorIxc, nome: contrato.fornecedorNome }
-      : null,
+      : // Já vem marcada: é sempre ela. Trocar continua sendo um clique.
+        DISTRIBUIDORA_PADRAO,
   );
   const [termo, setTermo] = useState('');
   const [buscaEfetiva, setBuscaEfetiva] = useState('');
@@ -777,6 +869,29 @@ function CadastroDoEndereco({
     queryKey: ['categorias-despesa'],
     queryFn: async () =>
       (await api.get<CategoriaDespesa[]>('/categorias-despesa')).data,
+  });
+
+  /*
+   * A categoria já abre em "Energia".
+   *
+   * Ela só pode ser escolhida depois que a lista chega, e por isso não dá para
+   * ser o estado inicial. Vale uma vez, e nunca por cima de uma escolha: quem
+   * trocou para outra categoria trocou de propósito.
+   */
+  useEffect(() => {
+    if (contrato || !categorias.data) return;
+    const energia = categorias.data.find(
+      (c) => c.ativa && CATEGORIA_DA_LUZ.test(c.nome),
+    );
+    if (energia) setCategoriaId((atual) => atual || energia.id);
+  }, [categorias.data, contrato]);
+
+  /** A configuração da casa, para os seletores dizerem qual é o padrão. */
+  const config = useQuery({
+    queryKey: ['config-financeira'],
+    queryFn: async () =>
+      (await api.get<ConfigDaCasa>('/config-financeira')).data,
+    retry: 0,
   });
 
   const contasIxc = useQuery({
@@ -974,7 +1089,12 @@ function CadastroDoEndereco({
             className="campo"
             disabled={plano.isLoading}
           >
-            <option value="">Padrão das Configurações</option>
+            {/* O padrão é dito pelo nome, e não como "o padrão": quem
+                escolhe precisa saber em que conta a despesa vai cair sem ter
+                de abrir as Configurações noutra aba. */}
+            <option value="">
+              {nomeDaContaContabilPadrao(config.data, plano.data)}
+            </option>
             {(plano.data ?? []).map((p) => (
               <option key={p.id} value={p.id}>
                 {p.id} — {p.nome}
@@ -994,7 +1114,9 @@ function CadastroDoEndereco({
             className="campo"
             disabled={contasIxc.isLoading}
           >
-            <option value="">Padrão das Configurações</option>
+            <option value="">
+              {nomeDaContaDePagamentoPadrao(config.data, contasIxc.data)}
+            </option>
             {(contasIxc.data ?? [])
               .filter((c) => c.usual || c.ativa)
               .map((c) => (
@@ -1094,6 +1216,434 @@ function classificarCodigo(codigo: string): string {
     return `boleto de ${digitos.length} dígitos — a conta vai como Boleto`;
   }
   return `não parece boleto (44, 47 ou 48 dígitos — este tem ${digitos.length}) nem PIX copia e cola`;
+}
+
+/**
+ * Encher o cadastro de uma vez, lendo o que o IXC já sabe.
+ *
+ * A empresa paga estas contas de luz há anos: cada fatura virou um título com
+ * o número da conta contrato escrito na observação. Dali sai tudo o que o
+ * cadastro pergunta e ninguém tem de cabeça — em que dia cada endereço vence,
+ * para quem se paga, em que conta contábil entra, quanto costuma custar.
+ *
+ * O que se cola aqui é a lista que já existe no papel ("Lago Verde -
+ * 3021839328"), e o que volta é uma proposta para conferir antes de virar
+ * cadastro. Nada é criado sem o segundo clique.
+ */
+function ImportarDoHistorico({
+  onFechar,
+  onPronto,
+}: {
+  onFechar: () => void;
+  onPronto: (mensagem: string, houveFalha: boolean) => void;
+}) {
+  const [texto, setTexto] = useState('');
+  const [descobertas, setDescobertas] = useState<DescobertaDoHistorico[] | null>(
+    null,
+  );
+  /** O dia editado à mão, por número: quando o histórico não soube dizer. */
+  const [dias, setDias] = useState<Record<string, string>>({});
+  const [fornecedor, setFornecedor] = useState(DISTRIBUIDORA_PADRAO);
+  const [contaContabil, setContaContabil] = useState(CONTA_CONTABIL_DA_LUZ);
+  const [contaPagamento, setContaPagamento] = useState(
+    CONTA_DE_PAGAMENTO_DA_LUZ,
+  );
+  const [categoriaId, setCategoriaId] = useState('');
+
+  const categorias = useQuery({
+    queryKey: ['categorias-despesa'],
+    queryFn: async () =>
+      (await api.get<CategoriaDespesa[]>('/categorias-despesa')).data,
+  });
+
+  const plano = useQuery({
+    queryKey: ['plano-de-contas'],
+    queryFn: async () =>
+      (await api.get<ContaDoPlano[]>('/contas-abertas/plano-de-contas')).data,
+    retry: 0,
+  });
+
+  const contasIxc = useQuery({
+    queryKey: ['contas-pagamento'],
+    queryFn: async () =>
+      (
+        await api.get<ContaDePagamentoIxc[]>(
+          '/contas-abertas/contas-pagamento',
+        )
+      ).data,
+  });
+
+  const config = useQuery({
+    queryKey: ['config-financeira'],
+    queryFn: async () =>
+      (await api.get<ConfigDaCasa>('/config-financeira')).data,
+    retry: 0,
+  });
+
+  useEffect(() => {
+    if (!categorias.data) return;
+    const energia = categorias.data.find(
+      (c) => c.ativa && CATEGORIA_DA_LUZ.test(c.nome),
+    );
+    if (energia) setCategoriaId((atual) => atual || energia.id);
+  }, [categorias.data]);
+
+  const procurar = useMutation({
+    mutationFn: async () => {
+      const numeros = lerListaColada(texto);
+      const { data } = await api.post<RespostaDaDescoberta>(
+        '/contas-contrato/descobrir',
+        { numeros },
+      );
+      return data;
+    },
+    onSuccess: (r) => {
+      setDescobertas(r.descobertas);
+      // O que o histórico mostrou manda sobre o padrão escrito na tela: se as
+      // contas de luz vêm sendo lançadas noutra conta contábil, é essa que a
+      // contabilidade usa.
+      if (r.sugestao.fornecedor) {
+        setFornecedor({
+          id: r.sugestao.fornecedor.id,
+          nome: r.sugestao.fornecedor.nome ?? DISTRIBUIDORA_PADRAO.nome,
+        });
+      }
+      if (r.sugestao.contaContabil) {
+        setContaContabil(String(r.sugestao.contaContabil));
+      }
+      if (r.sugestao.contaPagamento) {
+        setContaPagamento(String(r.sugestao.contaPagamento));
+      }
+    },
+  });
+
+  const importar = useMutation({
+    mutationFn: async () => {
+      const { data } = await api.post<{
+        criadas: Array<{ id: string; apelido: string }>;
+        falhas: Array<{ apelido: string; numero: string; erro: string }>;
+      }>('/contas-contrato/importar', {
+        idFornecedorIxc: fornecedor.id,
+        fornecedorNome: fornecedor.nome,
+        contaContabil: contaContabil ? Number(contaContabil) : undefined,
+        contaPagamento: contaPagamento ? Number(contaPagamento) : undefined,
+        tipoPagamentoIxc: 'Boleto',
+        categoriaId: categoriaId || null,
+        itens: prontas.map((d) => ({
+          apelido: d.apelido ?? `Conta ${d.numero}`,
+          numero: d.numero,
+          diaDeChegada: diaEscolhido(d),
+          diaDeVencimento: diaEscolhido(d),
+          valorDeReferencia: d.media ?? undefined,
+        })),
+      });
+      return data;
+    },
+    onSuccess: (r) => {
+      onPronto(
+        (r.criadas.length
+          ? `${r.criadas.length} endereço(s) cadastrados: ${r.criadas
+              .map((c) => c.apelido)
+              .join(', ')}.`
+          : 'Nenhum endereço foi cadastrado.') +
+          (r.falhas.length
+            ? ` Ficaram de fora: ${r.falhas
+                .map((f) => `${f.apelido} (${f.erro})`)
+                .join('; ')}`
+            : ''),
+        r.falhas.length > 0,
+      );
+    },
+  });
+
+  /** O dia que vale para aquele endereço: o digitado, ou o que o IXC mostrou. */
+  function diaEscolhido(d: DescobertaDoHistorico): number {
+    const digitado = Number(dias[d.numero]);
+    if (digitado >= 1 && digitado <= 31) return digitado;
+    return d.diaDeVencimento ?? 0;
+  }
+
+  /** As linhas que dá para cadastrar: têm dia e ainda não estão no cadastro. */
+  const prontas = (descobertas ?? []).filter(
+    (d) => !d.jaCadastrada && diaEscolhido(d) >= 1,
+  );
+  const semDia = (descobertas ?? []).filter(
+    (d) => !d.jaCadastrada && diaEscolhido(d) < 1,
+  );
+
+  return (
+    <Janela titulo="Importar do histórico do IXC" onFechar={onFechar}>
+      <p className="text-sm text-tinta-500">
+        Cole a lista dos endereços, um por linha, com o número da conta
+        contrato — o nome antes, o número depois. O resto sai do IXC: as contas
+        de luz já lançadas trazem o número na observação, e é delas que vêm o
+        dia do vencimento, o fornecedor e quanto cada endereço costuma custar.
+      </p>
+
+      <textarea
+        value={texto}
+        onChange={(e) => setTexto(e.target.value)}
+        className="campo mt-3 h-32 font-mono text-xs"
+        placeholder={'Lago Verde - 3021839328\nGaragem - 3009834981\nLoja - 3010664470'}
+      />
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button
+          onClick={() => procurar.mutate()}
+          disabled={procurar.isPending || lerListaColada(texto).length === 0}
+          className="btn btn-neutro"
+        >
+          {procurar.isPending
+            ? 'Procurando no IXC…'
+            : `Procurar ${lerListaColada(texto).length || ''} no IXC`.trim()}
+        </button>
+        <span className="text-xs text-tinta-400">
+          Só leitura — nada é criado nesta etapa.
+        </span>
+      </div>
+
+      {procurar.isError && (
+        <Aviso tom="erro">{mensagemErro(procurar.error)}</Aviso>
+      )}
+
+      {descobertas && descobertas.length > 0 && (
+        <>
+          <div className="mt-4 max-h-[40vh] overflow-y-auto rolagem-fina rounded-xl border border-tinta-100">
+            <table className="w-full text-sm">
+              <thead>
+                <tr>
+                  <th className="th">Endereço</th>
+                  <th className="th text-right">No IXC</th>
+                  <th className="th">Vence dia</th>
+                  <th className="th text-right">Costuma vir</th>
+                </tr>
+              </thead>
+              <tbody>
+                {descobertas.map((d) => (
+                  <tr key={d.numero} className="linha">
+                    <td className="td">
+                      <div className="text-tinta-800">
+                        {d.apelido ?? `Conta ${d.numero}`}
+                      </div>
+                      <div className="num text-xs text-tinta-400">
+                        {d.numero}
+                      </div>
+                      {d.jaCadastrada && (
+                        <Selo pequeno tom="neutro">
+                          já cadastrada
+                        </Selo>
+                      )}
+                      {d.aviso && (
+                        <div className="mt-1 text-[11px] text-amber-600">
+                          {d.aviso}
+                        </div>
+                      )}
+                    </td>
+                    <td className="td num text-right text-tinta-500">
+                      {d.titulos > 0 ? `${d.titulos} conta(s)` : '—'}
+                    </td>
+                    <td className="td">
+                      {/* O dia vem do histórico e continua editável: é um
+                          palpite bem informado, não um dado do cadastro. */}
+                      <input
+                        type="number"
+                        min={1}
+                        max={31}
+                        value={
+                          dias[d.numero] ??
+                          (d.diaDeVencimento ? String(d.diaDeVencimento) : '')
+                        }
+                        onChange={(e) =>
+                          setDias((a) => ({ ...a, [d.numero]: e.target.value }))
+                        }
+                        className="campo num max-w-[80px] py-1"
+                        disabled={d.jaCadastrada}
+                      />
+                    </td>
+                    <td className="td text-right">
+                      {d.media === null ? (
+                        <span className="text-xs text-tinta-400">—</span>
+                      ) : (
+                        <span className="valor">{formatBRL(d.media)}</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* O que é igual em todos vem uma vez só: são contas da mesma
+              companhia, na mesma conta contábil, pagas da mesma conta. */}
+          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label className="rotulo">Quem recebe</label>
+              <div className="rounded-xl bg-tinta-50 px-3 py-2 text-sm text-tinta-800">
+                {fornecedor.nome}{' '}
+                <span className="num text-xs text-tinta-400">
+                  código {fornecedor.id}
+                </span>
+              </div>
+            </div>
+            <div>
+              <label className="rotulo" htmlFor="imp-categoria">
+                Categoria
+              </label>
+              <SeletorDeCategoria
+                id="imp-categoria"
+                categorias={categorias.data ?? []}
+                value={categoriaId}
+                onChange={setCategoriaId}
+                vazio="Sem categoria"
+                carregando={categorias.isLoading}
+              />
+            </div>
+            <div>
+              <label className="rotulo" htmlFor="imp-contabil">
+                Conta contábil no IXC
+              </label>
+              <select
+                id="imp-contabil"
+                value={contaContabil}
+                onChange={(e) => setContaContabil(e.target.value)}
+                className="campo"
+                disabled={plano.isLoading}
+              >
+                <option value="">
+                  {nomeDaContaContabilPadrao(config.data, plano.data)}
+                </option>
+                {(plano.data ?? []).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.id} — {p.nome}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="rotulo" htmlFor="imp-conta">
+                Conta de pagamento
+              </label>
+              <select
+                id="imp-conta"
+                value={contaPagamento}
+                onChange={(e) => setContaPagamento(e.target.value)}
+                className="campo"
+                disabled={contasIxc.isLoading}
+              >
+                <option value="">
+                  {nomeDaContaDePagamentoPadrao(config.data, contasIxc.data)}
+                </option>
+                {(contasIxc.data ?? [])
+                  .filter((c) => c.usual || c.ativa)
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nome}
+                    </option>
+                  ))}
+              </select>
+            </div>
+          </div>
+
+          {semDia.length > 0 && (
+            <Aviso tom="atencao">
+              {semDia.length} endereço(s) sem dia de vencimento — o histórico
+              não trouxe nenhum. Escreva o dia na linha para eles entrarem.
+            </Aviso>
+          )}
+        </>
+      )}
+
+      {importar.isError && (
+        <Aviso tom="erro">{mensagemErro(importar.error)}</Aviso>
+      )}
+
+      <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+        {descobertas && (
+          <span className="mr-auto text-xs text-tinta-400">
+            O dia em que a fatura chega nasce igual ao do vencimento — dá para
+            ajustar depois, na linha de cada endereço.
+          </span>
+        )}
+        <button onClick={onFechar} className="btn btn-neutro">
+          Cancelar
+        </button>
+        <button
+          onClick={() => importar.mutate()}
+          disabled={prontas.length === 0 || importar.isPending}
+          className="btn btn-primario"
+        >
+          {importar.isPending
+            ? 'Cadastrando…'
+            : `Cadastrar ${prontas.length || ''} endereço(s)`.replace('  ', ' ')}
+        </button>
+      </div>
+    </Janela>
+  );
+}
+
+/**
+ * A lista colada, linha a linha.
+ *
+ * O formato é o do papel que já existe: nome, um separador qualquer, número.
+ * O número é o último grupo de dígitos da linha — é assim que "São Luis -
+ * 12408560" e "Casa Loja 3010667070" saem os dois certos, sem obrigar ninguém
+ * a reformatar a lista antes de colar.
+ */
+function lerListaColada(
+  texto: string,
+): Array<{ numero: string; apelido?: string }> {
+  const linhas = texto.split(/\r?\n/);
+  const saida: Array<{ numero: string; apelido?: string }> = [];
+
+  for (const linha of linhas) {
+    const limpa = linha.trim();
+    if (!limpa) continue;
+
+    const numeros = limpa.match(/\d[\d.\-/ ]{3,}\d/g);
+    if (!numeros) continue;
+
+    const bruto = numeros[numeros.length - 1];
+    const numero = bruto.replace(/\D/g, '');
+    if (numero.length < 4) continue;
+
+    const apelido = limpa
+      .slice(0, limpa.lastIndexOf(bruto))
+      .replace(/[-–—:;,\t]+\s*$/, '')
+      .trim();
+
+    saida.push({ numero, apelido: apelido || undefined });
+  }
+
+  return saida;
+}
+
+/**
+ * O rótulo da opção "sem escolher": o nome da conta que a configuração usa.
+ *
+ * "Padrão das Configurações" não responde a pergunta de quem está escolhendo —
+ * qual conta é essa? Enquanto a leitura não chega, o texto antigo fica, porque
+ * prometer um nome que ainda não se sabe é pior do que não prometer nada.
+ */
+function nomeDaContaContabilPadrao(
+  config: ConfigDaCasa | undefined,
+  plano: ContaDoPlano[] | undefined,
+): string {
+  if (!config) return 'Padrão das Configurações';
+  const conta = plano?.find((p) => p.id === config.contaContabilAvulso);
+  return conta
+    ? `Padrão — ${conta.id} ${conta.nome}`
+    : `Padrão — conta ${config.contaContabilAvulso}`;
+}
+
+function nomeDaContaDePagamentoPadrao(
+  config: ConfigDaCasa | undefined,
+  contas: ContaDePagamentoIxc[] | undefined,
+): string {
+  if (!config) return 'Padrão das Configurações';
+  const conta = contas?.find((c) => c.id === config.contaPagamentoId);
+  return conta
+    ? `Padrão — ${conta.nome}`
+    : `Padrão — conta ${config.contaPagamentoId}`;
 }
 
 /** O valor foge tanto do que o endereço custa que vale conferir a fatura. */

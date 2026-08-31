@@ -15,7 +15,9 @@ import { ContasContratoService } from './contas-contrato.service';
 import {
   AtualizarContaContratoDto,
   CriarContaContratoDto,
+  DescobrirContasContratoDto,
   GerarContasContratoDto,
+  ImportarContasContratoDto,
 } from './dto/conta-contrato.dto';
 
 function usuarioId(req: Request): string | undefined {
@@ -46,6 +48,38 @@ export class ContasContratoController {
   @HttpCode(201)
   criar(@Body() dto: CriarContaContratoDto, @Req() req: Request) {
     return this.service.criar(dto, usuarioId(req));
+  }
+
+  /**
+   * Procura no IXC o que já se sabe sobre estas contas contrato.
+   *
+   * As contas de luz são pagas há anos, e cada fatura virou um título com o
+   * número escrito na observação. É de lá que sai o dia em que cada endereço
+   * vence e quanto ele costuma custar — perguntar isso a quem cadastra seria
+   * pedir de cabeça o que já está escrito.
+   */
+  @Post('descobrir')
+  @HttpCode(200)
+  descobrir(@Body() dto: DescobrirContasContratoDto) {
+    return this.service.descobrirNoHistorico(dto.numeros);
+  }
+
+  /** Cadastra de uma vez os endereços que a descoberta trouxe. */
+  @Post('importar')
+  @HttpCode(200)
+  importar(@Body() dto: ImportarContasContratoDto, @Req() req: Request) {
+    return this.service.importar(
+      {
+        idFornecedorIxc: dto.idFornecedorIxc,
+        fornecedorNome: dto.fornecedorNome,
+        contaContabil: dto.contaContabil,
+        contaPagamento: dto.contaPagamento,
+        tipoPagamentoIxc: dto.tipoPagamentoIxc,
+        categoriaId: dto.categoriaId ?? null,
+      },
+      dto.itens,
+      usuarioId(req),
+    );
   }
 
   @Patch(':id')

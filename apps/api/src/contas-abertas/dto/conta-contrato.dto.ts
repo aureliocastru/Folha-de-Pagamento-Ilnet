@@ -121,6 +121,94 @@ export class AtualizarContaContratoDto {
   @IsOptional() @IsBoolean() ativa?: boolean;
 }
 
+/** Uma linha da lista colada: o nome do endereço e o número na distribuidora. */
+export class NumeroParaDescobrirDto {
+  @IsString() @MinLength(4) @MaxLength(40) numero!: string;
+
+  @IsOptional() @IsString() @MaxLength(120) apelido?: string;
+}
+
+/**
+ * Procurar no histórico do IXC o que já se sabe sobre estas contas contrato.
+ *
+ * Só lê. O que volta é uma proposta de cadastro — o dia em que cada endereço
+ * vence, para quem se paga, quanto costuma custar — para alguém conferir.
+ */
+export class DescobrirContasContratoDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => NumeroParaDescobrirDto)
+  numeros!: NumeroParaDescobrirDto[];
+}
+
+/** Um endereço a cadastrar, como a tela o mostrou depois da descoberta. */
+export class ItemDaImportacaoDto {
+  @IsString() @MinLength(2) @MaxLength(120) apelido!: string;
+
+  @IsString() @MinLength(4) @MaxLength(40) numero!: string;
+
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsInt()
+  @Min(1)
+  @Max(31)
+  diaDeChegada!: number;
+
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsInt()
+  @Min(1)
+  @Max(31)
+  diaDeVencimento!: number;
+
+  /** A média que o histórico mostrou, para a tela já saber estranhar valor. */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsNumber()
+  @Min(0)
+  valorDeReferencia?: number;
+}
+
+/**
+ * Cadastrar de uma vez os endereços descobertos.
+ *
+ * O que é igual em todos — a distribuidora, a conta contábil, a conta de onde
+ * se paga, a categoria — vem uma vez só, em `padroes`: são onze contas da
+ * mesma companhia, e repetir isso linha a linha só criaria onze chances de
+ * digitar diferente.
+ */
+export class ImportarContasContratoDto {
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsInt()
+  @Min(1)
+  idFornecedorIxc!: number;
+
+  @IsString() @MinLength(2) @MaxLength(200) fornecedorNome!: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsInt()
+  @Min(1)
+  contaContabil?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsInt()
+  @Min(1)
+  contaPagamento?: number;
+
+  @IsOptional() @IsString() @MaxLength(40) tipoPagamentoIxc?: string;
+
+  @IsOptional() @IsUUID() categoriaId?: string | null;
+
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => ItemDaImportacaoDto)
+  itens!: ItemDaImportacaoDto[];
+}
+
 /** Uma fatura que chegou: de que endereço é, e quanto veio nela. */
 export class LancamentoDeContratoDto {
   @IsUUID() id!: string;
