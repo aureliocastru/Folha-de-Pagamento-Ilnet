@@ -1,5 +1,7 @@
 import {
   buildBaixaContaPagarPayload,
+  descontoQueOIxcAceita,
+  descontosQueCabem,
   codigoTipoPagamentoBaixa,
   montarHistoricoBaixa,
   semAcento,
@@ -184,10 +186,69 @@ describe('buildBaixaContaPagarPayload', () => {
     expect(payload.valor_total_pago).toBe('167,00');
   });
 
-  it('o desconto vai em valor, nunca em percentual', () => {
-    // Percentual sairia de uma divisão que arredonda, e o IXC recalcularia
-    // dele um desconto de centavos diferentes do combinado.
-    const payload = buildBaixaContaPagarPayload({ ...base, desconto: 50 });
-    expect(payload.pdesconto).toBe('');
+  it('o desconto vai nos dois campos: em reais e no percentual que o IXC guarda', () => {
+    // Lá o campo gravado é o percentual, com quatro casas — mandar só o valor
+    // deixava o IXC derivar sozinho, e é dessa derivação que vinham as
+    // recusas por casa decimal.
+    const payload = buildBaixaContaPagarPayload({
+      ...base,
+      valor: 8217.95,
+      desconto: 200,
+    });
+    expect(payload.vdesconto).toBe('200,00');
+    expect(payload.pdesconto).toBe('2.4337');
+  });
+
+  it('sem desconto, o percentual também vai vazio', () => {
+    expect(buildBaixaContaPagarPayload(base).pdesconto).toBe('');
+  });
+});
+
+/**
+ * O desconto guardado como percentual de quatro casas.
+ *
+ * É o próprio IXC que diz a regra, ao recusar: "o campo Desconto% aceita até 4
+ * casas decimais. Portanto, descontos no valor de R$ 0,01 não serão aceitos
+ * para títulos acima de R$ 10.000,00". Quanto maior o título, mais grosso o
+ * passo do desconto — e é isso que estas contas protegem.
+ */
+describe('descontoQueOIxcAceita', () => {
+  it('o desconto negociado de verdade cabe sem sobra', () => {
+    const r = descontoQueOIxcAceita(8217.95, 200);
+    expect(r).toMatchObject({ percentual: 2.4337, aplicado: 200, cabe: true });
+  });
+
+  it('um centavo cabe em dez mil, e não cabe em trinta e um mil', () => {
+    // A fronteira que a mensagem do IXC nomeia: 0,0001% de R$ 10.000,00 é
+    // exatamente um centavo; de qualquer título maior, é menos que isso.
+    expect(descontoQueOIxcAceita(10000, 0.01).cabe).toBe(true);
+    expect(descontoQueOIxcAceita(31000, 0.01)).toMatchObject({
+      aplicado: 0,
+      cabe: false,
+    });
+  });
+
+  it('em título grande o desconto anda de passo em passo', () => {
+    // Em R$ 100.000,00 o menor desconto expressável é R$ 0,10.
+    expect(descontoQueOIxcAceita(100000, 0.05).cabe).toBe(false);
+    expect(descontoQueOIxcAceita(100000, 0.1).cabe).toBe(true);
+  });
+
+  it('sem desconto não há o que conferir', () => {
+    expect(descontoQueOIxcAceita(1000, 0).cabe).toBe(true);
+  });
+});
+
+describe('descontosQueCabem', () => {
+  it('diz os dois vizinhos que servem, para a recusa poder ensinar', () => {
+    expect(descontosQueCabem(31000, 0.01)).toEqual({ abaixo: 0, acima: 0.03 });
+    expect(descontosQueCabem(20000, 0.01)).toEqual({ abaixo: 0, acima: 0.02 });
+  });
+
+  it('em título pequeno os vizinhos ficam colados no pedido', () => {
+    expect(descontosQueCabem(8217.95, 200)).toEqual({
+      abaixo: 199.99,
+      acima: 200,
+    });
   });
 });

@@ -222,6 +222,39 @@ describe('PagamentosService.pagar', () => {
     expect(r).toMatchObject({ valor: 1500, valorPago: 1400, desconto: 100 });
   });
 
+  it('desconto que não cabe no percentual do IXC é recusado antes da viagem', async () => {
+    /*
+     * O IXC guarda o desconto como percentual de quatro casas e recusa o que
+     * não couber — mas só depois de receber a baixa, com uma mensagem sobre
+     * casas decimais e sem dizer que valor serve. Aqui a conta é feita antes,
+     * e a recusa diz o que fazer.
+     *
+     * O título do fixture é de R$ 1.500,00: um centavo dá 0,0007%, que cabe;
+     * o caso que não cabe é o título grande. Este teste usa um de R$ 31.000,00,
+     * que é o que apareceu no uso real.
+     */
+    const { service, criados } = montarServico({
+      titulo: {
+        id: '31646',
+        status: 'A',
+        valor: '31000.00',
+        valor_aberto: '31000.00',
+        id_contas: '18',
+        filial_id: '1',
+      },
+    });
+
+    await expect(
+      service.pagar(31646, {
+        contaPagamento: CFG.contaPagamentoCaixaId,
+        desconto: 0.01,
+      }),
+    ).rejects.toThrow(/quatro casas/i);
+
+    // Nada foi escrito no IXC — nem a aprovação da auditoria.
+    expect(criados).toEqual([]);
+  });
+
   it('desconto que come o título inteiro não é pagamento', async () => {
     const { service, criados } = montarServico();
 

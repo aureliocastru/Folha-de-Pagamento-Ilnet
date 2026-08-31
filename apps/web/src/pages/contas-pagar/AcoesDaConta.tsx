@@ -24,6 +24,35 @@ const TIPOS_DE_PAGAMENTO = [
   'Cartão',
 ] as const;
 
+/**
+ * O desconto que o IXC consegue registrar num título — a mesma regra do
+ * servidor, adiantada para quem está digitando.
+ *
+ * Lá o desconto é guardado como percentual do título, com quatro casas, e o
+ * que não couber é recusado. Um centavo de desconto num título de trinta mil
+ * é 0,0000333%, que arredondado vira zero — e o pagamento volta com uma
+ * mensagem sobre casas decimais.
+ *
+ * A recusa de verdade é do servidor, que é quem fala com o IXC; isto aqui só
+ * evita a viagem, dizendo o que serve enquanto o valor está sendo digitado.
+ */
+function descontoQueCabe(
+  valor: number,
+  desconto: number,
+): { cabe: boolean; acima: number; abaixo: number } {
+  const fator = 10 ** 4;
+  const bruto = (desconto / valor) * 100 * fator;
+  const emReais = (passos: number) =>
+    Math.round(((valor * (passos / fator)) / 100) * 100) / 100;
+
+  const aplicado = emReais(Math.round(bruto));
+  return {
+    cabe: Math.abs(aplicado - desconto) < 0.005,
+    abaixo: emReais(Math.floor(bruto)),
+    acima: emReais(Math.ceil(bruto)),
+  };
+}
+
 function hojeISO(): string {
   const agora = new Date();
   const mes = String(agora.getMonth() + 1).padStart(2, '0');
@@ -135,6 +164,18 @@ export function PagarEmMaos({
    * "desconto" negativo, que ele aceitaria calado.
    */
   const pagouAMais = pagoDigitado > total + 0.005;
+  /**
+   * O desconto digitado não cabe no percentual de quatro casas do IXC.
+   *
+   * Acontece em título grande com desconto miúdo — e o IXC só diz isso depois
+   * da viagem, com uma mensagem sobre casas decimais. Aqui a conta é feita
+   * antes, e a tela diz que valor serve.
+   */
+  const cabimento =
+    descontoNumero > 0 && !pagouAMais
+      ? descontoQueCabe(total, descontoNumero)
+      : null;
+  const descontoNaoCabe = !!cabimento && !cabimento.cabe;
 
   const pagar = useMutation({
     mutationFn: async () => {
@@ -168,22 +209,42 @@ export function PagarEmMaos({
   });
 
   if (resultado) {
+    /*
+     * Nada saiu: a janela não pode dizer "Pagamento feito".
+     *
+     * Quando a única conta do lote é recusada, o que a tela mostrava era
+     * "Pagamento feito — 0 contas pagas — R$ 0,00", seguido de "no IXC as
+     * contas constam quitadas". Três frases sobre um pagamento que não
+     * aconteceu, e a que importa — o motivo — ficava embaixo delas.
+     */
+    const nadaSaiu = resultado.pagas === 0;
+
     return (
       <Janela
-        titulo={resultado.aguardandoBanco ? 'Aprovado no IXC' : 'Pagamento feito'}
+        titulo={
+          nadaSaiu
+            ? 'Nada foi pago'
+            : resultado.aguardandoBanco
+              ? 'Aprovado no IXC'
+              : 'Pagamento feito'
+        }
         onFechar={onFechar}
       >
         <p className="font-display text-lg font-semibold text-tinta-900">
-          {resultado.aguardandoBanco
-            ? `${resultado.pagas} conta(s) aprovadas — ${formatBRL(resultado.total)}`
-            : resultado.pagas === 1
-              ? `${formatBRL(resultado.total)} pago e baixado no IXC`
-              : `${resultado.pagas} contas pagas — ${formatBRL(resultado.total)}`}
+          {nadaSaiu
+            ? `Nenhuma das ${resultado.falhas.length} conta(s) foi paga — o IXC recusou.`
+            : resultado.aguardandoBanco
+              ? `${resultado.pagas} conta(s) aprovadas — ${formatBRL(resultado.total)}`
+              : resultado.pagas === 1
+                ? `${formatBRL(resultado.total)} pago e baixado no IXC`
+                : `${resultado.pagas} contas pagas — ${formatBRL(resultado.total)}`}
         </p>
         <p className="mt-1 text-sm text-tinta-500">
-          {resultado.aguardandoBanco
-            ? `Estão liberadas no IXC para o ${escolhida?.nome ?? 'banco'} pagar — é lá que o pagamento sai.`
-            : `Saiu de ${escolhida?.nome ?? 'conta escolhida'}. No IXC as contas constam quitadas; estornar, se precisar, é por lá.`}
+          {nadaSaiu
+            ? 'Nenhum dinheiro saiu e nada foi baixado no IXC. O motivo está abaixo — corrija e tente de novo.'
+            : resultado.aguardandoBanco
+              ? `Estão liberadas no IXC para o ${escolhida?.nome ?? 'banco'} pagar — é lá que o pagamento sai.`
+              : `Saiu de ${escolhida?.nome ?? 'conta escolhida'}. No IXC as contas constam quitadas; estornar, se precisar, é por lá.`}
         </p>
 
         {/* A economia fica na tela do "pronto", e não só no painel do mês:
@@ -200,7 +261,9 @@ export function PagarEmMaos({
         {resultado.falhas.length > 0 && (
           <div className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
             <p className="font-semibold">
-              {resultado.falhas.length} não saíram:
+              {resultado.falhas.length === 1
+                ? 'A conta não saiu:'
+                : `${resultado.falhas.length} não saíram:`}
             </p>
             <ul className="mt-1 space-y-1">
               {resultado.falhas.map((f) => (
@@ -402,6 +465,19 @@ export function PagarEmMaos({
         </div>
       )}
 
+      {descontoNaoCabe && cabimento && (
+        <Aviso tom="atencao">
+          O IXC guarda o desconto como percentual do título, com quatro casas —
+          e {formatBRL(descontoNumero)} em {formatBRL(total)} não cabe ali.
+          Neste título ele aceita{' '}
+          {cabimento.abaixo > 0
+            ? `${formatBRL(cabimento.abaixo)} ou ${formatBRL(cabimento.acima)}`
+            : `a partir de ${formatBRL(cabimento.acima)}`}{' '}
+          de desconto — o que dá um valor pago de{' '}
+          {formatBRL(Math.round((total - cabimento.acima) * 100) / 100)}.
+        </Aviso>
+      )}
+
       {pagouAMais && (
         <Aviso tom="erro">
           {formatBRL(aPagar)} é mais do que o título pede ({formatBRL(total)}).
@@ -423,7 +499,7 @@ export function PagarEmMaos({
         </button>
         <button
           onClick={() => pagar.mutate()}
-          disabled={pagar.isPending || pagouAMais}
+          disabled={pagar.isPending || pagouAMais || descontoNaoCabe}
           className="btn btn-primario"
         >
           {pagar.isPending

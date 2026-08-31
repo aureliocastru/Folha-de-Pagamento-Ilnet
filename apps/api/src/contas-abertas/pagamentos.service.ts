@@ -11,6 +11,8 @@ import {
   buildAuditoriaPayload,
   buildBaixaContaPagarPayload,
   codigoTipoPagamentoBaixa,
+  descontoQueOIxcAceita,
+  descontosQueCabem,
   lerSituacaoContaPagar,
   lerStatusAuditoria,
   montarHistoricoBaixa,
@@ -202,6 +204,40 @@ export class PagamentosService {
           `${idFnApagar} (${moeda(valor)}) — não sobraria pagamento nenhum.`,
       );
     }
+    /*
+     * O desconto precisa caber no campo do IXC antes de sair daqui.
+     *
+     * Lá ele é guardado como percentual do título, com quatro casas — e um
+     * centavo de desconto num título de trinta mil é 0,0000333%, que
+     * arredondado vira zero. O IXC recusa isso, e recusa **depois** de a conta
+     * ter ido: o pagamento não sai, mas quem clicou fica com uma mensagem
+     * sobre casas decimais e sem saber que valor serve.
+     *
+     * Conferir aqui troca isso por uma recusa que diz o que fazer, e sem ida
+     * ao financeiro de verdade.
+     */
+    if (desconto > 0) {
+      const cabimento = descontoQueOIxcAceita(valor, desconto);
+      if (!cabimento.cabe) {
+        const vizinhos = descontosQueCabem(valor, desconto);
+        // Desconto zero não é sugestão de nada: quando o vizinho de baixo é
+        // zero, o que existe para dizer é qual é o menor que serve.
+        const saida =
+          vizinhos.abaixo > 0
+            ? `os descontos mais próximos que ele aceita são ` +
+              `${moeda(vizinhos.abaixo)} e ${moeda(vizinhos.acima)}`
+            : `o menor desconto que ele aceita é ${moeda(vizinhos.acima)}`;
+
+        throw new BadRequestException(
+          `O IXC guarda o desconto como percentual do título, com quatro ` +
+            `casas — e ${moeda(desconto)} em ${moeda(valor)} dá ` +
+            `${cabimento.percentual}%, que aplicado vira ` +
+            `${moeda(cabimento.aplicado)}. Neste título, ${saida}. Nada foi ` +
+            'pago.',
+        );
+      }
+    }
+
     const valorPago = Math.round((valor - desconto) * 100) / 100;
 
     // --- 1. Auditoria ---

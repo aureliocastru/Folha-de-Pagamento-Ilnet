@@ -539,14 +539,20 @@ export function buildBaixaContaPagarPayload(
     data: formatDataIxc(input.data),
     documento: input.documento ?? '',
     /*
-     * O desconto vai em valor, nunca em percentual.
+     * O desconto vai nos dois campos, e não só em reais.
      *
-     * Quem paga adiantado combina "tira cinquenta reais", não "tira 0,608%":
-     * o percentual sairia de uma divisão que arredonda, e o IXC recalcularia
-     * dele um desconto de centavos diferentes do que foi combinado. Com
-     * `vdesconto` preenchido e `pdesconto` vazio, o valor é o que manda.
+     * Quem paga adiantado combina "tira cinquenta reais", não "tira 0,608%" —
+     * mas o IXC guarda o percentual, com quatro casas, e o deriva do valor
+     * quando ele não vem. Mandar os dois é dizer a mesma coisa nas duas
+     * línguas, como a tela dele faz; o valor continua sendo o que manda, e o
+     * percentual é conferido antes de chegar aqui (ver
+     * `descontoQueOIxcAceita`), para a baixa não ser recusada lá por um
+     * arredondamento que dá para prever daqui.
      */
-    pdesconto: '',
+    pdesconto:
+      desconto > 0
+        ? String(descontoQueOIxcAceita(input.valor, desconto).percentual)
+        : '',
     vdesconto: desconto > 0 ? formatValorBaixaIxc(desconto) : '',
     pacrescimo: '',
     vacrescimo: '',
@@ -570,6 +576,69 @@ export function buildBaixaContaPagarPayload(
     tipo_p: 'T',
     tipo_lanc: 'P',
     id_operador: '',
+  };
+}
+
+/**
+ * Quantas casas decimais o IXC guarda no percentual de desconto da baixa.
+ *
+ * Não é detalhe de formatação: o IXC recebe o desconto em reais, converte para
+ * percentual do título e é o **percentual** que ele grava. O que não couber em
+ * quatro casas ele recusa, com esta mensagem:
+ *
+ *   "O campo Desconto% aceita até 4 casas decimais. Portanto, descontos no
+ *    valor de R$ 0,01 não serão aceitos para títulos acima de R$ 10.000,00."
+ *
+ * A conta é essa mesma: 0,0001% de R$ 10.000,00 é um centavo, e de qualquer
+ * título maior é menos que um centavo — que não existe em dinheiro.
+ */
+const CASAS_DO_PERCENTUAL_DE_DESCONTO = 4;
+
+/**
+ * O desconto, em reais, que o IXC consegue registrar neste título.
+ *
+ * Devolve o percentual e o valor que ele de fato aplicaria. Quando o valor
+ * aplicado difere do pedido, o desconto **não cabe**: pedir R$ 0,01 num título
+ * de R$ 31 mil é pedir 0,0000322%, que arredondado às quatro casas vira zero.
+ *
+ * Quanto maior o título, mais grosso o passo — em R$ 100.000,00 o desconto só
+ * anda de dez em dez centavos. Não há como contornar isso daqui: é o campo do
+ * outro lado que tem quatro casas.
+ */
+export function descontoQueOIxcAceita(
+  valor: number,
+  desconto: number,
+): { percentual: number; aplicado: number; cabe: boolean } {
+  if (!(valor > 0) || !(desconto > 0)) {
+    return { percentual: 0, aplicado: 0, cabe: true };
+  }
+
+  const fator = 10 ** CASAS_DO_PERCENTUAL_DE_DESCONTO;
+  const percentual = Math.round((desconto / valor) * 100 * fator) / fator;
+  const aplicado = Math.round(((valor * percentual) / 100) * 100) / 100;
+
+  return { percentual, aplicado, cabe: Math.abs(aplicado - desconto) < 0.005 };
+}
+
+/**
+ * Os descontos vizinhos que cabem, para a recusa poder dizer o que fazer.
+ *
+ * "Não cabe" sozinho manda a pessoa adivinhar de centavo em centavo. Com os
+ * dois vizinhos ela escolhe: um pouco menos, ou um pouco mais.
+ */
+export function descontosQueCabem(
+  valor: number,
+  desconto: number,
+): { abaixo: number; acima: number } {
+  const fator = 10 ** CASAS_DO_PERCENTUAL_DE_DESCONTO;
+  const bruto = (desconto / valor) * 100 * fator;
+
+  const paraReais = (passos: number) =>
+    Math.round(((valor * (passos / fator)) / 100) * 100) / 100;
+
+  return {
+    abaixo: paraReais(Math.floor(bruto)),
+    acima: paraReais(Math.ceil(bruto)),
   };
 }
 
