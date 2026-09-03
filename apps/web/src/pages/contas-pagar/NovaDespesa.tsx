@@ -7,6 +7,7 @@ import {
 import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
 import { CampoDinheiro, Carregando, Janela, Selo } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { useTermoAdiado } from '../../lib/busca';
 import { formatBRL } from '../../lib/format';
 import {
   TIPOS_CHAVE_PIX,
@@ -193,11 +194,7 @@ export function NovaDespesa({ onFechar }: { onFechar: () => void }) {
 
   // A busca só sai depois que quem digita para de digitar: cada tecla aqui é
   // uma consulta ao IXC, que é lento e não é nosso.
-  const [buscaEfetiva, setBuscaEfetiva] = useState('');
-  useEffect(() => {
-    const id = setTimeout(() => setBuscaEfetiva(termo.trim()), 400);
-    return () => clearTimeout(id);
-  }, [termo]);
+  const buscaEfetiva = useTermoAdiado(termo);
 
   const fornecedores = useQuery({
     queryKey: ['fornecedores-ixc', buscaEfetiva],

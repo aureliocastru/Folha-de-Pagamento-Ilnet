@@ -13,6 +13,7 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { useTermoAdiado } from '../../lib/busca';
 import { rotuloParcelaAtual } from '../../lib/folha';
 import { formatBRL, formatData } from '../../lib/format';
 import { SENTIDO_CURTO, SENTIDO_LABEL, SENTIDO_TOM } from '../../lib/status';
@@ -41,15 +42,19 @@ export function Vales() {
   const [situacao, setSituacao] = useState<Situacao>('ABERTO');
   const [sentido, setSentido] = useState<SentidoVale | 'TODOS'>('TODOS');
   const [busca, setBusca] = useState('');
+  // A lista já acompanhava o que se digita, mas ia ao servidor a cada tecla:
+  // "cleyson" eram sete consultas, e a resposta da quarta podia chegar depois
+  // da sétima e repintar a tela com o resultado de "cleys".
+  const buscaAtiva = useTermoAdiado(busca);
   const [aberto, setAberto] = useState<Record<string, boolean>>({});
   const [feedback, setFeedback] = useState<string | null>(null);
 
   const lista = useQuery({
-    queryKey: ['vales', situacao, sentido, busca],
+    queryKey: ['vales', situacao, sentido, buscaAtiva],
     queryFn: async () => {
       const params: Record<string, string> = { situacao };
       if (sentido !== 'TODOS') params.sentido = sentido;
-      if (busca.trim()) params.busca = busca.trim();
+      if (buscaAtiva) params.busca = buscaAtiva;
       return (await api.get<ValeComSaldo[]>('/vales', { params })).data;
     },
   });

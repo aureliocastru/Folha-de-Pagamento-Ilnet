@@ -18,6 +18,7 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { useTermoAdiado } from '../../lib/busca';
 import { formatBRL, formatData } from '../../lib/format';
 import type { CategoriaDespesa } from '../../lib/types';
 
@@ -845,13 +846,8 @@ function CadastroDoEndereco({
         DISTRIBUIDORA_PADRAO,
   );
   const [termo, setTermo] = useState('');
-  const [buscaEfetiva, setBuscaEfetiva] = useState('');
-
   // Cada tecla aqui seria uma consulta ao IXC, que é lento e não é nosso.
-  useEffect(() => {
-    const id = setTimeout(() => setBuscaEfetiva(termo.trim()), 400);
-    return () => clearTimeout(id);
-  }, [termo]);
+  const buscaEfetiva = useTermoAdiado(termo);
 
   const fornecedores = useQuery({
     queryKey: ['fornecedores-ixc', buscaEfetiva],

@@ -16,6 +16,7 @@ import {
 } from '../../components/ui';
 import { CalculadoraDaGaveta } from './CalculadoraDaGaveta';
 import { api, mensagemErro } from '../../lib/api';
+import { useTermoAdiado } from '../../lib/busca';
 import { useAuth } from '../../lib/auth';
 import { reduzirFoto } from '../../lib/foto';
 import { formatBRL, formatData } from '../../lib/format';
@@ -712,13 +713,8 @@ function Historico({ caixaId }: { caixaId: number }) {
   const [termo, setTermo] = useState('');
   const [de, setDe] = useState('');
   const [ate, setAte] = useState('');
-  const [busca, setBusca] = useState('');
-
   // A busca só sai quando quem digita para: cada tecla aqui é uma consulta.
-  useEffect(() => {
-    const id = setTimeout(() => setBusca(termo.trim()), 400);
-    return () => clearTimeout(id);
-  }, [termo]);
+  const busca = useTermoAdiado(termo);
 
   const procurando = !!(busca || de || ate);
 
@@ -794,8 +790,9 @@ function Historico({ caixaId }: { caixaId: number }) {
           <button
             type="button"
             onClick={() => {
+              // `busca` acompanha `termo` sozinha — limpar o campo limpa a
+              // procura no compasso seguinte.
               setTermo('');
-              setBusca('');
               setDe('');
               setAte('');
             }}
@@ -2051,11 +2048,7 @@ function AcertarConta({
 
   // A busca só sai depois que quem digita para: cada tecla aqui é uma consulta
   // ao IXC, que é lento e não é nosso.
-  const [buscaEfetiva, setBuscaEfetiva] = useState('');
-  useEffect(() => {
-    const id = setTimeout(() => setBuscaEfetiva(termo.trim()), 400);
-    return () => clearTimeout(id);
-  }, [termo]);
+  const buscaEfetiva = useTermoAdiado(termo);
 
   const fornecedores = useQuery({
     queryKey: ['fornecedores-ixc', buscaEfetiva],

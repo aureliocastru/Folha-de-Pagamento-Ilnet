@@ -17,6 +17,7 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { useTermoAdiado } from '../../lib/busca';
 import { formatBRL, formatData } from '../../lib/format';
 import { STATUS_LABEL, STATUS_TOM } from '../../lib/status';
 import { TIPOS_CHAVE_PIX } from '../../lib/types';
@@ -169,14 +170,7 @@ export function Avulsos({
 
   // A busca só vai ao IXC depois que se para de digitar: cada tecla aqui seria
   // uma consulta a um sistema lento que não é nosso.
-  const [buscaIxc, setBuscaIxc] = useState('');
-  useEffect(() => {
-    const id = setTimeout(() => {
-      setBuscaIxc(busca.trim());
-      setPagina(1);
-    }, 400);
-    return () => clearTimeout(id);
-  }, [busca]);
+  const buscaIxc = useTermoAdiado(busca, () => setPagina(1));
 
   const fornecedoresIxc = useQuery({
     queryKey: ['fornecedores-ixc-avulsos', buscaIxc, pagina],

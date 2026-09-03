@@ -12,6 +12,7 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { useTermoAdiado } from '../../lib/busca';
 import { baseDaFolha, usaValorAReceber } from '../../lib/folha';
 import { formatBRL } from '../../lib/format';
 import type { Funcionario, Paginado, Resumo, SyncResult } from '../../lib/types';
@@ -19,7 +20,10 @@ import type { Funcionario, Paginado, Resumo, SyncResult } from '../../lib/types'
 export function Funcionarios() {
   const qc = useQueryClient();
   const [busca, setBusca] = useState('');
-  const [buscaAtiva, setBuscaAtiva] = useState('');
+  // A lista acompanha o que se digita; a consulta espera a mão parar. Voltar
+  // para a página 1 é parte da busca nova: achar "matheus" na página 3 de
+  // outra busca mostraria uma lista vazia com resultado existindo.
+  const buscaAtiva = useTermoAdiado(busca, () => setPage(1));
   // Nasce em "Ativos": é quem entra na próxima folha, e é essa a pergunta que
   // a tela responde. Quem saiu continua a um clique, no seletor.
   const [ativo, setAtivo] = useState<'todos' | 'true' | 'false'>('true');
@@ -81,12 +85,6 @@ export function Funcionarios() {
     onError: (err) => setFeedback(`Não deu para sincronizar: ${mensagemErro(err)}`),
   });
 
-  function submitBusca(e: React.FormEvent) {
-    e.preventDefault();
-    setPage(1);
-    setBuscaAtiva(busca.trim());
-  }
-
   const temBonus = Number(resumo.data?.bonusFixoMensal ?? 0) > 0;
 
   return (
@@ -129,10 +127,9 @@ export function Funcionarios() {
       </div>
 
       <Bloco className="surgir surgir-2" semPadding>
-        <form
-          onSubmit={submitBusca}
-          className="flex flex-wrap gap-2 border-b border-tinta-100 p-4 sm:p-5"
-        >
+        {/* Sem botão de buscar: a lista acompanha o que se digita. O que havia
+            ali era um clique a mais para ver o que já dava para ver. */}
+        <div className="flex flex-wrap gap-2 border-b border-tinta-100 p-4 sm:p-5">
           <input
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
@@ -151,8 +148,7 @@ export function Funcionarios() {
             <option value="false">Inativos</option>
             <option value="todos">Todos</option>
           </select>
-          <button className="btn btn-neutro">Buscar</button>
-        </form>
+        </div>
 
         <div className="overflow-x-auto rolagem-fina">
           <table className="w-full text-sm">

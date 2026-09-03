@@ -10,6 +10,7 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { useTermoAdiado } from '../../lib/busca';
 import { formatBRL, formatData } from '../../lib/format';
 import { STATUS_LABEL, STATUS_TOM, TIPO_LABEL } from '../../lib/status';
 import type {
@@ -99,9 +100,11 @@ export function ContasPagar() {
   const [status, setStatus] = useState<StatusContaPagar | 'todos'>('todos');
   const [feedback, setFeedback] = useState<string | null>(null);
   const [selecao, setSelecao] = useState<string[]>([]);
-  /** O que está digitado, e o que já foi buscado — a busca é no Enter. */
+  /** O que está digitado; a consulta sai sozinha quando a mão para. */
   const [busca, setBusca] = useState('');
-  const [buscaAtiva, setBuscaAtiva] = useState('');
+  // Some da seleção quem sumiu da lista: aprovar em massa o resultado de uma
+  // busca que não está mais na tela é o que esta linha existe para impedir.
+  const buscaAtiva = useTermoAdiado(busca, () => setSelecao([]));
 
   const lista = useQuery({
     queryKey: ['contas-pagar', status, buscaAtiva],
@@ -335,29 +338,19 @@ export function ContasPagar() {
       </Bloco>
 
       <div className="surgir surgir-2 mb-4 flex flex-wrap items-center gap-2">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            setBuscaAtiva(busca.trim());
-            setSelecao([]);
-          }}
-          className="flex w-full max-w-md gap-2"
-        >
+        {/* Sem botão de buscar: a lista acompanha o que se digita. */}
+        <div className="flex w-full max-w-md gap-2">
           <input
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar por nome, apelido ou CPF…"
             className="campo"
           />
-          <button type="submit" className="btn btn-neutro shrink-0">
-            Buscar
-          </button>
-          {buscaAtiva && (
+          {busca && (
             <button
               type="button"
               onClick={() => {
                 setBusca('');
-                setBuscaAtiva('');
                 setSelecao([]);
               }}
               className="btn btn-sutil shrink-0"
@@ -365,7 +358,7 @@ export function ContasPagar() {
               Limpar
             </button>
           )}
-        </form>
+        </div>
       </div>
 
       {buscaAtiva && (
