@@ -202,10 +202,29 @@ export class FeriasService {
       marcadas.map((m) => [chaveDoPeriodo(m.codigo, m.periodoFim), m]),
     );
 
+    /*
+     * Quem está fora agora está fora, mesmo que o relatório novo já o tenha
+     * virado de período.
+     *
+     * A marca se prende ao período aquisitivo — é o que impede mandar duas
+     * vezes pelo mesmo. Só que a contabilidade manda o relatório todo mês, e
+     * quem saiu de férias aparece nele já rolado para o período seguinte: o
+     * `periodoFim` muda, a chave deixa de bater e a marca sumia da tela. A
+     * pessoa voltava para a fila como disponível **enquanto ainda estava de
+     * férias** — e a fila é o que responde "quem é o próximo".
+     *
+     * Então, não achando marca do período de agora, vale a que estiver em
+     * curso, de qualquer período. Férias terminadas não entram: aí a pessoa
+     * voltou mesmo, e o período novo é uma fila nova, que é o certo.
+     */
+    const emCurso = new Map(
+      marcadas.filter((m) => estaDeFerias(m, hoje)).map((m) => [m.codigo, m]),
+    );
+
     const pessoas = previsao.itens.map((item) => {
-      const marcada = porPeriodo.get(
-        chaveDoPeriodo(item.codigo, item.periodoFim),
-      );
+      const marcada =
+        porPeriodo.get(chaveDoPeriodo(item.codigo, item.periodoFim)) ??
+        emCurso.get(item.codigo);
       return {
         itemId: item.id,
         ordem: item.ordem,
