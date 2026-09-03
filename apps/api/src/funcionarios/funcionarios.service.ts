@@ -204,8 +204,29 @@ export class FuncionariosService {
     });
   }
 
+  /**
+   * O avulso de uma folha que já saiu é recusado.
+   *
+   * Ele nascia aceito e sumia no mesmo instante: a competência já consumida
+   * some da lista, e a folha daquele mês não é gerada de novo. Ficava um
+   * registro invisível que nunca seria pago — foi assim que um bônus de
+   * R$ 300,00 lançado em 03/09 para a folha de 08/2026, paga em 07/08,
+   * desapareceu sem deixar recado.
+   *
+   * O mês pedido aqui é o da **folha**, e não o mês trabalhado: quem quer
+   * pagar no próximo pagamento escolhe o mês em que ele sai. A mensagem diz
+   * qual é, porque errar isso é a coisa mais fácil desta tela.
+   */
   async criarLancamento(funcionarioId: string, dto: LancamentoDto) {
     await this.assertExiste(funcionarioId);
+    if (dto.competencia && (await this.folhaJaGerada(funcionarioId, dto.competencia))) {
+      throw new BadRequestException(
+        `A folha de ${dto.competencia} já foi gerada, e um lançamento nela não ` +
+          'seria pago nunca. Para sair no próximo pagamento, escolha ' +
+          `${competenciaSeguinte(dto.competencia)} — o mês em que a folha sai, ` +
+          'e não o mês trabalhado.',
+      );
+    }
     return this.prisma.lancamento.create({
       data: {
         funcionarioId,

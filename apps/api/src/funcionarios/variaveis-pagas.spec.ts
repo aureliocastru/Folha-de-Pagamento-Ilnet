@@ -61,6 +61,9 @@ function montarServico(opts: {
       upsert: jest.fn(async () => ({ id: 'v1' })),
       deleteMany: jest.fn(async () => ({ count: 1 })),
     },
+    lancamento: {
+      create: jest.fn(async () => ({ id: 'l1' })),
+    },
   };
 
   return { service: new FuncionariosService(prisma as never), prisma };
@@ -161,5 +164,53 @@ describe('o mês já pago não se mexe', () => {
     } as never);
 
     expect(prisma.variavelMes.upsert).toHaveBeenCalled();
+  });
+});
+
+/*
+ * O avulso lançado numa folha que já saiu nascia aceito e sumia no mesmo
+ * instante: a competência consumida some da lista, e a folha daquele mês não é
+ * gerada de novo. Um bônus de R$ 300,00 lançado em 03/09 para a folha de
+ * 08/2026 — paga em 07/08 — desapareceu sem deixar recado.
+ */
+describe('lançamento avulso em folha que já saiu', () => {
+  it('é recusado, e a mensagem diz qual mês usar', async () => {
+    const { service, prisma } = montarServico({ folhasGeradas: ['2026-08'] });
+
+    await expect(
+      service.criarLancamento('f1', {
+        tipo: 'BONUS',
+        descricao: 'Vendas Externas',
+        valor: 300,
+        competencia: '2026-08',
+      } as never),
+    ).rejects.toThrow(/2026-09/);
+    expect(prisma.lancamento.create).not.toHaveBeenCalled();
+  });
+
+  it('a folha que ainda não saiu aceita normalmente', async () => {
+    const { service, prisma } = montarServico({ folhasGeradas: ['2026-08'] });
+
+    await service.criarLancamento('f1', {
+      tipo: 'BONUS',
+      descricao: 'Vendas Externas',
+      valor: 300,
+      competencia: '2026-09',
+    } as never);
+
+    expect(prisma.lancamento.create).toHaveBeenCalled();
+  });
+
+  /* O fixo não tem mês: vale todo mês, e nenhuma folha o consome. */
+  it('o lançamento fixo passa sem perguntar nada', async () => {
+    const { service, prisma } = montarServico({ folhasGeradas: ['2026-08'] });
+
+    await service.criarLancamento('f1', {
+      tipo: 'BONUS',
+      descricao: 'Bônus Coordenação',
+      valor: 450,
+    } as never);
+
+    expect(prisma.lancamento.create).toHaveBeenCalled();
   });
 });

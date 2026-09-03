@@ -836,10 +836,18 @@ function LancamentosBloco({
 
   return (
     <Bloco titulo="Lançamentos fixos e avulsos" className="surgir surgir-4">
+      {/* A diferença entre este bloco e o de vendas, dita antes de alguém
+          errar: lá o mês é o trabalhado, aqui é o do pagamento. */}
+      <p className="mb-4 text-xs leading-relaxed text-tinta-500">
+        Aqui o mês é o da <strong>folha</strong> — o mês em que o pagamento
+        sai, e não o mês trabalhado. Deixe vazio para o lançamento valer{' '}
+        <strong>todo mês</strong>. Folha que já saiu não aceita lançamento
+        novo: ele não seria pago.
+      </p>
       {lancamentos.length === 0 ? (
         <p className="mb-4 text-sm text-tinta-400">
-          Nenhum lançamento. Bônus fixo entra todo mês; avulso, só na
-          competência escolhida.
+          Nenhum lançamento. Bônus fixo entra todo mês; avulso, só na folha do
+          mês escolhido.
         </p>
       ) : (
         <div className="mb-5 overflow-hidden rounded-xl ring-1 ring-tinta-100">
@@ -911,7 +919,11 @@ function LancamentosBloco({
           />
         </div>
         <div>
-          <label className="rotulo">Mês (vazio = fixo)</label>
+          {/* O rótulo diz qual mês porque o bloco de cima pede o outro: ali é o
+              mês trabalhado, aqui é o da folha. Dois campos de mês na mesma
+              tela querendo coisas opostas é o que fazia um bônus ser lançado
+              numa folha que já tinha saído. */}
+          <label className="rotulo">Folha de qual mês (vazio = todo mês)</label>
           <input
             type="month"
             value={competencia}
