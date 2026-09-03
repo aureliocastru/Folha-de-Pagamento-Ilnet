@@ -222,10 +222,25 @@ export class ContasPagarService {
       where,
       include: {
         // Fixos (sem competência) + avulsos desta competência
+        /*
+         * O avulso é do mês trabalhado, como a venda ao lado dele na tela.
+         *
+         * Ele saía pela competência do pagamento, e isso obrigava quem lança a
+         * saber em qual das duas parcelas do mês o valor ia cair — o dia 25 é
+         * pago dentro do próprio mês trabalhado, o saldo no quinto dia do
+         * seguinte. Dois campos de mês na mesma ficha querendo coisas opostas.
+         *
+         * Não paga em dobro: as duas rodadas do mesmo mês trabalhado geram
+         * parcelas diferentes (o dia 25 só o adiantamento; o quinto dia o
+         * salário e o bônus). O desconto entra no saldo, que é do quinto dia; o
+         * bônus, idem; e o adiantamento lançado passa a valer nas duas — que é
+         * o certo, porque antes o dia 25 usava o valor lançado e o saldo do mês
+         * seguinte descontava o percentual, dois números para o mesmo dinheiro.
+         */
         lancamentos: {
           where: {
             ativo: true,
-            OR: [{ competencia: null }, { competencia: dto.competencia }],
+            OR: [{ competencia: null }, { competencia: mesTrabalhado }],
           },
         },
         variaveisMes: { where: { competencia: mesTrabalhado } },

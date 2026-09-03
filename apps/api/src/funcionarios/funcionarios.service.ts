@@ -74,20 +74,19 @@ export class FuncionariosService {
      * maneiras ao mesmo tempo — parece que ainda vai descontar, e a lista vira
      * um arquivo morto que cresce todo mês e esconde o que está para acontecer.
      *
-     * "Já descontado" é ter folha de salário gerada naquela competência: é o
-     * que de fato consumiu o lançamento. O fixo (sem competência) nunca sai —
-     * ele vale todo mês, por definição.
+     * A venda do mês vale pela mesma razão, e agora as duas seguem uma régua
+     * só: os dois campos guardam **mês trabalhado**, e o que consome os dois é
+     * a folha do mês **seguinte** — o que se lança em 08/2026 é pago na folha
+     * de 09/2026. Enquanto ficavam na lista depois de pagas, a comissão de
+     * julho aparecia ao lado da de agosto sem nada distinguir uma da outra, e
+     * quem olhava contava duas a receber onde havia uma.
      *
-     * A venda do mês vale pela mesma razão, e sai pela mesma regra — só que a
-     * competência que a consome é a **seguinte**: o que se lança em 08/2026 é
-     * pago na folha de 09/2026. Enquanto ela ficava na lista depois de paga, a
-     * comissão de julho aparecia ao lado da de agosto sem nada distinguir uma
-     * da outra, e quem olhava contava duas a receber onde havia uma.
+     * O fixo (sem mês) nunca sai — ele vale todo mês, por definição.
      */
     const avulsos = func.lancamentos.filter((l) => l.competencia);
     /** As competências de folha que consomem o que está nesta tela. */
     const aConsumir = [
-      ...avulsos.map((l) => l.competencia!),
+      ...avulsos.map((l) => competenciaSeguinte(l.competencia!)),
       ...func.variaveisMes.map((v) => competenciaSeguinte(v.competencia)),
     ];
     const consumidas =
@@ -111,7 +110,7 @@ export class FuncionariosService {
     return {
       ...func,
       lancamentos: func.lancamentos.filter(
-        (l) => !l.competencia || !consumidas.has(l.competencia),
+        (l) => !l.competencia || !consumidas.has(competenciaSeguinte(l.competencia)),
       ),
       variaveisMes: func.variaveisMes.filter(
         (v) => !consumidas.has(competenciaSeguinte(v.competencia)),
@@ -213,18 +212,20 @@ export class FuncionariosService {
    * R$ 300,00 lançado em 03/09 para a folha de 08/2026, paga em 07/08,
    * desapareceu sem deixar recado.
    *
-   * O mês pedido aqui é o da **folha**, e não o mês trabalhado: quem quer
-   * pagar no próximo pagamento escolhe o mês em que ele sai. A mensagem diz
-   * qual é, porque errar isso é a coisa mais fácil desta tela.
+   * O mês pedido aqui é o **trabalhado**, como no bloco de vendas: quem
+   * trabalhou em agosto recebe no dia 25 de agosto e no quinto dia de
+   * setembro, e o lançamento acompanha os dois.
    */
   async criarLancamento(funcionarioId: string, dto: LancamentoDto) {
     await this.assertExiste(funcionarioId);
-    if (dto.competencia && (await this.folhaJaGerada(funcionarioId, dto.competencia))) {
+    if (
+      dto.competencia &&
+      (await this.folhaJaGerada(funcionarioId, competenciaSeguinte(dto.competencia)))
+    ) {
       throw new BadRequestException(
-        `A folha de ${dto.competencia} já foi gerada, e um lançamento nela não ` +
-          'seria pago nunca. Para sair no próximo pagamento, escolha ' +
-          `${competenciaSeguinte(dto.competencia)} — o mês em que a folha sai, ` +
-          'e não o mês trabalhado.',
+        `O mês trabalhado de ${dto.competencia} já foi fechado: a folha de ` +
+          `${competenciaSeguinte(dto.competencia)} saiu, e um lançamento nele ` +
+          'não seria pago nunca. Lance no mês trabalhado que ainda vai ser pago.',
       );
     }
     return this.prisma.lancamento.create({

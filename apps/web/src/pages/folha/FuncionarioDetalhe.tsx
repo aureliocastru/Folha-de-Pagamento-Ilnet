@@ -836,18 +836,20 @@ function LancamentosBloco({
 
   return (
     <Bloco titulo="Lançamentos fixos e avulsos" className="surgir surgir-4">
-      {/* A diferença entre este bloco e o de vendas, dita antes de alguém
-          errar: lá o mês é o trabalhado, aqui é o do pagamento. */}
+      {/* Mesma régua do bloco de vendas: mês trabalhado. Um mês de trabalho é
+          pago em dois pedaços, e é por isso que o mês do pagamento não serve
+          de referência aqui. */}
       <p className="mb-4 text-xs leading-relaxed text-tinta-500">
-        Aqui o mês é o da <strong>folha</strong> — o mês em que o pagamento
-        sai, e não o mês trabalhado. Deixe vazio para o lançamento valer{' '}
-        <strong>todo mês</strong>. Folha que já saiu não aceita lançamento
-        novo: ele não seria pago.
+        O mês é o <strong>trabalhado</strong>, como nas vendas — quem trabalhou
+        em agosto recebe no dia 25 de agosto e no quinto dia de setembro, e o
+        lançamento acompanha os dois. Deixe vazio para valer{' '}
+        <strong>todo mês</strong>. Mês já fechado não aceita lançamento novo:
+        ele não seria pago.
       </p>
       {lancamentos.length === 0 ? (
         <p className="mb-4 text-sm text-tinta-400">
-          Nenhum lançamento. Bônus fixo entra todo mês; avulso, só na folha do
-          mês escolhido.
+          Nenhum lançamento. Bônus fixo entra todo mês; avulso, só no mês
+          trabalhado escolhido.
         </p>
       ) : (
         <div className="mb-5 overflow-hidden rounded-xl ring-1 ring-tinta-100">
@@ -919,11 +921,7 @@ function LancamentosBloco({
           />
         </div>
         <div>
-          {/* O rótulo diz qual mês porque o bloco de cima pede o outro: ali é o
-              mês trabalhado, aqui é o da folha. Dois campos de mês na mesma
-              tela querendo coisas opostas é o que fazia um bônus ser lançado
-              numa folha que já tinha saído. */}
-          <label className="rotulo">Folha de qual mês (vazio = todo mês)</label>
+          <label className="rotulo">Mês trabalhado (vazio = todo mês)</label>
           <input
             type="month"
             value={competencia}

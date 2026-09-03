@@ -417,7 +417,13 @@ model Lancamento {
   valor     Decimal        @db.Decimal(14, 2)
   ativo     Boolean        @default(true)
 
-  // null = fixo mensal; "AAAA-MM" = avulso daquela competência
+  /// null = fixo (entra todo mês); "AAAA-MM" = avulso de um **mês trabalhado**.
+  ///
+  /// Mês trabalhado, e não mês da folha: um mês de trabalho é pago em dois
+  /// pedaços, o adiantamento no dia 25 do próprio mês e o saldo no quinto dia
+  /// do mês seguinte. Guardar o mês do pagamento obrigaria a escolher um dos
+  /// dois, e era o que fazia esta tela pedir um mês enquanto a de vendas, ao
+  /// lado, pedia outro. Mesma régua de `VariavelMes.competencia`.
   competencia String?
 
   createdAt DateTime @default(now()) @map("created_at")
