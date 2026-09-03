@@ -1571,6 +1571,13 @@ export interface ExtratoDoCaixa {
   resumo: {
     entradas: number;
     saidas: number;
+    /**
+     * As mesmas, sem os lançamentos tirados da conta da gaveta — é delas que
+     * sai o saldo que o fechamento assina. As de cima são as da tela: um
+     * lançamento fora da conta do saldo ainda é um movimento que aconteceu.
+     */
+    entradasNaGaveta: number;
+    saidasNaGaveta: number;
     lancamentos: number;
     conferidos: number;
     /** Só as saídas: são elas que se confere uma a uma. */

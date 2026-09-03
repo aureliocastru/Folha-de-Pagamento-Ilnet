@@ -403,6 +403,28 @@ export class FechamentoCaixaService {
       );
 
     /*
+     * A mesma soma do recorte, sem o que alguém tirou da conta da gaveta.
+     *
+     * O fechamento parte daqui, e não de `soma`. As duas contas do mesmo
+     * dinheiro discordavam: a tela mostrava o esperado sem os lançamentos
+     * marcados, e o fechamento assinava um saldo que os descontava. O
+     * assinado é que vira o ponto de partida do período seguinte, então o
+     * erro não morria no mês em que nasceu — cada fechamento herdava o do
+     * anterior e somava o seu.
+     *
+     * Sobre o recorte, e não sobre a janela da gaveta: no primeiro
+     * fechamento de um caixa não há janela nenhuma, e `fechar` recusa
+     * qualquer período que não comece no dia seguinte ao último fechamento
+     * — nos dois casos o recorte é exatamente o que se está assinando.
+     */
+    const somaNaGaveta = (t: 'ENTRADA' | 'SAIDA') =>
+      arredondar(
+        comConferencia
+          .filter((l) => l.tipo === t && !l.foraDaGaveta)
+          .reduce((s, l) => s + l.valor, 0),
+      );
+
+    /*
      * Os lançamentos marcados como fora da gaveta.
      *
      * São as saídas de acerto: criadas no IXC só para corrigir um saldo que já
@@ -448,6 +470,14 @@ export class FechamentoCaixaService {
       resumo: {
         entradas: soma('ENTRADA'),
         saidas: soma('SAIDA'),
+        /*
+         * As mesmas do recorte, sem os lançamentos tirados da conta da gaveta
+         * — é delas que o fechamento tira o saldo que assina. As de cima
+         * continuam sendo as da tela: um lançamento fora da conta do saldo
+         * ainda é um movimento que aconteceu, e some da lista se não contar.
+         */
+        entradasNaGaveta: somaNaGaveta('ENTRADA'),
+        saidasNaGaveta: somaNaGaveta('SAIDA'),
         lancamentos: comConferencia.length,
         conferidos: comConferencia.filter((l) => l.conferido).length,
         /*
@@ -1562,10 +1592,20 @@ export class FechamentoCaixaService {
       );
     }
 
+    /*
+     * O saldo assinado é o mesmo que a tela mostrava como esperado.
+     *
+     * Sai das somas sem os lançamentos marcados fora da gaveta, e não dos
+     * totais do período: a saída de acerto existe no IXC para corrigir um
+     * saldo de lá, de um dinheiro que já saiu da gaveta por outro caminho.
+     * Descontá-la aqui tirava duas vezes o mesmo dinheiro — e como este
+     * número vira o ponto de partida do período seguinte, a diferença passava
+     * de fechamento em fechamento em vez de morrer onde nasceu.
+     */
     const saldoFinal = arredondar(
       saldoInicial +
-        Number(extrato.resumo.entradas) -
-        Number(extrato.resumo.saidas) -
+        Number(extrato.resumo.entradasNaGaveta) -
+        Number(extrato.resumo.saidasNaGaveta) -
         extrato.resumo.entregueNoPeriodo +
         extrato.resumo.trocoNoPeriodo +
         extrato.resumo.gastoLancadoNoPeriodo,

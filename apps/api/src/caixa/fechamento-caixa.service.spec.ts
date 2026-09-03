@@ -1975,6 +1975,62 @@ describe('lançamento fora da conta da gaveta', () => {
     expect(e.lancamentos.find((l) => l.id === 1)?.foraDaGaveta).toBe(false);
   });
 
+  /*
+   * O defeito que custou caro: a tela mostrava o esperado sem a saída de
+   * acerto, e o fechamento assinava um saldo que a descontava. As duas contas
+   * do mesmo dinheiro discordavam, e a assinada é que vira o ponto de partida
+   * do período seguinte — o erro não morria no mês em que nascia, cada
+   * fechamento herdava o do anterior e somava o seu. Foi assim que o caixa de
+   * setembro passou a partir de R$ 314,00 quando havia R$ 465,00 na gaveta.
+   */
+  it('o saldo assinado é o mesmo que a tela mostrou como esperado', async () => {
+    const comAcerto = {
+      anterior: { saldoFinal: 1000 },
+      lancamentos: [saida(1, 50), saida(2, 300)],
+      conferencias: [
+        { idLancamentoIxc: 1, conferido: true },
+        {
+          idLancamentoIxc: 2,
+          conferido: true,
+          foraDaGaveta: true,
+        },
+      ],
+    };
+
+    const { service: paraVer } = montarServico(comAcerto);
+    const e = await paraVer.extrato(7, '2026-08-01', '2026-08-31');
+
+    const { service, criados } = montarServico(comAcerto);
+    await service.fechar({ caixaId: 7, de: '2026-08-01', ate: '2026-08-31' });
+
+    // 1000 - 50. Os 300 do acerto ficam de fora das duas contas, e não de uma.
+    expect(e.resumo.saldoEsperado).toBe(950);
+    expect(Number(criados[0].saldoFinal)).toBe(950);
+
+    // O período movimentou os 300 do mesmo jeito: o total guardado é o que
+    // aconteceu, e não o que entrou na conta do saldo.
+    expect(Number(criados[0].totalSaidas)).toBe(350);
+  });
+
+  /*
+   * O outro lado: sem marca nenhuma, as duas contas são a mesma de sempre.
+   * Sem este, a correção acima poderia ter tirado a saída comum da conta.
+   */
+  it('sem marca, o fechamento desconta a saída como sempre descontou', async () => {
+    const { service, criados } = montarServico({
+      anterior: { saldoFinal: 1000 },
+      lancamentos: [saida(1, 50), saida(2, 300)],
+      conferencias: [
+        { idLancamentoIxc: 1, conferido: true },
+        { idLancamentoIxc: 2, conferido: true },
+      ],
+    });
+
+    await service.fechar({ caixaId: 7, de: '2026-08-01', ate: '2026-08-31' });
+
+    expect(Number(criados[0].saldoFinal)).toBe(650);
+  });
+
   it('exige o motivo ao tirar da conta', async () => {
     const { service } = montarServico();
 
