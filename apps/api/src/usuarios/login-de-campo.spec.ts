@@ -1,6 +1,7 @@
 import {
   pedacosDoNome,
   planejarLogins,
+  quemTemLogin,
   type LoginExistente,
   type PessoaParaLogin,
 } from './login-de-campo';
@@ -134,5 +135,45 @@ describe('o endereço do login de campo', () => {
       'conceicao',
       'santos',
     ]);
+  });
+});
+
+/**
+ * A mesma identidade, do outro lado: a APR só mostra para escolher quem entra
+ * no app, porque escolher alguém arquiva uma cópia na pasta dessa pessoa. Errar
+ * aqui é esconder da equipe um colega que trabalha, ou arquivar o documento
+ * numa gaveta que ninguém abre.
+ */
+describe('quem já entra no app', () => {
+  it('mostra quem tem login e esconde quem não tem', () => {
+    const equipe = [
+      pessoa('Adailton Vieira Pereira'),
+      pessoa('Werick da Cruz Costa'),
+      pessoa('Jonas Batista de Souza'),
+    ];
+
+    const tem = quemTemLogin(equipe, JA_TEM);
+
+    expect(tem.has('Adailton Vieira Pereira')).toBe(true);
+    // "Werick Coast" e "Werick da Cruz Costa" são a mesma pessoa: o endereço
+    // `werick@` é dela, e ela entra no app hoje.
+    expect(tem.has('Werick da Cruz Costa')).toBe(true);
+    expect(tem.has('Jonas Batista de Souza')).toBe(false);
+  });
+
+  it('reconhece quem está no cadastro com o nome curto', () => {
+    // O login diz "Marco Antonio"; o cadastro, o nome inteiro.
+    const tem = quemTemLogin([pessoa('Marco Antonio Castro')], JA_TEM);
+    expect(tem.has('Marco Antonio Castro')).toBe(true);
+  });
+
+  it('não conta como login o nome que não vira endereço', () => {
+    const tem = quemTemLogin([{ id: 'x', nome: 'de' }], JA_TEM);
+    expect(tem.has('x')).toBe(false);
+  });
+
+  it('sem login nenhum aberto, não mostra ninguém', () => {
+    const equipe = [pessoa('Adailton Vieira Pereira'), pessoa('Luzimeire')];
+    expect(quemTemLogin(equipe, []).size).toBe(0);
   });
 });

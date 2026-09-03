@@ -239,16 +239,21 @@ function EscolherPessoa({
         </ul>
 
         {lista.length === 0 && (
+          /* A lista é de quem tem login: procurar um colega e não achar é o
+             caso comum, não o vazio. Dizer por quê poupa a busca de novo com o
+             nome escrito de outro jeito — e aponta a saída, logo abaixo. */
           <p className="py-6 text-center text-sm text-tinta-400">
-            Nenhum resultado.
+            {termo ? 'Nenhum resultado.' : 'Ninguém disponível.'} Aqui aparece
+            quem tem login no sistema; os demais entram pelo nome, abaixo.
           </p>
         )}
       </div>
 
-      {/* Quem não está no cadastro: o terceirizado que apareceu no serviço. */}
+      {/* Quem não está na lista: o terceirizado que apareceu no serviço, e o
+          colega do cadastro que ainda não tem login para entrar no app. */}
       <div className="mt-5 border-t border-tinta-200 pt-4">
         <label className="rotulo" htmlFor="nome-livre">
-          Executante não cadastrado
+          Executante sem login
         </label>
         <div className="flex gap-2">
           <input

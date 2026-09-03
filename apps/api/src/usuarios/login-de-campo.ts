@@ -192,3 +192,33 @@ function enderecoLivre(
     if (livre(endereco)) return endereco;
   }
 }
+
+/**
+ * Quem, do cadastro, já entra no app.
+ *
+ * É a pergunta do abridor de logins virada do avesso: lá interessa quem falta,
+ * aqui interessa quem tem. Quem pergunta é a APR, e o motivo é o arquivo — ela
+ * guarda uma cópia na pasta de cada executante, e a pasta de quem não entra no
+ * sistema é gaveta que ninguém abre. Fora da lista, então, quem não tem login.
+ *
+ * Vale a mesma identidade por nome usada para não abrir login repetido:
+ * "Marco Antonio" e "Marco Antonio Castro" são a mesma pessoa. Devolve os `id`
+ * de quem tem, para quem chamou peneirar a própria lista.
+ *
+ * De propósito não olha se o login está ativo: quem decide isso é a mesma
+ * conferência que `prisma/logins-de-campo.ts` faz, e as duas discordarem seria
+ * o abridor dizendo "já tem login" para alguém que a APR não mostra.
+ */
+export function quemTemLogin(
+  pessoas: PessoaParaLogin[],
+  existentes: LoginExistente[],
+  dominio: string = DOMINIO_DA_CASA,
+): Set<string> {
+  return new Set(
+    planejarLogins(pessoas, existentes, dominio)
+      // `criar` falso e endereço em branco é o nome que não vira endereço —
+      // essa pessoa não tem login, ela não chega a ter endereço possível.
+      .filter((p) => !p.criar && p.email !== '')
+      .map((p) => p.id),
+  );
+}

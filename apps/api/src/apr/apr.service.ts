@@ -17,6 +17,7 @@ import {
 import { ConfigFinanceiraService } from '../financeiro/config-financeira.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { DocumentosRhService } from '../rh/documentos.service';
+import { quemTemLogin } from '../usuarios/login-de-campo';
 import { CatalogoAprService } from './catalogo.service';
 import {
   gerarAprPdf,
@@ -183,20 +184,40 @@ export class AprService {
    * Vive aqui, e não em `/funcionarios`, porque o técnico não abre aquele
    * módulo — e porque o que ele precisa é só o nome para escolher, não a ficha
    * de salário de ninguém.
+   *
+   * Só entra na lista quem tem login. Escolher alguém aqui não é só escrever um
+   * nome no papel: arquiva uma cópia da APR na pasta dessa pessoa, e a pasta de
+   * quem não entra no sistema é gaveta que ninguém abre — o documento fica
+   * guardado onde ele nunca vai ser lido. Quem apareceu no serviço sem estar no
+   * cadastro continua entrando pelo nome digitado, na tela.
    */
   async equipe() {
-    const pessoas = await this.prisma.funcionario.findMany({
-      where: { ativo: true, isentoIcms: true },
-      orderBy: { nome: 'asc' },
-      select: { id: true, nome: true, apelido: true, cpfCnpj: true, funcao: true },
-    });
-    return pessoas.map((p) => ({
-      id: p.id,
-      nome: p.nome,
-      apelido: p.apelido,
-      cpf: p.cpfCnpj,
-      funcao: p.funcao,
-    }));
+    const [pessoas, logins] = await Promise.all([
+      this.prisma.funcionario.findMany({
+        where: { ativo: true, isentoIcms: true },
+        orderBy: { nome: 'asc' },
+        select: {
+          id: true,
+          nome: true,
+          apelido: true,
+          cpfCnpj: true,
+          funcao: true,
+        },
+      }),
+      this.prisma.user.findMany({ select: { nome: true, email: true } }),
+    ]);
+
+    const temLogin = quemTemLogin(pessoas, logins);
+
+    return pessoas
+      .filter((p) => temLogin.has(p.id))
+      .map((p) => ({
+        id: p.id,
+        nome: p.nome,
+        apelido: p.apelido,
+        cpf: p.cpfCnpj,
+        funcao: p.funcao,
+      }));
   }
 
   // --- Escrever -------------------------------------------------------------
