@@ -704,7 +704,18 @@ function ValesBloco({ funcionarioId }: { funcionarioId: string }) {
       ).data,
   });
 
-  const abertos = (data ?? []).filter((v) => !v.vale.cancelado && !v.quitado);
+  /*
+   * O vale quitado sai da lista, pelo mesmo motivo do avulso já descontado: a
+   * ficha responde "o que ainda pesa nesta pessoa". Quitado não pesa mais, e
+   * ficava aqui só engordando a tabela — quem batia o olho somava saldos que
+   * já não existiam. O cancelado fica, apagado: ele não foi pago, foi desfeito,
+   * e sumir com ele esconderia a decisão de alguém.
+   *
+   * A história completa continua a um clique, em Vales e acertos.
+   */
+  const naFicha = (data ?? []).filter((v) => !v.quitado);
+  const abertos = naFicha.filter((v) => !v.vale.cancelado);
+  const quitados = (data ?? []).length - naFicha.length;
 
   return (
     <Bloco
@@ -720,12 +731,14 @@ function ValesBloco({ funcionarioId }: { funcionarioId: string }) {
       }
     >
       {isLoading && <p className="text-sm text-tinta-400">Carregando…</p>}
-      {data && data.length === 0 && (
+      {data && naFicha.length === 0 && (
         <p className="text-sm text-tinta-400">
-          Nenhum vale ou acerto registrado.
+          {quitados > 0
+            ? 'Nada em aberto — o que havia já foi quitado.'
+            : 'Nenhum vale ou acerto registrado.'}
         </p>
       )}
-      {data && data.length > 0 && (
+      {naFicha.length > 0 && (
         <div className="overflow-hidden rounded-xl ring-1 ring-tinta-100">
           <table className="w-full text-sm">
             <thead>
@@ -736,7 +749,7 @@ function ValesBloco({ funcionarioId }: { funcionarioId: string }) {
               </tr>
             </thead>
             <tbody>
-              {data.map((v) => (
+              {naFicha.map((v) => (
                 <tr
                   key={v.vale.id}
                   className={`border-t border-tinta-100 ${
@@ -768,9 +781,11 @@ function ValesBloco({ funcionarioId }: { funcionarioId: string }) {
           </table>
         </div>
       )}
-      {abertos.length > 0 && (
+      {(abertos.length > 0 || quitados > 0) && (
         <p className="mt-3 text-xs text-tinta-400">
           {abertos.length} em aberto
+          {quitados > 0 &&
+            ` · ${quitados} já quitado${quitados > 1 ? 's' : ''}, fora desta lista`}
         </p>
       )}
     </Bloco>

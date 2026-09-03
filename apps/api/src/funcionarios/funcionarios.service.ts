@@ -1,5 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma, TipoLancamento } from '@prisma/client';
+import { competenciaSeguinte } from '../financeiro/folha.calc';
 import { PrismaService } from '../prisma/prisma.service';
 import { LancamentoDto } from './dto/lancamento.dto';
 import { QueryFuncionariosDto } from './dto/query-funcionarios.dto';
@@ -72,10 +77,21 @@ export class FuncionariosService {
      * "Já descontado" é ter folha de salário gerada naquela competência: é o
      * que de fato consumiu o lançamento. O fixo (sem competência) nunca sai —
      * ele vale todo mês, por definição.
+     *
+     * A venda do mês vale pela mesma razão, e sai pela mesma regra — só que a
+     * competência que a consome é a **seguinte**: o que se lança em 08/2026 é
+     * pago na folha de 09/2026. Enquanto ela ficava na lista depois de paga, a
+     * comissão de julho aparecia ao lado da de agosto sem nada distinguir uma
+     * da outra, e quem olhava contava duas a receber onde havia uma.
      */
     const avulsos = func.lancamentos.filter((l) => l.competencia);
+    /** As competências de folha que consomem o que está nesta tela. */
+    const aConsumir = [
+      ...avulsos.map((l) => l.competencia!),
+      ...func.variaveisMes.map((v) => competenciaSeguinte(v.competencia)),
+    ];
     const consumidas =
-      avulsos.length === 0
+      aConsumir.length === 0
         ? new Set<string>()
         : new Set(
             (
@@ -83,9 +99,7 @@ export class FuncionariosService {
                 where: {
                   funcionarioId: id,
                   tipo: TipoLancamento.SALARIO,
-                  competencia: {
-                    in: [...new Set(avulsos.map((l) => l.competencia!))],
-                  },
+                  competencia: { in: [...new Set(aConsumir)] },
                 },
                 select: { competencia: true },
               })
@@ -99,7 +113,33 @@ export class FuncionariosService {
       lancamentos: func.lancamentos.filter(
         (l) => !l.competencia || !consumidas.has(l.competencia),
       ),
+      variaveisMes: func.variaveisMes.filter(
+        (v) => !consumidas.has(competenciaSeguinte(v.competencia)),
+      ),
     };
+  }
+
+  /**
+   * A folha daquela competência já saiu?
+   *
+   * É o que decide se uma venda ainda pode ser mexida: depois de a folha ter
+   * sido gerada, o valor já virou conta a pagar com a comissão detalhada na
+   * observação, e mudar o lançamento aqui não muda mais o que foi pago —
+   * mudaria só o registro de por que se pagou aquilo.
+   */
+  private async folhaJaGerada(
+    funcionarioId: string,
+    competenciaDaFolha: string,
+  ): Promise<boolean> {
+    const conta = await this.prisma.contaPagar.findFirst({
+      where: {
+        funcionarioId,
+        tipo: TipoLancamento.SALARIO,
+        competencia: competenciaDaFolha,
+      },
+      select: { id: true },
+    });
+    return !!conta;
   }
 
   async atualizar(id: string, dto: UpdateFuncionarioDto) {
@@ -206,9 +246,24 @@ export class FuncionariosService {
     });
   }
 
-  /** Um registro por competência: salvar de novo sobrescreve o mês. */
+  /**
+   * Um registro por competência: salvar de novo sobrescreve o mês.
+   *
+   * Menos depois de a folha daquele mês ter saído. O mês pago sai da lista da
+   * tela, e é justamente por isso que a trava tem de estar aqui: sem a linha
+   * na tela, o formulário abre em branco naquele mês, e um "Salvar" apagaria
+   * por cima o registro do que já foi pago — sem avisar ninguém, porque a
+   * conta a pagar não muda mais.
+   */
   async salvarVariaveis(funcionarioId: string, dto: VariavelMesDto) {
     await this.assertExiste(funcionarioId);
+    if (await this.folhaJaGerada(funcionarioId, competenciaSeguinte(dto.competencia))) {
+      throw new BadRequestException(
+        `A folha de ${dto.competencia} já foi gerada e a comissão desse mês já ` +
+          'virou conta a pagar. Mudar aqui não muda o que foi pago — se o ' +
+          'valor saiu errado, o acerto é um vale ou um lançamento avulso.',
+      );
+    }
     const dados = {
       vendas: dto.vendas ?? 0,
       valorPorVenda:
@@ -230,8 +285,15 @@ export class FuncionariosService {
     });
   }
 
+  /** Pelo mesmo motivo do salvar: mês já pago não se apaga por aqui. */
   async removerVariaveis(funcionarioId: string, competencia: string) {
     await this.assertExiste(funcionarioId);
+    if (await this.folhaJaGerada(funcionarioId, competenciaSeguinte(competencia))) {
+      throw new BadRequestException(
+        `A folha de ${competencia} já foi gerada: apagar a venda agora deixaria ` +
+          'a conta a pagar sem a explicação de onde veio o valor.',
+      );
+    }
     await this.prisma.variavelMes.deleteMany({
       where: { funcionarioId, competencia },
     });
