@@ -110,7 +110,8 @@ export class FechamentoCaixaService {
      * zerada (os fechamentos, os acertos com data escolhida) escapava disso,
      * que é por que o defeito demorou a aparecer.
      */
-    const fim = fimDoDia(dataDoDia(ate, 'final'));
+    const inicioDoUltimoDia = dataDoDia(ate, 'final');
+    const fim = fimDoDia(inicioDoUltimoDia);
     if (inicio > fim) {
       throw new BadRequestException('A data inicial é depois da final.');
     }
@@ -133,9 +134,26 @@ export class FechamentoCaixaService {
      * conta. Dinheiro que existe na gaveta e não aparece na soma continuaria a
      * faltar em todos os períodos seguintes se o encadeamento seguisse o
      * calculado — a diferença tem de morrer no fechamento em que apareceu.
+     *
+     * "Anterior" é anterior ao **fim** do recorte, e não ao começo dele. O
+     * começo era o defeito da virada do mês: fechado até 31/08, a tela de
+     * 01/09 a 03/09 partia dos R$ 314,00 daquele fechamento, e bastava
+     * arrastar a data inicial um dia para trás — 31/08 a 03/09 — para o
+     * fechamento de 31/08 deixar de ser "anterior" e a conta recuar duas
+     * semanas, até o de 18/08: partia de R$ 3.311,00, recontava agosto inteiro
+     * e ressuscitava a diferença que a contagem de 31/08 já tinha matado. Uma
+     * gaveta, dois números — R$ 420,00 e R$ 269,00 — conforme o filtro.
+     *
+     * Recuar não é mais preciso: a janela da gaveta logo abaixo já começa no
+     * dia seguinte ao fechamento, seja ele antes ou depois do `de` pedido, e é
+     * ela que impede o movimento já assinado de entrar na conta outra vez.
+     *
+     * Pelo dia, e não pelo instante: fechamento assinado antes de 02eaaea tem
+     * `ate` à meia-noite, e comparar com o fim do dia o deixaria ser o próprio
+     * anterior de um recorte que acaba no dia em que ele fecha.
      */
     const anterior = await this.prisma.fechamentoCaixa.findFirst({
-      where: { caixaId, ate: { lt: inicio } },
+      where: { caixaId, ate: { lt: inicioDoUltimoDia } },
       orderBy: { ate: 'desc' },
     });
     const saldoInicial = anterior ? Number(saldoQueSegue(anterior)) : null;
@@ -152,9 +170,10 @@ export class FechamentoCaixaService {
      * tela dizia qual — o número mudava conforme a data inicial escolhida.
      *
      * Então a gaveta é somada da sua janela: do dia seguinte ao fechamento até
-     * o fim do recorte, incluindo os dias que ficaram de fora do filtro. O
-     * recorte continua mandando no resto da tela — é dele que saem as
-     * entradas, as saídas e a fila de conferir.
+     * o fim do recorte — puxando os dias que ficaram de fora do filtro, e
+     * largando os que o filtro alcança mas o fechamento já assinou. O recorte
+     * continua mandando no resto da tela — é dele que saem as entradas, as
+     * saídas e a fila de conferir.
      *
      * Por dia inteiro, e não pelo instante guardado: fechamento assinado antes
      * de 02eaaea tem `ate` à meia-noite do último dia, e partir do instante
@@ -346,13 +365,18 @@ export class FechamentoCaixaService {
     /*
      * O mesmo, na janela da gaveta.
      *
-     * Sem dias fora do recorte as duas janelas são a mesma, e não custa
-     * consulta nenhuma: é a conta que a tela já fez. Havendo, pergunta-se pelo
-     * intervalo inteiro de uma vez — são duas leituras no banco daqui, baratas
-     * ao lado da ida ao IXC.
+     * Quando as duas começam no mesmo dia são a mesma, e não custa consulta
+     * nenhuma: é a conta que a tela já fez. Diferindo — para trás, com dias
+     * fora do recorte, ou para a frente, com dias que o fechamento já assinou
+     * —, pergunta-se pelo intervalo inteiro de uma vez: são duas leituras no
+     * banco daqui, baratas ao lado da ida ao IXC.
+     *
+     * Para a frente importa tanto quanto para trás: o dinheiro entregue em
+     * 31/08 saiu da gaveta antes do fechamento daquele dia e já está no saldo
+     * dele. Contá-lo de novo aqui o faria sair duas vezes.
      */
     const ruaDaGaveta =
-      gavetaDesde && gavetaDesde < inicio
+      gavetaDesde && gavetaDesde.getTime() !== inicio.getTime()
         ? await this.ruaNoIntervalo(caixaId, gavetaDesde, fim)
         : -entregueNoPeriodo + trocoNoPeriodo + gastoLancadoNoPeriodo;
 
@@ -489,8 +513,9 @@ export class FechamentoCaixaService {
    * volta para a conta, porque a baixa dele no caixa o faz sair uma segunda
    * vez pelas saídas de lá. Devolve o efeito líquido dos três.
    *
-   * Só é chamado quando o recorte da tela deixa dias de fora da janela da
-   * gaveta. No encaixe normal a conta já está feita, e este método não roda.
+   * Só é chamado quando o recorte da tela e a janela da gaveta começam em dias
+   * diferentes. No encaixe normal a conta já está feita, e este método não
+   * roda.
    */
   private async ruaNoIntervalo(
     caixaId: number,

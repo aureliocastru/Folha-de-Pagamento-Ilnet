@@ -23,6 +23,17 @@ import { FechamentoCaixaService } from './fechamento-caixa.service';
 const HOJE = new Date('2026-08-18T12:00:00Z');
 
 /**
+ * Onde termina o fechamento anterior quando o teste não diz.
+ *
+ * É a véspera de 01/08, que é o dia em que quase todo teste daqui começa o
+ * recorte: o encaixe normal, em que a gaveta parte de onde a tela começa. Já
+ * foi deduzida da própria consulta, mas ela pergunta pelo último dia do
+ * período e não pelo primeiro — deduzir dali daria uma véspera de 31/08.
+ * Teste que queira outro encaixe diz o `ate` do anterior.
+ */
+const VESPERA_DO_PADRAO = new Date(2026, 6, 31, 23, 59, 59, 999);
+
+/**
  * As duas perguntas que o serviço faz à tabela de fechamentos: o anterior ao
  * período (com recorte de data) e o último do caixa (sem). O `where.ate` é o
  * que as separa.
@@ -88,6 +99,8 @@ function montarServico(
     entrega?: Record<string, unknown> | null;
     /** O fechamento anterior deste caixa, de onde o saldo parte. */
     anterior?: Record<string, unknown> | null;
+    /** Vários fechamentos assinados, quando importa qual deles o serviço escolhe. */
+    anteriores?: Array<Record<string, unknown>>;
     /** Entregas com data dentro do período. */
     entregasDoPeriodo?: Array<Record<string, unknown>>;
     /** Acertos com data (ou baixa no IXC) dentro do período. */
@@ -108,6 +121,11 @@ function montarServico(
 ) {
   const lancamentos = opts.lancamentos ?? [];
   const criados: Record<string, unknown>[] = [];
+
+  /** Os fechamentos já assinados deste caixa, do mais velho ao mais novo. */
+  const anteriores = (
+    opts.anteriores ?? (opts.anterior ? [opts.anterior] : [])
+  ).map((f) => ({ ate: VESPERA_DO_PADRAO, saldoContado: null, ...f }));
 
   const prisma = {
     conferenciaCaixa: {
@@ -234,17 +252,20 @@ function montarServico(
         async (args: Record<string, never> | ConsultaDeFechamento) => {
           const consulta = args as ConsultaDeFechamento;
           if (!consulta.where?.ate) return opts.ultimo ?? null;
-          if (!opts.anterior) return null;
           /*
-           * Sem `ate` informado, o anterior termina na véspera do período —
-           * o encaixe normal, em que a gaveta parte de onde a tela começa.
-           * Teste que queira dias soltos entre um fechamento e o outro diz o
-           * `ate` dele.
+           * O recorte de data é obedecido, e não ignorado.
+           *
+           * Um caixa tem vários fechamentos, e qual deles é "o anterior"
+           * depende do que se pergunta — foi essa escolha que errou na virada
+           * do mês. Devolver sempre o mesmo, seja qual for o `lt`, deixaria o
+           * erro passar pelo teste sem ser visto.
            */
-          const vespera = new Date(consulta.where.ate.lt as Date);
-          vespera.setDate(vespera.getDate() - 1);
-          vespera.setHours(23, 59, 59, 999);
-          return { ate: vespera, saldoContado: null, ...opts.anterior };
+          const lt = consulta.where.ate.lt as Date;
+          return (
+            anteriores
+              .filter((f) => (f.ate as Date) < lt)
+              .sort((a, b) => (b.ate as Date).getTime() - (a.ate as Date).getTime())[0] ?? null
+          );
         },
       ),
       findUnique: jest.fn().mockResolvedValue(opts.fechamento ?? null),
@@ -1051,11 +1072,12 @@ describe('o saldo que deve estar na gaveta', () => {
   });
 
   /*
-   * O anterior tem de ser anterior de verdade. Sem o recorte por data, um
-   * período recém-fechado seria lido como o proprio saldo de partida na vez
-   * seguinte que a mesma tela abrisse, e o movimento entraria duas vezes.
+   * O anterior é anterior ao fim do recorte, e não ao começo dele: é o último
+   * fechamento que o período alcança, seja qual for a data inicial escolhida.
+   * Recontar o que ele já assinou não é risco daqui — quem impede é a janela
+   * da gaveta, que começa no dia seguinte a ele.
    */
-  it('procura o anterior só entre os que terminaram antes do início', async () => {
+  it('procura o anterior entre os que terminaram antes do último dia', async () => {
     const { service, prisma } = montarServico({ anterior: { saldoFinal: 1000 } });
 
     await service.extrato(7, '2026-08-01', '2026-08-31');
@@ -1063,7 +1085,7 @@ describe('o saldo que deve estar na gaveta', () => {
     const [consulta] = prisma.fechamentoCaixa.findFirst.mock
       .calls[0] as ConsultaDeFechamento[];
     expect(consulta.where?.caixaId).toBe(7);
-    expect(consulta.where?.ate?.lt).toEqual(new Date(2026, 7, 1));
+    expect(consulta.where?.ate?.lt).toEqual(new Date(2026, 7, 31));
     expect(consulta.orderBy).toEqual({ ate: 'desc' });
   });
 
@@ -1257,6 +1279,66 @@ describe('o saldo que deve estar na gaveta', () => {
     expect(so20.resumo.saidas).toBe(255);
     expect(so20.resumo.entradas).toBe(1710);
     expect(so20.resumo.lancamentos).toBe(2);
+  });
+
+  /*
+   * A virada do mês, que é o mesmo defeito pelo outro lado.
+   *
+   * Fechado até 18/08 com 3.311 e de novo até 31/08, contado em 314 — a
+   * contagem achou 151 a menos que a soma, e o fechamento de 31/08 existe
+   * justamente para essa diferença morrer ali. A tela de setembro (01 a 03)
+   * partia dos 314 e mostrava 269. Arrastar o `de` um dia para trás, para
+   * 31/08, tirava o fechamento de 31/08 do posto de "anterior": a conta
+   * recuava até o de 18/08, partia dos 3.311, recontava agosto inteiro e
+   * ressuscitava os 151 — 420 na tela, na mesma gaveta e no mesmo dia.
+   */
+  it('não muda de valor quando o recorte volta para o mês passado', async () => {
+    const doisFechamentos = {
+      anteriores: [
+        { saldoFinal: 3311, ate: new Date(2026, 7, 18, 23, 59, 59, 999) },
+        {
+          saldoFinal: 465,
+          saldoContado: 314,
+          ate: new Date(2026, 7, 31, 23, 59, 59, 999),
+        },
+      ],
+      lancamentos: [
+        // Agosto, já assinado nos dois fechamentos: não conta de novo.
+        saidaEm(1, 2008, new Date(2026, 7, 19, 14)),
+        entradaEm(2, 804, new Date(2026, 7, 25, 15)),
+        saidaEm(3, 300, new Date(2026, 7, 31, 9)),
+        // Setembro, o que a gaveta viu desde o fechamento.
+        saidaEm(4, 884, new Date(2026, 8, 2, 11)),
+        entradaEm(5, 875, new Date(2026, 8, 3, 16)),
+      ],
+      // Entregue em agosto: já saiu da gaveta antes do fechamento de 31/08.
+      entregasDoPeriodo: [
+        { valor: 120, entregueEm: new Date(2026, 7, 28, 10) },
+      ],
+    };
+
+    const soSetembro = await montarServico(doisFechamentos).service.extrato(
+      7,
+      '2026-09-01',
+      '2026-09-03',
+    );
+    const desde31 = await montarServico(doisFechamentos).service.extrato(
+      7,
+      '2026-08-31',
+      '2026-09-03',
+    );
+
+    // 314 contados + 875 de entrada - 884 de saída.
+    expect(soSetembro.resumo.saldoEsperado).toBe(305);
+    expect(desde31.resumo.saldoEsperado).toBe(305);
+
+    // Parte do fechamento mais novo nos dois, e não do de duas semanas antes.
+    expect(desde31.resumo.saldoInicial).toBe(314);
+    expect(desde31.resumo.gavetaDesde).toBe('2026-09-01');
+
+    // O recorte continua mandando no resto da tela: o dia 31 está na lista.
+    expect(desde31.resumo.saidas).toBe(1184);
+    expect(desde31.resumo.lancamentos).toBe(3);
   });
 
   it('o que saiu com alguém fora do recorte também falta na gaveta', async () => {
