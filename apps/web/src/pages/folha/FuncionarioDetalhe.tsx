@@ -805,25 +805,59 @@ function LancamentosBloco({
   const [descricao, setDescricao] = useState('');
   const [valor, setValor] = useState('');
   const [competencia, setCompetencia] = useState('');
+  /** null = o formulário está criando; id = está editando aquela linha. */
+  const [editandoId, setEditandoId] = useState<string | null>(null);
 
   function invalidar() {
     qc.invalidateQueries({ queryKey: ['funcionario', funcionarioId] });
   }
 
+  function limpar() {
+    setEditandoId(null);
+    setTipo('DESCONTO');
+    setDescricao('');
+    setValor('');
+    setCompetencia('');
+  }
+
+  /*
+   * Editar é o mesmo formulário de baixo, não um formulário à parte.
+   *
+   * São os mesmos quatro campos, com as mesmas regras — repeti-los espremidos
+   * dentro da linha da tabela seria manter duas cópias da mesma coisa, e a
+   * segunda desalinha na primeira mudança. Em troca, a linha que está no
+   * formulário fica marcada: formulário preenchido sem dono visível é como se
+   * edita a linha errada.
+   */
+  function abrirEdicao(l: Lancamento) {
+    setEditandoId(l.id);
+    setTipo(l.tipo);
+    setDescricao(l.descricao);
+    setValor(l.valor);
+    setCompetencia(l.competencia ?? '');
+  }
+
+  const corpo = () => ({
+    tipo,
+    descricao,
+    valor: Number(valor),
+    ...(competencia ? { competencia } : {}),
+  });
+
   const adicionar = useMutation({
     mutationFn: async () =>
-      (
-        await api.post(`/funcionarios/${funcionarioId}/lancamentos`, {
-          tipo,
-          descricao,
-          valor: Number(valor),
-          ...(competencia ? { competencia } : {}),
-        })
-      ).data,
+      (await api.post(`/funcionarios/${funcionarioId}/lancamentos`, corpo())).data,
     onSuccess: () => {
-      setDescricao('');
-      setValor('');
-      setCompetencia('');
+      limpar();
+      invalidar();
+    },
+  });
+
+  const salvar = useMutation({
+    mutationFn: async () =>
+      (await api.put(`/funcionarios/lancamentos/${editandoId}`, corpo())).data,
+    onSuccess: () => {
+      limpar();
       invalidar();
     },
   });
@@ -831,8 +865,19 @@ function LancamentosBloco({
   const remover = useMutation({
     mutationFn: async (lancId: string) =>
       (await api.delete(`/funcionarios/lancamentos/${lancId}`)).data,
-    onSuccess: invalidar,
+    onSuccess: (_dados, lancId) => {
+      // Removida a linha que estava no formulário, ele fica sem dono.
+      if (lancId === editandoId) limpar();
+      invalidar();
+    },
   });
+
+  const editando = editandoId !== null;
+  const incompleto = descricao.trim().length < 2 || Number(valor) <= 0;
+  const emCurso = adicionar.isPending || salvar.isPending;
+  /* A trava de mês fechado mora na API, que é quem sabe se a folha saiu. Sem
+     mostrar o que ela respondeu, o botão não faz nada e não diz por quê. */
+  const erro = adicionar.error ?? salvar.error ?? remover.error;
 
   return (
     <Bloco titulo="Lançamentos fixos e avulsos" className="surgir surgir-4">
@@ -856,7 +901,12 @@ function LancamentosBloco({
           <table className="w-full text-sm">
             <tbody>
               {lancamentos.map((l) => (
-                <tr key={l.id} className="border-t border-tinta-100 first:border-0">
+                <tr
+                  key={l.id}
+                  className={`border-t border-tinta-100 first:border-0 ${
+                    l.id === editandoId ? 'bg-tinta-50' : ''
+                  }`}
+                >
                   <td className="td !py-2.5">
                     <span className="text-[11px] font-semibold uppercase tracking-wider text-tinta-400">
                       {TIPO_LABEL[l.tipo]}
@@ -877,6 +927,16 @@ function LancamentosBloco({
                   </td>
                   <td className="td !py-2.5 text-right">
                     <button
+                      onClick={() =>
+                        l.id === editandoId ? limpar() : abrirEdicao(l)
+                      }
+                      className="text-xs font-semibold text-tinta-500 hover:underline"
+                    >
+                      {l.id === editandoId ? 'cancelar' : 'editar'}
+                    </button>
+                  </td>
+                  <td className="td !py-2.5 text-right">
+                    <button
                       onClick={() => remover.mutate(l.id)}
                       className="text-xs font-semibold text-rose-500 hover:underline"
                     >
@@ -888,6 +948,15 @@ function LancamentosBloco({
             </tbody>
           </table>
         </div>
+      )}
+
+      {editando && (
+        <p className="mb-3 text-xs font-semibold text-tinta-600">
+          Editando o lançamento marcado acima.{' '}
+          <button onClick={limpar} className="underline">
+            cancelar
+          </button>
+        </p>
       )}
 
       <div className="flex flex-wrap items-end gap-3">
@@ -930,15 +999,15 @@ function LancamentosBloco({
           />
         </div>
         <button
-          onClick={() => adicionar.mutate()}
-          disabled={
-            adicionar.isPending || descricao.trim().length < 2 || Number(valor) <= 0
-          }
-          className="btn btn-neutro"
+          onClick={() => (editando ? salvar.mutate() : adicionar.mutate())}
+          disabled={emCurso || incompleto}
+          className={editando ? 'btn btn-primario' : 'btn btn-neutro'}
         >
-          Adicionar
+          {editando ? (salvar.isPending ? 'Salvando…' : 'Salvar') : 'Adicionar'}
         </button>
       </div>
+
+      {erro && <p className="mt-3 text-sm text-rose-600">{mensagemErro(erro)}</p>}
     </Bloco>
   );
 }

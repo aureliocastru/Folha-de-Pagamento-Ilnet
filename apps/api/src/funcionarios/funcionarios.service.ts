@@ -218,16 +218,7 @@ export class FuncionariosService {
    */
   async criarLancamento(funcionarioId: string, dto: LancamentoDto) {
     await this.assertExiste(funcionarioId);
-    if (
-      dto.competencia &&
-      (await this.folhaJaGerada(funcionarioId, competenciaSeguinte(dto.competencia)))
-    ) {
-      throw new BadRequestException(
-        `O mês trabalhado de ${dto.competencia} já foi fechado: a folha de ` +
-          `${competenciaSeguinte(dto.competencia)} saiu, e um lançamento nele ` +
-          'não seria pago nunca. Lance no mês trabalhado que ainda vai ser pago.',
-      );
-    }
+    await this.assertMesTrabalhadoAberto(funcionarioId, dto.competencia ?? null);
     return this.prisma.lancamento.create({
       data: {
         funcionarioId,
@@ -241,7 +232,35 @@ export class FuncionariosService {
   }
 
   async atualizarLancamento(lancamentoId: string, dto: LancamentoDto) {
-    await this.assertLancamentoExiste(lancamentoId);
+    const atual = await this.buscarLancamento(lancamentoId);
+
+    /*
+     * De onde ele sai: o que já foi pago não se reescreve.
+     *
+     * O avulso já descontado some da lista da tela, então por esta porta a
+     * trava quase nunca dispara — quase. A tela aberta desde antes de a folha
+     * ser gerada ainda mostra a linha, e sem isto o "Salvar" gravaria por cima
+     * de um lançamento que já virou conta a pagar: a mudança sumiria no
+     * recarregar junto com a linha, sem nada dizer que ela não valeu.
+     */
+    if (
+      atual.competencia &&
+      (await this.folhaJaGerada(
+        atual.funcionarioId,
+        competenciaSeguinte(atual.competencia),
+      ))
+    ) {
+      throw new BadRequestException(
+        `Este lançamento é do mês trabalhado de ${atual.competencia}, que já ` +
+          `foi pago na folha de ${competenciaSeguinte(atual.competencia)}. ` +
+          'Mudar aqui não muda o que foi pago — se o valor saiu errado, o ' +
+          'acerto é um lançamento novo no mês que ainda vai ser pago.',
+      );
+    }
+
+    // Para onde ele vai: a mesma régua de quando se cria.
+    await this.assertMesTrabalhadoAberto(atual.funcionarioId, dto.competencia ?? null);
+
     return this.prisma.lancamento.update({
       where: { id: lancamentoId },
       data: {
@@ -255,8 +274,30 @@ export class FuncionariosService {
   }
 
   async removerLancamento(lancamentoId: string) {
-    await this.assertLancamentoExiste(lancamentoId);
+    await this.buscarLancamento(lancamentoId);
     await this.prisma.lancamento.delete({ where: { id: lancamentoId } });
+  }
+
+  /**
+   * O mês trabalhado ainda pode receber lançamento?
+   *
+   * Fixo (sem mês) passa sempre: ele vale do mês que vem em diante, não há mês
+   * fechado a proteger. O avulso é que precisa da trava — lançar, ou mover,
+   * para um mês trabalhado cuja folha já saiu é escrever algo que não seria
+   * pago nunca.
+   */
+  private async assertMesTrabalhadoAberto(
+    funcionarioId: string,
+    competencia: string | null,
+  ) {
+    if (!competencia) return;
+    if (await this.folhaJaGerada(funcionarioId, competenciaSeguinte(competencia))) {
+      throw new BadRequestException(
+        `O mês trabalhado de ${competencia} já foi fechado: a folha de ` +
+          `${competenciaSeguinte(competencia)} saiu, e um lançamento nele ` +
+          'não seria pago nunca. Lance no mês trabalhado que ainda vai ser pago.',
+      );
+    }
   }
 
   // --- Variáveis do mês: vendas (comissão) e horas extras ---
@@ -321,12 +362,14 @@ export class FuncionariosService {
     });
   }
 
-  private async assertLancamentoExiste(id: string) {
-    const existe = await this.prisma.lancamento.findUnique({
+  /** O lançamento, ou 404. De quem ele é e de que mês decidem se pode mudar. */
+  private async buscarLancamento(id: string) {
+    const lanc = await this.prisma.lancamento.findUnique({
       where: { id },
-      select: { id: true },
+      select: { id: true, funcionarioId: true, competencia: true },
     });
-    if (!existe) throw new NotFoundException('Lançamento não encontrado');
+    if (!lanc) throw new NotFoundException('Lançamento não encontrado');
+    return lanc;
   }
 
   /** Resumo para dashboard: total, ativos, folha base mensal. */

@@ -63,6 +63,11 @@ function montarServico(opts: {
     },
     lancamento: {
       create: jest.fn(async () => ({ id: 'l1' })),
+      findUnique: jest.fn(async (args: { where: { id: string } }) => {
+        const l = (opts.lancamentos ?? []).find((x) => x.id === args.where.id);
+        return l ? { ...l, funcionarioId: 'f1' } : null;
+      }),
+      update: jest.fn(async () => ({ id: 'l1' })),
     },
   };
 
@@ -215,5 +220,84 @@ describe('lançamento avulso em mês trabalhado já fechado', () => {
     } as never);
 
     expect(prisma.lancamento.create).toHaveBeenCalled();
+  });
+});
+
+/*
+ * Editar tem as mesmas duas bordas de criar, e uma a mais.
+ *
+ * Criar olha só para onde o lançamento vai. Editar olha também de onde ele
+ * sai: a linha já paga desaparece da ficha, mas a tela aberta desde antes de a
+ * folha ser gerada ainda a mostra, e o "Salvar" dali gravaria por cima de algo
+ * que já virou conta a pagar — a mudança sumiria no recarregar, calada, que é
+ * exatamente o que a trava de criar veio impedir.
+ */
+describe('editar lançamento', () => {
+  const BONUS = {
+    tipo: 'BONUS',
+    descricao: 'Vendas Externas',
+    valor: 300,
+  };
+
+  it('recusa mover um avulso para um mês trabalhado já fechado', async () => {
+    const { service, prisma } = montarServico({
+      lancamentos: [{ id: 'l1', competencia: '2026-08' }],
+      folhasGeradas: ['2026-08'],
+    });
+
+    // Julho foi pago na folha de agosto: mover para lá é escrever no vazio.
+    await expect(
+      service.atualizarLancamento('l1', {
+        ...BONUS,
+        competencia: '2026-07',
+      } as never),
+    ).rejects.toThrow(/2026-08/);
+    expect(prisma.lancamento.update).not.toHaveBeenCalled();
+  });
+
+  it('recusa mexer no que já foi pago', async () => {
+    const { service, prisma } = montarServico({
+      lancamentos: [{ id: 'l1', competencia: '2026-07' }],
+      folhasGeradas: ['2026-08'],
+    });
+
+    await expect(
+      service.atualizarLancamento('l1', {
+        ...BONUS,
+        competencia: '2026-07',
+      } as never),
+    ).rejects.toThrow(BadRequestException);
+    expect(prisma.lancamento.update).not.toHaveBeenCalled();
+  });
+
+  it('deixa editar o avulso do mês que ainda vai ser pago', async () => {
+    const { service, prisma } = montarServico({
+      lancamentos: [{ id: 'l1', competencia: '2026-08' }],
+      folhasGeradas: ['2026-08'],
+    });
+
+    await service.atualizarLancamento('l1', {
+      ...BONUS,
+      valor: 350,
+      competencia: '2026-08',
+    } as never);
+
+    expect(prisma.lancamento.update).toHaveBeenCalled();
+  });
+
+  /* Fixo não tem mês nem dos dois lados: nenhuma folha o fecha. */
+  it('deixa editar o fixo, e deixa virar avulso de mês aberto', async () => {
+    const { service, prisma } = montarServico({
+      lancamentos: [{ id: 'l1', competencia: null }],
+      folhasGeradas: ['2026-08'],
+    });
+
+    await service.atualizarLancamento('l1', { ...BONUS, valor: 450 } as never);
+    await service.atualizarLancamento('l1', {
+      ...BONUS,
+      competencia: '2026-08',
+    } as never);
+
+    expect(prisma.lancamento.update).toHaveBeenCalledTimes(2);
   });
 });
