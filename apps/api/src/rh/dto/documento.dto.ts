@@ -5,7 +5,9 @@ import {
   IsArray,
   IsBoolean,
   IsInt,
+  IsNumber,
   IsOptional,
+  IsPositive,
   IsString,
   IsUUID,
   Matches,
@@ -246,4 +248,54 @@ export class ApagarDocumentosDto {
   @ArrayMaxSize(100)
   @IsUUID('4', { each: true, message: 'Documento inválido.' })
   documentoIds!: string[];
+}
+
+/**
+ * Uma nota fiscal de entrada chegando, ou sendo corrigida.
+ *
+ * O arquivo vem junto ao guardar e fica de fora ao corrigir: papel guardado não
+ * se troca por cima — apaga-se a nota e sobe-se de novo, que é o que deixa
+ * rastro de que o arquivo mudou.
+ */
+export class NotaFiscalDto {
+  /** O mês a que a nota pertence, e por onde ela vai à contabilidade. */
+  @Matches(/^\d{4}-\d{2}$/, { message: 'O mês precisa ser AAAA-MM.' })
+  competencia!: string;
+
+  @IsString({ message: 'Diga de quem é a nota.' })
+  @MinLength(2, { message: 'O nome do fornecedor ficou curto demais.' })
+  @MaxLength(160)
+  fornecedor!: string;
+
+  /** Texto, e não número: nota tem série e zero à esquerda. */
+  @IsOptional() @IsString() @MaxLength(40) numero?: string;
+
+  /**
+   * Quanto deu. É a soma disto que se confere com a contabilidade, e é por isso
+   * que zero não passa: nota de zero real não existe, e o que existe é o campo
+   * deixado em branco sem ninguém perceber.
+   */
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'Diga o valor da nota.' })
+  @IsPositive({ message: 'O valor da nota precisa ser maior que zero.' })
+  valor!: number;
+
+  /** O dia impresso na nota. */
+  @IsOptional()
+  @Matches(DIA, { message: 'A data de emissão precisa ser AAAA-MM-DD.' })
+  emitidaEm?: string;
+
+  @IsOptional() @IsString() @MaxLength(600) descricao?: string;
+
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(255) arquivoNome?: string;
+
+  /**
+   * O arquivo, como data URL. Obrigatório ao guardar; ausente ao corrigir, que
+   * é quando só os dados mudam.
+   */
+  @IsOptional()
+  @IsString()
+  @Matches(/^data:[-\w.+]+\/[-\w.+]+;base64,/, {
+    message: 'O arquivo não chegou num formato que eu saiba ler.',
+  })
+  arquivo?: string;
 }

@@ -37,6 +37,7 @@ import { Usuarios } from './pages/folha/Usuarios';
 import { Vales } from './pages/folha/Vales';
 import { PastaDaEmpresa, PastaRhAberta } from './pages/rh/Pasta';
 import { Licitacoes } from './pages/rh/Licitacoes';
+import { NotasFiscais } from './pages/rh/NotasFiscais';
 import { PastasRh } from './pages/rh/Pastas';
 import { RecibosDaFolha } from './pages/rh/RecibosDaFolha';
 import type { ReactNode } from 'react';
@@ -188,6 +189,7 @@ export default function App() {
         <Route path="recibos" element={<RecibosDaFolha />} />
         <Route path="minha-conta" element={<MinhaConta />} />
         <Route path="licitacoes" element={<Licitacoes />} />
+        <Route path="notas-fiscais" element={<NotasFiscais />} />
       </Route>
 
       {/* Segurança do Trabalho — a visão de quem supervisiona: as APRs da

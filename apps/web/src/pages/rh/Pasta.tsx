@@ -1721,7 +1721,7 @@ function caminhoLegivel(pastas: PastaRh[], pasta: PastaRh): string {
 }
 
 /** O arquivo como data URL — é assim que ele chega à API. */
-function lerComoDataUrl(arquivo: File): Promise<string> {
+export function lerComoDataUrl(arquivo: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const leitor = new FileReader();
     leitor.onload = () => resolve(String(leitor.result));
@@ -1743,7 +1743,7 @@ function semExtensao(nome: string): string {
  * arquivo como "2026 da Câmara….zip" — o número do edital, que é justamente o
  * que identifica o pacote, fica de fora.
  */
-function nomeDeArquivo(nome: string): string {
+export function nomeDeArquivo(nome: string): string {
   return (
     nome
       .replace(/[/\\:*?"<>|]/g, '-')
@@ -1761,7 +1761,7 @@ function nomeDeArquivo(nome: string): string {
  * fica dentro dele, em JSON. Sem abrir, a tela mostraria "[object Blob]" no
  * lugar de uma frase que já estava escrita.
  */
-async function motivoDoBlob(err: unknown): Promise<string> {
+export async function motivoDoBlob(err: unknown): Promise<string> {
   const dados = (err as { response?: { data?: unknown } })?.response?.data;
 
   if (dados instanceof Blob) {

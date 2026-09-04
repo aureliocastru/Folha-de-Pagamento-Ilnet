@@ -25,10 +25,12 @@ import {
   GuardarRecibosDto,
   LicitacaoDto,
   MoverDocumentosDto,
+  NotaFiscalDto,
   PastaDto,
   SubstituirDocumentoDto,
 } from './dto/documento.dto';
 import { LicitacoesService } from './licitacoes.service';
+import { NotasFiscaisService } from './notas-fiscais.service';
 import { PastaEmZipService } from './pasta-em-zip.service';
 import { RecibosDaFolhaService } from './recibos.service';
 
@@ -64,6 +66,7 @@ export class RhController {
     private readonly documentos: DocumentosRhService,
     private readonly recibos: RecibosDaFolhaService,
     private readonly licitacoes: LicitacoesService,
+    private readonly notas: NotasFiscaisService,
     private readonly zip: PastaEmZipService,
   ) {}
 
@@ -256,6 +259,45 @@ export class RhController {
     @Req() req: Request,
   ) {
     return this.licitacoes.copiar(id, dto.documentoIds, usuarioId(req));
+  }
+
+  // --- As notas fiscais de entrada -----------------------------------------
+
+  /**
+   * Os meses que ja tem nota, com quantas e quanto deu.
+   *
+   * O total vem daqui, e nao de somar na tela: a tela mostra um mes por vez, e
+   * quem confere com a contabilidade quer o do ano inteiro sem abrir doze.
+   */
+  @Get('notas-fiscais')
+  mesesDeNotas() {
+    return this.notas.meses();
+  }
+
+  /** O que entrou num mes. */
+  @Get('notas-fiscais/:competencia')
+  notasDoMes(@Param('competencia') competencia: string) {
+    return this.notas.doMes(competencia);
+  }
+
+  @Post('notas-fiscais')
+  guardarNota(@Body() dto: NotaFiscalDto, @Req() req: Request) {
+    return this.notas.guardar(dto, usuarioId(req));
+  }
+
+  /** Corrige os dados. O arquivo nao: esse se apaga e se sobe de novo. */
+  @Patch('notas-fiscais/:id')
+  editarNota(
+    @Param('id') id: string,
+    @Body() dto: NotaFiscalDto,
+    @Req() req: Request,
+  ) {
+    return this.notas.editar(id, dto, usuarioId(req));
+  }
+
+  @Delete('notas-fiscais/:id')
+  apagarNota(@Param('id') id: string) {
+    return this.notas.apagar(id);
   }
 
   // --- Os recibos da folha --------------------------------------------------

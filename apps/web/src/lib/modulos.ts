@@ -195,6 +195,15 @@ const rh: Modulo = {
      * naquele pregão?". A segunda só tem resposta se houver um lugar em que a
      * cópia do dia fica guardada, e é este.
      */
+    /*
+     * As notas de entrada do mês, que vão à contabilidade.
+     *
+     * Elas já moram na estante como qualquer papel, e é por isso que a porta
+     * própria não é enfeite: a pergunta que se faz delas não é "onde está esta
+     * nota?", é "quanto entrou em setembro, e já mandei?". Essa não se responde
+     * abrindo pasta — se responde numa lista que soma.
+     */
+    { to: 'notas-fiscais', label: 'Notas fiscais', icone: IconeRecibo },
     { to: 'licitacoes', label: 'Licitações', icone: IconeMartelo },
   ],
 };

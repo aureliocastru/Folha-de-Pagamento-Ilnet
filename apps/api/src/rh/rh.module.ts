@@ -3,6 +3,7 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { ConversaoPdfService } from './conversao-pdf.service';
 import { DocumentosRhService } from './documentos.service';
 import { LicitacoesService } from './licitacoes.service';
+import { NotasFiscaisService } from './notas-fiscais.service';
 import { PastaEmZipService } from './pasta-em-zip.service';
 import { RecibosDaFolhaService } from './recibos.service';
 import { RhController } from './rh.controller';
@@ -22,6 +23,8 @@ import { RhController } from './rh.controller';
     DocumentosRhService,
     RecibosDaFolhaService,
     LicitacoesService,
+    // As notas de entrada do mes, que vao a contabilidade.
+    NotasFiscaisService,
     // O Word virando PDF ao ser guardado. Mora aqui porque é da estante: é
     // guardando o papel que se decide em que formato ele fica.
     ConversaoPdfService,

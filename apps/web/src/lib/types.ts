@@ -1702,6 +1702,34 @@ export interface Licitacao {
   aVencer: number;
 }
 
+/** Um mês de notas fiscais, como a lista de meses o mostra. */
+export interface MesDeNotas {
+  /** "AAAA-MM" */
+  competencia: string;
+  /** A pasta daquele mês — é dela que sai o zip que vai à contabilidade. */
+  pastaId: string;
+  qtd: number;
+  /** A soma do mês, que é o que se confere com a contabilidade. */
+  total: string;
+  ultimaEm: string;
+}
+
+/** Uma nota fiscal de entrada guardada. */
+export interface NotaFiscal {
+  id: string;
+  /** O papel dela na estante: é por ele que o arquivo é servido. */
+  documentoId: string;
+  competencia: string;
+  fornecedor: string;
+  numero: string | null;
+  valor: string;
+  emitidaEm: string | null;
+  arquivoNome: string;
+  arquivoTipo: string;
+  arquivoTamanho: number;
+  criadaEm: string;
+}
+
 /** Onde um documento está no prazo dele. */
 export type PrazoDoDocumento = 'sem-prazo' | 'vencido' | 'a-vencer' | 'em-dia';
 
