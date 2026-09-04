@@ -31,6 +31,8 @@ export interface ItemSemente {
   pedeDetalhe?: boolean;
   /** Só para o relato: responder "Não" obriga a dizer o que foi feito. */
   exigeProvidencia?: boolean;
+  /** Já vem marcado na APR nova, para o técnico conferir em vez de marcar. */
+  marcadoPorPadrao?: boolean;
 }
 
 export interface ModeloSemente {
@@ -56,6 +58,28 @@ const ATIVIDADES = [
   'Manutenção de Redes',
   'Ativação de Redes',
   'Lançamento de Cabos',
+];
+
+/**
+ * Os riscos que a APR nova já traz marcados.
+ *
+ * São os do poste, e o poste é todo serviço da casa: sobe-se de escada, ao
+ * lado da rede elétrica, com a chance de cair de lá e de cair no chão. Não é
+ * julgamento do dia — é a condição de trabalho, e marcá-los à mão toda vez
+ * gasta o único momento em que o técnico está olhando a lista.
+ *
+ * O que fica de fora é o que muda de serviço para serviço: vento, chuva,
+ * trânsito, animais. Esses continuam sendo decisão de quem está lá.
+ *
+ * "Descarga elétrica" é o contato com a rede; "Descargas atmosféricas" é o
+ * raio, que depende do tempo e por isso não entra aqui.
+ */
+const RISCOS_DE_PARTIDA = [
+  'Queimaduras',
+  'Choque elétrico',
+  'Quedas de altura',
+  'Quedas',
+  'Descarga elétrica',
 ];
 
 /**
@@ -207,9 +231,11 @@ export const MODELO_ILNET: ModeloSemente = {
   telefonesEmergencia:
     'SAMU 192 · Bombeiros 193 · Polícia Militar 190 · ILNET (99) 98476-8237',
   itens: [
-    ...simples(CategoriaItemApr.NORMA, NORMAS),
+    // Todas as normas: o trabalho da casa é sempre em altura, na rede, de EPI.
+    // Nenhuma das três é escolha de serviço.
+    ...simples(CategoriaItemApr.NORMA, NORMAS, 'todos'),
     ...simples(CategoriaItemApr.ATIVIDADE, ATIVIDADES),
-    ...simples(CategoriaItemApr.RISCO, RISCOS),
+    ...simples(CategoriaItemApr.RISCO, RISCOS, RISCOS_DE_PARTIDA),
     OUTROS_RISCOS,
     ...simples(CategoriaItemApr.FERRAMENTA, FERRAMENTAS),
     ...simples(CategoriaItemApr.PROTECAO, PROTECOES),
@@ -217,9 +243,22 @@ export const MODELO_ILNET: ModeloSemente = {
   ],
 };
 
+/**
+ * Uma lista de textos virando itens.
+ *
+ * `marcados` é quem já nasce marcado na APR nova: `'todos'` para a categoria
+ * inteira, ou os textos exatos. Casar por texto é de propósito — é o que faz um
+ * risco renomeado no papel deixar de vir marcado, em vez de vir marcado
+ * silenciosamente com o nome errado.
+ */
 function simples(
   categoria: CategoriaItemApr,
   textos: readonly string[],
+  marcados: readonly string[] | 'todos' = [],
 ): ItemSemente[] {
-  return textos.map((texto) => ({ categoria, texto }));
+  return textos.map((texto) => ({
+    categoria,
+    texto,
+    marcadoPorPadrao: marcados === 'todos' || marcados.includes(texto),
+  }));
 }

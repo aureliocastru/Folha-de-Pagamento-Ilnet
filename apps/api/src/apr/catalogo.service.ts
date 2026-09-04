@@ -206,6 +206,7 @@ export class CatalogoAprService {
           ordem: i.ordem,
           pedeDetalhe: i.pedeDetalhe,
           exigeProvidencia: i.exigeProvidencia,
+          marcadoPorPadrao: i.marcadoPorPadrao,
         })),
         skipDuplicates: true,
       });
@@ -256,6 +257,7 @@ export class CatalogoAprService {
           exigeProvidencia:
             dto.exigeProvidencia ??
             dto.categoria === CategoriaItemApr.RELATO,
+          marcadoPorPadrao: dto.marcadoPorPadrao ?? false,
         },
       });
     } catch (erro) {
@@ -278,6 +280,9 @@ export class CatalogoAprService {
             : {}),
           ...(dto.exigeProvidencia !== undefined
             ? { exigeProvidencia: dto.exigeProvidencia }
+            : {}),
+          ...(dto.marcadoPorPadrao !== undefined
+            ? { marcadoPorPadrao: dto.marcadoPorPadrao }
             : {}),
           ...(dto.ativo !== undefined ? { ativo: dto.ativo } : {}),
         },
@@ -413,6 +418,7 @@ function itensDaSemente(
       pedeDetalhe: item.pedeDetalhe ?? false,
       exigeProvidencia:
         item.exigeProvidencia ?? item.categoria === CategoriaItemApr.RELATO,
+      marcadoPorPadrao: item.marcadoPorPadrao ?? false,
     };
   });
 }

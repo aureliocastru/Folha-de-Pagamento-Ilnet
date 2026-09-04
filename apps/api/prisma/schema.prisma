@@ -1945,6 +1945,19 @@ model ItemApr {
   /// ler depois. Desligável item a item, pela tela.
   exigeProvidencia Boolean @default(true) @map("exige_providencia")
 
+  /// O item já vem marcado numa APR nova, para o técnico só conferir.
+  ///
+  /// Serve ao que é verdade em todo serviço da casa — as normas do trabalho em
+  /// altura, os riscos de quem sobe num poste ao lado da rede elétrica. Marcar
+  /// os mesmos quinze quadradinhos na beira da estrada, toda vez, é o tipo de
+  /// repetição que faz o preenchimento virar automático e a análise virar
+  /// carimbo.
+  ///
+  /// Não é resposta dada: é a marcação de partida, e ela some no primeiro
+  /// toque de quem discordar. Vale só na APR nova — rascunho aberto ontem
+  /// volta como foi deixado.
+  marcadoPorPadrao Boolean @default(false) @map("marcado_por_padrao")
+
   /// Item desativado some do formulário em branco, mas continua respondendo
   /// pelas APRs em que já foi marcado — elas guardam o texto que viram.
   ativo Boolean @default(true)

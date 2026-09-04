@@ -188,6 +188,40 @@ export function FormularioApr({
     if (!id && usuario?.nome) setCoordenador((atual) => atual || usuario.nome);
   }, [id, usuario?.nome]);
 
+  /*
+   * Numa APR nova, o que é verdade em todo serviço já vem marcado.
+   *
+   * As normas e os riscos do poste não mudam de um dia para o outro, e marcá-los
+   * de novo a cada APR gasta justamente o momento em que o técnico está lendo a
+   * lista. Vindo marcados, o que sobra para ele é a parte que muda — vento,
+   * trânsito, piso, o que ele está vendo dali.
+   *
+   * Marcação de partida, e não resposta dada: sai no toque, e quem manda em
+   * quais são é o cadastro do formulário, não esta tela.
+   *
+   * Só na APR nova, e uma vez só. `aprId` em vez de `id` porque `id` aparece no
+   * primeiro salvamento, e o rascunho recarregado é o dono das marcações daí em
+   * diante. O que já está em `atual` vence: quem tocou, decidiu.
+   */
+  const partidaMarcada = useRef(false);
+  useEffect(() => {
+    if (aprId || partidaMarcada.current || !formulario.data) return;
+    partidaMarcada.current = true;
+
+    const partida: Record<string, Marcacao> = {};
+    for (const bloco of formulario.data.blocos) {
+      if (bloco.categoria === 'RELATO') continue;
+      for (const item of bloco.itens) {
+        if (item.marcadoPorPadrao) {
+          partida[item.id] = { marcado: true, detalhe: '' };
+        }
+      }
+    }
+
+    if (Object.keys(partida).length === 0) return;
+    setMarcacoes((atual) => ({ ...partida, ...atual }));
+  }, [aprId, formulario.data]);
+
   const blocos = formulario.data?.blocos ?? [];
   const itensDe = (categoria: CategoriaItemApr): ItemApr[] =>
     blocos.find((b) => b.categoria === categoria)?.itens ?? [];

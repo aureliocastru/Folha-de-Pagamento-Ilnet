@@ -267,6 +267,11 @@ export class ItemAprDto {
   @IsOptional()
   @IsBoolean()
   exigeProvidencia?: boolean;
+
+  /** Já vem marcado na APR nova. Continua desmarcável em campo. */
+  @IsOptional()
+  @IsBoolean()
+  marcadoPorPadrao?: boolean;
 }
 
 export class AtualizarItemAprDto {
@@ -289,6 +294,10 @@ export class AtualizarItemAprDto {
   @IsOptional()
   @IsBoolean()
   exigeProvidencia?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  marcadoPorPadrao?: boolean;
 
   @IsOptional()
   @IsBoolean()

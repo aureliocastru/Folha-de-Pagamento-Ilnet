@@ -307,6 +307,28 @@ function BlocoDoCatalogo({
               </label>
             )}
 
+            {/*
+              O que é verdade em todo serviço da casa nasce marcado, e ao
+              técnico cabe conferir. Quem decide isso é a segurança do
+              trabalho, aqui — não o código, e não quem preenche em campo.
+            */}
+            {!relato && (
+              <label
+                className="opcao"
+                title="O item já vem marcado numa APR nova. Continua desmarcável em campo."
+              >
+                <input
+                  type="checkbox"
+                  className="marcador"
+                  checked={item.marcadoPorPadrao}
+                  onChange={(e) =>
+                    onAlterar(item.id, { marcadoPorPadrao: e.target.checked })
+                  }
+                />
+                já vem marcado
+              </label>
+            )}
+
             {relato && (
               <label
                 className="opcao"

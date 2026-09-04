@@ -1827,6 +1827,8 @@ export interface ItemApr {
   pedeDetalhe: boolean;
   /** Responder "Não" obriga a dizer o que foi feito a respeito. */
   exigeProvidencia: boolean;
+  /** Já vem marcado na APR nova, para o técnico conferir em vez de marcar. */
+  marcadoPorPadrao: boolean;
   ativo: boolean;
 }
 
