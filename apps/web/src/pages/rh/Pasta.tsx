@@ -930,48 +930,12 @@ function LinhaDoDocumento({
   const [abrindo, setAbrindo] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
-  /*
-   * O arquivo vem pela API autenticada, e não por um `href` direto: o token
-   * vive no cabeçalho, e uma aba aberta na mão chegaria lá sem ele.
-   */
   async function abrir() {
     setAbrindo(true);
     setErro(null);
-
-    /*
-     * A aba é aberta agora, no clique, e não depois que o arquivo chega.
-     *
-     * É o que fazia "Ver" não fazer nada no celular. O navegador só deixa
-     * abrir aba enquanto o gesto da pessoa ainda está de pé; depois do `await`
-     * ele já não está, e a aba era recusada em silêncio — sem erro na tela,
-     * sem nada acontecendo. No computador passava porque o bloqueio de pop-up
-     * ali é mais frouxo, e foi por isso que ficou tanto tempo de pé.
-     */
-    const aba = window.open('', '_blank');
-
     try {
-      const { data } = await api.get<Blob>(`/rh/documentos/${d.id}/arquivo`, {
-        responseType: 'blob',
-      });
-      const url = URL.createObjectURL(data);
-
-      if (aba && !aba.closed) {
-        // O conteúdo é nosso, mas a aba não precisa de referência de volta.
-        aba.opener = null;
-        aba.location.replace(url);
-      } else {
-        // Aba recusada mesmo assim: o arquivo desce como download e o telefone
-        // o abre no visualizador dele. É pior que a aba, e é melhor que nada
-        // acontecer.
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = d.arquivoNome;
-        link.click();
-      }
-
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      await abrirDocumento(d.id, d.arquivoNome);
     } catch (e) {
-      aba?.close();
       setErro(mensagemErro(e));
     } finally {
       setAbrindo(false);
@@ -1877,4 +1841,51 @@ function emTamanho(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1).replace('.', ',')} MB`;
+}
+
+/**
+ * Abre o arquivo de um documento numa aba.
+ *
+ * O arquivo vem pela API autenticada, e não por um `href` direto: o token vive
+ * no cabeçalho, e uma aba aberta na mão chega lá sem ele — e volta um 401 em
+ * JSON cru na cara de quem só queria ver a nota.
+ *
+ * A aba é aberta **antes** do pedido, e não depois que o arquivo chega. É o
+ * que fazia "Ver" não fazer nada no celular: o navegador só deixa abrir aba
+ * enquanto o gesto da pessoa ainda está de pé, e depois do `await` ele já não
+ * está — a aba era recusada em silêncio, sem erro na tela e sem nada
+ * acontecendo. No computador passava, porque o bloqueio de pop-up ali é mais
+ * frouxo, e foi por isso que ficou tanto tempo de pé.
+ */
+export async function abrirDocumento(
+  id: string,
+  arquivoNome: string,
+): Promise<void> {
+  const aba = window.open('', '_blank');
+
+  try {
+    const { data } = await api.get<Blob>(`/rh/documentos/${id}/arquivo`, {
+      responseType: 'blob',
+    });
+    const url = URL.createObjectURL(data);
+
+    if (aba && !aba.closed) {
+      // O conteúdo é nosso, mas a aba não precisa de referência de volta.
+      aba.opener = null;
+      aba.location.replace(url);
+    } else {
+      // Aba recusada mesmo assim: o arquivo desce como download e o telefone o
+      // abre no visualizador dele. É pior que a aba, e melhor que nada
+      // acontecer.
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = arquivoNome;
+      link.click();
+    }
+
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  } catch (e) {
+    aba?.close();
+    throw e;
+  }
 }

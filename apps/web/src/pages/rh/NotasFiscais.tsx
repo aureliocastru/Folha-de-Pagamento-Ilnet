@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Aviso,
   Bloco,
@@ -12,7 +12,12 @@ import {
 import { api, mensagemErro } from '../../lib/api';
 import { formatData } from '../../lib/format';
 import type { DocumentoRh, MesDeNotas } from '../../lib/types';
-import { lerComoDataUrl, motivoDoBlob, nomeDeArquivo } from './Pasta';
+import {
+  abrirDocumento,
+  lerComoDataUrl,
+  motivoDoBlob,
+  nomeDeArquivo,
+} from './Pasta';
 
 /** A prateleira dentro da pasta do mês, para a estante mostrar o que é. */
 const TIPO_DA_NOTA = 'Nota fiscal';
@@ -47,6 +52,7 @@ export function NotasFiscais() {
   const [baixando, setBaixando] = useState<string | null>(null);
   const [arrastando, setArrastando] = useState(false);
   const [subindo, setSubindo] = useState(0);
+  const [abrindo, setAbrindo] = useState<string | null>(null);
 
   const meses = useQuery({
     queryKey: ['rh', 'notas-fiscais'],
@@ -80,7 +86,7 @@ export function NotasFiscais() {
       setErroDoMes(null);
       recarregar();
       // O mês nasceu vazio: o passo seguinte é jogar os arquivos dentro dele.
-      setMes(m);
+      irPara(m);
     },
     // O recado desta fila mora na janela, e não na página: quem acabou de
     // pedir o mês está olhando para ela, e um aviso atrás dela não é aviso.
@@ -145,11 +151,87 @@ export function NotasFiscais() {
     if (falhas.length > 0) setErro(falhas.join(' · '));
   }
 
-  function aoSoltar(e: React.DragEvent) {
-    e.preventDefault();
-    setArrastando(false);
-    void guardarArquivos([...e.dataTransfer.files]);
-  }
+  /*
+   * O arrasto é da janela inteira, e não de um retângulo dentro dela.
+   *
+   * A área de soltar era o cartão da lista, que tem a altura do que há dentro:
+   * num mês com duas notas ela é uma tira fina no alto, e o resto da tela — a
+   * maior parte dela — devolvia o arquivo. Pior que não pegar: soltar fora de
+   * uma zona de drop faz o navegador **abrir o arquivo**, trocando a página
+   * pelo PDF e perdendo onde a pessoa estava.
+   *
+   * Por isso os ouvintes moram na `window` e o `preventDefault` vale para a
+   * janela toda: dentro de um mês o arquivo é guardado, e fora dele o arrasto é
+   * recusado com uma frase em vez de a tela sumir.
+   *
+   * As funções entram por `ref` porque os ouvintes são registrados uma vez só;
+   * lidas na hora do evento, elas são sempre as do render atual.
+   */
+  const guardarRef = useRef(guardarArquivos);
+  const mesRef = useRef(mes);
+  useEffect(() => {
+    guardarRef.current = guardarArquivos;
+    mesRef.current = mes;
+  });
+
+  useEffect(() => {
+    /* Só arquivo acende a tela: arrastar um texto ou um link de outra aba
+       também dispara estes eventos, e não é disso que se trata aqui. */
+    const temArquivo = (e: DragEvent) =>
+      Array.from(e.dataTransfer?.types ?? []).includes('Files');
+
+    /* `dragenter` e `dragleave` disparam a cada elemento por que o cursor
+       passa. Sem contar as entradas e saídas, a moldura pisca ao cruzar cada
+       linha da tabela. */
+    let profundidade = 0;
+
+    function aoEntrar(e: DragEvent) {
+      if (!temArquivo(e)) return;
+      e.preventDefault();
+      profundidade += 1;
+      setArrastando(true);
+    }
+
+    function aoPassar(e: DragEvent) {
+      // Sem este `preventDefault` o `drop` nunca acontece: o padrão do
+      // navegador é recusar a soltura e abrir o arquivo.
+      if (temArquivo(e)) e.preventDefault();
+    }
+
+    function aoSair(e: DragEvent) {
+      if (!temArquivo(e)) return;
+      profundidade = Math.max(0, profundidade - 1);
+      if (profundidade === 0) setArrastando(false);
+    }
+
+    function aoSoltar(e: DragEvent) {
+      if (!temArquivo(e)) return;
+      e.preventDefault();
+      profundidade = 0;
+      setArrastando(false);
+
+      const arquivos = Array.from(e.dataTransfer?.files ?? []);
+      if (!mesRef.current) {
+        setErro(
+          'Abra um mês antes — ou entre num que já está aberto. É para dentro ' +
+            'da pasta do mês que as notas vão.',
+        );
+        return;
+      }
+      void guardarRef.current(arquivos);
+    }
+
+    window.addEventListener('dragenter', aoEntrar);
+    window.addEventListener('dragover', aoPassar);
+    window.addEventListener('dragleave', aoSair);
+    window.addEventListener('drop', aoSoltar);
+    return () => {
+      window.removeEventListener('dragenter', aoEntrar);
+      window.removeEventListener('dragover', aoPassar);
+      window.removeEventListener('dragleave', aoSair);
+      window.removeEventListener('drop', aoSoltar);
+    };
+  }, []);
 
   /**
    * Baixa o mês inteiro num zip.
@@ -178,6 +260,31 @@ export function NotasFiscais() {
     }
   }
 
+  /**
+   * Entrar num mês, ou voltar para a lista.
+   *
+   * O aviso morre aqui junto com a tela que o produziu: "abra um mês antes"
+   * lido de dentro de um mês já aberto é uma instrução que contradiz o que
+   * está na frente da pessoa.
+   */
+  function irPara(destino: MesDeNotas | null) {
+    setErro(null);
+    setMes(destino);
+  }
+
+  /** Abre a nota numa aba, pela API autenticada. */
+  async function verNota(d: DocumentoRh) {
+    setAbrindo(d.id);
+    setErro(null);
+    try {
+      await abrirDocumento(d.id, d.arquivoNome);
+    } catch (e) {
+      setErro(mensagemErro(e));
+    } finally {
+      setAbrindo(null);
+    }
+  }
+
   const lista = documentos.data ?? [];
 
   return (
@@ -190,7 +297,7 @@ export function NotasFiscais() {
             ? 'Arraste as notas para qualquer lugar desta tela. No fim do mês, baixe o zip e mande.'
             : 'O que a empresa comprou em cada mês, para ir à contabilidade e virar crédito de imposto.'
         }
-        voltar={mes ? () => setMes(null) : undefined}
+        voltar={mes ? () => irPara(null) : undefined}
         acoes={
           mes ? (
             <button
@@ -246,7 +353,7 @@ export function NotasFiscais() {
                       <td className="td">
                         <button
                           type="button"
-                          onClick={() => setMes(m)}
+                          onClick={() => irPara(m)}
                           className="font-medium text-tinta-800 hover:underline"
                         >
                           {porExtenso(m.competencia)}
@@ -260,7 +367,7 @@ export function NotasFiscais() {
                         <div className="flex justify-end gap-2">
                           <button
                             type="button"
-                            onClick={() => setMes(m)}
+                            onClick={() => irPara(m)}
                             className="btn btn-neutro btn-p"
                           >
                             Abrir
@@ -288,25 +395,10 @@ export function NotasFiscais() {
           )}
         </Bloco>
       ) : (
-        /* A tela inteira do mês é o alvo do arrasto: quem está com a nota
-           aberta ao lado quer soltá-la aqui e seguir, sem abrir formulário. */
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setArrastando(true);
-          }}
-          onDragLeave={(e) => {
-            // Só apaga a moldura ao sair da área toda, e não ao passar por
-            // cima de uma linha da tabela lá dentro.
-            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-              setArrastando(false);
-            }
-          }}
-          onDrop={aoSoltar}
-          className={`rounded-2xl transition ${
-            arrastando ? 'ring-2 ring-brand-400 ring-offset-4 ring-offset-transparent' : ''
-          }`}
-        >
+        /* Sem ouvintes aqui: quem escuta o arrasto é a `window`, para a tela
+           inteira valer. Repeti-los no cartão faria o mesmo arquivo entrar
+           duas vezes, porque o evento sobe daqui para lá. */
+        <div>
           <Bloco semPadding>
             {subindo > 0 && (
               <div className="border-b border-tinta-100 px-5 py-3 text-sm text-tinta-600">
@@ -348,16 +440,18 @@ export function NotasFiscais() {
                         </td>
                         <td className="td text-right">
                           <div className="flex justify-end gap-2">
-                            {/* Abre na aba, que é o que quem clica em "ver"
-                                espera de um PDF. */}
-                            <a
-                              href={`/api/rh/documentos/${d.id}/arquivo`}
-                              target="_blank"
-                              rel="noreferrer"
+                            {/* Botão, e não link: a rota do arquivo pede o
+                                token no cabeçalho, e uma aba aberta na mão
+                                chega lá sem ele — e mostra um 401 em JSON cru
+                                a quem só queria ver a nota. */}
+                            <button
+                              type="button"
+                              onClick={() => void verNota(d)}
+                              disabled={abrindo === d.id}
                               className="btn btn-neutro btn-p"
                             >
-                              Ver
-                            </a>
+                              {abrindo === d.id ? 'Abrindo…' : 'Ver'}
+                            </button>
                             <button
                               type="button"
                               onClick={() => {
@@ -399,6 +493,21 @@ export function NotasFiscais() {
               PDF ou foto da nota, até 15 MB cada.
             </span>
           </div>
+        </div>
+      )}
+
+      {/* A confirmação de que a tela inteira recebe o arquivo.
+          Um retângulo tracejado sobre tudo é o que diz "pode soltar aqui" sem
+          precisar de legenda — e cobre justamente a parte vazia da página, que
+          é onde a pessoa naturalmente solta. */}
+      {arrastando && (
+        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-6">
+          <div className="absolute inset-4 rounded-3xl border-2 border-dashed border-brand-400 bg-brand-500/10 backdrop-blur-[1px]" />
+          <p className="relative rounded-2xl bg-papel px-6 py-4 text-center font-display text-sm font-semibold text-tinta-700 shadow-xl ring-1 ring-tinta-200">
+            {mes
+              ? `Solte para guardar em ${porExtenso(mes.competencia)}`
+              : 'Abra um mês antes de soltar as notas'}
+          </p>
         </div>
       )}
 
