@@ -1,0 +1,13 @@
+-- A nota fiscal volta a ser só o papel.
+--
+-- A tabela nasceu ontem guardando fornecedor, número e valor de cada nota, para
+-- somar o mês. Só que a soma não é o que se pede desta área: o que se pede é
+-- juntar os arquivos do mês e mandar. Digitar três campos por nota — trinta
+-- notas, noventa campos — é trabalho todo mês para responder uma pergunta que
+-- ninguém fez, e trabalho que se pode pular é trabalho que se pula: metade
+-- preenchida, a soma passa a mentir, e aí ela é pior que não existir.
+--
+-- Os arquivos **não** saem daqui. Eles são documentos da estante, nas pastas de
+-- cada mês, e continuam lá com o nome que têm; o que esta tabela guardava a
+-- mais é que deixa de ser guardado.
+DROP TABLE IF EXISTS "notas_fiscais";

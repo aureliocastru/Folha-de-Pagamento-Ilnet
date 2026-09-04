@@ -24,8 +24,8 @@ import {
   GuardarDocumentoDto,
   GuardarRecibosDto,
   LicitacaoDto,
+  MesDeNotasDto,
   MoverDocumentosDto,
-  NotaFiscalDto,
   PastaDto,
   SubstituirDocumentoDto,
 } from './dto/documento.dto';
@@ -264,40 +264,21 @@ export class RhController {
   // --- As notas fiscais de entrada -----------------------------------------
 
   /**
-   * Os meses que ja tem nota, com quantas e quanto deu.
+   * Os meses abertos, com quantos arquivos cada um tem.
    *
-   * O total vem daqui, e nao de somar na tela: a tela mostra um mes por vez, e
-   * quem confere com a contabilidade quer o do ano inteiro sem abrir doze.
+   * A area e uma gaveta, e nao um cadastro: o mes e uma pasta, o arquivo que
+   * cai dentro dela e um documento da estante, e o zip da pasta e o pacote que
+   * vai a contabilidade. Guardar, ver, apagar e baixar sao as rotas de sempre.
    */
   @Get('notas-fiscais')
   mesesDeNotas() {
     return this.notas.meses();
   }
 
-  /** O que entrou num mes. */
-  @Get('notas-fiscais/:competencia')
-  notasDoMes(@Param('competencia') competencia: string) {
-    return this.notas.doMes(competencia);
-  }
-
+  /** Abre o mes. Vazio e um estado legitimo: e onde os arquivos vao cair. */
   @Post('notas-fiscais')
-  guardarNota(@Body() dto: NotaFiscalDto, @Req() req: Request) {
-    return this.notas.guardar(dto, usuarioId(req));
-  }
-
-  /** Corrige os dados. O arquivo nao: esse se apaga e se sobe de novo. */
-  @Patch('notas-fiscais/:id')
-  editarNota(
-    @Param('id') id: string,
-    @Body() dto: NotaFiscalDto,
-    @Req() req: Request,
-  ) {
-    return this.notas.editar(id, dto, usuarioId(req));
-  }
-
-  @Delete('notas-fiscais/:id')
-  apagarNota(@Param('id') id: string) {
-    return this.notas.apagar(id);
+  abrirMesDeNotas(@Body() dto: MesDeNotasDto, @Req() req: Request) {
+    return this.notas.abrirMes(dto.competencia, usuarioId(req));
   }
 
   // --- Os recibos da folha --------------------------------------------------

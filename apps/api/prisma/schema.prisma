@@ -1810,9 +1810,6 @@ model DocumentoRh {
   /// antes de subir?". São perguntas diferentes, feitas por gente diferente.
   executanteApr ExecutanteApr?
 
-  /// A nota fiscal de que este documento e o papel, quando e o caso.
-  notaFiscal NotaFiscal?
-
   @@unique([pastaId, tipo, competencia])
   @@index([pastaId])
   @@index([loteId])
@@ -1821,54 +1818,6 @@ model DocumentoRh {
   @@map("documentos_rh")
 }
 
-// ---------------------------------------------------------------------------
-// As notas fiscais de entrada, o que a casa comprou no mes.
-//
-// Elas ja moram na estante como qualquer outro papel: o arquivo e um
-// DocumentoRh, numa pasta por mes dentro de "Notas Fiscais". O que este modelo
-// acrescenta e o que o PDF nao responde sem ser aberto um a um -- de quem e a
-// nota, que numero ela tem, quanto deu -- e que e o que se confere com a
-// contabilidade no fim do mes.
-// ---------------------------------------------------------------------------
-
-/// Uma nota fiscal de entrada, guardada para ir a contabilidade.
-model NotaFiscal {
-  id String @id @default(uuid())
-
-  /// O papel: o PDF da nota, o DANFE, ou a foto dela escaneada.
-  ///
-  /// `Cascade` porque a nota **e** o documento visto de outro angulo. Apagado o
-  /// arquivo pela estante, o que sobraria aqui seria um valor sem nota nenhuma
-  /// atras dele -- e um total do mes somado sobre isso mentiria justamente
-  /// para quem confere.
-  documento   DocumentoRh @relation(fields: [documentoId], references: [id], onDelete: Cascade)
-  documentoId String      @unique @map("documento_id")
-
-  /// O mes a que a nota pertence, "AAAA-MM".
-  ///
-  /// Mora aqui, e nao no `competencia` do documento, porque aquele campo entra
-  /// na chave `(pasta, tipo, competencia)` que impede o mesmo recibo de ser
-  /// guardado duas vezes. Um mes tem muitas notas, e essa chave -- que existe
-  /// para o recibo de pagamento, do qual ha um por pessoa e por mes -- recusaria
-  /// a segunda nota de setembro.
-  competencia String
-
-  /// De quem e a nota. E por ele que se procura quando a contabilidade pergunta.
-  fornecedor String
-
-  /// O numero impresso nela. Texto, e nao numero: nota tem serie e zero a
-  /// esquerda, e nenhum dos dois sobrevive a virar inteiro.
-  numero String?
-
-  valor Decimal @db.Decimal(14, 2)
-
-  criadoPor String?  @map("criado_por")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
-
-  @@index([competencia])
-  @@map("notas_fiscais")
-}
 
 // ---------------------------------------------------------------------------
 // Segurança do Trabalho — a Análise Preliminar de Risco (APR)

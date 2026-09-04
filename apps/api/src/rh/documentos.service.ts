@@ -10,6 +10,7 @@ import {
   nomeComoPdf,
   podeVirarPdf,
 } from './conversao-pdf.service';
+import { ehImagemConversivel, imagemEmPdf } from './imagem-em-pdf';
 import type {
   EditarDocumentoDto,
   GuardarDocumentoDto,
@@ -702,9 +703,55 @@ export class DocumentosRhService {
   }> {
     const semConverter = { conteudo, tipoDoArquivo, nome };
 
-    // PDF e imagem não têm o que converter, e dizer isso em aviso seria avisar
-    // do que ninguém pediu: a caixa fica marcada para o lote inteiro.
-    if (!pedido || !podeVirarPdf(tipoDoArquivo)) return semConverter;
+    if (!pedido) return semConverter;
+
+    /*
+     * A foto do papel também vira PDF, e por um motivo diferente do Word.
+     *
+     * O Word vira PDF para não se alterar no caminho. A foto vira PDF por causa
+     * do pacote: um zip com metade em JPEG e metade em PDF obriga quem recebe a
+     * abrir cada arquivo num programa diferente, e é o contador do outro lado
+     * que paga isso. Aqui não há processo externo — é o `pdf-lib`, que já vem
+     * com a API —, então não há o "conversor não está instalado" que o
+     * LibreOffice tem.
+     */
+    if (ehImagemConversivel(tipoDoArquivo)) {
+      try {
+        const pdf = await imagemEmPdf(conteudo, tipoDoArquivo);
+        if (pdf.length > LIMITE_BYTES) {
+          this.logger.warn(
+            `O PDF de "${nome}" passou do teto (${emMegabytes(pdf.length)}).`,
+          );
+          return {
+            ...semConverter,
+            avisoDaConversao:
+              `"${nome}" foi guardado como imagem: em PDF ele ficaria com ` +
+              `${emMegabytes(pdf.length)}, acima do limite de ` +
+              `${emMegabytes(LIMITE_BYTES)}.`,
+          };
+        }
+        return {
+          conteudo: pdf,
+          tipoDoArquivo: 'application/pdf',
+          nome: nomeComoPdf(nome),
+        };
+      } catch (erro) {
+        // Imagem corrompida, ou um JPEG que o embutidor não engole. O papel
+        // entra como veio: perdê-lo por causa da conversão seria trocar um
+        // incômodo por um buraco.
+        const motivo = erro instanceof Error ? erro.message : String(erro);
+        this.logger.warn(`"${nome}" não virou PDF: ${motivo}.`);
+        return {
+          ...semConverter,
+          avisoDaConversao: `"${nome}" foi guardado como imagem: ${motivo}.`,
+        };
+      }
+    }
+
+    // O que sobra é PDF (já é), texto e as imagens que não se convertem —
+    // dizer isso em aviso seria avisar do que ninguém pediu: a caixa fica
+    // marcada para o lote inteiro.
+    if (!podeVirarPdf(tipoDoArquivo)) return semConverter;
 
     const feito = await this.conversao.paraPdf(conteudo, nome);
 

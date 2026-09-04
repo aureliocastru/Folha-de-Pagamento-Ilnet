@@ -4,69 +4,152 @@ import {
   Aviso,
   Bloco,
   CabecalhoPagina,
-  CampoDinheiro,
   Carregando,
   Janela,
   Pagina,
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
-import { formatBRL, formatData } from '../../lib/format';
-import type { MesDeNotas, NotaFiscal } from '../../lib/types';
+import { formatData } from '../../lib/format';
+import type { DocumentoRh, MesDeNotas } from '../../lib/types';
 import { lerComoDataUrl, motivoDoBlob, nomeDeArquivo } from './Pasta';
+
+/** A prateleira dentro da pasta do mês, para a estante mostrar o que é. */
+const TIPO_DA_NOTA = 'Nota fiscal';
 
 /**
  * Notas fiscais de entrada — o que a casa comprou no mês.
  *
  * O que esta tela substitui é uma pasta no computador de alguém. As notas
  * chegam o mês inteiro, por e-mail e no balcão, e no fim do mês vão para a
- * contabilidade para virar crédito de imposto. Enquanto o monte mora numa pasta
- * do Windows, duas perguntas ficam sem resposta: **quanto** foi mandado, e se a
- * nota que chegou dia 3 ainda está lá em dezembro, quando o contador pergunta.
+ * contabilidade virar crédito de imposto. Enquanto o monte mora numa pasta do
+ * Windows, ele só existe naquela máquina.
  *
- * Por isso a lista soma. Guardar o arquivo, a estante já fazia — o que faltava
- * era o total do mês ao lado do monte, que é o número que se confere com quem
- * recebe. E é por isso que o botão que importa aqui é o de baixar o mês inteiro
- * num zip: é ele que sai da casa.
+ * É uma gaveta, e de propósito. Abre-se o mês, arrastam-se os arquivos para
+ * dentro, e no fim baixa-se o zip para mandar. Não há fornecedor, número nem
+ * valor a digitar: seriam noventa campos por mês para responder uma pergunta
+ * que a contabilidade já responde, e o que se pode deixar pela metade acaba
+ * pela metade.
  *
- * A nota é o arquivo mais o valor, e os dois andam juntos: apagar a nota leva o
- * papel, e apagar o papel pela estante leva o valor. Um total somado sobre
- * linha sem nota atrás mentiria justamente para quem confere.
+ * O arrasto cai na página inteira, e não numa janela que se abre antes. Quem
+ * está com a nota aberta ao lado, ou recém-baixada, quer soltá-la e continuar
+ * — abrir formulário para cada papel é o que fazia a pasta do Windows ganhar
+ * essa disputa.
  */
 export function NotasFiscais() {
   const qc = useQueryClient();
-  /** null = a lista de meses; "AAAA-MM" = dentro daquele mês. */
-  const [mes, setMes] = useState<string | null>(null);
-  const [lancando, setLancando] = useState(false);
-  const [editando, setEditando] = useState<NotaFiscal | null>(null);
+  /** null = a lista de meses; a pasta = dentro daquele mês. */
+  const [mes, setMes] = useState<MesDeNotas | null>(null);
+  const [abrindoMes, setAbrindoMes] = useState(false);
+  const [erroDoMes, setErroDoMes] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
-  const [baixando, setBaixando] = useState(false);
+  const [feito, setFeito] = useState<string | null>(null);
+  const [baixando, setBaixando] = useState<string | null>(null);
+  const [arrastando, setArrastando] = useState(false);
+  const [subindo, setSubindo] = useState(0);
 
   const meses = useQuery({
     queryKey: ['rh', 'notas-fiscais'],
     queryFn: async () => (await api.get<MesDeNotas[]>('/rh/notas-fiscais')).data,
   });
 
-  const notas = useQuery({
-    queryKey: ['rh', 'notas-fiscais', mes],
+  const documentos = useQuery({
+    queryKey: ['rh', 'documentos', mes?.id],
     queryFn: async () =>
-      (await api.get<NotaFiscal[]>(`/rh/notas-fiscais/${mes}`)).data,
+      (await api.get<DocumentoRh[]>('/rh/documentos', { params: { pastaId: mes?.id } }))
+        .data,
     enabled: mes !== null,
   });
 
   function recarregar() {
     void qc.invalidateQueries({ queryKey: ['rh', 'notas-fiscais'] });
-    // A estante mudou junto: a pasta do mês nasceu, ou o papel saiu dela.
-    void qc.invalidateQueries({ queryKey: ['rh', 'pastas'] });
     void qc.invalidateQueries({ queryKey: ['rh', 'documentos'] });
+    void qc.invalidateQueries({ queryKey: ['rh', 'pastas'] });
   }
 
+  function avisar(texto: string) {
+    setFeito(texto);
+    setTimeout(() => setFeito(null), 5000);
+  }
+
+  const abrirMes = useMutation({
+    mutationFn: async (competencia: string) =>
+      (await api.post<MesDeNotas>('/rh/notas-fiscais', { competencia })).data,
+    onSuccess: (m) => {
+      setAbrindoMes(false);
+      setErroDoMes(null);
+      recarregar();
+      // O mês nasceu vazio: o passo seguinte é jogar os arquivos dentro dele.
+      setMes(m);
+    },
+    // O recado desta fila mora na janela, e não na página: quem acabou de
+    // pedir o mês está olhando para ela, e um aviso atrás dela não é aviso.
+    onError: (e) => setErroDoMes(mensagemErro(e)),
+  });
+
   const apagar = useMutation({
-    mutationFn: async (id: string) =>
-      (await api.delete(`/rh/notas-fiscais/${id}`)).data,
+    mutationFn: async (id: string) => (await api.delete(`/rh/documentos/${id}`)).data,
     onSuccess: recarregar,
     onError: (e) => setErro(mensagemErro(e)),
   });
+
+  /**
+   * Os arquivos soltos entram um a um, com o nome que já têm.
+   *
+   * Um a um porque cada arquivo é o corpo inteiro de uma requisição — cinco de
+   * quinze megabytes juntos é o que o nginx recusa sem frase nenhuma. E o que
+   * falha no meio não para a fila nem desfaz o que entrou: quem soltou oito
+   * notas e tem uma grande demais quer as outras sete guardadas, e quer saber
+   * qual ficou de fora.
+   */
+  async function guardarArquivos(arquivos: File[]) {
+    if (!mes || arquivos.length === 0) return;
+    setErro(null);
+    setSubindo(arquivos.length);
+
+    const falhas: string[] = [];
+    let entraram = 0;
+    const avisos: string[] = [];
+
+    for (const arquivo of arquivos) {
+      try {
+        const { data } = await api.post<DocumentoRh & { avisoDaConversao?: string }>(
+          '/rh/documentos',
+          {
+            pastaId: mes.id,
+            titulo: semExtensao(arquivo.name),
+            tipo: TIPO_DA_NOTA,
+            arquivoNome: arquivo.name,
+            arquivo: await lerComoDataUrl(arquivo),
+            // A foto da nota vira PDF: o pacote que vai à contabilidade sai
+            // todo no mesmo formato, e abre em sequência no mesmo leitor.
+            converterParaPdf: true,
+          },
+        );
+        entraram += 1;
+        if (data.avisoDaConversao) avisos.push(data.avisoDaConversao);
+      } catch (e) {
+        falhas.push(`${arquivo.name}: ${mensagemErro(e)}`);
+      }
+    }
+
+    setSubindo(0);
+    recarregar();
+
+    if (entraram > 0) {
+      avisar(
+        `${entraram} arquivo${entraram > 1 ? 's' : ''} guardado${entraram > 1 ? 's' : ''}.` +
+          (avisos.length > 0 ? ` ${avisos.join(' ')}` : ''),
+      );
+    }
+    if (falhas.length > 0) setErro(falhas.join(' · '));
+  }
+
+  function aoSoltar(e: React.DragEvent) {
+    e.preventDefault();
+    setArrastando(false);
+    void guardarArquivos([...e.dataTransfer.files]);
+  }
 
   /**
    * Baixa o mês inteiro num zip.
@@ -76,10 +159,10 @@ export function NotasFiscais() {
    * chega como blob, e por isso é lido como texto antes de virar aviso.
    */
   async function baixarMes(m: MesDeNotas) {
-    setBaixando(true);
+    setBaixando(m.id);
     setErro(null);
     try {
-      const resposta = await api.get<Blob>(`/rh/pastas/${m.pastaId}/zip`, {
+      const resposta = await api.get<Blob>(`/rh/pastas/${m.id}/zip`, {
         responseType: 'blob',
       });
       const url = URL.createObjectURL(resposta.data);
@@ -91,49 +174,60 @@ export function NotasFiscais() {
     } catch (e) {
       setErro(await motivoDoBlob(e));
     } finally {
-      setBaixando(false);
+      setBaixando(null);
     }
   }
 
-  const doMes = notas.data ?? [];
-  const totalDoMes = doMes.reduce((s, n) => s + Number(n.valor), 0);
+  const lista = documentos.data ?? [];
 
   return (
     <Pagina>
       <CabecalhoPagina
         secao="Notas fiscais"
-        titulo={mes ? porExtenso(mes) : 'Notas fiscais'}
+        titulo={mes ? porExtenso(mes.competencia) : 'Notas fiscais'}
         descricao={
           mes
-            ? 'As notas de entrada deste mês. O zip leva todas de uma vez.'
+            ? 'Arraste as notas para qualquer lugar desta tela. No fim do mês, baixe o zip e mande.'
             : 'O que a empresa comprou em cada mês, para ir à contabilidade e virar crédito de imposto.'
         }
         voltar={mes ? () => setMes(null) : undefined}
         acoes={
-          <button
-            type="button"
-            onClick={() => {
-              setErro(null);
-              setLancando(true);
-            }}
-            className="btn btn-primario"
-          >
-            Lançar nota
-          </button>
+          mes ? (
+            <button
+              type="button"
+              onClick={() => void baixarMes(mes)}
+              disabled={baixando !== null}
+              className="btn btn-primario"
+            >
+              {baixando ? 'Montando o zip…' : 'Baixar o mês'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setErroDoMes(null);
+                setAbrindoMes(true);
+              }}
+              className="btn btn-primario"
+            >
+              Abrir um mês
+            </button>
+          )
         }
       />
 
+      {feito && <Aviso tom="pago">{feito}</Aviso>}
       {erro && <Aviso tom="erro">{erro}</Aviso>}
 
       {mes === null ? (
         <Bloco semPadding>
           {meses.isLoading ? (
-            <Carregando />
+            <Carregando texto="Abrindo a gaveta…" />
           ) : (meses.data ?? []).length === 0 ? (
-            <Vazio titulo="Nenhuma nota guardada ainda">
-              A primeira nota abre o mês dela. Guarde o PDF ou a foto da nota
-              escaneada, com o valor — é a soma dele que se confere com a
-              contabilidade no fim do mês.
+            <Vazio titulo="Nenhum mês aberto ainda">
+              Comece pelo botão "Abrir um mês": ele cria a pasta daquele mês, e
+              é para dentro dela que você arrasta as notas. No fim do mês, o zip
+              da pasta é o que vai para a contabilidade.
             </Vazio>
           ) : (
             <div className="overflow-x-auto rolagem-fina">
@@ -141,36 +235,32 @@ export function NotasFiscais() {
                 <thead>
                   <tr>
                     <th className="th">Mês</th>
-                    <th className="th">Notas</th>
-                    <th className="th text-right">Total</th>
-                    <th className="th">Última entrou</th>
+                    <th className="th">Arquivos</th>
+                    <th className="th">Último entrou</th>
                     <th className="th text-right">Ação</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(meses.data ?? []).map((m) => (
-                    <tr key={m.competencia} className="linha">
+                    <tr key={m.id} className="linha">
                       <td className="td">
                         <button
                           type="button"
-                          onClick={() => setMes(m.competencia)}
+                          onClick={() => setMes(m)}
                           className="font-medium text-tinta-800 hover:underline"
                         >
                           {porExtenso(m.competencia)}
                         </button>
                       </td>
                       <td className="td num text-tinta-600">{m.qtd}</td>
-                      <td className="td text-right">
-                        <span className="valor">{formatBRL(m.total)}</span>
-                      </td>
                       <td className="td whitespace-nowrap text-tinta-500">
-                        {formatData(m.ultimaEm)}
+                        {m.ultimoEm ? formatData(m.ultimoEm) : 'vazio'}
                       </td>
                       <td className="td text-right">
                         <div className="flex justify-end gap-2">
                           <button
                             type="button"
-                            onClick={() => setMes(m.competencia)}
+                            onClick={() => setMes(m)}
                             className="btn btn-neutro btn-p"
                           >
                             Abrir
@@ -178,11 +268,15 @@ export function NotasFiscais() {
                           <button
                             type="button"
                             onClick={() => void baixarMes(m)}
-                            disabled={baixando}
-                            className="btn btn-neutro btn-p"
-                            title="Baixa as notas deste mês num zip, para mandar à contabilidade"
+                            disabled={baixando !== null || m.qtd === 0}
+                            className="btn btn-neutro btn-p disabled:opacity-40"
+                            title={
+                              m.qtd === 0
+                                ? 'Este mês ainda está vazio'
+                                : 'Baixa as notas deste mês num zip, para mandar à contabilidade'
+                            }
                           >
-                            {baixando ? 'Montando…' : 'Baixar o mês'}
+                            {baixando === m.id ? 'Montando…' : 'Baixar o mês'}
                           </button>
                         </div>
                       </td>
@@ -194,274 +288,174 @@ export function NotasFiscais() {
           )}
         </Bloco>
       ) : (
-        <Bloco semPadding>
-          {notas.isLoading ? (
-            <Carregando />
-          ) : doMes.length === 0 ? (
-            <Vazio titulo="Este mês ficou sem nota">
-              Nenhuma nota aqui — ou todas foram apagadas.
-            </Vazio>
-          ) : (
-            <div className="overflow-x-auto rolagem-fina">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr>
-                    <th className="th">Fornecedor</th>
-                    <th className="th">Nº</th>
-                    <th className="th">Emitida</th>
-                    <th className="th text-right">Valor</th>
-                    <th className="th text-right">Ação</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {doMes.map((n) => (
-                    <tr key={n.id} className="linha">
-                      <td className="td">
-                        <div className="font-medium text-tinta-800">
-                          {n.fornecedor}
-                        </div>
-                        <div className="text-[11px] text-tinta-400">
-                          {n.arquivoNome}
-                        </div>
-                      </td>
-                      <td className="td num text-tinta-600">{n.numero ?? '—'}</td>
-                      <td className="td whitespace-nowrap text-tinta-500">
-                        {n.emitidaEm ? formatData(n.emitidaEm) : '—'}
-                      </td>
-                      <td className="td text-right">
-                        <span className="valor">{formatBRL(n.valor)}</span>
-                      </td>
-                      <td className="td text-right">
-                        <div className="flex justify-end gap-2">
-                          {/* O arquivo abre na aba, que é o que quem clica em
-                              "ver" espera de um PDF ou de uma foto. */}
-                          <a
-                            href={`/api/rh/documentos/${n.documentoId}/arquivo`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="btn btn-neutro btn-p"
-                          >
-                            Ver
-                          </a>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setErro(null);
-                              setEditando(n);
-                            }}
-                            className="btn btn-neutro btn-p"
-                          >
-                            Editar
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (
-                                confirm(
-                                  `Apagar a nota de ${n.fornecedor} de ${formatBRL(n.valor)}? ` +
-                                    'O arquivo sai da estante junto.',
-                                )
-                              ) {
-                                apagar.mutate(n.id);
-                              }
-                            }}
-                            className="btn btn-sutil btn-p"
-                          >
-                            Apagar
-                          </button>
-                        </div>
-                      </td>
+        /* A tela inteira do mês é o alvo do arrasto: quem está com a nota
+           aberta ao lado quer soltá-la aqui e seguir, sem abrir formulário. */
+        <div
+          onDragOver={(e) => {
+            e.preventDefault();
+            setArrastando(true);
+          }}
+          onDragLeave={(e) => {
+            // Só apaga a moldura ao sair da área toda, e não ao passar por
+            // cima de uma linha da tabela lá dentro.
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+              setArrastando(false);
+            }
+          }}
+          onDrop={aoSoltar}
+          className={`rounded-2xl transition ${
+            arrastando ? 'ring-2 ring-brand-400 ring-offset-4 ring-offset-transparent' : ''
+          }`}
+        >
+          <Bloco semPadding>
+            {subindo > 0 && (
+              <div className="border-b border-tinta-100 px-5 py-3 text-sm text-tinta-600">
+                Guardando {subindo} arquivo{subindo > 1 ? 's' : ''}…
+              </div>
+            )}
+
+            {documentos.isLoading ? (
+              <Carregando texto="Abrindo o mês…" />
+            ) : lista.length === 0 ? (
+              <Vazio titulo="Arraste as notas para cá">
+                Solte os arquivos em qualquer lugar desta tela — pode ser mais
+                de um de uma vez. Foto da nota vira PDF sozinha, para o pacote
+                sair todo no mesmo formato.
+              </Vazio>
+            ) : (
+              <div className="overflow-x-auto rolagem-fina">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr>
+                      <th className="th">Nota</th>
+                      <th className="th">Entrou</th>
+                      <th className="th text-right">Ação</th>
                     </tr>
-                  ))}
-                </tbody>
-                {/* O total fecha a tabela porque é a resposta que se leva desta
-                    tela: é ele que se confere com quem recebe as notas. */}
-                <tfoot>
-                  <tr className="border-t-2 border-tinta-200">
-                    <td className="td font-semibold text-tinta-700" colSpan={3}>
-                      {doMes.length} nota{doMes.length > 1 ? 's' : ''} em{' '}
-                      {porExtenso(mes)}
-                    </td>
-                    <td className="td text-right">
-                      <span className="valor text-[15px] font-semibold">
-                        {formatBRL(totalDoMes)}
-                      </span>
-                    </td>
-                    <td className="td" />
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          )}
-        </Bloco>
+                  </thead>
+                  <tbody>
+                    {lista.map((d) => (
+                      <tr key={d.id} className="linha">
+                        <td className="td">
+                          <div className="font-medium text-tinta-800">
+                            {d.titulo}
+                          </div>
+                          <div className="text-[11px] text-tinta-400">
+                            {d.arquivoNome} · {emMegabytes(d.arquivoTamanho)}
+                          </div>
+                        </td>
+                        <td className="td whitespace-nowrap text-tinta-500">
+                          {formatData(d.createdAt)}
+                        </td>
+                        <td className="td text-right">
+                          <div className="flex justify-end gap-2">
+                            {/* Abre na aba, que é o que quem clica em "ver"
+                                espera de um PDF. */}
+                            <a
+                              href={`/api/rh/documentos/${d.id}/arquivo`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="btn btn-neutro btn-p"
+                            >
+                              Ver
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (confirm(`Apagar "${d.titulo}"?`)) {
+                                  apagar.mutate(d.id);
+                                }
+                              }}
+                              className="btn btn-sutil btn-p"
+                            >
+                              Apagar
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Bloco>
+
+          {/* O botão existe para quem não arrasta — do celular, ou de um
+              gerenciador de arquivos que não solta na janela do navegador. */}
+          <div className="mt-4 flex items-center gap-3">
+            <label className="btn btn-neutro cursor-pointer">
+              Escolher arquivos
+              <input
+                type="file"
+                multiple
+                accept=".pdf,image/*"
+                className="hidden"
+                onChange={(e) => {
+                  void guardarArquivos([...(e.target.files ?? [])]);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+            <span className="text-xs text-tinta-400">
+              PDF ou foto da nota, até 15 MB cada.
+            </span>
+          </div>
+        </div>
       )}
 
-      {(lancando || editando) && (
-        <FormularioDaNota
-          nota={editando ?? undefined}
-          mesSugerido={mes ?? mesCorrente()}
+      {abrindoMes && (
+        <JanelaDoMes
+          pendente={abrirMes.isPending}
+          erro={erroDoMes}
           onFechar={() => {
-            setLancando(false);
-            setEditando(null);
+            setAbrindoMes(false);
+            setErroDoMes(null);
           }}
-          onPronto={(competencia) => {
-            setLancando(false);
-            setEditando(null);
-            recarregar();
-            // Guardada a nota, o lugar de olhar é o mês dela — inclusive quando
-            // ela foi lançada num mês diferente do que estava aberto.
-            if (mes !== null) setMes(competencia);
-          }}
+          onAbrir={(competencia) => abrirMes.mutate(competencia)}
         />
       )}
     </Pagina>
   );
 }
 
-/**
- * A nota chegando, ou sendo corrigida.
- *
- * Corrigindo, o arquivo não aparece: papel guardado não se troca por cima —
- * apaga-se a nota e sobe-se de novo, que é o que deixa rastro de que o arquivo
- * mudou. O que se corrige aqui é o que se digitou errado.
- */
-function FormularioDaNota({
-  nota,
-  mesSugerido,
+/** Que mês abrir. O corrente vem escrito, que é o de quase toda vez. */
+function JanelaDoMes({
+  pendente,
+  erro,
   onFechar,
-  onPronto,
+  onAbrir,
 }: {
-  nota?: NotaFiscal;
-  mesSugerido: string;
+  pendente: boolean;
+  erro: string | null;
   onFechar: () => void;
-  onPronto: (competencia: string) => void;
+  onAbrir: (competencia: string) => void;
 }) {
-  const corrigindo = nota !== undefined;
-  const [competencia, setCompetencia] = useState(nota?.competencia ?? mesSugerido);
-  const [fornecedor, setFornecedor] = useState(nota?.fornecedor ?? '');
-  const [numero, setNumero] = useState(nota?.numero ?? '');
-  const [valor, setValor] = useState(nota?.valor ?? '');
-  const [emitidaEm, setEmitidaEm] = useState(nota?.emitidaEm?.slice(0, 10) ?? '');
-  const [arquivo, setArquivo] = useState<File | null>(null);
-  const [erro, setErro] = useState<string | null>(null);
-
-  const salvar = useMutation({
-    mutationFn: async () => {
-      const corpo: Record<string, unknown> = {
-        competencia,
-        fornecedor,
-        numero: numero.trim() || undefined,
-        valor: Number(valor),
-        emitidaEm: emitidaEm || undefined,
-      };
-
-      if (corrigindo) {
-        await api.patch(`/rh/notas-fiscais/${nota.id}`, corpo);
-        return;
-      }
-
-      if (!arquivo) throw new Error('Escolha o arquivo da nota.');
-      corpo.arquivoNome = arquivo.name;
-      corpo.arquivo = await lerComoDataUrl(arquivo);
-      await api.post('/rh/notas-fiscais', corpo);
-    },
-    onSuccess: () => onPronto(competencia),
-    onError: (e) => setErro(mensagemErro(e)),
-  });
-
-  const incompleto =
-    fornecedor.trim().length < 2 ||
-    Number(valor) <= 0 ||
-    (!corrigindo && !arquivo);
+  const [competencia, setCompetencia] = useState(mesCorrente);
 
   return (
-    <Janela
-      titulo={corrigindo ? 'Corrigir a nota' : 'Lançar nota fiscal'}
-      onFechar={onFechar}
-    >
+    <Janela titulo="Abrir um mês" onFechar={onFechar}>
       <div className="space-y-4">
         {erro && <Aviso tom="erro">{erro}</Aviso>}
-
-        <div className="flex flex-wrap gap-3">
-          <div>
-            <label className="rotulo">Mês da nota</label>
-            <input
-              type="month"
-              value={competencia}
-              onChange={(e) => setCompetencia(e.target.value)}
-              className="campo"
-            />
-          </div>
-          <div>
-            <label className="rotulo">Emitida em</label>
-            <input
-              type="date"
-              value={emitidaEm}
-              onChange={(e) => setEmitidaEm(e.target.value)}
-              className="campo"
-            />
-          </div>
-        </div>
-
+        <p className="text-sm text-tinta-500">
+          A pasta nasce vazia, e é para dentro dela que as notas vão. O nome
+          dela vira o nome do zip que chega na contabilidade.
+        </p>
         <div>
-          <label className="rotulo">Fornecedor</label>
+          <label className="rotulo">Mês</label>
           <input
-            value={fornecedor}
-            onChange={(e) => setFornecedor(e.target.value)}
-            placeholder="De quem é a nota"
-            className="campo"
+            type="month"
+            value={competencia}
+            onChange={(e) => setCompetencia(e.target.value)}
+            className="campo w-48"
           />
         </div>
-
-        <div className="flex flex-wrap gap-3">
-          <div>
-            <label className="rotulo">Número da nota</label>
-            <input
-              value={numero}
-              onChange={(e) => setNumero(e.target.value)}
-              placeholder="opcional"
-              className="campo w-40"
-            />
-          </div>
-          <div>
-            <label className="rotulo">Valor (R$)</label>
-            <CampoDinheiro
-              valor={valor}
-              onChange={setValor}
-              className="campo w-40"
-            />
-          </div>
-        </div>
-
-        {corrigindo ? (
-          <p className="text-xs leading-relaxed text-tinta-500">
-            O arquivo continua o mesmo (<strong>{nota.arquivoNome}</strong>).
-            Para trocar o papel, apague esta nota e lance de novo — assim fica
-            claro que o documento mudou, e não só o que estava escrito sobre ele.
-          </p>
-        ) : (
-          <div>
-            <label className="rotulo">Arquivo da nota</label>
-            <input
-              type="file"
-              accept=".pdf,image/*"
-              onChange={(e) => setArquivo(e.target.files?.[0] ?? null)}
-              className="campo"
-            />
-            <p className="mt-1 text-xs text-tinta-400">
-              O PDF da nota, ou a foto dela escaneada. Até 15 MB.
-            </p>
-          </div>
-        )}
-
         <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={() => salvar.mutate()}
-            disabled={salvar.isPending || incompleto}
+            onClick={() => onAbrir(competencia)}
+            disabled={pendente || !/^\d{4}-\d{2}$/.test(competencia)}
             className="btn btn-primario"
           >
-            {salvar.isPending ? 'Guardando…' : corrigindo ? 'Salvar' : 'Guardar'}
+            {pendente ? 'Abrindo…' : 'Abrir'}
           </button>
           <button type="button" onClick={onFechar} className="btn btn-sutil">
             Cancelar
@@ -490,11 +484,22 @@ function porExtenso(competencia: string): string {
     'Dezembro',
   ];
   const nome = nomes[Number(mes) - 1];
-  return nome ? `${nome} de ${ano}` : competencia;
+  // Pasta renomeada à mão pela estante: o nome que sobrou é a resposta.
+  return nome && ano ? `${nome} de ${ano}` : competencia;
 }
 
-/** O mês de hoje, que é o que quase toda nota lançada vai querer. */
+/** O mês de hoje, que é o que quase toda abertura vai querer. */
 function mesCorrente(): string {
   const hoje = new Date();
   return `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function semExtensao(nome: string): string {
+  return nome.replace(/\.[^.]+$/, '').slice(0, 120) || nome;
+}
+
+function emMegabytes(bytes: number): string {
+  return bytes < 1024 * 1024
+    ? `${Math.max(1, Math.round(bytes / 1024))} KB`
+    : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
