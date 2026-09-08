@@ -139,6 +139,21 @@ export class DocumentosRhService {
       }),
     ]);
 
+    /*
+     * O papel que foi trocado não vence mais.
+     *
+     * A certidão substituída fica em "Substituídos" com a validade que tinha, e
+     * ela continua no passado para sempre — então o crachá vermelho da pasta
+     * subia a cada substituição e nunca mais descia. Contava justamente o que
+     * já foi resolvido: quem trocou a certidão fez o que o crachá pedia.
+     *
+     * O documento continua contando no total (`qtd`): ele existe, está guardado
+     * e se abre. O que sai é o prazo dele, que é o que chama alguém para agir.
+     */
+    const arquivoMorto = new Set(
+      pastas.filter((p) => p.nome === PASTA_DOS_SUBSTITUIDOS).map((p) => p.id),
+    );
+
     const resumos = new Map<string, ResumoDaPasta>();
     for (const d of documentos) {
       const atual = resumos.get(d.pastaId) ?? vazio();
@@ -146,9 +161,11 @@ export class DocumentosRhService {
       if (!atual.ultimoEm || d.createdAt > atual.ultimoEm) {
         atual.ultimoEm = d.createdAt;
       }
-      const prazo = situacaoDoPrazo(d.valeAte);
-      if (prazo === 'vencido') atual.vencidos += 1;
-      if (prazo === 'a-vencer') atual.aVencer += 1;
+      if (!arquivoMorto.has(d.pastaId)) {
+        const prazo = situacaoDoPrazo(d.valeAte);
+        if (prazo === 'vencido') atual.vencidos += 1;
+        if (prazo === 'a-vencer') atual.aVencer += 1;
+      }
       resumos.set(d.pastaId, atual);
     }
 
