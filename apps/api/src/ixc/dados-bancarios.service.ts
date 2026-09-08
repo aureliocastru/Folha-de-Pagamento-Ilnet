@@ -6,6 +6,7 @@ import {
   consolidarDadosBancarios,
   destinoDaChavePix,
   detectarCampoFornecedor,
+  escolherPix,
   TABELAS_DADOS_BANCARIOS,
   type DadosBancariosFornecedor,
   type PreferenciaPix,
@@ -112,6 +113,10 @@ export class DadosBancariosService {
       };
     }
     const campo = this.campoFornecedor ?? 'id_fornecedor';
+    // Declarado fora do try porque a recusa precisa dele: é o corpo mandado
+    // que explica por que o IXC passou a exigir um campo que ele não exige
+    // nas linhas que já existem.
+    let corpo: Record<string, unknown> = {};
 
     try {
       const doFornecedor = await this.ixc.list<Record<string, unknown>>(tabela, {
@@ -161,7 +166,7 @@ export class DadosBancariosService {
         ? (preferencia.codigosTipo[tipo] ?? tipo)
         : null;
 
-      const corpo: Record<string, unknown> = {
+      corpo = {
         [campo]: String(idFornecedor),
         [destino.campoChave]: chave,
         ...preferencia.campos,
@@ -185,8 +190,19 @@ export class DadosBancariosService {
       return { gravado: true };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      /*
+       * O que foi mandado, junto do motivo da recusa.
+       *
+       * A recusa do IXC nomeia um campo ("Preencha banco!") sem dizer por que
+       * ele passou a ser exigido — e existem nessa base linhas válidas com
+       * banco vazio, então não é a coluna em si: é alguma coisa no que se
+       * mandou que a torna obrigatória. Sem ver o corpo lado a lado com o
+       * molde de uma linha boa, o conserto vira tentativa e erro a cada
+       * implantação.
+       */
       this.logger.warn(
-        `Não gravei a chave PIX do fornecedor #${idFornecedor}: ${message}`,
+        `Não gravei a chave PIX do fornecedor #${idFornecedor}: ${message}` +
+          ` — mandei ${JSON.stringify(semSegredo(corpo))}`,
       );
       return {
         gravado: false,
@@ -261,6 +277,22 @@ export class DadosBancariosService {
           `${JSON.stringify(this.preferencia.campos)} — tipos ` +
           JSON.stringify(this.preferencia.codigosTipo),
       );
+
+      /*
+       * O molde: uma linha desta base que já paga por PIX, do jeito que ela é.
+       *
+       * É a resposta para "o que o IXC aceita aqui", que nenhuma documentação
+       * dá — a coleção do webservice não tem sequer endpoint para esta tabela.
+       * Com ela ao lado do corpo recusado dá para ver o que sobra ou falta no
+       * que o app manda, sem descobrir um campo obrigatório por implantação.
+       */
+      const molde = res.registros.find((r) => escolherPix(r).chavePix);
+      if (molde) {
+        this.logger.log(
+          `Molde de linha com PIX em "${tabela}": ` +
+            JSON.stringify(semSegredo(molde)),
+        );
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.warn(
@@ -337,4 +369,27 @@ export class DadosBancariosService {
     );
     return null;
   }
+}
+
+/**
+ * A linha pronta para o log: os códigos de controle inteiros, o resto abreviado.
+ *
+ * O que interessa num molde é a forma — que colunas existem, quais estão
+ * preenchidas e com que código —, não o dado de ninguém. Chave PIX, conta e
+ * documento viram "«preenchido»": eles ocupariam o log com o dinheiro alheio
+ * sem responder nada que o tamanho já não responda.
+ */
+function semSegredo(linha: Record<string, unknown>): Record<string, string> {
+  const fora: Record<string, string> = {};
+  for (const [chave, valor] of Object.entries(linha)) {
+    const s = String(valor ?? '').trim();
+    if (!s) {
+      fora[chave] = '';
+      continue;
+    }
+    // Código de controle é curto e não é dado de ninguém ("S", "Pix",
+    // "CPF_CNPJ", "359"). O que passa disso é conteúdo.
+    fora[chave] = s.length <= 12 && !/^\d{6,}$/.test(s) ? s : '«preenchido»';
+  }
+  return fora;
 }
