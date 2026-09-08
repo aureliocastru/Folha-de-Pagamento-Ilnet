@@ -8,6 +8,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   Min,
   MinLength,
 } from 'class-validator';
@@ -77,6 +78,18 @@ export class PagarDiariaDto {
   @Transform(({ value }) => (value === '' || value == null ? undefined : value))
   @IsIn([...TIPOS_CHAVE_PIX])
   tipoChavePix?: string;
+
+  /**
+   * A que se refere este acerto — a etiqueta desta casa, presa ao título.
+   *
+   * Vazio = a categoria do cadastro do diarista. A tela sempre manda a
+   * escolhida, e o que vier aqui vira o padrão dele para a próxima vez, como já
+   * acontece com a chave PIX. É o mesmo campo do pagamento avulso.
+   */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : value))
+  @IsUUID()
+  categoriaId?: string;
 }
 
 export class QueryDiariasDto {

@@ -7,6 +7,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
   Min,
   MinLength,
 } from 'class-validator';
@@ -47,6 +48,15 @@ export class CriarDiaristaDto {
   valorPorVenda?: number | null;
 
   @IsOptional() @IsEnum(FormaPagamento) formaPagamento?: FormaPagamento;
+
+  /**
+   * Categoria em que os acertos dessa pessoa costumam entrar. Vazio limpa o
+   * padrão — cadastro que não tem um faz a tela perguntar, que é o certo.
+   */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? null : value))
+  @IsUUID()
+  categoriaId?: string | null;
 
   @IsOptional() @IsString() observacoes?: string;
 

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { ColetarAssinatura } from '../../components/ColetarAssinatura';
+import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
 import {
   Aviso,
   Bloco,
@@ -17,6 +18,7 @@ import { formatBRL, formatData } from '../../lib/format';
 import { FORMA_PAGAMENTO_LABEL, STATUS_LABEL, STATUS_TOM } from '../../lib/status';
 import { TIPOS_CHAVE_PIX } from '../../lib/types';
 import type {
+  CategoriaDespesa,
   Diaria,
   Diarista,
   DiaristaComResumo,
@@ -37,6 +39,7 @@ const CADASTRO_VAZIO = {
   valorDiaria: '',
   valorPorVenda: '',
   formaPagamento: 'IXC' as FormaPagamento,
+  categoriaId: '',
   observacoes: '',
 };
 
@@ -145,6 +148,12 @@ export function Diaristas() {
   const [pagando, setPagando] = useState<Diarista | null>(null);
   /** Diária cuja assinatura estamos coletando. */
   const [coletando, setColetando] = useState<Diaria | null>(null);
+
+  const categorias = useQuery({
+    queryKey: ['categorias-despesa'],
+    queryFn: async () =>
+      (await api.get<CategoriaDespesa[]>('/categorias-despesa')).data,
+  });
 
   const lista = useQuery({
     queryKey: ['diaristas', busca, verInativos],
@@ -268,6 +277,9 @@ export function Diaristas() {
         valorDiaria: form.valorDiaria || null,
         valorPorVenda: form.valorPorVenda || null,
         formaPagamento: form.formaPagamento,
+        // Vazio limpa o padrão de propósito: cadastro sem categoria faz a tela
+        // de pagar perguntar, que é melhor que carimbar a errada.
+        categoriaId: form.categoriaId || null,
         observacoes: form.observacoes || undefined,
       };
       const id = cadastro?.id;
@@ -365,6 +377,7 @@ export function Diaristas() {
       valorDiaria: d.valorDiaria ?? '',
       valorPorVenda: d.valorPorVenda ?? '',
       formaPagamento: d.formaPagamento,
+      categoriaId: d.categoriaId ?? '',
       observacoes: d.observacoes ?? '',
     });
     setCadastro({ id: d.id });
@@ -517,6 +530,20 @@ export function Diaristas() {
                   </option>
                 ))}
               </select>
+            </Campo>
+            <Campo label="Categoria dos acertos">
+              <SeletorDeCategoria
+                categorias={categorias.data}
+                value={form.categoriaId}
+                vazio="Escolher na hora de pagar"
+                carregando={categorias.isLoading}
+                onChange={(id) => setForm({ ...form, categoriaId: id })}
+                title="É por ela que o dashboard separa os gastos. Fica guardada aqui — o IXC não tem onde recebê-la."
+              />
+              <p className="ajuda">
+                Já vem marcada em todo acerto dessa pessoa — e dá para trocar na
+                hora.
+              </p>
             </Campo>
             <Campo label="Observações" span2>
               <input
@@ -1284,6 +1311,22 @@ function FormularioDiaria({
   const [forma, setForma] = useState<FormaPagamento>(diarista.formaPagamento);
   const [chavePix, setChavePix] = useState(diarista.chavePix ?? '');
   const [tipoChavePix, setTipoChavePix] = useState(diarista.tipoChavePix ?? '');
+  /*
+   * A que se refere o acerto.
+   *
+   * Começa no que está no cadastro, e é ele que faz a segunda semana da mesma
+   * pessoa não voltar a perguntar. Este campo não existia, e por isso todo
+   * acerto de diarista caía em "Sem categoria" no painel: a diária também
+   * não entra na etiquetagem automática da folha, então não havia nada por
+   * baixo pegando o que a tela não perguntava.
+   */
+  const [categoriaId, setCategoriaId] = useState(diarista.categoriaId ?? '');
+
+  const categorias = useQuery({
+    queryKey: ['categorias-despesa'],
+    queryFn: async () =>
+      (await api.get<CategoriaDespesa[]>('/categorias-despesa')).data,
+  });
 
   const diarias = (Number(quantidade) || 0) * (Number(valorDiaria) || 0);
   const comissao = (Number(vendas) || 0) * (Number(valorPorVenda) || 0);
@@ -1385,6 +1428,21 @@ function FormularioDiaria({
             placeholder="Ex.: acerto da semana"
           />
         </Campo>
+        <Campo label="A que se refere — categoria daqui">
+          <SeletorDeCategoria
+            categorias={categorias.data}
+            value={categoriaId}
+            vazio="Escolha a categoria…"
+            carregando={categorias.isLoading}
+            onChange={setCategoriaId}
+            title="É por ela que o dashboard separa os gastos. Fica guardada aqui — o IXC não tem onde recebê-la."
+          />
+          <p className="ajuda">
+            {diarista.categoriaId
+              ? 'Veio do cadastro dessa pessoa. Trocando aqui, o próximo acerto já vem com a nova.'
+              : 'É por ela que o dashboard do Contas a Pagar separa os gastos — e fica guardada no cadastro para a próxima vez.'}
+          </p>
+        </Campo>
         {forma === 'IXC' && (
           <>
             <Campo label="Chave PIX — vai exata para o IXC">
@@ -1432,6 +1490,7 @@ function FormularioDiaria({
               descricaoExtra: descricaoExtra || undefined,
               descricao,
               forma,
+              categoriaId: categoriaId || undefined,
               ...(forma === 'IXC' ? { chavePix, tipoChavePix } : {}),
             })
           }

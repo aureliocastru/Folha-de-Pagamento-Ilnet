@@ -271,6 +271,7 @@ export class DiaristasService {
       ...(dto.tipoChavePix === undefined
         ? {}
         : { tipoChavePix: dto.tipoChavePix }),
+      ...(dto.categoriaId === undefined ? {} : { categoriaId: dto.categoriaId }),
       ...(dto.valorDiaria === undefined
         ? {}
         : {
@@ -448,6 +449,11 @@ export class DiaristasService {
       );
     }
 
+    // Antes de qualquer coisa ser criada: mais adiante o título já está no
+    // IXC, e um id de categoria que não existe viraria erro numa tela que
+    // acabou de mandar o dinheiro embora.
+    const categoriaId = await this.categoriaDoPagamento(dto, diarista);
+
     const base = {
       diaristaId,
       data: dto.data ? new Date(dto.data) : hojeUtc(),
@@ -466,7 +472,64 @@ export class DiaristasService {
       criadoPor: usuarioId ?? null,
     };
 
-    return this.pagarPeloIxc(diarista, base, partes, usuarioId);
+    const diaria = await this.pagarPeloIxc(
+      diarista,
+      base,
+      partes,
+      usuarioId,
+      categoriaId,
+    );
+    await this.guardarCategoriaPadrao(diarista, categoriaId);
+    return diaria;
+  }
+
+  /**
+   * A que se refere este acerto: o que a tela escolheu ou, sem ela, a categoria
+   * do cadastro do diarista.
+   *
+   * O padrão do cadastro não é conferido porque não precisa: a chave
+   * estrangeira o apaga junto com a categoria (`SetNull`), então ele nunca
+   * aponta para o que não há.
+   */
+  private async categoriaDoPagamento(
+    dto: PagarDiariaDto,
+    diarista: Diarista,
+  ): Promise<string | null> {
+    if (!dto.categoriaId) return diarista.categoriaId ?? null;
+
+    const categoria = await this.prisma.categoriaDespesa.findUnique({
+      where: { id: dto.categoriaId },
+      select: { id: true },
+    });
+    if (!categoria) {
+      throw new BadRequestException(
+        'A categoria escolhida não existe mais — recarregue a tela e escolha ' +
+          'outra.',
+      );
+    }
+    return categoria.id;
+  }
+
+  /**
+   * A categoria escolhida na hora de pagar vira o padrão de quem recebeu.
+   *
+   * Mesmo motivo da chave PIX: quem paga o mesmo pedreiro pela quarta vez não
+   * deveria ter de dizer "Obras" pela quarta vez — é na quarta que alguém
+   * deixa passar, e o acerto some do painel.
+   *
+   * Grava mesmo que a etiqueta não tenha colado no título: a escolha foi feita,
+   * e o próximo pagamento já abre com ela.
+   */
+  private async guardarCategoriaPadrao(
+    diarista: Diarista,
+    categoriaId: string | null,
+  ): Promise<void> {
+    if (!categoriaId || categoriaId === diarista.categoriaId) return;
+
+    await this.prisma.diarista.update({
+      where: { id: diarista.id },
+      data: { categoriaId },
+    });
   }
 
   /**
@@ -508,6 +571,8 @@ export class DiaristasService {
     base: Prisma.DiariaUncheckedCreateInput,
     partes: PartesDoPagamento,
     usuarioId?: string,
+    /** A que se refere — a etiqueta desta casa, presa ao título lá do IXC. */
+    categoriaId?: string | null,
   ): Promise<Diaria> {
     const cfg = await this.config.obter();
     const emMaos = base.forma === FormaPagamento.EM_MAOS;
@@ -543,7 +608,53 @@ export class DiaristasService {
       },
     });
 
+    await this.etiquetar(conta, categoriaId ?? null, usuarioId);
+
     return emMaos ? this.quitarNoAto(diaria, conta) : diaria;
+  }
+
+  /**
+   * Prende a etiqueta desta casa ao título que acabou de nascer no IXC.
+   *
+   * Só dá para fazer depois do envio: a classificação se liga ao número do
+   * `fn_apagar`, e ele não existe antes. Escreve direto na tabela em vez de
+   * chamar o serviço de categorias porque ele mora no módulo que importa este
+   * — chamá-lo daqui fecharia o ciclo. É o mesmo caminho do avulso e da folha.
+   *
+   * Falhar aqui não derruba nada: o dinheiro já foi, e etiqueta que não colou
+   * se resolve na lista de contas em aberto, em dois cliques.
+   */
+  private async etiquetar(
+    conta: { id: string; idFnApagarIxc: number | null },
+    categoriaId: string | null,
+    usuarioId?: string,
+  ): Promise<void> {
+    if (!categoriaId) return;
+
+    if (!conta.idFnApagarIxc) {
+      this.logger.warn(
+        `A conta ${conta.id} foi paga, mas o IXC não devolveu o número do ` +
+          'título — a categoria não pôde ser gravada.',
+      );
+      return;
+    }
+
+    try {
+      await this.prisma.classificacaoConta.upsert({
+        where: { idFnApagar: conta.idFnApagarIxc },
+        create: {
+          idFnApagar: conta.idFnApagarIxc,
+          categoriaId,
+          classificadoPor: usuarioId ?? null,
+        },
+        update: { categoriaId, classificadoPor: usuarioId ?? null },
+      });
+    } catch (err) {
+      const motivo = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `A conta ${conta.id} foi paga, mas a categoria não ficou: ${motivo}`,
+      );
+    }
   }
 
   /**
