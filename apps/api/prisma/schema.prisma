@@ -45,6 +45,10 @@ model User {
   /// migração. Quem é ADMIN passa em qualquer caso — é ele quem distribui o
   /// acesso, e trancar a si mesmo não teria conserto pela tela.
   modulos   String[] @default([])
+
+  /// O bloco de notas deste login. Ver o modelo `Agenda`.
+  agenda    Agenda?
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -2166,4 +2170,32 @@ model ExecutanteApr {
   @@index([aprId])
   @@index([funcionarioId])
   @@map("executantes_apr")
+}
+
+// ---------------------------------------------------------------------------
+// O bloco de notas — a agenda de cada login
+// ---------------------------------------------------------------------------
+
+/// O papel que fica no canto da tela, e que é de quem escreveu.
+///
+/// Uma linha por login, e a chave primária é o próprio id do usuário: não há
+/// como alguém ter dois blocos. Gravar é um `upsert` por essa chave, e assim
+/// duas abas abertas na mesma conta escrevem no mesmo papel em vez de criarem
+/// dois textos que se ignoram.
+///
+/// O texto é um só, inteiro, do jeito que foi digitado. Nada de campos: quem
+/// decide o que ali é data, lista ou recado é quem escreve — é uma agenda de
+/// papel, e o sistema não tem o que conferir nela.
+model Agenda {
+  /// `Cascade`: fechada a conta, o bloco vai junto. É recado particular de uma
+  /// pessoa, e não registro da empresa — não há a quem sobrar.
+  usuario   User   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  usuarioId String @id @map("usuario_id")
+
+  texto String @default("")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("agendas")
 }

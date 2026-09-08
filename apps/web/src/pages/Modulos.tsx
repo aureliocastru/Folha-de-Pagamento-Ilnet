@@ -39,7 +39,9 @@ export function Modulos() {
         }}
       />
 
-      <header className="relative flex flex-wrap items-center justify-between gap-4 border-b border-white/10 px-6 py-5 sm:px-10">
+      {/* pr generoso: o bloco de notas mora encostado nesta quina, e sem
+          folga o "Sair" ficava debaixo dele. */}
+      <header className="relative flex flex-wrap items-center justify-between gap-4 border-b border-white/10 py-5 pl-6 pr-16 sm:pl-10 sm:pr-20">
         <div className="flex items-center gap-3.5">
           <img
             src="/logo-ilnet.png"

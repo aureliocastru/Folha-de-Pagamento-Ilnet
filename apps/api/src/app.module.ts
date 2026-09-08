@@ -18,6 +18,7 @@ import { CaixaModule } from './caixa/caixa.module';
 import { TransferenciasModule } from './transferencias/transferencias.module';
 import { AuthModule } from './auth/auth.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
+import { AgendaModule } from './agenda/agenda.module';
 import { RhModule } from './rh/rh.module';
 import { AprModule } from './apr/apr.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
@@ -35,6 +36,7 @@ import { HealthController } from './health/health.controller';
     PrismaModule,
     AuthModule,
     UsuariosModule,
+    AgendaModule,
     IxcModule,
     SyncModule,
     FuncionariosModule,

@@ -1968,3 +1968,10 @@ export interface PessoaDaEquipe {
   cpf: string | null;
   funcao: string | null;
 }
+
+/** O bloco de notas de quem está logado. */
+export interface Agenda {
+  texto: string;
+  /** Última gravação, ou null enquanto o bloco nunca recebeu nada. */
+  atualizadoEm: string | null;
+}

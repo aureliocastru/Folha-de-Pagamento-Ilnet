@@ -40,7 +40,9 @@ export function Campo() {
   return (
     <div className="min-h-screen bg-tinta-50">
       <header className="sticky top-0 z-20 border-b border-tinta-200 bg-papel/95 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 px-4 py-3">
+        {/* pr-14: o bloco de notas fica na quina da tela, e numa janela
+            estreita ele cairia em cima do "Sair". */}
+        <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 py-3 pl-4 pr-14">
           <NavLink to="/campo" className="flex items-center gap-2.5">
             <img
               src="/logo-ilnet.png"

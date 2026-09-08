@@ -373,3 +373,20 @@ export function IconeAssinatura({ className }: IconeProps) {
     </svg>
   );
 }
+
+/**
+ * O bloco de notas: o papel espiralado com duas linhas escritas.
+ *
+ * De propósito diferente do `IconeChecklist` (que é prancheta, com a presilha
+ * em cima) e do `IconeDia` (calendário, com a faixa do mês): os três seriam um
+ * retângulo com risquinhos dentro se a espiral não estivesse aqui.
+ */
+export function IconeBloco({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <rect x="4.5" y="5.5" width="15" height="15" rx="2.5" />
+      <path d="M8.5 3v4.5M15.5 3v4.5" />
+      <path d="M8.5 12h7M8.5 15.5h4" />
+    </svg>
+  );
+}

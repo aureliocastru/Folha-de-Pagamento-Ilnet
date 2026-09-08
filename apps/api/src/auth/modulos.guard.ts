@@ -34,8 +34,9 @@ const MODULO_DO_TECNICO: ModuloId[] = ['seguranca'];
  * - `avulsos`, `categorias-despesa` e `fornecedores-ixc` servem aos dois, e por
  *   isso passam para quem tiver qualquer um deles.
  *
- * O que não está aqui é livre: login, saúde, gerenciamento de usuários e a
- * assinatura pública do recibo não pertencem a módulo nenhum.
+ * O que não está aqui é livre: login, saúde, gerenciamento de usuários, o
+ * bloco de notas (`agenda`, que abre em qualquer tela e é de quem escreveu) e
+ * a assinatura pública do recibo não pertencem a módulo nenhum.
  */
 const MODULO_DA_ROTA: Array<[string, ModuloId[]]> = [
   ['rh', ['rh']],
