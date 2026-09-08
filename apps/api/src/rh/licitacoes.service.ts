@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { situacaoDoPrazo } from './documentos.service';
+import { PASTA_DAS_LICITACOES } from './pastas-com-porta';
 
 /**
  * A prateleira onde cada licitação vira uma pasta.
@@ -8,8 +9,12 @@ import { situacaoDoPrazo } from './documentos.service';
  * Nasce sozinha na primeira licitação, do mesmo jeito que "Substituídos" nasce
  * na primeira troca: uma pasta vazia na estante, criada por precaução, seria
  * mais uma linha para ninguém abrir.
+ *
+ * O nome mora em `pastas-com-porta`, junto do da estante que precisa dele para
+ * não repetir esta pasta no meio das outras. Continua exportado daqui porque é
+ * aqui que ele significa alguma coisa.
  */
-export const PASTA_DAS_LICITACOES = 'Licitações';
+export { PASTA_DAS_LICITACOES } from './pastas-com-porta';
 
 /** Uma licitação como a tela a lista. */
 export interface Licitacao {

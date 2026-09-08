@@ -1,13 +1,16 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { PASTA_DAS_NOTAS } from './pastas-com-porta';
 
 /**
  * A prateleira das notas fiscais na estante.
  *
  * Nasce sozinha no primeiro mês aberto, como a das licitações: uma pasta vazia
  * criada por precaução seria mais uma linha para ninguém abrir.
+ *
+ * O nome mora em `pastas-com-porta`, junto do da estante — ver lá o porquê.
  */
-export const PASTA_DAS_NOTAS = 'Notas Fiscais';
+export { PASTA_DAS_NOTAS } from './pastas-com-porta';
 
 /** Um mês, como a tela o lista. */
 export interface MesDeNotas {

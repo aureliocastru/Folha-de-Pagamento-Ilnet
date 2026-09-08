@@ -550,6 +550,20 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
         </Aviso>
       )}
 
+      {/* A busca vem antes do que ela filtra.
+          Embaixo das pastas ela ficava depois de quarenta cartões: quem abria a
+          gaveta dos funcionários rolava a tela inteira para achar o campo que
+          existe justamente para não rolar a tela. */}
+      <div className="surgir mb-4">
+        <input
+          value={termo}
+          onChange={(e) => setTermo(e.target.value)}
+          placeholder="Procurar nesta pasta"
+          className="campo max-w-md"
+          autoComplete="off"
+        />
+      </div>
+
       {subpastasAVista.length > 0 && (
         <div className="surgir mb-6 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
           {subpastasAVista.map((p) => (
@@ -558,19 +572,11 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
         </div>
       )}
 
-      <div className="surgir mb-5 flex flex-wrap items-center gap-3">
-        <input
-          value={termo}
-          onChange={(e) => setTermo(e.target.value)}
-          placeholder="Procurar nesta pasta"
-          className="campo max-w-md"
-          autoComplete="off"
-        />
-
-        {/* A barra do que está marcado fica junto da busca, e não flutuando
-            sobre a lista: é ali que o olho já está quando se acaba de marcar,
-            e uma barra por cima taparia justamente as linhas que se quer
-            conferir antes de mover. */}
+      {/* A barra do que está marcado fica encostada na lista, e não flutuando
+          sobre ela: é ali que o olho já está quando se acaba de marcar, e uma
+          barra por cima taparia justamente as linhas que se quer conferir
+          antes de mover. */}
+      <div className="surgir mb-5 flex flex-wrap items-center gap-3 empty:mb-0">
         {marcados.size > 0 && (
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm text-tinta-600">
@@ -617,7 +623,9 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
         <Vazio titulo={termo ? 'Nada com esse nome nesta pasta' : 'Pasta vazia'}>
           {termo
             ? 'Procure por outro pedaço do nome, do tipo ou da descrição.'
-            : 'Guarde aqui o contrato, a CTPS, os exames e o que mais for desta pessoa. O recibo de pagamento do mês entra sozinho, pela tela de recibos da folha.'}
+            : pasta?.dosFuncionarios
+              ? 'A gaveta guarda as pastas, e não o papel: cada documento mora na pasta da pessoa, aí em cima. Papel solto aqui não é de ninguém, e é ali que alguém vai procurá-lo.'
+              : 'Guarde aqui o contrato, a CTPS, os exames e o que mais for desta pessoa. O recibo de pagamento do mês entra sozinho, pela tela de recibos da folha.'}
         </Vazio>
       ) : lista.length === 0 ? null : (
         <Bloco semPadding>

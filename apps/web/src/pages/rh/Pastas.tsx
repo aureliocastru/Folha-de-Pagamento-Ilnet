@@ -57,7 +57,16 @@ export function PastasRh() {
   const pastas = useMemo(() => {
     // Sem acento: quem procura o Anderson Conceição escreve "conceicao".
     const busca = semAcento(termo.trim());
-    if (!busca) return todas.filter((p) => !p.paiId);
+    /*
+     * Parada, a estante mostra só o que ela é a única porta de entrada.
+     *
+     * Empresa, Licitações e Notas Fiscais têm item próprio no menu da esquerda.
+     * Repeti-las aqui era encher a tela de atalhos duplicados e afogar no meio
+     * deles o único cartão que só existe nesta tela — a gaveta dos
+     * funcionários. Procurando, elas voltam: quem digita "licitação" quer achar
+     * a pasta, não descobrir que ela mudou de lugar.
+     */
+    if (!busca) return todas.filter((p) => !p.paiId && !p.temPortaPropria);
     return todas.filter((p) =>
       combina([p.nome, p.apelido, p.funcao, p.cpf], busca),
     );
@@ -74,8 +83,18 @@ export function PastasRh() {
     onError: (e) => setErro(mensagemErro(e)),
   });
 
-  const comPendencia = pastas.filter(
-    (p) => p.naArvore.vencidos > 0 || p.naArvore.aVencer > 0,
+  /*
+   * O aviso conta a estante inteira, e não só o que está à vista.
+   *
+   * Ele saía da lista já filtrada, e por isso encolheu quando Empresa,
+   * Licitações e Notas Fiscais saíram da grade — justamente as pastas cujo
+   * papel vence: alvará, certidão, o atestado que a licitação pede. Um aviso
+   * que deixa de avisar sobre elas por causa de uma mudança de layout é pior
+   * que não existir. Por isso é a árvore toda, e a frase não promete mais um
+   * crachá em cartão que talvez não esteja na tela.
+   */
+  const comPendencia = todas.filter(
+    (p) => !p.paiId && (p.naArvore.vencidos > 0 || p.naArvore.aVencer > 0),
   );
 
   return (
@@ -83,7 +102,7 @@ export function PastasRh() {
       <CabecalhoPagina
         secao="RH"
         titulo="Pastas"
-        descricao="Onde os documentos da casa ficam. A gente está em Funcionários; o resto — empresa, licitações, notas — tem a pasta dele aqui. A busca acha em todas."
+        descricao="Onde os documentos da casa ficam. A gente está em Funcionários; empresa, licitações e notas têm porta própria no menu. A busca acha em todas."
         acoes={
           <button
             type="button"
@@ -104,8 +123,8 @@ export function PastasRh() {
         <Aviso tom="atencao">
           {comPendencia.length === 1
             ? '1 pasta tem documento vencido ou vencendo'
-            : `${comPendencia.length} pastas têm documento vencido ou vencendo`}{' '}
-          — o crachá vermelho na pasta diz quantos.
+            : `${comPendencia.length} pastas têm documento vencido ou vencendo`}
+          : {comPendencia.map((p) => p.nome).join(', ')}.
         </Aviso>
       )}
 

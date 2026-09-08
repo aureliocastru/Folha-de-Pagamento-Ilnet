@@ -11,6 +11,7 @@ import {
   podeVirarPdf,
 } from './conversao-pdf.service';
 import { ehImagemConversivel, imagemEmPdf } from './imagem-em-pdf';
+import { temPortaPropria } from './pastas-com-porta';
 import type {
   EditarDocumentoDto,
   GuardarDocumentoDto,
@@ -187,6 +188,14 @@ export class DocumentosRhService {
       funcao: p.funcionario?.funcao ?? null,
       daEmpresa: p.daEmpresa,
       dosFuncionarios: p.dosFuncionarios,
+      /**
+       * Já tem item no menu do RH — Empresa, Licitações, Notas Fiscais.
+       *
+       * A estante parada não as repete: seriam três atalhos duplicados ao lado
+       * do único cartão que só existe ali, a gaveta dos funcionários. Elas
+       * continuam sendo pastas de primeiro nível, e a busca continua achando.
+       */
+      temPortaPropria: temPortaPropria(p),
       funcionarioId: p.funcionarioId,
       cpf: p.cpf,
       /** Vazio = pasta de primeiro nível, a que aparece na estante. */

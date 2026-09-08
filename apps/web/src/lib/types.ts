@@ -1667,6 +1667,11 @@ export interface PastaRh extends ResumoDaPasta {
   daEmpresa: boolean;
   /** A gaveta que guarda a pasta de cada funcionário. Só uma na estante. */
   dosFuncionarios: boolean;
+  /**
+   * Já tem item próprio no menu do RH — Empresa, Licitações, Notas Fiscais.
+   * A estante parada não as repete; a busca continua achando.
+   */
+  temPortaPropria: boolean;
   funcionarioId: string | null;
   cpf: string | null;
   /** Vazio = pasta de primeiro nível, a que aparece na estante. */
