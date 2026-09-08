@@ -83,13 +83,34 @@ describe('aprender a preferência de pagamento por PIX', () => {
     expect(r.campos.padrao).toBe('S');
   });
 
-  /** Base sem essas colunas: grava só a chave, como antes disto existir. */
-  it('base sem as colunas devolve vazio em vez de estourar', () => {
+  /**
+   * Base sem essas colunas: grava só a chave, como antes disto existir — e
+   * devolve os nomes que ela tem de verdade.
+   *
+   * É o caso que apareceu na base do cliente: a coluna do "Pagar
+   * preferencialmente por" não se chama nada do que o app esperava, e sem os
+   * nomes reais a mensagem de erro repetia a recusa do IXC sem ajudar ninguém.
+   */
+  it('base sem as colunas devolve vazio, mas diz que colunas existem', () => {
     const r = aprenderPreferenciaPix([
       { id: '1', id_fornecedor: '188', pix_celular: '(99) 99230-0993' },
     ]);
 
     expect(r.campos).toEqual({});
+    expect(r.colunas).toEqual(['id', 'id_fornecedor', 'pix_celular']);
+  });
+
+  /**
+   * O IXC omite da resposta a coluna vazia naquele registro, então uma linha só
+   * não descreve a tabela: os nomes saem da união de todas as lidas.
+   */
+  it('junta as colunas de todas as linhas, não só da primeira', () => {
+    const r = aprenderPreferenciaPix([
+      { id: '1', id_fornecedor: '188' },
+      { id: '2', id_fornecedor: '189', pix_email: 'x@y.com' },
+    ]);
+
+    expect(r.colunas).toEqual(['id', 'id_fornecedor', 'pix_email']);
   });
 
   it('tabela vazia não trava nada', () => {
@@ -97,6 +118,7 @@ describe('aprender a preferência de pagamento por PIX', () => {
       campos: {},
       codigosTipo: {},
       formaDesconhecida: null,
+      colunas: [],
     });
   });
 

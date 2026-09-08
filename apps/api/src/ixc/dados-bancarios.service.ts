@@ -205,16 +205,33 @@ export class DadosBancariosService {
    * coluna, e um caso basta para acertar.
    */
   private async pistaDaRecusa(tabela: string): Promise<string> {
-    const desconhecida = this.preferencia?.formaDesconhecida;
-    if (!desconhecida) return '';
+    const preferencia = this.preferencia;
+    if (!preferencia) return '';
 
-    const lista = desconhecida.valores.length
-      ? desconhecida.valores.map((v) => `"${v}"`).join(', ')
-      : 'nenhum valor preenchido';
+    const partes: string[] = [];
+
+    const desconhecida = preferencia.formaDesconhecida;
+    if (desconhecida) {
+      const lista = desconhecida.valores.length
+        ? desconhecida.valores.map((v) => `"${v}"`).join(', ')
+        : 'nenhum valor preenchido';
+      partes.push(
+        `não achei nesta base nenhuma conta que já pague por PIX, então não ` +
+          `sei que código a coluna "${desconhecida.campo}" usa para "Pix" ` +
+          `(nela aparecem: ${lista})`,
+      );
+    } else if (Object.keys(preferencia.campos).length === 0) {
+      // Nem a coluna foi encontrada: os nomes reais são o que falta para
+      // acertar qual delas é o "Pagar preferencialmente por".
+      partes.push(
+        `não reconheci, em "${tabela}", a coluna do "Pagar preferencialmente ` +
+          `por". As colunas de lá são: ${preferencia.colunas.join(', ')}`,
+      );
+    }
+
+    if (partes.length === 0) return '';
     return (
-      ` — não achei nesta base nenhuma conta que já pague por PIX, então não ` +
-      `sei que código a coluna "${desconhecida.campo}" usa para "Pix". ` +
-      `Nela aparecem: ${lista}. Cadastre a chave à mão numa pessoa no IXC ` +
+      ` — ${partes.join('; ')}. Cadastre a chave à mão numa pessoa no IXC ` +
       `(marcando "Pagar preferencialmente por: Pix") e a partir daí eu copio.`
     );
   }
@@ -253,6 +270,7 @@ export class DadosBancariosService {
         campos: {},
         codigosTipo: {},
         formaDesconhecida: null,
+        colunas: [],
       };
     }
     return this.preferencia;

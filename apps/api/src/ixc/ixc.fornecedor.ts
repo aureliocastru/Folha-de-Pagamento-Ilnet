@@ -812,6 +812,15 @@ export interface PreferenciaPix {
    * era abrir o banco do cliente para ver que códigos aquela coluna usa.
    */
   formaDesconhecida: { campo: string; valores: string[] } | null;
+  /**
+   * Os nomes das colunas do grid, como esta base os escreve.
+   *
+   * É o diagnóstico de quando nem a coluna foi encontrada — caso em que
+   * `formaDesconhecida` fica null e não haveria o que dizer. Sem os nomes, a
+   * mensagem de erro repete a recusa do IXC e não adianta nada: foi o que
+   * aconteceu na primeira tentativa de verdade.
+   */
+  colunas: string[];
 }
 
 /** O valor mais repetido de uma coluna, entre as linhas dadas. */
@@ -874,8 +883,14 @@ export function aprenderPreferenciaPix(
   const campos: Record<string, string> = {};
   const codigosTipo: Partial<Record<TipoChavePix, string>> = {};
   if (linhas.length === 0) {
-    return { campos, codigosTipo, formaDesconhecida: null };
+    return { campos, codigosTipo, formaDesconhecida: null, colunas: [] };
   }
+
+  // Todas as colunas vistas, e não só as da primeira linha: o IXC omite da
+  // resposta a coluna que está vazia naquele registro.
+  const colunas = [
+    ...new Set(linhas.flatMap((l) => Object.keys(l))),
+  ].sort();
 
   const comPix = linhas.filter((l) => escolherPix(l).chavePix);
 
@@ -930,5 +945,5 @@ export function aprenderPreferenciaPix(
     }
   }
 
-  return { campos, codigosTipo, formaDesconhecida };
+  return { campos, codigosTipo, formaDesconhecida, colunas };
 }
