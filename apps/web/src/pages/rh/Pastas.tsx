@@ -16,13 +16,20 @@ import { combina, semAcento } from '../../lib/busca';
 import type { EstanteRh, PastaRh } from '../../lib/types';
 
 /**
- * A estante: uma pasta por pessoa, mais a da empresa.
+ * A estante: a pasta da empresa, a gaveta dos funcionários e as de assunto.
+ *
+ * Ela já foi uma tela de quarenta e poucas pastas de gente em ordem alfabética,
+ * com a da empresa e a das licitações perdidas no meio delas — quem entrava
+ * para pegar um alvará rolava a tela procurando pela letra "E". Hoje a gente
+ * mora um clique adentro, em "Funcionários", e o que abre primeiro é curto o
+ * bastante para se ler de uma vez.
  *
  * As pastas de funcionário nascem sozinhas, do cadastro — abrir a estante e
  * ter de criar a pasta do Fulano antes de guardar o contrato dele seria
  * trabalho que o sistema já sabe fazer. O botão de criar existe para quem não
  * está no cadastro: o sócio, o estagiário da faculdade, quem já saiu antes de o
- * sistema existir.
+ * sistema existir — e, preenchido o CPF, a pasta nasce dentro da gaveta junto
+ * com as outras.
  */
 export function PastasRh() {
   const qc = useQueryClient();
@@ -35,17 +42,26 @@ export function PastasRh() {
     queryFn: async () => (await api.get<EstanteRh>('/rh/pastas')).data,
   });
 
+  const todas = useMemo(() => estante.data?.pastas ?? [], [estante.data]);
+
+  /*
+   * Parada, a estante é o primeiro nível: a empresa, a gaveta dos funcionários
+   * e as pastas de assunto. Meia dúzia de cartões, e a tela abre inteira.
+   *
+   * Procurando, ela é a árvore toda. Quem digita "conceicao" nesta caixa quer o
+   * Anderson, e ele está um clique adentro desde que a gaveta existe —
+   * responder "nenhuma pasta com esse nome" porque ele não é de primeiro nível
+   * seria trocar a organização da estante pelo jeito de achar gente nela. E,
+   * de quebra, agora a busca alcança a subpasta: "recibos" acha as quarenta.
+   */
   const pastas = useMemo(() => {
-    // A estante é o primeiro nível. As subpastas aparecem dentro da pasta
-    // delas, que é onde alguém foi procurá-las.
-    const todas = (estante.data?.pastas ?? []).filter((p) => !p.paiId);
     // Sem acento: quem procura o Anderson Conceição escreve "conceicao".
     const busca = semAcento(termo.trim());
-    if (!busca) return todas;
+    if (!busca) return todas.filter((p) => !p.paiId);
     return todas.filter((p) =>
       combina([p.nome, p.apelido, p.funcao, p.cpf], busca),
     );
-  }, [estante.data, termo]);
+  }, [todas, termo]);
 
   const criar = useMutation({
     mutationFn: async (dados: { nome: string; cpf?: string }) =>
@@ -67,7 +83,7 @@ export function PastasRh() {
       <CabecalhoPagina
         secao="RH"
         titulo="Pastas"
-        descricao="Onde os documentos da casa ficam: uma pasta por pessoa, mais a da empresa. Contrato, exame, advertência e o recibo de pagamento de cada mês."
+        descricao="Onde os documentos da casa ficam. A gente está em Funcionários; o resto — empresa, licitações, notas — tem a pasta dele aqui. A busca acha em todas."
         acoes={
           <button
             type="button"
@@ -97,7 +113,7 @@ export function PastasRh() {
         <input
           value={termo}
           onChange={(e) => setTermo(e.target.value)}
-          placeholder="Procurar por nome, apelido, função ou CPF"
+          placeholder="Procurar em todas as pastas: nome, apelido, função ou CPF"
           className="campo max-w-md"
         />
       </div>
@@ -109,13 +125,20 @@ export function PastasRh() {
           titulo={termo ? 'Nenhuma pasta com esse nome' : 'A estante está vazia'}
         >
           {termo
-            ? 'Procure por outro pedaço do nome, ou crie a pasta.'
+            ? 'A busca olha a estante inteira, inclusive dentro de Funcionários. Procure por outro pedaço do nome, ou crie a pasta.'
             : 'As pastas dos funcionários nascem do cadastro. Sem nenhuma aqui, sincronize os funcionários no módulo da folha.'}
         </Vazio>
       ) : (
         <div className="surgir grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
           {pastas.map((p) => (
-            <CartaoDaPasta key={p.id} pasta={p} />
+            <CartaoDaPasta
+              key={p.id}
+              pasta={p}
+              /* Achada pela busca lá dentro: o cartão diz de onde ela veio,
+                 senão a mesma tela mostraria "Anderson" e "Recibos de
+                 pagamento" lado a lado sem dizer que um está dentro do outro. */
+              onde={ondeFica(todas, p)}
+            />
           ))}
         </div>
       )}
@@ -134,6 +157,26 @@ export function PastasRh() {
 }
 
 /**
+ * Onde uma pasta mora, para o cartão dizer de onde a busca a tirou.
+ *
+ * Devolve nulo para a pasta de primeiro nível — ela está onde se está olhando,
+ * e escrever isso seria só ruído em cima de cada cartão da estante parada.
+ */
+function ondeFica(pastas: PastaRh[], pasta: PastaRh): string | null {
+  const caminho: string[] = [];
+  let paiId = pasta.paiId;
+  // Teto de segurança: um ciclo aqui travaria a tela em vez de desenhar um
+  // caminho errado. O número acompanha o do servidor.
+  for (let i = 0; paiId && i < 20; i += 1) {
+    const pai = pastas.find((p) => p.id === paiId);
+    if (!pai) break;
+    caminho.unshift(pai.nome);
+    paiId = pai.paiId;
+  }
+  return caminho.length > 0 ? caminho.join(' / ') : null;
+}
+
+/**
  * A pasta na estante: o nome, o que há dentro e o que está vencendo.
  *
  * Compacta de propósito. São dezenas delas numa tela só — uma por pessoa da
@@ -144,7 +187,14 @@ export function PastasRh() {
  * uma pasta" de qualquer outro cartão da interface, e a cor não pode mudar de
  * pasta para pasta sem passar a querer dizer alguma coisa.
  */
-export function CartaoDaPasta({ pasta }: { pasta: PastaRh }) {
+export function CartaoDaPasta({
+  pasta,
+  onde,
+}: {
+  pasta: PastaRh;
+  /** "Funcionários", quando o cartão aparece longe da pasta em que ele mora. */
+  onde?: string | null;
+}) {
   const resumo = pasta.naArvore;
 
   return (
@@ -174,6 +224,11 @@ export function CartaoDaPasta({ pasta }: { pasta: PastaRh }) {
         </div>
 
         <div className="flex items-center gap-1.5 text-xs text-tinta-400">
+          {onde && (
+            <span className="shrink-0 truncate text-tinta-500" title={onde}>
+              {onde} ·
+            </span>
+          )}
           <span className="num truncate">
             {resumo.qtd === 0 ? 'vazia' : `${resumo.qtd} doc.`}
             {pasta.subpastas > 0 && ` · ${pasta.subpastas} pasta`}

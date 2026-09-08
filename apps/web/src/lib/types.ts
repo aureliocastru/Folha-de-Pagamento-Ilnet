@@ -540,6 +540,11 @@ export interface Diarista {
   /** Quanto ganha por venda — diarista também é vendedor externo */
   valorPorVenda: string | null;
   formaPagamento: FormaPagamento;
+  /**
+   * Em que categoria os acertos dessa pessoa costumam entrar. Já vem marcada
+   * na hora de pagar, e trocá-la lá regrava o padrão.
+   */
+  categoriaId: string | null;
   observacoes: string | null;
   ativo: boolean;
   idFornecedorIxc: number | null;
@@ -1660,6 +1665,8 @@ export interface PastaRh extends ResumoDaPasta {
   apelido: string | null;
   funcao: string | null;
   daEmpresa: boolean;
+  /** A gaveta que guarda a pasta de cada funcionário. Só uma na estante. */
+  dosFuncionarios: boolean;
   funcionarioId: string | null;
   cpf: string | null;
   /** Vazio = pasta de primeiro nível, a que aparece na estante. */

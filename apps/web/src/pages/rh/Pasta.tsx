@@ -13,6 +13,7 @@ import {
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
+import { combina, semAcento } from '../../lib/busca';
 import { formatData } from '../../lib/format';
 import type {
   DocumentoRh,
@@ -75,6 +76,20 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
   const pasta = todas.find((p) => p.id === id);
   /** As pastas de dentro desta. */
   const subpastas = todas.filter((p) => p.paiId === id);
+  /*
+   * A busca desta tela também vale para as pastas de dentro.
+   *
+   * Ela sempre disse "procurar nesta pasta" e só olhava os documentos — o que
+   * bastava enquanto uma pasta tinha duas ou três divisórias dentro. A gaveta
+   * dos funcionários tem quarenta, e digitar "conceicao" nela precisa achar o
+   * Anderson, não devolver a mesma grade inteira de cartões.
+   */
+  const buscaAqui = semAcento(termo.trim());
+  const subpastasAVista = buscaAqui
+    ? subpastas.filter((p) =>
+        combina([p.nome, p.apelido, p.funcao, p.cpf], buscaAqui),
+      )
+    : subpastas;
   /** O caminho até aqui, da estante para dentro. */
   const caminho = trilha(todas, pasta);
 
@@ -415,13 +430,19 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
       <CabecalhoPagina
         voltar={voltar}
         secao={
-          pasta?.daEmpresa ? 'Pasta da empresa' : (pasta?.funcao ?? 'Pasta')
+          pasta?.daEmpresa
+            ? 'Pasta da empresa'
+            : pasta?.dosFuncionarios
+              ? 'Gaveta'
+              : (pasta?.funcao ?? 'Pasta')
         }
         titulo={pasta?.nome ?? 'Pasta'}
         descricao={
           pasta?.daEmpresa
             ? 'Contrato social, alvará, certidões — o que é da empresa e não de uma pessoa.'
-            : 'Contrato, exames, advertências e os recibos de pagamento desta pessoa.'
+            : pasta?.dosFuncionarios
+              ? 'Uma pasta por pessoa da casa, e elas nascem sozinhas do cadastro. Quem saiu continua aqui: é a pasta que se abre depois.'
+              : 'Contrato, exames, advertências e os recibos de pagamento desta pessoa.'
         }
         acoes={
           <div className="flex flex-wrap gap-2">
@@ -440,15 +461,21 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
                 >
                   Renomear
                 </button>
-                <button
-                  type="button"
-                  onClick={pedirParaApagar}
-                  disabled={apagarPasta.isPending}
-                  className="btn btn-perigo"
-                  title="Apaga a pasta e o que estiver dentro dela"
-                >
-                  {apagarPasta.isPending ? 'Apagando…' : 'Apagar pasta'}
-                </button>
+                {/* A gaveta dos funcionários não tem este botão, nem para o
+                    administrador: apagá-la levaria junto a pasta de cada
+                    pessoa e todo papel dentro delas. O servidor recusa de todo
+                    jeito; aqui o botão some, em vez de existir para dar erro. */}
+                {!pasta.dosFuncionarios && (
+                  <button
+                    type="button"
+                    onClick={pedirParaApagar}
+                    disabled={apagarPasta.isPending}
+                    className="btn btn-perigo"
+                    title="Apaga a pasta e o que estiver dentro dela"
+                  >
+                    {apagarPasta.isPending ? 'Apagando…' : 'Apagar pasta'}
+                  </button>
+                )}
               </>
             )}
             {/* Baixar a pasta inteira: é o pacote da licitação saindo daqui
@@ -523,9 +550,9 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
         </Aviso>
       )}
 
-      {subpastas.length > 0 && (
+      {subpastasAVista.length > 0 && (
         <div className="surgir mb-6 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
-          {subpastas.map((p) => (
+          {subpastasAVista.map((p) => (
             <CartaoDaPasta key={p.id} pasta={p} />
           ))}
         </div>
@@ -582,13 +609,16 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
 
       {documentos.isLoading ? (
         <Carregando texto="Abrindo a pasta…" />
-      ) : lista.length === 0 ? (
+      ) : /* A busca que achou uma pasta e nenhum documento já respondeu: os
+            cartões estão logo acima. Dizer "nada com esse nome" embaixo deles
+            seria a tela se contradizendo na mesma tela. */
+      lista.length === 0 && !(termo && subpastasAVista.length > 0) ? (
         <Vazio titulo={termo ? 'Nada com esse nome nesta pasta' : 'Pasta vazia'}>
           {termo
             ? 'Procure por outro pedaço do nome, do tipo ou da descrição.'
             : 'Guarde aqui o contrato, a CTPS, os exames e o que mais for desta pessoa. O recibo de pagamento do mês entra sozinho, pela tela de recibos da folha.'}
         </Vazio>
-      ) : (
+      ) : lista.length === 0 ? null : (
         <Bloco semPadding>
           <div className="overflow-x-auto rolagem-fina">
             <table className="w-full text-sm">

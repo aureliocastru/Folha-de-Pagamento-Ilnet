@@ -186,6 +186,7 @@ export class DocumentosRhService {
       apelido: p.funcionario?.apelido ?? null,
       funcao: p.funcionario?.funcao ?? null,
       daEmpresa: p.daEmpresa,
+      dosFuncionarios: p.dosFuncionarios,
       funcionarioId: p.funcionarioId,
       cpf: p.cpf,
       /** Vazio = pasta de primeiro nível, a que aparece na estante. */
@@ -195,7 +196,7 @@ export class DocumentosRhService {
       /** Pasta de quem já saiu da empresa. */
       inativo: p.funcionario ? !p.funcionario.ativo : false,
       /** Pasta que não veio do cadastro: RH também a renomeia e a apaga. */
-      avulsa: !p.funcionarioId && !p.daEmpresa,
+      avulsa: !p.funcionarioId && !p.daEmpresa && !p.dosFuncionarios,
       /** O nome foi escrito à mão e o cadastro deixou de mandar nele. */
       nomeManual: p.nomeManual,
       ...(resumos.get(p.id) ?? vazio()),
@@ -221,7 +222,13 @@ export class DocumentosRhService {
   private async garantirPastas() {
     const [pastas, funcionarios] = await Promise.all([
       this.prisma.pastaRh.findMany({
-        select: { funcionarioId: true, daEmpresa: true },
+        select: {
+          id: true,
+          funcionarioId: true,
+          daEmpresa: true,
+          dosFuncionarios: true,
+          paiId: true,
+        },
       }),
       this.prisma.funcionario.findMany({
         where: { isentoIcms: true },
@@ -235,6 +242,27 @@ export class DocumentosRhService {
       });
     }
 
+    const gavetaId = await this.gavetaDosFuncionarios();
+
+    /*
+     * Quem ficou de fora da gaveta entra agora.
+     *
+     * A migração pôs lá dentro todo mundo que existia no dia em que ela rodou.
+     * O que continua aparecendo do lado de fora é a pasta que o arquivamento de
+     * uma APR abriu antes de esta gaveta existir — e, num banco restaurado de
+     * backup antigo, a estante inteira. Não achando ninguém solto, não escreve.
+     */
+    const soltas = pastas
+      .filter((p) => p.funcionarioId && !p.paiId)
+      .map((p) => p.id);
+    if (soltas.length > 0) {
+      await this.prisma.pastaRh.updateMany({
+        where: { id: { in: soltas } },
+        data: { paiId: gavetaId },
+      });
+      this.logger.log(`${soltas.length} pasta(s) recolhidas para a gaveta.`);
+    }
+
     const jaTem = new Set(pastas.map((p) => p.funcionarioId));
     const faltando = funcionarios
       .filter((f) => !jaTem.has(f.id))
@@ -242,6 +270,7 @@ export class DocumentosRhService {
         nome: f.nome,
         funcionarioId: f.id,
         cpf: soDigitos(f.cpfCnpj) || null,
+        paiId: gavetaId,
       }));
 
     if (faltando.length > 0) {
@@ -254,6 +283,29 @@ export class DocumentosRhService {
   }
 
   /**
+   * A gaveta "Funcionários", criada se ainda não existir.
+   *
+   * É achada pela marca `dosFuncionarios`, e não pelo nome: renomeá-la é coisa
+   * que o administrador pode querer fazer, e no dia em que ela virasse
+   * "Colaboradores" a busca por nome abriria uma segunda gaveta vazia ao lado
+   * da primeira, com a estante partida em duas.
+   */
+  private async gavetaDosFuncionarios(): Promise<string> {
+    const existente = await this.prisma.pastaRh.findFirst({
+      where: { dosFuncionarios: true },
+      select: { id: true },
+    });
+    if (existente) return existente.id;
+
+    const criada = await this.prisma.pastaRh.create({
+      data: { nome: 'Funcionários', dosFuncionarios: true },
+      select: { id: true },
+    });
+    this.logger.log('Gaveta dos funcionários criada.');
+    return criada.id;
+  }
+
+  /**
    * Uma pasta criada à mão — na estante ou dentro de outra.
    *
    * Na estante ela é de quem não está no cadastro: o sócio, o estagiário, quem
@@ -263,7 +315,20 @@ export class DocumentosRhService {
   async criarPasta(dto: PastaDto, usuarioId?: string) {
     const nome = dto.nome.trim();
     const cpf = soDigitos(dto.cpf) || null;
-    const paiId = dto.paiId ?? null;
+
+    /*
+     * Pasta com CPF é pasta de gente, e pasta de gente mora na gaveta.
+     *
+     * É o caso do sócio, do estagiário, de quem saiu antes de o sistema
+     * existir — todos criados à mão, todos com CPF, nenhum no cadastro. Sem
+     * isto eles nasceriam na estante, ao lado da empresa e das licitações, e a
+     * estante voltaria a encher de gente uma pasta por vez.
+     *
+     * Quem cria de dentro de outra pasta já disse onde quer: o `paiId` do
+     * pedido manda.
+     */
+    const paiId =
+      dto.paiId ?? (cpf ? await this.gavetaDosFuncionarios() : null);
 
     if (paiId) await this.exigirEspacoNaArvore(paiId);
     await this.exigirNomeLivre(nome, cpf, paiId);
@@ -277,9 +342,9 @@ export class DocumentosRhService {
    * O nome só briga com os irmãos.
    *
    * Duas pastas "Exames" na estante seriam confusão; uma dentro de cada
-   * funcionário é o desenho normal de uma gaveta. Na estante o CPF também
-   * conta: duas pastas da mesma pessoa é como metade dos documentos some —
-   * eles ficam na outra.
+   * funcionário é o desenho normal de uma gaveta. Onde mora pasta de gente — a
+   * estante e a gaveta dos funcionários — o CPF também conta: duas pastas da
+   * mesma pessoa é como metade dos documentos some, eles ficam na outra.
    *
    * Vale para quem cria e para quem renomeia, inclusive o administrador: a
    * regra não é de permissão, é do que acontece com o papel depois.
@@ -291,11 +356,13 @@ export class DocumentosRhService {
     /** A própria pasta, quando é ela que está sendo renomeada. */
     exceto?: string,
   ) {
+    const ondeMoraGente = !paiId || paiId === (await this.gavetaDosFuncionarios());
+
     const igual = await this.prisma.pastaRh.findFirst({
       where: {
         paiId,
         ...(exceto ? { id: { not: exceto } } : {}),
-        ...(cpf && !paiId
+        ...(cpf && ondeMoraGente
           ? { OR: [{ cpf }, { nome: { equals: nome, mode: 'insensitive' } }] }
           : { nome: { equals: nome, mode: 'insensitive' } }),
       },
@@ -366,6 +433,9 @@ export class DocumentosRhService {
               nome: cadastro.nome,
               funcionarioId: cadastro.id,
               cpf: soDigitos(cadastro.cpfCnpj) || null,
+              // Já nasce dentro da gaveta. Antes desta linha ela nascia solta
+              // na estante, e só era recolhida quando alguém abrisse o RH.
+              paiId: await this.gavetaDosFuncionarios(),
             },
             select: { id: true },
           });
@@ -385,10 +455,14 @@ export class DocumentosRhService {
     const cpf = soDigitos(pessoa.cpf);
     if (!cpf) return null;
 
-    // Só na estante: o CPF numa subpasta é herança da pasta de cima, e guardar
-    // o documento de alguém dentro da divisória de outro é perdê-lo.
+    // Só onde mora pasta de gente — a estante e a gaveta dos funcionários. O
+    // CPF numa subpasta mais funda é herança da pasta de cima, e guardar o
+    // documento de alguém dentro da divisória de outro é perdê-lo.
     const porCpf = await this.prisma.pastaRh.findFirst({
-      where: { cpf, paiId: null },
+      where: {
+        cpf,
+        OR: [{ paiId: null }, { pai: { dosFuncionarios: true } }],
+      },
       select: { id: true },
     });
     return porCpf?.id ?? null;
@@ -433,7 +507,11 @@ export class DocumentosRhService {
    */
   async renomearPasta(id: string, dto: PastaDto, ehAdmin = false) {
     const pasta = await this.exigirPasta(id);
-    const doCadastro = !!pasta.funcionarioId || pasta.daEmpresa;
+    // A gaveta entra aqui junto com as do cadastro: ela não tem cadastro
+    // atrás, mas é estrutura da estante — o RH renomeando-a por engano
+    // renomearia a casa de quarenta pastas de uma vez.
+    const doCadastro =
+      !!pasta.funcionarioId || pasta.daEmpresa || pasta.dosFuncionarios;
 
     if (doCadastro && !ehAdmin) {
       throw new BadRequestException(
@@ -485,6 +563,24 @@ export class DocumentosRhService {
    */
   async apagarPasta(id: string, ehAdmin = false) {
     const pasta = await this.exigirPasta(id);
+
+    /*
+     * A gaveta dos funcionários não se apaga, nem por administrador.
+     *
+     * O administrador apaga pasta cheia de propósito — é a trava que ele tem e
+     * o RH não. Só que esta pasta não é uma pasta cheia: é a casa de todas as
+     * outras, e apagá-la levaria junto quarenta pastas de gente e cada
+     * documento dentro delas, num clique que parece o mesmo de apagar uma
+     * divisória vazia. As pastas voltariam vazias na abertura seguinte, o que é
+     * pior que não voltarem: a estante pareceria inteira, sem os papéis.
+     */
+    if (pasta.dosFuncionarios) {
+      throw new BadRequestException(
+        'Esta é a gaveta onde moram as pastas de todo mundo — apagá-la levaria ' +
+          'junto os documentos de cada um. Renomeie-a, se o nome não serve.',
+      );
+    }
+
     const doCadastro = !!pasta.funcionarioId || pasta.daEmpresa;
 
     if (doCadastro && !ehAdmin) {
@@ -1052,12 +1148,21 @@ function paiDe(
   return pastas.find((p) => p.id === id)?.paiId ?? null;
 }
 
-/** A empresa primeiro; depois a gente, em ordem alfabética. */
+/**
+ * A empresa primeiro, a gaveta dos funcionários logo atrás; depois o resto, em
+ * ordem alfabética.
+ *
+ * As duas saem da ordem alfabética de propósito: são as pastas que a estante
+ * tem sempre, e ficam onde o olho cai ao abrir a tela. Alfabética, "Empresa"
+ * cairia depois de "Contratos" e "Funcionários" depois de "Frota" — no meio de
+ * pastas que alguém criou ontem.
+ */
 function porNome(
-  a: { daEmpresa: boolean; nome: string },
-  b: { daEmpresa: boolean; nome: string },
+  a: { daEmpresa: boolean; dosFuncionarios: boolean; nome: string },
+  b: { daEmpresa: boolean; dosFuncionarios: boolean; nome: string },
 ): number {
   if (a.daEmpresa !== b.daEmpresa) return a.daEmpresa ? -1 : 1;
+  if (a.dosFuncionarios !== b.dosFuncionarios) return a.dosFuncionarios ? -1 : 1;
   return a.nome.localeCompare(b.nome, 'pt-BR');
 }
 

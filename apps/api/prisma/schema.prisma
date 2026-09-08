@@ -700,6 +700,23 @@ model Diarista {
   /// Forma habitual de pagar essa pessoa (dá para mudar em cada diária)
   formaPagamento FormaPagamento @default(IXC) @map("forma_pagamento")
 
+  /// Em que categoria o que se paga a essa pessoa costuma entrar.
+  ///
+  /// A mesma coluna do `BeneficiarioAvulso`, e pelo mesmo motivo — só que aqui
+  /// ela chegou tarde: a diária não tinha categoria nenhuma, nem no cadastro
+  /// nem na hora de pagar, e cada acerto de semana caía em "Sem categoria" no
+  /// painel. O tipo `DIARIA` também fica fora da etiquetagem automática da
+  /// folha (ver `TIPOS_DA_FOLHA`), então não havia segunda rede embaixo.
+  ///
+  /// Guardando aqui, o pagamento seguinte já abre marcado, e trocar a escolha
+  /// na hora de pagar grava o novo padrão: quem paga o mesmo pedreiro pela
+  /// quarta vez não escolhe "Obras" pela quarta vez.
+  ///
+  /// `SetNull` porque apagar a categoria não pode apagar o diarista: o cadastro
+  /// fica sem padrão e a tela volta a perguntar, que é o pior que pode dar.
+  categoria   CategoriaDespesa? @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
+  categoriaId String?           @map("categoria_id")
+
   observacoes String?
   ativo       Boolean @default(true)
 
@@ -1332,6 +1349,8 @@ model CategoriaDespesa {
   contasContrato            ContaContrato[]
   /// Quem recebe fora da folha e costuma entrar nesta categoria.
   beneficiarios             BeneficiarioAvulso[]
+  /// Os diaristas cujo acerto costuma entrar nesta categoria.
+  diaristas                 Diarista[]
   /// As configurações que apontam esta categoria — a padrão da folha e a de
   /// cada tipo de pagamento dela.
   configuracoes             ConfiguracaoFinanceira[] @relation("CategoriaPadraoDaFolha")
@@ -1680,6 +1699,19 @@ model PastaRh {
   /// A prateleira da empresa — contrato social, alvará, certidão. Só uma.
   daEmpresa Boolean @default(false) @map("da_empresa")
 
+  /// A gaveta que guarda a pasta de cada funcionário. Só uma.
+  ///
+  /// A estante tinha quarenta e poucas pastas de gente no primeiro nível, e
+  /// as três que não são de gente — a da empresa, a das licitações, a das
+  /// notas — ficavam perdidas no meio delas em ordem alfabética. Quem abria o
+  /// RH para pegar um alvará rolava a tela procurando por "E".
+  ///
+  /// É marcada, e não achada pelo nome, pelo mesmo motivo da `daEmpresa`:
+  /// renomeá-la é coisa que o administrador pode querer fazer, e o dia em que
+  /// ela virasse "Colaboradores" o sistema deixaria de achá-la e abriria uma
+  /// segunda gaveta vazia ao lado.
+  dosFuncionarios Boolean @default(false) @map("dos_funcionarios")
+
   /// Quando a pasta é de alguém que o sistema já conhece.
   funcionario   Funcionario? @relation(fields: [funcionarioId], references: [id], onDelete: Restrict)
   funcionarioId String?      @unique @map("funcionario_id")
@@ -1687,9 +1719,12 @@ model PastaRh {
   /// A pasta que contém esta. Vazio = pasta de primeiro nível, a da estante.
   ///
   /// É o que deixa cada um organizar a própria gaveta: "Exames" dentro do
-  /// Fulano, "2026" dentro de "Recibos". A pasta de funcionário e a da empresa
-  /// são sempre de primeiro nível — elas são a estante, e não papel dentro
-  /// dela.
+  /// Fulano, "2026" dentro de "Recibos".
+  ///
+  /// A pasta de funcionário mora dentro da gaveta `dosFuncionarios`, e não no
+  /// primeiro nível — ela já foi de primeiro nível, e eram quarenta e poucas
+  /// disputando a estante com as três pastas que não são de gente. A da
+  /// empresa e a própria gaveta continuam onde estavam: elas *são* a estante.
   pai       PastaRh?  @relation("SubpastasRh", fields: [paiId], references: [id], onDelete: Restrict)
   paiId     String?   @map("pai_id")
   subpastas PastaRh[] @relation("SubpastasRh")
