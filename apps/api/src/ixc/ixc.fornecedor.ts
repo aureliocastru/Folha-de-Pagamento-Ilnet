@@ -385,6 +385,36 @@ const CAMPOS_BANCO = [
   'codigo_banco',
   'cod_banco',
 ];
+
+/**
+ * O que vai no campo "Banco" da linha que existe só para carregar a chave PIX.
+ *
+ * O webservice recusa criar dados bancários sem ele — "Preencha banco!" —,
+ * embora a tela do IXC aceite e a própria base tenha linhas assim, com PIX
+ * marcado como preferencial e o banco em branco. É divergência entre a API e a
+ * tela, e não há como contorná-la sem preencher alguma coisa.
+ *
+ * "PIX" é o que se preenche, por decisão de quem usa: não inventa o nome de um
+ * banco que ninguém informou, e diz a quem abrir a aba o que aquela linha é.
+ * Só entra quando a coluna está vazia — banco de verdade, digitado por alguém,
+ * nunca é sobrescrito.
+ */
+export const BANCO_QUANDO_SO_HA_PIX = 'PIX';
+
+/** A coluna do banco nesta base, se ela existir na linha. */
+export function campoDoBanco(
+  linha: Record<string, unknown>,
+): string | null {
+  const porNome = new Map(
+    Object.keys(linha).map((k) => [k.toLowerCase(), k] as const),
+  );
+  for (const nome of CAMPOS_BANCO) {
+    const original = porNome.get(nome);
+    // `cod_banco` fica de fora: é o código numérico, e "PIX" não é um número.
+    if (original && !/cod/i.test(nome)) return original;
+  }
+  return null;
+}
 const CAMPOS_AGENCIA = [
   'agencia',
   'codigo_agencia',

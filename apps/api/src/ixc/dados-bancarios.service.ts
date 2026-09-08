@@ -3,6 +3,8 @@ import type { TipoChavePix } from './ixc.financeiro';
 import { IxcClient } from './ixc.client';
 import {
   aprenderPreferenciaPix,
+  BANCO_QUANDO_SO_HA_PIX,
+  campoDoBanco,
   consolidarDadosBancarios,
   destinoDaChavePix,
   detectarCampoFornecedor,
@@ -193,6 +195,22 @@ export class DadosBancariosService {
           ? { [destino.campoTipo]: codigoDoTipo }
           : {}),
       };
+
+      /*
+       * O campo "Banco", que o webservice exige e a tela não.
+       *
+       * Mandá-lo presente e vazio não bastou: o IXC recusa com "Preencha
+       * banco!" mesmo existindo, nesta base, linha válida com ele em branco.
+       * Como não há banco informado numa conta que só tem chave PIX, vai "PIX"
+       * — dito por quem usa, e não inventado aqui: nomear um banco que ninguém
+       * informou seria pior que nomear o que a linha de fato é.
+       *
+       * Só quando está vazio. Banco digitado por alguém não se sobrescreve.
+       */
+      const campoBanco = campoDoBanco(corpo);
+      if (campoBanco && !String(corpo[campoBanco] ?? '').trim()) {
+        corpo[campoBanco] = BANCO_QUANDO_SO_HA_PIX;
+      }
       if (existente?.id) {
         await this.ixc.update(tabela, String(existente.id), corpo);
         this.logger.log(

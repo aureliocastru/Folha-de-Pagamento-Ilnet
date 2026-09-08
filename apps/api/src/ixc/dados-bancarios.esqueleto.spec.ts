@@ -70,8 +70,9 @@ describe('gravar a chave PIX nos dados bancários', () => {
     expect(r.gravado).toBe(true);
     const corpo = ixc.create.mock.calls[0][1] as Record<string, string>;
 
-    // O que o IXC exigia: a coluna presente, ainda que vazia.
-    expect(corpo).toHaveProperty('banco', '');
+    // O que o IXC exigia: a coluna presente — e, no caso do banco, preenchida.
+    // Ele recusa "Preencha banco!" mesmo com a coluna indo vazia.
+    expect(corpo).toHaveProperty('banco', 'PIX');
     expect(corpo).toHaveProperty('cod_banco', '');
     expect(corpo).toHaveProperty('titular', '');
 
@@ -89,6 +90,26 @@ describe('gravar a chave PIX nos dados bancários', () => {
 
     // E a chave de quem serviu de molde não vaza para o cadastro novo.
     expect(Object.values(corpo)).not.toContain('617.696.563-24');
+  });
+
+  /**
+   * Conta que já tem banco de verdade, mas ainda sem chave: o "PIX" não entra.
+   * O campo é preenchido para o webservice aceitar a linha, não para carimbar
+   * por cima do que alguém digitou.
+   */
+  it('não sobrescreve o banco de quem já tem um', async () => {
+    const daPessoa = linha({
+      id: '401',
+      id_fornecedor: '3265',
+      banco: 'Sicoob',
+      pix_cpf_cnpj: '',
+    });
+    const { service, ixc } = montar([daPessoa]);
+
+    await service.gravarPix(3265, '000.295.663-20', 'CPF/CNPJ');
+
+    const corpo = ixc.update.mock.calls[0][2];
+    expect(corpo.banco).toBe('Sicoob');
   });
 
   /**
@@ -116,7 +137,8 @@ describe('gravar a chave PIX nos dados bancários', () => {
     const [, id, corpo] = ixc.update.mock.calls[0];
     expect(id).toBe('400');
 
-    // O que era dela continua dela.
+    // O que era dela continua dela — inclusive o banco de verdade, que o
+    // "PIX" não sobrescreve.
     expect(corpo.banco).toBe('Banco do Brasil');
     expect(corpo.cod_agencia).toBe('1234');
     expect(corpo.titular).toBe('Marco Aurelio Sousa Castro');
