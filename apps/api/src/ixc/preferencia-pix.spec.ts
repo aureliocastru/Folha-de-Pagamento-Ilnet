@@ -68,16 +68,23 @@ describe('aprender a preferência de pagamento por PIX', () => {
 
   /**
    * Base sem ninguém pagando por PIX ainda: não há de onde copiar o código do
-   * rádio, e inventar um é pior que deixá-lo em branco — em branco alguém vê e
-   * corrige; inventado, parece preenchido e o pagamento é recusado depois.
+   * rádio, e aí vale o do manual — a documentação do `fn_apagar` lista
+   * `"tipo_pagamento": "Pix"`, e as duas tabelas são do mesmo produto.
+   *
+   * O que se viu na coluna sobe junto, para a mensagem de erro poder dizer o
+   * que existe lá caso o IXC recuse mesmo assim.
    */
-  it('sem linha com PIX, não inventa o código da forma de pagamento', () => {
+  it('sem linha com PIX, cai no código do manual e avisa', () => {
     const r = aprenderPreferenciaPix([
       linha({ id: '1' }),
       linha({ id: '2', forma_pagamento: 'B' }),
     ]);
 
-    expect(r.campos.forma_pagamento).toBeUndefined();
+    expect(r.campos.forma_pagamento).toBe('Pix');
+    expect(r.formaDesconhecida).toEqual({
+      campo: 'forma_pagamento',
+      valores: ['B'],
+    });
     expect(r.codigosTipo).toEqual({});
     // A caixa ainda dá para marcar: o "S" não depende de aprender nada.
     expect(r.campos.padrao).toBe('S');
@@ -128,17 +135,49 @@ describe('aprender a preferência de pagamento por PIX', () => {
    * essa lista que se descobre, numa ida só, qual daqueles códigos é o certo —
    * o IXC recusa dizendo só "Preencha Pagar preferencialmente por".
    */
-  it('não sabendo o código, diz que valores existem na coluna', () => {
+  it('não sabendo o código, tenta o do manual e diz o que há na coluna', () => {
     const r = aprenderPreferenciaPix([
       linha({ id: '1', forma_pagamento: 'B' }),
       linha({ id: '2', forma_pagamento: 'T' }),
       linha({ id: '3', forma_pagamento: 'B' }),
     ]);
 
-    expect(r.campos.forma_pagamento).toBeUndefined();
+    expect(r.campos.forma_pagamento).toBe('Pix');
     expect(r.formaDesconhecida).toEqual({
       campo: 'forma_pagamento',
       valores: ['B', 'T'],
+    });
+  });
+
+  /**
+   * A coluna achada pelo formato do nome, e não pela lista.
+   *
+   * Foi o que faltou na base do cliente: o tipo da chave foi encontrado (a
+   * detecção dele já tinha esse recurso) e as duas colunas de preferência não,
+   * porque só tinham nomes fixos para comparar.
+   */
+  it('acha a coluna pelo formato do nome quando a lista não serve', () => {
+    const r = aprenderPreferenciaPix([
+      {
+        id: '1',
+        id_fornecedor: '188',
+        conta_padrao_recebimento: 'N',
+        pagamento_preferido: 'B',
+        pix_celular: '',
+      },
+      {
+        id: '2',
+        id_fornecedor: '189',
+        conta_padrao_recebimento: 'S',
+        pagamento_preferido: 'P',
+        pix_celular: '(99) 99230-0993',
+      },
+    ]);
+
+    expect(r.campos).toEqual({
+      conta_padrao_recebimento: 'S',
+      // Copiado da linha que tem chave PIX, que é a que já paga assim.
+      pagamento_preferido: 'P',
     });
   });
 

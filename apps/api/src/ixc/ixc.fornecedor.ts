@@ -791,6 +791,16 @@ const CAMPOS_FORMA_PREFERENCIAL = [
 ];
 
 /**
+ * O código de "Pix" como o manual do IXC o escreve.
+ *
+ * Sai da documentação do `fn_apagar`, que lista `"tipo_pagamento": "Pix"` ao
+ * lado de "Boleto", "Transferencia", "Débito" — os mesmos nomes do rádio
+ * "Pagar preferencialmente por" na aba de dados bancários. É o último recurso,
+ * usado só quando a base não tem nenhuma conta com PIX de onde copiar.
+ */
+const PIX_DO_MANUAL = 'Pix';
+
+/**
  * Como esta base guarda "pagar preferencialmente nesta conta, por Pix".
  *
  * Nada aqui é chutado: os códigos saem das linhas que **já estão assim** no
@@ -845,10 +855,19 @@ function maisComum(
   return melhor;
 }
 
-/** A coluna, entre as candidatas, que existe de verdade nestas linhas. */
+/**
+ * A coluna, entre as candidatas, que existe de verdade nestas linhas.
+ *
+ * `padrao` é o desempate quando nenhum nome da lista serve: uma expressão que
+ * descreve a coluna em vez de nomeá-la. É o mesmo recurso do
+ * `detectarCampoTipoPix`, e existe pelo mesmo motivo — foi assim que o tipo da
+ * chave foi encontrado nesta base, enquanto as duas colunas de preferência,
+ * que só tinham lista, não foram.
+ */
 function colunaExistente(
   linhas: Array<Record<string, unknown>>,
   candidatas: string[],
+  padrao?: { casa: RegExp; recusa?: RegExp },
 ): string | null {
   const porNome = new Map<string, string>();
   for (const linha of linhas) {
@@ -859,6 +878,12 @@ function colunaExistente(
   for (const nome of candidatas) {
     const original = porNome.get(nome);
     if (original) return original;
+  }
+  if (!padrao) return null;
+  for (const [minusculo, original] of porNome) {
+    if (!padrao.casa.test(minusculo)) continue;
+    if (padrao.recusa?.test(minusculo)) continue;
+    return original;
   }
   return null;
 }
@@ -894,7 +919,10 @@ export function aprenderPreferenciaPix(
 
   const comPix = linhas.filter((l) => escolherPix(l).chavePix);
 
-  const campoPadrao = colunaExistente(linhas, CAMPOS_CONTA_PADRAO);
+  const campoPadrao = colunaExistente(linhas, CAMPOS_CONTA_PADRAO, {
+    casa: /padrao|prefer/,
+    recusa: /pix|pag|forma|tipo/,
+  });
   if (campoPadrao) {
     const vistos = new Set(
       linhas.map((l) => String(l[campoPadrao] ?? '').trim()).filter(Boolean),
@@ -917,7 +945,11 @@ export function aprenderPreferenciaPix(
    * valores vistos sobem na mensagem de erro, que é o que fecha a questão numa
    * ida só em vez de exigir abrir o banco do cliente.
    */
-  const campoForma = colunaExistente(linhas, CAMPOS_FORMA_PREFERENCIAL);
+  const campoForma = colunaExistente(linhas, CAMPOS_FORMA_PREFERENCIAL, {
+    // "fala de pagamento e de preferência, e não é coluna de PIX"
+    casa: /(pag|forma)/,
+    recusa: /pix|data|valor|id_|_id$|obs/,
+  });
   let formaDesconhecida: PreferenciaPix['formaDesconhecida'] = null;
   if (campoForma) {
     const vistos = [
@@ -925,10 +957,26 @@ export function aprenderPreferenciaPix(
         linhas.map((l) => String(l[campoForma] ?? '').trim()).filter(Boolean),
       ),
     ];
+    /*
+     * Na ordem em que se confia: o que as contas com PIX desta base usam, o
+     * código que **diz** pix, e só então o do manual.
+     *
+     * `PIX_DO_MANUAL` não é chute: a documentação do `fn_apagar` lista
+     * `"tipo_pagamento": "Pix"` junto de Boleto, Transferencia e as outras, e
+     * esta base guarda o tipo da chave com o mesmo vocabulário do manual
+     * (`CPF_CNPJ`, `CELULAR`, `EMAIL`) — as duas tabelas são do mesmo produto e
+     * falam a mesma língua.
+     */
     const forma =
-      maisComum(comPix, campoForma) ?? vistos.find((v) => /pix/i.test(v));
-    if (forma) campos[campoForma] = forma;
-    else formaDesconhecida = { campo: campoForma, valores: vistos };
+      maisComum(comPix, campoForma) ??
+      vistos.find((v) => /pix/i.test(v)) ??
+      PIX_DO_MANUAL;
+    campos[campoForma] = forma;
+    if (forma === PIX_DO_MANUAL && !vistos.includes(PIX_DO_MANUAL)) {
+      // Foi o manual que respondeu, não esta base: se o IXC recusar, a
+      // mensagem precisa dizer o que existe naquela coluna.
+      formaDesconhecida = { campo: campoForma, valores: vistos };
+    }
   }
 
   // E o código de cada tipo de chave, na coluna do "Tipo de Pix preferencial":
