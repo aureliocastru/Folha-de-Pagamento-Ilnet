@@ -21,6 +21,14 @@ server {
         proxy_read_timeout 60s;
     }
 
+    # O mime.types do nginx não conhece `.webmanifest`, e sem isto o manifesto
+    # sai como `application/octet-stream`. Os navegadores até engolem, mas o
+    # Chrome reclama no console e o "Instalar app" fica dependendo da boa
+    # vontade dele — barato demais para deixar ao acaso.
+    location = /manifest.webmanifest {
+        default_type application/manifest+json;
+    }
+
     # SPA: qualquer rota cai no index.html
     location / {
         try_files $uri $uri/ /index.html;

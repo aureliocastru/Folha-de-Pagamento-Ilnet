@@ -2,10 +2,43 @@
 <html lang="pt-BR">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      `viewport-fit=cover` deixa a página chegar às beiradas do aparelho, e é
+      o que faz o `env(safe-area-inset-*)` do CSS devolver a altura de verdade
+      da barrinha do gesto no iPhone. Sem ele o valor é sempre zero, e a barra
+      de navegação do celular ficaria por baixo dela.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
     <meta name="theme-color" content="#0A1020" />
     <link rel="icon" type="image/png" href="/favicon.png" />
-    <link rel="apple-touch-icon" href="/favicon.png" />
+
+    <!--
+      Instalado na tela de início, o app abre **sem navegador**: sem barra de
+      endereço em cima e sem a barra de voltar/compartilhar embaixo. São
+      dezenas de pixels de altura recuperados numa tela de bolso, e o motivo
+      de o `manifest` existir — não há como uma página esconder essas barras
+      por conta própria, elas são do navegador e não dela.
+
+      O `manifest` resolve o Android (Chrome oferece "Instalar app"). O iPhone
+      não lê `display: standalone` do manifesto: ele precisa das três metas
+      `apple-` abaixo, e a instalação é sempre manual — Compartilhar →
+      "Adicionar à Tela de Início", e **pelo Safari**, porque o navegador
+      embutido do WhatsApp não tem essa opção.
+
+      `status-bar-style: default` de propósito: com `black-translucent` a
+      página passaria por baixo do relógio e o iOS escreveria a hora em
+      branco — invisível sobre o cabeçalho branco do tema claro.
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="ILNET" />
+    <link rel="apple-touch-icon" href="/icone-180.png" />
+
     <title>ILNET TELECOM</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

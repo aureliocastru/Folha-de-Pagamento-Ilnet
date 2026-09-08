@@ -52,7 +52,18 @@ dele. Os três primeiros têm a lista de módulos distribuída pelo administrado
 
 **Frontend (React)** — `src/pages/Modulos.tsx` é a escolha de módulo; as telas
 de cada módulo ficam em `src/pages/<módulo>/`. O `Layout` recebe o módulo e
-monta a barra lateral a partir do registro em `src/lib/modulos.ts`.
+escolhe a casca pela largura da janela (`src/lib/celular.ts`, 768px): a barra
+lateral de sempre no computador, e no celular o `LayoutCelular` — cabeçalho
+curto, navegação numa barra no rodapé e o resto do menu numa folha que sobe.
+Os itens das duas saem do mesmo registro em `src/lib/modulos.ts`. Os tamanhos
+de celular (botão, campo, tabela, título) moram numa camada só, no fim do
+`src/index.css`.
+
+**Instalar no celular** — o app é instalável (`public/manifest.webmanifest`), e
+instalado ele abre **sem barra de endereço e sem a barra do navegador**. No
+Android o Chrome oferece "Instalar app" sozinho. No iPhone é manual e tem de
+ser **pelo Safari** — Compartilhar → "Adicionar à Tela de Início"; o navegador
+embutido do WhatsApp não tem essa opção.
 
 **Integração IXC** — o IXC é a fonte de verdade dos colaboradores. A
 sincronização faz *upsert* por `ixc_id`, então rodar de novo não duplica. O
