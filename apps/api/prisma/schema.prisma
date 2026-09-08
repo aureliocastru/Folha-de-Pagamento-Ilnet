@@ -309,7 +309,10 @@ model ConfiguracaoFinanceira {
   caixaTabelaMovimento String @default("") @map("caixa_tabela_movimento")
 
   // Cidade padrão usada ao criar fornecedores
-  cidadePadraoId Int @default(1) @map("cidade_padrao_id")
+  /// Cidade do fornecedor criado por aqui — um dos cinco campos que o IXC
+  /// exige. 637 é São Mateus, que é onde esta casa cadastra; era `1`, número
+  /// escolhido por ser o primeiro e que não existe nesta base.
+  cidadePadraoId Int @default(637) @map("cidade_padrao_id")
 
   // --- Quem paga, como sai impresso no recibo assinado da diária ---
   /// Razão social de quem entrega o dinheiro. Um recibo sem dizer quem pagou

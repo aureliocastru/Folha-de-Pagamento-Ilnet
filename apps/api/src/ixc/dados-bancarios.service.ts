@@ -2,11 +2,13 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { TipoChavePix } from './ixc.financeiro';
 import { IxcClient } from './ixc.client';
 import {
+  aprenderPreferenciaPix,
   consolidarDadosBancarios,
   destinoDaChavePix,
   detectarCampoFornecedor,
   TABELAS_DADOS_BANCARIOS,
   type DadosBancariosFornecedor,
+  type PreferenciaPix,
 } from './ixc.fornecedor';
 
 /**
@@ -25,6 +27,8 @@ export class DadosBancariosService {
   /** undefined = ainda não procurou; null = procurou e não achou. */
   private tabela: string | null | undefined;
   private campoFornecedor: string | null | undefined;
+  /** Como esta base marca "preferencial" e "por Pix". Aprendido uma vez. */
+  private preferencia: PreferenciaPix | undefined;
 
   constructor(private readonly ixc: IxcClient) {}
 
@@ -32,6 +36,7 @@ export class DadosBancariosService {
   reset(): void {
     this.tabela = undefined;
     this.campoFornecedor = undefined;
+    this.preferencia = undefined;
   }
 
   /** Nome da tabela em uso, se já descoberta. */
@@ -138,10 +143,31 @@ export class DadosBancariosService {
         };
       }
 
+      /*
+       * A conta não nasce só com a chave: ela nasce marcada.
+       *
+       * Na aba "Dados bancários" do IXC são três coisas, e as três decidem se o
+       * dinheiro sai — "Pagar preferencialmente nesta conta", "Pagar
+       * preferencialmente por: Pix" (obrigatório lá) e o "Tipo de Pix
+       * preferencial". Gravar só a chave deixava as outras duas em branco, e
+       * uma conta bancária que não é a preferencial é uma chave que o
+       * pagamento não usa.
+       *
+       * Os códigos são aprendidos das linhas que já estão assim nesta base —
+       * ver `aprenderPreferenciaPix`.
+       */
+      const preferencia = await this.resolverPreferencia(tabela);
+      const codigoDoTipo = tipo
+        ? (preferencia.codigosTipo[tipo] ?? tipo)
+        : null;
+
       const corpo: Record<string, unknown> = {
         [campo]: String(idFornecedor),
         [destino.campoChave]: chave,
-        ...(destino.campoTipo && tipo ? { [destino.campoTipo]: tipo } : {}),
+        ...preferencia.campos,
+        ...(destino.campoTipo && codigoDoTipo
+          ? { [destino.campoTipo]: codigoDoTipo }
+          : {}),
       };
 
       const existente = doFornecedor.registros[0];
@@ -164,6 +190,41 @@ export class DadosBancariosService {
       );
       return { gravado: false, motivo: message };
     }
+  }
+
+  /**
+   * Como esta base marca a conta preferencial e a forma "Pix", aprendido uma
+   * vez por processo de uma amostra do próprio grid.
+   *
+   * Não achando nada de onde aprender, devolve vazio: a chave é gravada do
+   * mesmo jeito, e o que fica em branco é o que já ficava antes disto existir.
+   */
+  private async resolverPreferencia(tabela: string): Promise<PreferenciaPix> {
+    if (this.preferencia !== undefined) return this.preferencia;
+
+    try {
+      const res = await this.ixc.list<Record<string, unknown>>(tabela, {
+        qtype: `${tabela}.id`,
+        query: '0',
+        oper: '>',
+        rp: 200,
+        sortname: `${tabela}.id`,
+        sortorder: 'desc',
+      });
+      this.preferencia = aprenderPreferenciaPix(res.registros);
+      this.logger.log(
+        `Preferência de pagamento em "${tabela}": ` +
+          `${JSON.stringify(this.preferencia.campos)} — tipos ` +
+          JSON.stringify(this.preferencia.codigosTipo),
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `Não deu para aprender a preferência de pagamento em "${tabela}": ${message}`,
+      );
+      this.preferencia = { campos: {}, codigosTipo: {} };
+    }
+    return this.preferencia;
   }
 
   /** Uma linha qualquer da tabela, só para saber os nomes das colunas. */

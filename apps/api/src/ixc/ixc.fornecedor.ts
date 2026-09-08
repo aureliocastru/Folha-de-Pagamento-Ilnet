@@ -761,3 +761,143 @@ function textoOuNull(valor: unknown): string | null {
 function vazio(valor: string | null): boolean {
   return !valor || valor.trim() === '';
 }
+
+/**
+ * Colunas prováveis da caixa "Pagar preferencialmente nesta conta".
+ *
+ * `padrao` vem primeiro porque é como esta base a chama.
+ */
+const CAMPOS_CONTA_PADRAO = [
+  'padrao',
+  'preferencial',
+  'conta_preferencial',
+  'pagar_preferencialmente',
+  'preferencia',
+];
+
+/**
+ * Colunas prováveis do rádio "Pagar preferencialmente por" — Boleto, Débito em
+ * conta, Transferência, Pix, Outras formas.
+ *
+ * Ele é obrigatório na tela do IXC, e é o que decide por onde o dinheiro sai.
+ */
+const CAMPOS_FORMA_PREFERENCIAL = [
+  'forma_pagamento',
+  'pagar_preferencialmente_por',
+  'forma_preferencial',
+  'preferencia_pagamento',
+  'forma_pagamento_preferencial',
+  'tipo_pagamento',
+];
+
+/**
+ * Como esta base guarda "pagar preferencialmente nesta conta, por Pix".
+ *
+ * Nada aqui é chutado: os códigos saem das linhas que **já estão assim** no
+ * IXC. É o mesmo caminho do `aprenderTipoChavePix` e da Classificação de ISS —
+ * chutar o código de um rádio obrigatório deixaria o campo em branco ou com
+ * lixo, e o pagamento é recusado das duas formas.
+ */
+export interface PreferenciaPix {
+  /** Coluna → valor cru, pronto para entrar no corpo da gravação. */
+  campos: Record<string, string>;
+  /** Rótulo do tipo de chave → código cru desta base, quando dá para aprender. */
+  codigosTipo: Partial<Record<TipoChavePix, string>>;
+}
+
+/** O valor mais repetido de uma coluna, entre as linhas dadas. */
+function maisComum(
+  linhas: Array<Record<string, unknown>>,
+  campo: string,
+): string | null {
+  const contagem = new Map<string, number>();
+  for (const linha of linhas) {
+    const valor = String(linha[campo] ?? '').trim();
+    if (!valor) continue;
+    contagem.set(valor, (contagem.get(valor) ?? 0) + 1);
+  }
+  let melhor: string | null = null;
+  let quantas = 0;
+  for (const [valor, n] of contagem) {
+    if (n > quantas) {
+      melhor = valor;
+      quantas = n;
+    }
+  }
+  return melhor;
+}
+
+/** A coluna, entre as candidatas, que existe de verdade nestas linhas. */
+function colunaExistente(
+  linhas: Array<Record<string, unknown>>,
+  candidatas: string[],
+): string | null {
+  const porNome = new Map<string, string>();
+  for (const linha of linhas) {
+    for (const chave of Object.keys(linha)) {
+      porNome.set(chave.toLowerCase(), chave);
+    }
+  }
+  for (const nome of candidatas) {
+    const original = porNome.get(nome);
+    if (original) return original;
+  }
+  return null;
+}
+
+/**
+ * Aprende, das linhas do grid de dados bancários, como marcar uma conta como a
+ * preferencial e a forma como Pix.
+ *
+ * A ideia é a mesma do tipo da chave: uma linha que **tem chave PIX** é uma
+ * linha que alguém configurou para pagar por PIX, e o valor que ela tem no
+ * rádio é, por definição, o código de "Pix" nesta base. Para a caixa, quando os
+ * valores da coluna parecem um sim/não do IXC, o "S" manda — é o mesmo sim de
+ * `ativo` em todo o resto do cadastro.
+ *
+ * Sem linha nenhuma com PIX para copiar, devolve o que sabe e nada mais: um
+ * código inventado num rádio obrigatório é pior que o campo em branco, porque
+ * parece preenchido.
+ */
+export function aprenderPreferenciaPix(
+  linhas: Array<Record<string, unknown>>,
+): PreferenciaPix {
+  const campos: Record<string, string> = {};
+  const codigosTipo: Partial<Record<TipoChavePix, string>> = {};
+  if (linhas.length === 0) return { campos, codigosTipo };
+
+  const comPix = linhas.filter((l) => escolherPix(l).chavePix);
+
+  const campoPadrao = colunaExistente(linhas, CAMPOS_CONTA_PADRAO);
+  if (campoPadrao) {
+    const vistos = new Set(
+      linhas.map((l) => String(l[campoPadrao] ?? '').trim()).filter(Boolean),
+    );
+    // "S" é o sim do IXC em todo o cadastro. Só quando a coluna não é um
+    // sim/não é que vale copiar o valor mais repetido de quem já paga por PIX.
+    campos[campoPadrao] =
+      [...vistos].some((v) => v.toUpperCase() === 'S')
+        ? 'S'
+        : (maisComum(comPix, campoPadrao) ?? 'S');
+  }
+
+  const campoForma = colunaExistente(linhas, CAMPOS_FORMA_PREFERENCIAL);
+  const formaDeQuemUsaPix = campoForma ? maisComum(comPix, campoForma) : null;
+  if (campoForma && formaDeQuemUsaPix) campos[campoForma] = formaDeQuemUsaPix;
+
+  // E o código de cada tipo de chave, na coluna do "Tipo de Pix preferencial":
+  // a chave da própria linha diz que tipo aquele código representa.
+  const campoTipo = detectarCampoTipoPix(linhas[0]);
+  if (campoTipo) {
+    for (const linha of comPix) {
+      const codigo = String(linha[campoTipo] ?? '').trim();
+      if (!codigo) continue;
+      const { tipoChavePix } = escolherPix(linha);
+      if (tipoChavePix && !codigosTipo[tipoChavePix]) {
+        codigosTipo[tipoChavePix] = codigo;
+      }
+    }
+  }
+
+  return { campos, codigosTipo };
+}
