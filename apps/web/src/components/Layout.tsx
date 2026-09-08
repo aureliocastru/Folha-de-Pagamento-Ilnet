@@ -1,29 +1,27 @@
-import { useState } from 'react';
 import { Navigate, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
+import { useCelular } from '../lib/celular';
 import { modulosDoUsuario, type Modulo } from '../lib/modulos';
 import { useTema } from '../lib/tema';
+import { LayoutCelular } from './LayoutCelular';
 import { IconeGrade, IconeLua, IconeSol } from './icones';
 
 /**
- * Casca de um módulo. A barra lateral é tinta escura para o conteúdo — onde
- * moram os números — ficar sendo a única coisa clara e disputada da tela. Os
- * itens vêm do módulo: a casca é a mesma para todos.
+ * A casca de um módulo — e a escolha de qual delas usar.
  *
- * Ela continua escura no tema escuro, e por isso usa branco com transparência
- * em vez da escala `tinta`: essa escala vira do avesso lá, e o que aqui é
- * texto legível sobre fundo escuro viraria escuro sobre escuro.
+ * São duas, e não uma que se dobra: no computador a navegação é uma barra
+ * lateral sempre aberta, no celular é uma barra no rodapé com o resto do menu
+ * numa folha que sobe (ver o `LayoutCelular`). Elas não são a mesma coisa
+ * espremida — a lateral escondida atrás de um botão flutuante era o que havia
+ * antes, e cobrava dois toques e um `pt-20` em toda página do sistema para
+ * chegar a qualquer lugar.
+ *
+ * A divisa é a largura da janela, em `LARGURA_CELULAR`, e é a mesma em que a
+ * barra lateral aparece. Ninguém escolhe nada: o aparelho já respondeu.
  */
 export function Layout({ modulo }: { modulo: Modulo }) {
-  const { usuario, logout } = useAuth();
-  const navigate = useNavigate();
-  const [menuAberto, setMenuAberto] = useState(false);
-  const { escuro, trocar } = useTema();
-
-  function sair() {
-    logout();
-    navigate('/login');
-  }
+  const { usuario } = useAuth();
+  const celular = useCelular();
 
   /*
    * Módulo que este login não abre não se mostra nem pelo endereço direto.
@@ -31,46 +29,45 @@ export function Layout({ modulo }: { modulo: Modulo }) {
    * Quem recusa de verdade é a API — cada rota dela confere a lista —, mas uma
    * tela que carrega para depois encher de "sem acesso" é pior que não abrir:
    * de volta à escolha de módulos, que é onde a pessoa consegue fazer algo.
+   *
+   * Fica aqui em cima, antes da escolha da casca: a conta é a mesma nas duas.
    */
   const abre = modulosDoUsuario(usuario).some((m) => m.id === modulo.id);
   if (usuario && !abre) return <Navigate to="/modulos" replace />;
 
+  return celular ? (
+    <LayoutCelular modulo={modulo} />
+  ) : (
+    <LayoutComputador modulo={modulo} />
+  );
+}
+
+/**
+ * A casca do computador. A barra lateral é tinta escura para o conteúdo — onde
+ * moram os números — ficar sendo a única coisa clara e disputada da tela. Os
+ * itens vêm do módulo: a casca é a mesma para todos.
+ *
+ * Ela continua escura no tema escuro, e por isso usa branco com transparência
+ * em vez da escala `tinta`: essa escala vira do avesso lá, e o que aqui é
+ * texto legível sobre fundo escuro viraria escuro sobre escuro.
+ *
+ * Aqui ela está **sempre** aberta: este componente só é montado acima da
+ * divisa do celular, e a gaveta que existia para as telas estreitas virou a
+ * barra de baixo do `LayoutCelular`.
+ */
+function LayoutComputador({ modulo }: { modulo: Modulo }) {
+  const { usuario, logout } = useAuth();
+  const navigate = useNavigate();
+  const { escuro, trocar } = useTema();
+
+  function sair() {
+    logout();
+    navigate('/login');
+  }
+
   return (
     <div className="flex min-h-screen bg-tinta-50">
-      {/* Faixa de menu no celular */}
-      <button
-        onClick={() => setMenuAberto((a) => !a)}
-        className="fixed left-4 top-4 z-50 rounded-xl bg-barra p-2.5 text-white shadow-lg lg:hidden"
-        aria-label={menuAberto ? 'Fechar menu' : 'Abrir menu'}
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-          {menuAberto ? (
-            <>
-              <path d="M18 6 6 18" />
-              <path d="m6 6 12 12" />
-            </>
-          ) : (
-            <>
-              <path d="M4 7h16" />
-              <path d="M4 12h16" />
-              <path d="M4 17h16" />
-            </>
-          )}
-        </svg>
-      </button>
-
-      {menuAberto && (
-        <div
-          onClick={() => setMenuAberto(false)}
-          className="fixed inset-0 z-30 bg-barra/50 backdrop-blur-sm lg:hidden"
-        />
-      )}
-
-      <aside
-        className={`fixed inset-y-0 left-0 z-40 flex w-[248px] flex-col bg-barra transition-transform duration-300 lg:sticky lg:top-0 lg:h-screen lg:translate-x-0 ${
-          menuAberto ? 'translate-x-0' : '-translate-x-full'
-        }`}
-      >
+      <aside className="sticky top-0 flex h-screen w-[248px] shrink-0 flex-col bg-barra">
         <div className="px-6 pb-6 pt-7">
           {/* A logo tem fundo transparente e vive bem sobre a tinta escura —
               o azul dela é claro o bastante para se ler aqui. */}
@@ -88,7 +85,6 @@ export function Layout({ modulo }: { modulo: Modulo }) {
 
         <NavLink
           to="/modulos"
-          onClick={() => setMenuAberto(false)}
           className="mx-3 mb-3 flex items-center gap-2.5 rounded-xl border border-white/10 px-3 py-2 text-[12px] font-medium text-white/70 transition hover:border-white/20 hover:bg-white/5 hover:text-white"
         >
           <IconeGrade className="text-white/40" />
@@ -99,35 +95,34 @@ export function Layout({ modulo }: { modulo: Modulo }) {
           {modulo.menu
             .filter((item) => !item.somenteAdmin || usuario?.role === 'ADMIN')
             .map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              onClick={() => setMenuAberto(false)}
-              className={({ isActive }) =>
-                `group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition duration-150 ${
-                  isActive
-                    ? 'bg-white/[0.07] text-white'
-                    : 'text-white/70 hover:bg-white/[0.04] hover:text-white'
-                }`
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  <span
-                    className={`absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-400 transition-all duration-200 ${
-                      isActive ? 'opacity-100' : 'scale-y-0 opacity-0'
-                    }`}
-                  />
-                  <item.icone
-                    className={
-                      isActive
-                        ? 'text-brand-400'
-                        : 'text-white/40 group-hover:text-white/70'
-                    }
-                  />
-                  {item.label}
-                </>
-              )}
+              <NavLink
+                key={item.to}
+                to={item.to}
+                className={({ isActive }) =>
+                  `group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition duration-150 ${
+                    isActive
+                      ? 'bg-white/[0.07] text-white'
+                      : 'text-white/70 hover:bg-white/[0.04] hover:text-white'
+                  }`
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    <span
+                      className={`absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-400 transition-all duration-200 ${
+                        isActive ? 'opacity-100' : 'scale-y-0 opacity-0'
+                      }`}
+                    />
+                    <item.icone
+                      className={
+                        isActive
+                          ? 'text-brand-400'
+                          : 'text-white/40 group-hover:text-white/70'
+                      }
+                    />
+                    {item.label}
+                  </>
+                )}
               </NavLink>
             ))}
         </nav>
@@ -137,7 +132,6 @@ export function Layout({ modulo }: { modulo: Modulo }) {
               folha caía num módulo trancado ao clicar no próprio nome. */}
           <NavLink
             to={`${modulo.base}/minha-conta`}
-            onClick={() => setMenuAberto(false)}
             className="flex items-center gap-2.5 rounded-lg transition hover:opacity-80"
             title="Minha conta"
           >

@@ -446,7 +446,7 @@ export function ContasContrato() {
       </div>
 
       {ativas.length > 0 && (
-        <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="mb-4 grid grid-cols-2 gap-2.5 sm:gap-4 sm:grid-cols-3">
           <Indicador
             rotulo="Lançadas neste mês"
             valor={`${lancadas.length} de ${ativas.length}`}

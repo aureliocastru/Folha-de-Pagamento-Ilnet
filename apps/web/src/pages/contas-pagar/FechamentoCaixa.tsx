@@ -436,7 +436,7 @@ function Conferencia({
 
       {aba === 'caixa' && (
         <>
-          <div className="surgir surgir-1 mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="surgir surgir-1 mb-5 grid grid-cols-2 gap-2.5 sm:gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <Indicador
               rotulo="Saídas do período"
               valor={formatBRL(resumo.saidas)}

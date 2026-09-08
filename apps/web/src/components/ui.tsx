@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { useCelular } from '../lib/celular';
 import { formatNumeroBR } from '../lib/format';
 import { IconeVoltar } from './icones';
 
@@ -138,8 +139,21 @@ function digitosDoValor(valor: string): string {
 
 export function Pagina({ children }: { children: ReactNode }) {
   return (
-    // pt-20 no celular: o conteúdo passa por baixo do botão do menu.
-    <div className="mx-auto w-full max-w-[1600px] px-4 pb-8 pt-20 sm:px-6 lg:px-7 lg:pt-6">
+    /*
+     * Não há mais `pt-20`.
+     *
+     * Ele existia por um motivo só: no celular o menu era um botão flutuante
+     * pousado sobre o canto superior esquerdo do conteúdo, e cada página tinha
+     * de reservar cinco centímetros vazios no alto para não ser coberta por
+     * ele. Isso valia em **toda** tela do sistema, inclusive nas que já cabiam
+     * mal numa tela de bolso. A casca do celular agora tem cabeçalho próprio e
+     * a navegação foi para o rodapé (ver o `LayoutCelular`), então esse alto
+     * voltou a ser do conteúdo.
+     *
+     * A folga lateral também encolheu: `px-4` numa tela de 360px eram 32px de
+     * margem, quase um décimo da largura, gastos em nada.
+     */
+    <div className="mx-auto w-full max-w-[1600px] px-3 pb-8 pt-4 sm:px-6 md:pt-6 lg:px-7">
       {children}
     </div>
   );
@@ -167,8 +181,8 @@ export function CabecalhoPagina({
   acoes?: ReactNode;
 }) {
   return (
-    <header className="surgir mb-5 flex flex-wrap items-end justify-between gap-3">
-      <div className="flex min-w-0 items-center gap-3">
+    <header className="surgir mb-4 flex flex-wrap items-end justify-between gap-3 md:mb-5">
+      <div className="flex min-w-0 items-center gap-2.5 md:gap-3">
         {voltar && (
           <button
             type="button"
@@ -190,7 +204,17 @@ export function CabecalhoPagina({
           )}
         </div>
       </div>
-      {acoes && <div className="flex flex-wrap items-center gap-2">{acoes}</div>}
+      {/*
+        No celular as ações ocupam a linha inteira, e não a sobra à direita do
+        título. Elas costumam ser dois ou três botões de 44px — espremidos
+        numa quina eles empurravam um ao outro para fora da tela, e o último
+        ficava debaixo do primeiro. Numa linha só, todos são alcançáveis.
+      */}
+      {acoes && (
+        <div className="flex w-full flex-wrap items-center gap-2 md:w-auto">
+          {acoes}
+        </div>
+      )}
     </header>
   );
 }
@@ -219,7 +243,7 @@ export function Bloco({
     return (
     <section className={`card ${esticado ? 'flex h-full flex-col' : ''} ${className}`}>
       {titulo && (
-        <div className="faixa-titulo flex items-center justify-between gap-3 px-4 py-3 sm:px-5">
+        <div className="faixa-titulo flex items-center justify-between gap-2 px-3.5 py-2.5 md:gap-3 md:px-5 md:py-3">
           <h2 className="titulo-bloco">{titulo}</h2>
           {acao}
         </div>
@@ -228,7 +252,11 @@ export function Bloco({
         className={`${esticado ? 'flex min-h-0 flex-1 flex-col' : ''} ${
           // O topo já não vem de graça: a faixa do título agora tem borda
           // própria, e sem esta folga o conteúdo encostaria nela.
-          semPadding ? '' : 'px-4 pb-4 pt-4 sm:px-5 sm:pb-5 sm:pt-5'
+          //
+          // No celular a folga cai para 14px: o cartão já vai de borda a borda
+          // da tela, e cada ponto de recheio sai da largura do que se lê
+          // dentro dele.
+          semPadding ? '' : 'px-3.5 pb-3.5 pt-3.5 md:px-5 md:pb-5 md:pt-5'
         }`}
       >
         {children}
@@ -252,6 +280,8 @@ export function Janela({
   onFechar: () => void;
   children: ReactNode;
 }) {
+  const celular = useCelular();
+
   useEffect(() => {
     const aoTeclar = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onFechar();
@@ -266,14 +296,58 @@ export function Janela({
     };
   }, [onFechar]);
 
+  /*
+   * O clique no fundo não fecha: estas janelas carregam trabalho — um
+   * pagamento conferido, uma edição de meia dúzia de campos — e um clique
+   * fora de mira jogava tudo fora sem perguntar. Sai pelo X ou pelo Esc,
+   * que são gestos de quem quer sair. Vale nas duas formas abaixo.
+   */
+
+  /*
+   * No celular ela não é janela: é uma folha que sobe do pé da tela.
+   *
+   * A janela centralizada não cabe aqui, e por uma razão que só aparece com o
+   * teclado aberto: ela nascia no meio da tela, o teclado subia e tomava
+   * metade dela, e o campo que se estava preenchendo ficava atrás do teclado —
+   * com o título e o botão de fechar empurrados para fora por cima. Presa no
+   * rodapé, ela cresce para cima: o campo em foco fica logo acima do teclado,
+   * que é onde ele precisa estar.
+   *
+   * O cabeçalho fica grudado no alto e só o miolo rola, então "Fechar" está
+   * sempre à mão — num formulário de despesa com doze campos, a saída não pode
+   * depender de rolar até o começo.
+   */
+  if (celular) {
+    return (
+      <div className="fixed inset-0 z-50 flex flex-col justify-end bg-barra/70 backdrop-blur-sm">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={titulo}
+          className="surgir flex max-h-[92vh] flex-col rounded-t-2xl border-t border-tinta-100 bg-papel shadow-2xl"
+        >
+          <div className="faixa-titulo flex shrink-0 items-center justify-between gap-3 rounded-t-2xl px-4 py-3">
+            <h2 className="titulo-bloco truncate">{titulo}</h2>
+            <button
+              onClick={onFechar}
+              aria-label="Fechar"
+              className="-mr-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xl leading-none text-tinta-400 transition hover:bg-tinta-100 hover:text-tinta-700"
+            >
+              ×
+            </button>
+          </div>
+          {/* A folga de baixo respeita a faixa do gesto do sistema: sem ela o
+              último botão do formulário fica debaixo da barrinha do iPhone. */}
+          <div className="rolagem-fina min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            {children}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    /*
-     * O clique no fundo não fecha: estas janelas carregam trabalho — um
-     * pagamento conferido, uma edição de meia dúzia de campos — e um clique
-     * fora de mira jogava tudo fora sem perguntar. Sai pelo X ou pelo Esc,
-     * que são gestos de quem quer sair.
-     */
-    <div className="fixed inset-0 z-50 flex justify-center overflow-y-auto rolagem-fina bg-barra/70 p-4 backdrop-blur-sm sm:p-6">
+    <div className="rolagem-fina fixed inset-0 z-50 flex justify-center overflow-y-auto bg-barra/70 p-4 backdrop-blur-sm sm:p-6">
       <div
         role="dialog"
         aria-modal="true"
@@ -488,19 +562,27 @@ export function Indicador({
       {acento && (
         <span className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-brand-500 to-brand-300" />
       )}
+      {/* No celular estes cartões vão dois por linha, e o número desce de 25px
+          para 20px: em 25px "R$ 128.450,00" partia no meio numa coluna de
+          170px, e um valor quebrado em duas linhas não se confere de relance —
+          que é a única coisa que um indicador serve para fazer. */}
       <p className="eyebrow">{rotulo}</p>
-      <p className="mt-1.5 font-display text-[25px] font-semibold leading-none tracking-tight text-tinta-900 num">
+      <p className="num mt-1.5 font-display text-[20px] font-semibold leading-none tracking-tight text-tinta-900 md:text-[25px]">
         {valor}
       </p>
       {detalhe && (
-        <p className="mt-1.5 text-xs leading-snug text-tinta-400">{detalhe}</p>
+        <p className="mt-1.5 text-[11px] leading-snug text-tinta-400 md:text-xs">
+          {detalhe}
+        </p>
       )}
       {alerta && (
-        <p className="mt-1 text-xs font-semibold text-rose-600">{alerta}</p>
+        <p className="mt-1 text-[11px] font-semibold text-rose-600 md:text-xs">
+          {alerta}
+        </p>
       )}
       {onClick && (
         <span
-          className={`mt-3 flex items-center gap-1 text-xs font-semibold transition ${
+          className={`mt-2.5 flex items-center gap-1 text-[11px] font-semibold transition md:mt-3 md:text-xs ${
             aberto ? 'text-brand-700' : 'text-tinta-400'
           }`}
         >
@@ -513,7 +595,7 @@ export function Indicador({
     </>
   );
 
-  const estilo = `card relative overflow-hidden p-4 ${
+  const estilo = `card relative overflow-hidden p-3 md:p-4 ${
     acento ? 'ring-1 ring-brand-200' : ''
   } ${aberto ? 'ring-2 ring-brand-400' : ''}`;
 
@@ -614,7 +696,7 @@ export function Vazio({
   children?: ReactNode;
 }) {
   return (
-    <div className="px-6 py-14 text-center">
+    <div className="px-5 py-10 text-center md:px-6 md:py-14">
       <p className="font-display text-sm font-semibold text-tinta-500">
         {titulo}
       </p>
@@ -629,7 +711,7 @@ export function Vazio({
 
 export function Carregando({ texto = 'Carregando…' }: { texto?: string }) {
   return (
-    <div className="flex items-center justify-center gap-2 px-6 py-14 text-sm text-tinta-400">
+    <div className="flex items-center justify-center gap-2 px-5 py-10 text-sm text-tinta-400 md:px-6 md:py-14">
       <span className="h-3 w-3 animate-spin rounded-full border-2 border-tinta-200 border-t-brand-500" />
       {texto}
     </div>

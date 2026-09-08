@@ -41,7 +41,7 @@ export function Modulos() {
 
       {/* pr generoso: o bloco de notas mora encostado nesta quina, e sem
           folga o "Sair" ficava debaixo dele. */}
-      <header className="relative flex flex-wrap items-center justify-between gap-4 border-b border-white/10 py-5 pl-6 pr-16 sm:pl-10 sm:pr-20">
+      <header className="relative flex flex-wrap items-center justify-between gap-3 border-b border-white/10 py-4 pl-4 pr-14 sm:gap-4 sm:py-5 sm:pl-10 sm:pr-20">
         <div className="flex items-center gap-3.5">
           <img
             src="/logo-ilnet.png"
@@ -77,27 +77,27 @@ export function Modulos() {
         </div>
       </header>
 
-      <main className="relative mx-auto w-full max-w-[900px] px-6 py-14 sm:px-10">
+      <main className="relative mx-auto w-full max-w-[900px] px-4 py-9 sm:px-10 sm:py-14">
         <p className="eyebrow mb-2 text-brand-300">Módulos</p>
-        <h1 className="font-display text-[30px] font-semibold leading-tight tracking-[-0.03em] text-white">
+        <h1 className="font-display text-[24px] font-semibold leading-tight tracking-[-0.03em] text-white sm:text-[30px]">
           Escolha a área que deseja acessar
         </h1>
 
         {/* Só o que este perfil enxerga: um cartão que leva a um lugar onde
             todo clique é recusado é pior que cartão nenhum. */}
-        <div className="mt-9 grid gap-4 sm:grid-cols-2">
+        <div className="mt-6 grid gap-3 sm:mt-9 sm:grid-cols-2 sm:gap-4">
           {modulosDoUsuario(usuario).map((modulo) => (
             <Link
               key={modulo.id}
               to={caminhoInicial(modulo)}
-              className="surgir group rounded-2xl border border-white/10 bg-white/[0.03] p-6 transition duration-200 hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/[0.06]"
+              className="surgir group rounded-2xl border border-white/10 bg-white/[0.03] p-4 transition sm:p-6 duration-200 hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/[0.06]"
             >
               <span
                 className={`flex h-11 w-11 items-center justify-center rounded-xl ${modulo.tom}`}
               >
                 <modulo.icone />
               </span>
-              <h2 className="mt-5 font-display text-[17px] font-semibold text-white">
+              <h2 className="mt-3.5 font-display text-[16px] font-semibold text-white sm:mt-5 sm:text-[17px]">
                 {modulo.nome}
               </h2>
               <p className="mt-1.5 text-[13px] leading-relaxed text-white/45">

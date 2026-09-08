@@ -106,7 +106,7 @@ export function Funcionarios() {
 
       {feedback && <Aviso tom="marca">{feedback}</Aviso>}
 
-      <div className="surgir surgir-1 mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="surgir surgir-1 mb-6 grid grid-cols-2 gap-2.5 sm:gap-4 sm:grid-cols-2">
         <Indicador
           acento
           rotulo="Folha base mensal"

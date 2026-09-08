@@ -160,7 +160,7 @@ export function Dashboard() {
         <div className="space-y-4">
           {/* --- Os quatro números que se olha primeiro --- */}
           {resumo && (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid grid-cols-2 gap-2.5 sm:gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <Indicador
                 rotulo="Total em aberto"
                 valor={formatBRL(resumo.total)}

@@ -471,6 +471,193 @@
   }
 }
 
+/*
+ * --- Os tamanhos no celular ---
+ *
+ * Uma camada só, no fim do arquivo, e não um `sm:` espalhado por quarenta
+ * telas: o que muda aqui é o **tamanho das peças**, e peça é coisa de uma
+ * definição só. A casca já é outra (ver o `LayoutCelular`); isto é o que vai
+ * dentro dela.
+ *
+ * A divisa é 767px, a mesma de `LARGURA_CELULAR` no `lib/celular.ts`. Os dois
+ * números precisam continuar iguais: é a linha em que a barra lateral vira
+ * barra de rodapé, e um CSS que trocasse de tamanho num ponto e a navegação em
+ * outro deixaria uma faixa de larguras com a casca de um e a medida do outro.
+ *
+ * Duas regras guiam tudo o que está aqui:
+ *
+ * 1. **O que se toca cresce.** Botão, caixa de marcar, linha de menu: 44px é o
+ *    mínimo de um dedo, e abaixo disso o erro de mira custa a tela errada — ou,
+ *    numa lista de contas, o pagamento errado.
+ * 2. **O que se lê encolhe.** Título de 28px, moldura arredondada, folga de
+ *    cartão: numa tela de 360px isso é espaço que sai do número. O número é o
+ *    herói aqui também, e no celular ele tem menos lugar para ser herói.
+ */
+@media (max-width: 767px) {
+  /*
+   * O campo tem 16px, e este é o único número desta folha que não é gosto: o
+   * Safari do iPhone dá zoom sozinho em qualquer campo com letra menor que
+   * isso. A tela pulava a cada toque num campo, e voltar ao tamanho normal
+   * exigia um gesto de pinça — a cada valor digitado, num formulário de
+   * despesa com doze campos.
+   *
+   * O `py` maior vem junto de propósito: com a letra grande e a altura de
+   * antes o campo ficaria apertado dentro da própria moldura.
+   */
+  .campo {
+    @apply rounded-xl px-3 py-2.5 text-[16px];
+  }
+  .rotulo {
+    @apply mb-1.5 text-[12px];
+  }
+  .ajuda {
+    @apply text-[12px];
+  }
+  /*
+   * A caixa de marcar do navegador tem 16px, e aqui ela decide se o dinheiro
+   * sai. 20px é o que o dedo acerta sem ampliar a linha inteira.
+   */
+  .marcador {
+    @apply h-5 w-5;
+  }
+  .opcao {
+    @apply gap-2.5 py-1 text-[15px];
+  }
+
+  /*
+   * Botão: 44px de altura, e a letra sobe junto. Ele era `py-2` com 14px, o
+   * que dá 36px — abaixo do alvo, e o bastante para que "Pagar" e "Excluir",
+   * vizinhos na mesma linha, se confundissem sob o polegar.
+   */
+  .btn {
+    @apply min-h-[44px] gap-2 px-4 text-[15px];
+  }
+  /*
+   * O botão pequeno continua pequeno — ele mora dentro de linha de tabela, e
+   * inflá-lo até 44px dobraria a altura de uma lista de quinhentos títulos.
+   * Mas ganha os 36px que o tornam acertável.
+   */
+  .btn-p {
+    @apply min-h-[36px] px-3 py-1.5 text-[13px];
+  }
+
+  /*
+   * O título da página desce de 28px para 21px, e o rótulo de seção aperta o
+   * espaçamento entre letras. Em caixa alta e espaçado, o `eyebrow` gastava
+   * quase uma linha inteira de uma tela de 360px para dizer uma palavra.
+   */
+  .titulo-pagina {
+    @apply text-[21px] tracking-[-0.015em];
+  }
+  .eyebrow {
+    @apply text-[10px] tracking-[0.12em];
+  }
+  .titulo-bloco {
+    @apply text-[13px] tracking-[0.08em];
+  }
+
+  /*
+   * O cartão perde arredondamento e sombra.
+   *
+   * 18px de raio numa caixa que ocupa a largura inteira da tela come a quina
+   * do que está dentro dela, e a sombra — desenhada para separar cartão de
+   * cartão numa grade — não separa nada quando eles estão empilhados numa
+   * coluna só. O fio da borda faz esse trabalho sozinho, e de graça.
+   */
+  .card {
+    @apply rounded-xl shadow-none;
+  }
+  .faixa-titulo {
+    @apply rounded-t-xl;
+  }
+  /* Cartão não se levanta sob o dedo: não existe passar o mouse aqui, e a
+     animação só atrasa o toque. */
+  .card-hover {
+    @apply transition-none hover:translate-y-0 hover:shadow-none;
+  }
+
+  /*
+   * A tabela aperta as colunas e desce um ponto de letra.
+   *
+   * Ela continua sendo tabela e continua rolando para o lado — é assim que uma
+   * conta com data, valor, categoria e situação continua conferível. O que
+   * muda é quanto dela cabe antes de precisar rolar: com `px-3` e 14px, uma
+   * lista de contas mostrava duas colunas; com isto, mostra quatro.
+   */
+  .th {
+    @apply px-2.5 py-2 text-[10px] tracking-[0.08em];
+  }
+  .td {
+    @apply px-2.5 py-2.5 text-[13px];
+  }
+  /*
+   * A barra da seleção gruda embaixo do cabeçalho do módulo, e não no alto da
+   * janela: o cabeçalho tem 52px e é `sticky` também, e sem esta folga um
+   * ficaria por cima do outro justamente quando há linhas marcadas para pagar.
+   */
+  .barra-selecao {
+    @apply top-[3.75rem] gap-2 px-3 py-2.5 text-[13px];
+  }
+
+  .selo {
+    @apply px-2 py-0.5 text-[10px];
+  }
+
+  /*
+   * A entrada em cena perde o atraso em cascata.
+   *
+   * No computador ela dá ritmo a uma tela larga que se preenche por partes. No
+   * celular os quatro blocos estão empilhados, um por vez na tela, e o único
+   * efeito de 240ms de espera é o quarto bloco chegar depois de a pessoa já
+   * ter rolado até ele.
+   */
+  .surgir-1,
+  .surgir-2,
+  .surgir-3,
+  .surgir-4 {
+    animation-delay: 0ms;
+  }
+}
+
+/*
+ * --- A tabela em tela estreita ---
+ *
+ * A tabela passa a ter a largura do que tem dentro dela, em vez da largura
+ * disponível. É o maior ganho de espaço desta folha, e a razão é o que a
+ * tabela fazia sem isto: espremida, ela não deixava de mostrar as oito colunas
+ * — ela quebrava cada uma em três linhas para caber. "Energia / Distribuidora
+ * / S/A" no fornecedor, a observação em outras três, o selo da categoria em
+ * duas. Uma conta ocupava 195px de altura, e uma lista de dezoito virava três
+ * mil pixels de rolagem vertical.
+ *
+ * Com `max-content` cada coluna fica do tamanho do que ela escreve, a linha
+ * volta a ser uma linha (87px na maior, 69px nas comuns) e a mesma lista cabe
+ * em dois terços do que ocupava. O preço é rolar 135px a mais para o lado — e
+ * esse gesto o `overflow-x-auto` do pai já oferecia desde sempre, porque
+ * nenhuma destas tabelas jamais coube numa tela estreita.
+ *
+ * `min-width: 100%` impede o contrário: uma tabela de duas colunas curtas não
+ * encolhe até o meio do cartão, deixando metade dele vazia.
+ *
+ * A faixa vai até 1023px, e não até a divisa do celular, porque o aperto não é
+ * só do celular. Entre 768 e 1023 a barra lateral agora fica sempre aberta —
+ * antes ela era uma gaveta escondida — e leva 248px do conteúdo consigo: um
+ * notebook pequeno com a janela pela metade sofre a mesma quebra em três
+ * linhas que a tela de bolso sofria.
+ *
+ * O alvo é `.overflow-x-auto`, e não a moldura `.rolagem-fina` que costuma vir
+ * junto: só faz sentido alargar o que está dentro de algo que rola para o
+ * lado. `.rolagem-fina` também veste caixas que rolam só na vertical — a folha
+ * da `Janela` no celular, por exemplo —, e lá uma tabela larga sairia pela
+ * borda sem ter como voltar.
+ */
+@media (max-width: 1023px) {
+  .overflow-x-auto table {
+    width: max-content;
+    min-width: 100%;
+  }
+}
+
 /* Barra de rolagem discreta nas áreas densas */
 .rolagem-fina::-webkit-scrollbar {
   height: 8px;
