@@ -179,6 +179,7 @@ export function Vales() {
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Nome da pessoa ou descrição…"
             className="campo"
+            autoComplete="off"
           />
         </div>
       </div>
@@ -525,6 +526,7 @@ function NovoVale({ onCriado }: { onCriado: () => void }) {
                 : 'Ex.: material que comprou para a obra'
             }
             className="campo"
+            autoComplete="off"
           />
         </Campo>
         <Campo label="Nº de parcelas">
@@ -553,6 +555,7 @@ function NovoVale({ onCriado }: { onCriado: () => void }) {
             value={observacao}
             onChange={(e) => setObservacao(e.target.value)}
             className="campo"
+            autoComplete="off"
           />
         </Campo>
         <Campo>

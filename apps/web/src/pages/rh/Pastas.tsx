@@ -115,6 +115,7 @@ export function PastasRh() {
           onChange={(e) => setTermo(e.target.value)}
           placeholder="Procurar em todas as pastas: nome, apelido, função ou CPF"
           className="campo max-w-md"
+          autoComplete="off"
         />
       </div>
 
@@ -303,6 +304,7 @@ export function FormularioDaPasta({
             placeholder={semCpf ? 'Ex.: Exames' : 'Nome completo'}
             className="campo"
             autoFocus
+            autoComplete="off"
           />
           {/* O aviso é do administrador que está prestes a desligar esta pasta
               do cadastro — quem faz isso precisa saber que fez. */}
@@ -337,6 +339,7 @@ export function FormularioDaPasta({
             placeholder="000.000.000-00"
             inputMode="numeric"
             className="campo"
+            autoComplete="off"
           />
           <p className="ajuda">
             É por ele que o recibo de pagamento acha esta pasta sozinho quando o

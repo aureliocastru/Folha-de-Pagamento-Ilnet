@@ -452,6 +452,7 @@ export function Diaristas() {
                 onChange={(e) => setForm({ ...form, nome: e.target.value })}
                 className="campo"
                 placeholder="Ex.: João da Silva"
+                autoComplete="off"
               />
             </Campo>
             <Campo label="Como é conhecido">
@@ -462,6 +463,7 @@ export function Diaristas() {
                 }
                 className="campo"
                 placeholder="Ex.: Deda pedreiro"
+                autoComplete="off"
               />
             </Campo>
             <Campo label="CPF">
@@ -469,6 +471,7 @@ export function Diaristas() {
                 value={form.cpfCnpj}
                 onChange={(e) => setForm({ ...form, cpfCnpj: e.target.value })}
                 className="campo"
+                autoComplete="off"
               />
             </Campo>
             <Campo label="Telefone">
@@ -476,6 +479,7 @@ export function Diaristas() {
                 value={form.telefone}
                 onChange={(e) => setForm({ ...form, telefone: e.target.value })}
                 className="campo"
+                autoComplete="off"
               />
             </Campo>
             <Campo label="Valor da diária (R$)">
@@ -513,6 +517,7 @@ export function Diaristas() {
                 onChange={(e) => setForm({ ...form, chavePix: e.target.value })}
                 className="campo"
                 placeholder="Só para quem recebe pelo IXC"
+                autoComplete="off"
               />
             </Campo>
             <Campo label="Tipo da chave">
@@ -553,6 +558,7 @@ export function Diaristas() {
                 }
                 className="campo"
                 placeholder="O que essa pessoa faz, combinados…"
+                autoComplete="off"
               />
             </Campo>
           </div>
@@ -578,6 +584,7 @@ export function Diaristas() {
           onChange={(e) => setBusca(e.target.value)}
           placeholder="Buscar por nome, fantasia ou CPF"
           className="campo max-w-xs"
+          autoComplete="off"
         />
         <label className="flex w-fit items-center gap-2 text-sm text-tinta-600">
           <input
@@ -1415,6 +1422,7 @@ function FormularioDiaria({
             onChange={(e) => setDescricaoExtra(e.target.value)}
             className="campo"
             placeholder="Ex.: instalação"
+            autoComplete="off"
           />
         </Campo>
       </Parte>
@@ -1426,6 +1434,7 @@ function FormularioDiaria({
             onChange={(e) => setDescricao(e.target.value)}
             className="campo"
             placeholder="Ex.: acerto da semana"
+            autoComplete="off"
           />
         </Campo>
         <Campo label="A que se refere — categoria daqui">
@@ -1451,6 +1460,7 @@ function FormularioDiaria({
                 onChange={(e) => setChavePix(e.target.value)}
                 className="campo"
                 placeholder="Ex.: (99) 99230-0993"
+                autoComplete="off"
               />
             </Campo>
             <Campo label="Tipo da chave">

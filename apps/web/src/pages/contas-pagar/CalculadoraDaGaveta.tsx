@@ -250,6 +250,7 @@ function Linha({
         placeholder="0"
         aria-label={`Quantas de ${formatBRL(valor)}`}
         className="campo w-14 px-1 py-1.5 text-center"
+        autoComplete="off"
       />
       <Passo
         sinal="+"

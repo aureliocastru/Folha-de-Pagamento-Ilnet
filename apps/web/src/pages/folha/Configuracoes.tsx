@@ -133,6 +133,7 @@ export function Configuracoes() {
                 onChange={(e) => txt('tipoPagamentoPadrao', e.target.value)}
                 className="campo"
                 placeholder='O rótulo exato do seu IXC, ex.: "Pix"'
+                autoComplete="off"
               />
             </div>
           </div>
@@ -152,6 +153,7 @@ export function Configuracoes() {
                 onChange={(e) => txt('empresaNome', e.target.value)}
                 className="campo"
                 placeholder="ILNET"
+                autoComplete="off"
               />
             </div>
             <div>
@@ -161,6 +163,7 @@ export function Configuracoes() {
                 onChange={(e) => txt('empresaCnpj', e.target.value)}
                 className="campo num"
                 placeholder="00.000.000/0001-00"
+                autoComplete="off"
               />
             </div>
           </div>
@@ -215,6 +218,7 @@ export function Configuracoes() {
                 onChange={(e) => txt('pixCampoTipoChave', e.target.value)}
                 className="campo"
                 placeholder="vazio = aprender sozinho"
+                autoComplete="off"
               />
             </div>
             <div>
@@ -224,6 +228,7 @@ export function Configuracoes() {
                 onChange={(e) => txt('pixCodigosTipoChave', e.target.value)}
                 className="campo"
                 placeholder="Ex.: Celular=C,E-mail=E,CPF/CNPJ=D"
+                autoComplete="off"
               />
             </div>
           </div>
@@ -392,6 +397,7 @@ export function Configuracoes() {
                 onChange={(e) => txt('fornecedorCampoIcms', e.target.value)}
                 className="campo"
                 placeholder="vazio = detectar"
+                autoComplete="off"
               />
             </div>
             <div>
@@ -401,6 +407,7 @@ export function Configuracoes() {
                 onChange={(e) => txt('fornecedorIcmsIsento', e.target.value)}
                 className="campo"
                 placeholder="Ex.: I,ISENTO"
+                autoComplete="off"
               />
             </div>
             <div>
@@ -410,6 +417,7 @@ export function Configuracoes() {
                 onChange={(e) => txt('fornecedorTabelaBanco', e.target.value)}
                 className="campo"
                 placeholder="vazio = descobrir"
+                autoComplete="off"
               />
             </div>
           </div>
@@ -433,6 +441,7 @@ export function Configuracoes() {
                 }
                 className="campo"
                 placeholder="vazio = detectar"
+                autoComplete="off"
               />
             </div>
             <div>
@@ -446,6 +455,7 @@ export function Configuracoes() {
                 }
                 className="campo"
                 placeholder="Ex.: E,ESTRANGEIRO"
+                autoComplete="off"
               />
             </div>
           </div>
@@ -543,6 +553,7 @@ function CaixaEmMaos({
             onChange={(e) => txt('caixaEmMaosNome', e.target.value)}
             className="campo"
             placeholder="Ex.: CX - Werick"
+            autoComplete="off"
           />
         </div>
         <div>
@@ -552,6 +563,7 @@ function CaixaEmMaos({
             onChange={(e) => txt('caixaTabelaContas', e.target.value)}
             className="campo"
             placeholder="vazio = descobrir"
+            autoComplete="off"
           />
         </div>
         <div className="sm:col-span-2">
@@ -561,6 +573,7 @@ function CaixaEmMaos({
             onChange={(e) => txt('caixaTabelaMovimento', e.target.value)}
             className="campo"
             placeholder="vazio = descobrir"
+            autoComplete="off"
           />
         </div>
       </div>
@@ -656,6 +669,7 @@ function CampoTxt({
         value={valor}
         onChange={(e) => onChange(e.target.value)}
         className="campo"
+        autoComplete="off"
       />
     </div>
   );

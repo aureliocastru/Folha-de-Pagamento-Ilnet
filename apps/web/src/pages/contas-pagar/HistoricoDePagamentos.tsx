@@ -130,6 +130,7 @@ export function HistoricoDePagamentos() {
           onChange={(e) => setBusca(e.target.value)}
           placeholder="Buscar por fornecedor, documento, forma de pagamento ou observação"
           className="campo max-w-md"
+          autoComplete="off"
         />
         {resumo && resumo.comRessalva.quantidade > 0 && (
           <button

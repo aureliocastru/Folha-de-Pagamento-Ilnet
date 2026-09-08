@@ -754,6 +754,7 @@ function Historico({ caixaId }: { caixaId: number }) {
               onChange={(e) => setTermo(e.target.value)}
               className="campo"
               placeholder="nome do fornecedor, documento, o que estiver escrito…"
+              autoComplete="off"
             />
           </div>
           <div>
@@ -1885,6 +1886,7 @@ function DinheiroNaRuaBloco({
             onChange={(e) => setPessoa(e.target.value)}
             placeholder="Ex.: Jeferson"
             className="campo"
+            autoComplete="off"
           />
         </div>
         <div>
@@ -1904,6 +1906,7 @@ function DinheiroNaRuaBloco({
               onChange={(e) => setMotivo(e.target.value)}
               placeholder="opcional — peça de reposição, combustível…"
               className="campo flex-1"
+              autoComplete="off"
             />
             <button
               type="button"
@@ -2425,6 +2428,7 @@ function AcertarConta({
                       onChange={(e) => setTermo(e.target.value)}
                       className="campo"
                       placeholder="nome, nome fantasia ou CPF/CNPJ"
+                      autoComplete="off"
                     />
                     {fornecedores.isFetching && (
                       <p className="ajuda">Procurando no IXC…</p>
@@ -2480,6 +2484,7 @@ function AcertarConta({
                   onChange={(e) => setDescricao(e.target.value)}
                   className="campo"
                   placeholder="correia do gerador, combustível…"
+                  autoComplete="off"
                 />
                 <p className="ajuda">É o que aparece na conta a pagar do IXC.</p>
               </div>
@@ -2710,6 +2715,7 @@ function Fechar({
             onChange={(e) => setObservacao(e.target.value)}
             className="campo"
             placeholder="opcional — o que explica este período"
+            autoComplete="off"
           />
         </div>
         <button

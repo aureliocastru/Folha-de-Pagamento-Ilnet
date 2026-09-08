@@ -290,6 +290,7 @@ function BlocoDoCatalogo({
               }}
               className="campo min-w-0 flex-1"
               aria-label={`Texto de ${item.texto}`}
+              autoComplete="off"
             />
 
             {/* O "Outros, quais?" e os parentes dele: marcar abre um campo. */}
@@ -385,6 +386,7 @@ function BlocoDoCatalogo({
               ? 'Nova pergunta do relato (termine com "?")'
               : 'Acrescentar à lista'
           }
+          autoComplete="off"
         />
         {!relato && (
           <label className="opcao">
@@ -458,6 +460,7 @@ function NovoFormulario({
             value={nome}
             onChange={(e) => setNome(e.target.value)}
             placeholder="Espaço confinado"
+            autoComplete="off"
           />
         </div>
 
@@ -471,6 +474,7 @@ function NovoFormulario({
             value={titulo}
             onChange={(e) => setTitulo(e.target.value)}
             placeholder="ANÁLISE DE RISCO PARA ESPAÇO CONFINADO (NR-33)"
+            autoComplete="off"
           />
         </div>
 
@@ -484,6 +488,7 @@ function NovoFormulario({
             value={tipoTrabalho}
             onChange={(e) => setTipoTrabalho(e.target.value)}
             placeholder="Espaço confinado"
+            autoComplete="off"
           />
         </div>
 
@@ -565,6 +570,7 @@ function EditarTextos({
             className="campo"
             value={titulo}
             onChange={(e) => setTitulo(e.target.value)}
+            autoComplete="off"
           />
         </div>
 
@@ -601,6 +607,7 @@ function EditarTextos({
             className="campo"
             value={telefones}
             onChange={(e) => setTelefones(e.target.value)}
+            autoComplete="off"
           />
         </div>
       </div>

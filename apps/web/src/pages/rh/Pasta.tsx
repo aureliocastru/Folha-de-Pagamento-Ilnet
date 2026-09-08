@@ -564,6 +564,7 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
           onChange={(e) => setTermo(e.target.value)}
           placeholder="Procurar nesta pasta"
           className="campo max-w-md"
+          autoComplete="off"
         />
 
         {/* A barra do que está marcado fica junto da busca, e não flutuando
@@ -877,6 +878,7 @@ function ParaOndeMover({
             }}
             placeholder="Ex.: Balanços"
             className="campo flex-1"
+            autoComplete="off"
           />
           <button
             type="button"
@@ -1495,6 +1497,7 @@ export function FormularioDoDocumento({
                     aria-label={`Como "${a.nome}" se chama na pasta`}
                     placeholder="Como este documento se chama"
                     className="campo min-w-[12rem] flex-1"
+                    autoComplete="off"
                   />
                   <button
                     type="button"
@@ -1585,6 +1588,7 @@ export function FormularioDoDocumento({
               onChange={(e) => setTitulo(e.target.value)}
               placeholder="Ex.: Contrato de experiência"
               className="campo"
+              autoComplete="off"
             />
           </div>
         )}
@@ -1599,6 +1603,7 @@ export function FormularioDoDocumento({
             placeholder="Ex.: Contrato"
             list="tipos-de-documento"
             className="campo"
+            autoComplete="off"
           />
           <datalist id="tipos-de-documento">
             {[...new Set([...tipos, ...SUGESTOES])].map((t) => (
@@ -1616,6 +1621,7 @@ export function FormularioDoDocumento({
             onChange={(e) => setDescricao(e.target.value)}
             placeholder="O que alguém precisaria saber sem abrir o arquivo"
             className="campo"
+            autoComplete="off"
           />
         </div>
         <div>

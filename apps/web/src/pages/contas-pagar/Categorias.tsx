@@ -231,6 +231,7 @@ export function Categorias() {
               }}
               autoFocus
               className="campo max-w-xs"
+              autoComplete="off"
             />
           ) : (
             <div className="flex items-center gap-2">
@@ -284,6 +285,7 @@ export function Categorias() {
                 }}
                 placeholder="Nome da categoria-mãe"
                 className="campo max-w-[12rem] py-1 text-xs"
+                autoComplete="off"
               />
               <button
                 type="button"
@@ -411,6 +413,7 @@ export function Categorias() {
             onChange={(e) => setNova(e.target.value)}
             placeholder="Ex.: Combustível"
             className="campo flex-1"
+            autoComplete="off"
           />
           {/* Escolher o grupo na hora de criar poupa a segunda viagem: quem
               cadastra "Pneus" já sabe que ela é de "Veículos". */}
@@ -498,6 +501,7 @@ export function Categorias() {
                             }}
                             autoFocus
                             className="campo max-w-xs"
+                            autoComplete="off"
                           />
                         ) : (
                           <div className="flex items-center gap-2">

@@ -596,12 +596,17 @@ export function NovaDespesa({ onFechar }: { onFechar: () => void }) {
           </div>
         ) : (
           <>
+            {/* `autoComplete="off"`: o navegador guardava o que já se digitou
+                aqui e oferecia a lista dele por cima da nossa — um retângulo
+                preto com "posto sao d", "posto sao domi" tapando justamente os
+                fornecedores do IXC, que são o que se veio escolher. */}
             <input
               id="fornecedor"
               value={termo}
               onChange={(e) => setTermo(e.target.value)}
               placeholder="Nome, nome fantasia ou CPF/CNPJ"
               className="campo"
+              autoComplete="off"
               autoFocus
             />
             {fornecedores.isFetching && <Carregando texto="Procurando no IXC…" />}
@@ -822,6 +827,7 @@ export function NovaDespesa({ onFechar }: { onFechar: () => void }) {
                 className="campo num"
                 inputMode="numeric"
                 placeholder="Cole os números do boleto — pontos e espaços vão embora"
+                autoComplete="off"
               />
               {/* No celular, ler é mais rápido e erra menos que digitar 47
                   dígitos. O botão só existe onde o navegador sabe ler. */}
@@ -871,6 +877,7 @@ export function NovaDespesa({ onFechar }: { onFechar: () => void }) {
                 }}
                 className="campo"
                 placeholder="Em branco usa a chave do fornecedor no IXC"
+                autoComplete="off"
               />
               {leitorDeCodigoSuportado() && (
                 <button
@@ -931,6 +938,7 @@ export function NovaDespesa({ onFechar }: { onFechar: () => void }) {
               onChange={(e) => setDocumento(e.target.value)}
               className="campo"
               placeholder="opcional"
+              autoComplete="off"
             />
           </div>
 
@@ -944,6 +952,7 @@ export function NovaDespesa({ onFechar }: { onFechar: () => void }) {
               onChange={(e) => setNumeroNota(e.target.value)}
               className="campo"
               placeholder="opcional"
+              autoComplete="off"
             />
           </div>
 

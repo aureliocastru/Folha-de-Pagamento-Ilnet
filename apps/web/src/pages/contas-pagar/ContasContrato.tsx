@@ -795,6 +795,7 @@ function LinhaDoEndereco({
               className="campo num py-1 text-xs"
               placeholder="boleto ou PIX copia e cola"
               title="A linha digitável do boleto (44, 47 ou 48 dígitos) ou o copia e cola do PIX. Em branco, a conta vai sem código."
+              autoComplete="off"
             />
             <div className="mt-1 flex gap-1.5">
               <button
@@ -1030,6 +1031,7 @@ function CadastroDoEndereco({
             onChange={(e) => setApelido(e.target.value)}
             className="campo"
             placeholder="Lago Verde, Garagem, Loja…"
+            autoComplete="off"
           />
         </div>
 
@@ -1044,6 +1046,7 @@ function CadastroDoEndereco({
             className="campo num"
             inputMode="numeric"
             placeholder="está no alto da fatura"
+            autoComplete="off"
           />
           <p className="ajuda">
             É por ele que a fatura se acha no site da distribuidora — e é ele
@@ -1082,6 +1085,7 @@ function CadastroDoEndereco({
                 onChange={(e) => setTermo(e.target.value)}
                 className="campo"
                 placeholder="Nome, razão social ou CNPJ da distribuidora"
+                autoComplete="off"
               />
               {fornecedores.isLoading && (
                 <p className="ajuda">Procurando no IXC…</p>
@@ -1243,6 +1247,7 @@ function CadastroDoEndereco({
             onChange={(e) => setObservacao(e.target.value)}
             className="campo"
             placeholder="Opcional — a observação já diz o endereço e o mês"
+            autoComplete="off"
           />
         </div>
       </div>

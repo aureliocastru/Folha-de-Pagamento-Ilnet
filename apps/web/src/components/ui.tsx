@@ -111,6 +111,7 @@ export function CampoDinheiro({
       onFocus={(e) =>
         e.target.setSelectionRange(e.target.value.length, e.target.value.length)
       }
+      autoComplete="off"
     />
   );
 }

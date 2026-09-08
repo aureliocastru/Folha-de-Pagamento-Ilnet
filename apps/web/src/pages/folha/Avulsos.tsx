@@ -571,6 +571,7 @@ export function Avulsos({
                   }}
                   className="campo"
                   placeholder="Confira no IXC antes de preencher o resto"
+                  autoComplete="off"
                 />
                 <button
                   onClick={() => consultar.mutate(form.cpfCnpj)}
@@ -588,6 +589,7 @@ export function Avulsos({
                 onChange={(e) => setForm({ ...form, nome: e.target.value })}
                 className="campo"
                 placeholder="Ex.: João da Silva"
+                autoComplete="off"
               />
               <p className="ajuda">
                 É com este nome que o fornecedor nasce no IXC — o mesmo que
@@ -615,6 +617,7 @@ export function Avulsos({
                 onChange={(e) => setForm({ ...form, chavePix: e.target.value })}
                 className="campo"
                 placeholder="Sem ela o banco não paga"
+                autoComplete="off"
               />
             </Campo>
             <Campo label="Tipo da chave">
@@ -667,6 +670,7 @@ export function Avulsos({
                 }
                 className="campo"
                 placeholder="O que essa pessoa faz, combinados…"
+                autoComplete="off"
               />
             </Campo>
           </div>
@@ -717,6 +721,7 @@ export function Avulsos({
           onChange={(e) => setBusca(e.target.value)}
           placeholder="Buscar no IXC por nome ou apelido"
           className="campo max-w-xs"
+          autoComplete="off"
         />
         <span className="text-xs text-tinta-400">
           {fornecedoresIxc.isFetching
@@ -1083,6 +1088,7 @@ function FormularioFornecedorIxc({
             className="campo"
             placeholder="Ex.: Deda pedreiro"
             autoFocus
+            autoComplete="off"
           />
           <p className="ajuda">
             É por aqui que a busca desta tela passa a achar a pessoa, além da
@@ -1448,6 +1454,7 @@ function FormularioPagamento({
               onChange={(e) => setTipoPagamento(e.target.value)}
               className="campo"
               placeholder="Pix"
+              autoComplete="off"
             />
             <datalist id="tipos-pagamento-avulso">
               <option value="Pix" />
@@ -1514,6 +1521,7 @@ function FormularioPagamento({
                 onChange={(e) => setDescricaoExtra(e.target.value)}
                 className="campo"
                 placeholder="Ex.: instalação"
+                autoComplete="off"
               />
             </Campo>
           </Parte>
@@ -1527,6 +1535,7 @@ function FormularioPagamento({
             onChange={(e) => setDescricao(e.target.value)}
             className="campo"
             placeholder="Ex.: troca do padrão de energia"
+            autoComplete="off"
           />
         </Campo>
         {forma === 'IXC' && (
@@ -1538,6 +1547,7 @@ function FormularioPagamento({
                   onChange={(e) => setChavePix(e.target.value)}
                   className="campo"
                   placeholder="Ex.: (99) 99230-0993"
+                  autoComplete="off"
                 />
                 {/* Cobrança com QR: o "copia e cola" lido substitui a chave
                     fixa da pessoa, porque é ele que carrega valor e destino

@@ -709,6 +709,7 @@ function LancamentoAMao({
             onChange={(e) => setNumeroDocumento(e.target.value)}
             className="campo"
             placeholder="Opcional"
+            autoComplete="off"
           />
         </div>
         <div className="sm:col-span-2">
@@ -718,6 +719,7 @@ function LancamentoAMao({
             onChange={(e) => setArquivoNome(e.target.value)}
             className="campo"
             placeholder="Ex.: ICMS DIFAL - 05.2026.pdf"
+            autoComplete="off"
           />
         </div>
       </div>
@@ -743,6 +745,7 @@ function LancamentoAMao({
                       alterarItem(i, { codigo: e.target.value || null })
                     }
                     className="campo w-24 py-1.5 text-xs"
+                    autoComplete="off"
                   />
                 </td>
                 <td className="td">
@@ -753,6 +756,7 @@ function LancamentoAMao({
                     }
                     className="campo py-1.5 text-xs"
                     placeholder="O que esse valor é"
+                    autoComplete="off"
                   />
                 </td>
                 <td className="td">

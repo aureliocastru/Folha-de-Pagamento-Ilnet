@@ -202,6 +202,7 @@ function EscolherPessoa({
         onChange={(e) => setBusca(e.target.value)}
         placeholder="Localizar por nome"
         aria-label="Localizar executante"
+        autoComplete="off"
       />
 
       <div className="mt-4 max-h-[45vh] overflow-y-auto rolagem-fina">

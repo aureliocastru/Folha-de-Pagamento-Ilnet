@@ -280,6 +280,7 @@ export function Inicio() {
           onChange={(e) => setBusca(e.target.value)}
           placeholder="Buscar por fornecedor, documento ou observação"
           className="campo max-w-md"
+          autoComplete="off"
         />
         <button
           onClick={() => setSoSemCategoria((s) => !s)}

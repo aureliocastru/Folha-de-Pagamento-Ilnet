@@ -345,6 +345,7 @@ export function ContasPagar() {
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar por nome, apelido ou CPF…"
             className="campo"
+            autoComplete="off"
           />
           {busca && (
             <button

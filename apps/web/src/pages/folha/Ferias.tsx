@@ -741,6 +741,7 @@ function JanelaMandarParaFerias({
             onChange={(e) => setObservacao(e.target.value)}
             className="campo"
             placeholder="Ex.: vendeu 10 dias, combinado com o setor"
+            autoComplete="off"
           />
         </div>
       </div>

@@ -687,6 +687,7 @@ function PassoServico(p: {
               className="campo"
               value={p.inicioEm}
               onChange={(e) => p.setInicioEm(e.target.value)}
+              autoComplete="off"
             />
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -759,6 +760,7 @@ function PassoRiscos({
         onChange={(e) => setBusca(e.target.value)}
         placeholder="Localizar risco"
         aria-label="Localizar risco"
+        autoComplete="off"
       />
 
       {marcados.length > 0 && (

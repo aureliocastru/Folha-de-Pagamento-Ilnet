@@ -722,6 +722,7 @@ export function EditarConta({
               onChange={(e) => setChavePix(e.target.value)}
               className="campo"
               placeholder="Em branco mantém a que está no IXC"
+              autoComplete="off"
             />
           </div>
         )}
@@ -738,6 +739,7 @@ export function EditarConta({
               className="campo num"
               inputMode="numeric"
               placeholder="Em branco mantém o que está no IXC"
+              autoComplete="off"
             />
           </div>
         )}
@@ -751,6 +753,7 @@ export function EditarConta({
             value={observacao}
             onChange={(e) => setObservacao(e.target.value)}
             className="campo"
+            autoComplete="off"
           />
         </div>
       </div>

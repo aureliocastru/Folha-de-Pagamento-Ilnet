@@ -201,6 +201,7 @@ export function FuncionarioDetalhe() {
               onChange={(e) => setApelido(e.target.value)}
               className="campo mb-1"
               placeholder="Como todo mundo chama"
+              autoComplete="off"
             />
             <p className="mb-4 text-xs leading-snug text-tinta-400">
               É por ele que a busca acha a pessoa — aqui, na folha e nos
@@ -214,6 +215,7 @@ export function FuncionarioDetalhe() {
               value={chavePix}
               onChange={(e) => setChavePix(e.target.value)}
               className="campo mb-4"
+              autoComplete="off"
             />
             <label className="rotulo" htmlFor="tipo-pix">
               Tipo da chave
@@ -612,6 +614,7 @@ function VariaveisMesBloco({
             value={observacao}
             onChange={(e) => setObservacao(e.target.value)}
             className="campo"
+            autoComplete="off"
           />
         </div>
         <button
@@ -979,6 +982,7 @@ function LancamentosBloco({
             onChange={(e) => setDescricao(e.target.value)}
             placeholder="Ex.: bônus técnico"
             className="campo"
+            autoComplete="off"
           />
         </div>
         <div>

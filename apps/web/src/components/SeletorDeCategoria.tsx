@@ -116,6 +116,7 @@ export function SeletorDeCategoria({
             }}
             placeholder="Nome da nova categoria"
             className="campo min-w-0 flex-1"
+            autoComplete="off"
           />
           <button
             type="button"

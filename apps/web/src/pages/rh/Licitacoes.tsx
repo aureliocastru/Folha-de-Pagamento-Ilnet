@@ -281,6 +281,7 @@ export function Licitacoes() {
               onChange={(e) => setNome(e.target.value)}
               placeholder="Ex.: Pregão Eletrônico 12/2026 — Prefeitura de Bacabal"
               className="campo"
+              autoComplete="off"
             />
             <p className="ajuda">
               É o nome da pasta. Ponha o que você usaria para achá-la daqui a um
@@ -750,6 +751,7 @@ export function Licitacoes() {
         placeholder="Procurar por nome, tipo ou arquivo — em todas as pastas"
         className="campo mt-3"
         aria-label="Procurar documento"
+        autoComplete="off"
       />
 
       <div className="mt-3 max-h-[50vh] overflow-y-auto rolagem-fina rounded-xl border border-tinta-100">

@@ -329,6 +329,7 @@ function NovoUsuario({
             onChange={(e) => setNome(e.target.value)}
             className="campo"
             placeholder="Ex.: Maria Souza"
+            autoComplete="off"
           />
         </div>
         <div>
@@ -538,6 +539,7 @@ function EditarLogin({
             onChange={(e) => setNome(e.target.value)}
             className="campo"
             autoFocus
+            autoComplete="off"
           />
         </div>
         <div>

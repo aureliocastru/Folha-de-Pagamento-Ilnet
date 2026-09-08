@@ -134,6 +134,7 @@ export function Aprs() {
           onChange={(e) => setBusca(e.target.value)}
           placeholder="Local, coordenador, número ou executante"
           aria-label="Localizar APR"
+          autoComplete="off"
         />
       </div>
 

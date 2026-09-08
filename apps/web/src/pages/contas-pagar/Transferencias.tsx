@@ -296,6 +296,7 @@ function Transferir() {
                   ? `Transferência de ${nomeDa(origemId)} para ${nomeDa(destinoId)} (${forma})`
                   : 'opcional — o que aparece no lançamento no IXC'
               }
+              autoComplete="off"
             />
             <p className="ajuda">
               Vazio, ele se escreve sozinho com as contas e a forma.

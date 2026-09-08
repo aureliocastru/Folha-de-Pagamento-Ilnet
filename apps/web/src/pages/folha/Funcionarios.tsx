@@ -135,6 +135,7 @@ export function Funcionarios() {
             onChange={(e) => setBusca(e.target.value)}
             placeholder="Buscar por nome, CPF ou e-mail…"
             className="campo min-w-[240px] flex-1"
+            autoComplete="off"
           />
           <select
             value={ativo}

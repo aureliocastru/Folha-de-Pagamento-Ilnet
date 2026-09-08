@@ -140,6 +140,7 @@ export function Grade({
                 }
                 placeholder="Escreva quais"
                 aria-label={`Detalhe de ${item.texto}`}
+                autoComplete="off"
               />
             )}
           </div>

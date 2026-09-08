@@ -1135,6 +1135,7 @@ export function Folha() {
             onChange={(e) => setBuscaPessoa(e.target.value)}
             placeholder="Buscar por nome ou apelido…"
             className="campo max-w-xs"
+            autoComplete="off"
           />
           {procurado && (
             <span className="text-xs text-tinta-400">
