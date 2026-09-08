@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   LeitorDeCodigo,
   type AlvoDaLeitura,
@@ -19,6 +19,7 @@ import {
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { useTermoAdiado } from '../../lib/busca';
+import { EMPRESA } from '../../lib/empresa';
 import { formatBRL, formatData } from '../../lib/format';
 import type { CategoriaDespesa } from '../../lib/types';
 
@@ -146,6 +147,77 @@ const CONTA_CONTABIL_DA_LUZ = '54';
 const CONTA_DE_PAGAMENTO_DA_LUZ = '14';
 /** O nome da categoria desta casa que estas contas recebem. */
 const CATEGORIA_DA_LUZ = /energia|luz/i;
+
+/**
+ * O CNPJ da casa, à mão para copiar.
+ *
+ * Aqui embaixo do título morava a explicação do que a tela faz. Explicação se
+ * lê uma vez; depois ela é parede. O que se usa nesta tela todo mês é outra
+ * coisa: para baixar a segunda via de cada endereço, o portal da concessionária
+ * pede o CNPJ da empresa, e ele estava sendo procurado fora do sistema onze
+ * vezes por mês.
+ *
+ * Sem máscara, porque o destino dele é um campo que se formata sozinho.
+ */
+function CnpjDaEmpresa() {
+  const [estado, setEstado] = useState<'parado' | 'copiado' | 'selecionado'>(
+    'parado',
+  );
+  const numeroRef = useRef<HTMLButtonElement>(null);
+
+  async function copiar() {
+    try {
+      await navigator.clipboard.writeText(EMPRESA.cnpj);
+      setEstado('copiado');
+    } catch {
+      /*
+       * Navegador que recusa a área de transferência — sem permissão, fora de
+       * HTTPS, ou dentro de um visualizador embutido.
+       *
+       * Dizer "Copiado!" aqui seria mentir para quem vai colar no portal e
+       * colar outra coisa. Em vez disso o número fica selecionado na tela: o
+       * Ctrl+C que a pessoa já ia dar resolve, e o aviso diz que é para dar.
+       */
+      const alvo = numeroRef.current;
+      if (alvo) {
+        const faixa = document.createRange();
+        faixa.selectNodeContents(alvo);
+        const selecao = window.getSelection();
+        selecao?.removeAllRanges();
+        selecao?.addRange(faixa);
+      }
+      setEstado('selecionado');
+    }
+    setTimeout(() => setEstado('parado'), 2500);
+  }
+
+  return (
+    <span className="mt-0.5 inline-flex items-center gap-2">
+      <span className="text-[13px] text-tinta-500">CNPJ</span>
+      <button
+        ref={numeroRef}
+        type="button"
+        onClick={copiar}
+        title="Copiar o CNPJ"
+        className="num rounded-lg border border-tinta-200 bg-papel px-2.5 py-1 text-[15px] font-semibold tracking-wide text-tinta-800 transition hover:border-brand-300 hover:bg-brand-500/5 hover:text-brand-700"
+      >
+        {EMPRESA.cnpj}
+      </button>
+      <span
+        aria-live="polite"
+        className={`text-xs font-semibold transition-opacity ${
+          estado === 'parado' ? 'opacity-0' : 'opacity-100'
+        } ${
+          estado === 'selecionado'
+            ? 'text-amber-600 dark:text-amber-400'
+            : 'text-emerald-600 dark:text-emerald-400'
+        }`}
+      >
+        {estado === 'selecionado' ? 'Selecionado — Ctrl+C' : 'Copiado!'}
+      </span>
+    </span>
+  );
+}
 
 /**
  * Contas Contrato — a conta de luz de cada endereço da empresa.
@@ -307,7 +379,7 @@ export function ContasContrato() {
       <CabecalhoPagina
         secao="Contas a pagar"
         titulo="Contas Contrato"
-        descricao="A conta de luz de cada endereço. O cadastro guarda o que não muda; o valor da fatura se digita quando ela chega, e vira conta a pagar no IXC num clique."
+        descricao={<CnpjDaEmpresa />}
         acoes={
           <>
             {/* O caminho de encher a tela na primeira vez: os endereços já são
