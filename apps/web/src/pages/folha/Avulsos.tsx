@@ -39,8 +39,6 @@ const CADASTRO_VAZIO = {
   nome: '',
   cpfCnpj: '',
   tipoPessoa: 'F',
-  telefone: '',
-  email: '',
   chavePix: '',
   tipoChavePix: '',
   valorPorVenda: '',
@@ -55,7 +53,17 @@ type Cadastro = typeof CADASTRO_VAZIO;
 type EscolhaFornecedor =
   | { tipo: 'PERGUNTAR'; consulta: ConsultaCpfCnpj }
   | { tipo: 'REUSAR'; idFornecedorIxc: number; semPix: boolean }
-  | { tipo: 'NOVO' };
+  /**
+   * `apesarDeExistir` é a diferença entre "não perguntamos nada" e "perguntamos
+   * e a pessoa disse para criar outro".
+   *
+   * O servidor só pula a busca por CPF/CNPJ quando recebe `fornecedorNovoNoIxc`
+   * ligado. Sem esta marca, o "Criar um novo mesmo assim" saía igual ao estado
+   * inicial: o cadastro ia com ela desligada, a busca do servidor achava o
+   * fornecedor que a tela acabara de mostrar, e vinculava a ele — desfazendo
+   * calada a única escolha que a tela tinha pedido.
+   */
+  | { tipo: 'NOVO'; apesarDeExistir?: boolean };
 
 function hojeISO(): string {
   return new Date().toISOString().slice(0, 10);
@@ -311,8 +319,9 @@ export function Avulsos({
         nome: form.nome,
         cpfCnpj: form.cpfCnpj || undefined,
         tipoPessoa: form.tipoPessoa,
-        telefone: form.telefone || undefined,
-        email: form.email || undefined,
+        // Telefone e e-mail saíram do formulário e não vão no corpo: o que já
+        // estiver gravado neles fica onde está, em vez de ser apagado por um
+        // campo que a tela deixou de perguntar.
         chavePix: form.chavePix || undefined,
         tipoChavePix: form.tipoChavePix,
         valorPorVenda: form.valorPorVenda || null,
@@ -322,7 +331,9 @@ export function Avulsos({
         ...(fornecedor.tipo === 'REUSAR'
           ? { idFornecedorIxc: fornecedor.idFornecedorIxc }
           : {}),
-        ...(fornecedor.tipo === 'NOVO' ? { fornecedorNovoNoIxc: false } : {}),
+        ...(fornecedor.tipo === 'NOVO'
+          ? { fornecedorNovoNoIxc: fornecedor.apesarDeExistir ?? false }
+          : {}),
       };
       return editando && editando !== 'novo'
         ? (
@@ -437,8 +448,6 @@ export function Avulsos({
       // — e o campo já nasce em "Física", então esperar que esteja vazio seria
       // esperar para sempre. O IXC ainda tem "Estrangeiro", que aqui não existe.
       tipoPessoa: f.tipoPessoa === 'J' ? 'J' : 'F',
-      telefone: atual.telefone || (f.telefone ?? ''),
-      email: atual.email || (f.email ?? ''),
       chavePix: atual.chavePix || (f.chavePix ?? ''),
       tipoChavePix: atual.tipoChavePix || (f.tipoChavePix ?? ''),
     }));
@@ -491,16 +500,16 @@ export function Avulsos({
   return (
     <Pagina>
       <CabecalhoPagina
-        secao="Pagamentos avulsos"
-        titulo="Pagar quem não é da folha"
+        secao={soValor ? 'Fornecedores' : 'Pagamentos avulsos'}
+        titulo={soValor ? 'Quem a empresa paga' : 'Pagar quem não é da folha'}
         descricao={
           soValor
-            ? 'Todo o cadastro de fornecedores do IXC, para pagar quem já existe lá sem cadastrar de novo. O pagamento sai como conta a pagar no IXC, do banco por PIX ou do caixa em dinheiro.'
+            ? 'Todo o cadastro de fornecedores do IXC, para pagar quem já existe lá sem cadastrar de novo. Quem não existe, cadastre aqui: o fornecedor nasce no IXC junto. O pagamento sai como conta a pagar lá, do banco por PIX ou do caixa em dinheiro.'
             : 'Todo o cadastro de fornecedores do IXC: mão de obra contratada, serviço pontual, comissão de venda. O pagamento se divide em serviço, venda e extra — a comissão entra no gráfico de vendas — e sai como conta a pagar no IXC, do banco por PIX ou do caixa em dinheiro.'
         }
         acoes={
           <button onClick={abrirNovo} className="btn btn-primario">
-            Cadastrar beneficiário
+            {soValor ? 'Cadastrar fornecedor' : 'Cadastrar beneficiário'}
           </button>
         }
       />
@@ -517,18 +526,29 @@ export function Avulsos({
 
       {editando && (
         <Bloco
-          titulo={editandoNovo ? 'Novo beneficiário' : 'Editar cadastro'}
+          titulo={
+            editandoNovo
+              ? soValor
+                ? 'Novo fornecedor'
+                : 'Novo beneficiário'
+              : 'Editar cadastro'
+          }
           className="surgir mb-6"
         >
+          {/*
+            Na ordem em que se cadastra, e não na em que os campos nasceram.
+
+            O documento vem antes do nome de propósito: é por ele que se
+            pergunta ao IXC se aquela pessoa já está lá, e, estando, o cadastro
+            de lá é reaproveitado com os dados bancários que já tem. Digitar o
+            nome primeiro é digitar o que talvez não precise ser digitado.
+
+            Telefone e e-mail saíram. O cadastro de fornecedor do IXC exige
+            razão social, tipo de pessoa, cidade e data — e aceita os dois
+            vazios; ficavam em branco em quase todo cadastro daqui. Campo que
+            ninguém preenche só faz o formulário parecer maior do que é.
+          */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <Campo label="Nome ou razão social" span2>
-              <input
-                value={form.nome}
-                onChange={(e) => setForm({ ...form, nome: e.target.value })}
-                className="campo"
-                placeholder="Ex.: João da Silva"
-              />
-            </Campo>
             <Campo label="Tipo de pessoa">
               <select
                 value={form.tipoPessoa}
@@ -541,7 +561,7 @@ export function Avulsos({
                 <option value="J">Jurídica</option>
               </select>
             </Campo>
-            <Campo label="CPF ou CNPJ">
+            <Campo label={form.tipoPessoa === 'J' ? 'CNPJ' : 'CPF'} span2>
               <div className="flex gap-2">
                 <input
                   value={form.cpfCnpj}
@@ -550,6 +570,7 @@ export function Avulsos({
                     setFornecedor({ tipo: 'NOVO' });
                   }}
                   className="campo"
+                  placeholder="Confira no IXC antes de preencher o resto"
                 />
                 <button
                   onClick={() => consultar.mutate(form.cpfCnpj)}
@@ -561,19 +582,17 @@ export function Avulsos({
                 </button>
               </div>
             </Campo>
-            <Campo label="Telefone">
+            <Campo label="Nome ou razão social" span2>
               <input
-                value={form.telefone}
-                onChange={(e) => setForm({ ...form, telefone: e.target.value })}
+                value={form.nome}
+                onChange={(e) => setForm({ ...form, nome: e.target.value })}
                 className="campo"
+                placeholder="Ex.: João da Silva"
               />
-            </Campo>
-            <Campo label="E-mail">
-              <input
-                value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
-                className="campo"
-              />
+              <p className="ajuda">
+                É com este nome que o fornecedor nasce no IXC — o mesmo que
+                aparece na conta a pagar.
+              </p>
             </Campo>
             <Campo label="Como costuma receber">
               <select
@@ -590,7 +609,7 @@ export function Avulsos({
                 <option value="EM_MAOS">Em mãos (sai do caixa)</option>
               </select>
             </Campo>
-            <Campo label="Chave PIX">
+            <Campo label="Chave PIX" span2>
               <input
                 value={form.chavePix}
                 onChange={(e) => setForm({ ...form, chavePix: e.target.value })}
@@ -614,14 +633,19 @@ export function Avulsos({
                 ))}
               </select>
             </Campo>
-            <Campo label="Valor por venda (R$)">
-              <CampoDinheiro
-                valor={form.valorPorVenda}
-                onChange={(v) => setForm({ ...form, valorPorVenda: v })}
-                placeholder="Se essa pessoa também vende"
-              />
-            </Campo>
-            <Campo label="Categoria dos pagamentos">
+            {/* Só na folha: é lá que o pagamento se divide em serviço, venda e
+                extra. No Contas a Pagar ele é de um valor só, e este campo
+                pedia um combinado que aquela tela nunca usa. */}
+            {!soValor && (
+              <Campo label="Valor por venda (R$)">
+                <CampoDinheiro
+                  valor={form.valorPorVenda}
+                  onChange={(v) => setForm({ ...form, valorPorVenda: v })}
+                  placeholder="Se essa pessoa também vende"
+                />
+              </Campo>
+            )}
+            <Campo label="Categoria dos pagamentos" span2>
               <SeletorDeCategoria
                 categorias={categorias.data}
                 value={form.categoriaId}
@@ -651,7 +675,9 @@ export function Avulsos({
             <EscolhaDoFornecedor
               fornecedor={fornecedor.consulta.fornecedor}
               onReusar={() => usarFornecedor(fornecedor.consulta.fornecedor!)}
-              onNovo={() => setFornecedor({ tipo: 'NOVO' })}
+              onNovo={() =>
+                setFornecedor({ tipo: 'NOVO', apesarDeExistir: true })
+              }
             />
           )}
           {fornecedor.tipo === 'REUSAR' && (

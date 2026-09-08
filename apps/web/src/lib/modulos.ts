@@ -106,10 +106,14 @@ const contasPagar: Modulo = {
     // empresa deve e o que ela já pagou.
     { to: 'pagos', label: 'Já pagos', icone: IconeMoeda },
     { to: 'dashboard', label: 'Dashboard', icone: IconePainel },
-    // Avulsos vive nos dois módulos, com os mesmos dados: é pagamento da
-    // empresa (daqui) e é lançamento que a folha usa (de lá). Duplicar o
-    // caminho custa menos que obrigar a trocar de módulo no meio do trabalho.
-    { to: 'avulsos', label: 'Pagamentos Avulsos', icone: IconeRecibo },
+    // A mesma tela dos avulsos da folha, com o nome que ela tem deste lado.
+    //
+    // Aqui ela lista o cadastro de fornecedores do IXC inteiro — três mil e
+    // duzentos —, e o que se faz nela é achar um deles e pagar. "Pagamentos
+    // Avulsos" é o nome do que ela faz na folha, onde a lista é a de cá e o
+    // pagamento se divide em serviço, venda e extra. Deste lado o nome é o do
+    // que se procura.
+    { to: 'avulsos', label: 'Fornecedores', icone: IconeRecibo },
     { to: 'recorrentes', label: 'Recorrentes', icone: IconeCalendarioVolta },
     // A conta de luz de cada endereço. Fica ao lado das recorrentes porque é
     // a mesma pergunta — o que se paga todo mês —, e separada porque o valor

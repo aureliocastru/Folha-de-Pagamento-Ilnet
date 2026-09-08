@@ -51,6 +51,8 @@ function montarServico(
     erroConsulta?: string;
     /** Por que a chave não subiu para os dados bancários do fornecedor. */
     motivoEspelho?: string;
+    /** Por que o IXC recusou criar o fornecedor no cadastro novo. */
+    erroFornecedorNovo?: string;
     /** null = o IXC criou a conta mas não devolveu o número do título. */
     idFnApagar?: number | null;
     /** A categoria escolhida não existe mais no cadastro daqui. */
@@ -137,6 +139,12 @@ function montarServico(
       return opts.fornecedorNoIxc ?? null;
     }),
     espelharPixNoIxc: jest.fn(async () => opts.motivoEspelho ?? null),
+    // O cadastro novo cria o fornecedor no IXC na hora — antes ele só nascia
+    // no primeiro pagamento.
+    garantirParaAvulso: jest.fn(async () => {
+      if (opts.erroFornecedorNovo) throw new Error(opts.erroFornecedorNovo);
+      return 14;
+    }),
   } as any;
 
   const caixa = {
@@ -532,15 +540,57 @@ describe('a chave PIX sobe para o fornecedor no IXC', () => {
     expect(r.avisoIxc).toBeNull();
   });
 
-  /** Quem ainda não tem fornecedor ganha um no primeiro pagamento. */
-  it('não tenta gravar em quem ainda não tem fornecedor no IXC', async () => {
+  /**
+   * O fornecedor nasce junto com o cadastro, e não no primeiro pagamento.
+   *
+   * Nesse meio-tempo o cadastro existia de um lado e não do outro: quem
+   * cadastrava não via nada acontecer no IXC, cadastrava de novo por lá para
+   * garantir, e o primeiro pagamento abria um terceiro.
+   */
+  it('cria o fornecedor no IXC junto com o cadastro', async () => {
     const { service, prisma, fornecedores } = montarServico();
     prisma.beneficiarioAvulso.create.mockResolvedValue({
       ...BENEFICIARIO,
       idFornecedorIxc: null,
+      chavePix: 'deda@pix',
     });
 
-    await service.criarBeneficiario({ nome: 'Deda Pedreiro' });
+    const r = await service.criarBeneficiario({ nome: 'Deda Pedreiro' });
+
+    expect(fornecedores.garantirParaAvulso).toHaveBeenCalled();
+    expect(r.beneficiario.idFornecedorIxc).toBe(14);
+    // E, tendo fornecedor desde já, a chave sobe agora para os dados
+    // bancários — antes não havia a quem subir e o espelho voltava calado.
+    expect(fornecedores.espelharPixNoIxc).toHaveBeenCalledWith(
+      14,
+      'deda@pix',
+      null,
+    );
+    expect(r.avisoIxc).toBeNull();
+  });
+
+  /**
+   * O IXC não é dono do cadastro: recusando, a pessoa fica cadastrada aqui do
+   * mesmo jeito e o motivo sobe para a tela. O primeiro pagamento tenta de
+   * novo sozinho, então o que se perde é a comodidade, nunca o cadastro que
+   * alguém acabou de digitar.
+   */
+  it('IXC recusando o fornecedor, o cadastro fica e a tela é avisada', async () => {
+    const { service, prisma, fornecedores } = montarServico({
+      erroFornecedorNovo: 'cidade obrigatória',
+    });
+    prisma.beneficiarioAvulso.create.mockResolvedValue({
+      ...BENEFICIARIO,
+      idFornecedorIxc: null,
+      chavePix: 'deda@pix',
+    });
+
+    const r = await service.criarBeneficiario({ nome: 'Deda Pedreiro' });
+
+    expect(r.beneficiario.chavePix).toBe('deda@pix');
+    expect(r.avisoIxc).toMatch(/cidade obrigatória/);
+    // Sem fornecedor não há onde gravar a chave — tentar seria erro em cima
+    // de erro, e a tela já contou o que houve.
     expect(fornecedores.espelharPixNoIxc).not.toHaveBeenCalled();
   });
 

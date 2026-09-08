@@ -339,12 +339,51 @@ export class AvulsosService {
     return { beneficiario, fornecedor, ixcIndisponivel };
   }
 
+  /**
+   * Cadastra e já cria o fornecedor no IXC.
+   *
+   * O fornecedor nascia só no primeiro pagamento. Nesse meio-tempo o cadastro
+   * existia de um lado e não do outro: quem cadastrava não via nada acontecer
+   * no IXC, cadastrava de novo por lá para garantir, e o primeiro pagamento
+   * abria um terceiro. Agora ele nasce junto, e a tela conta o que aconteceu.
+   *
+   * O IXC não é dono do cadastro: fora do ar ou recusando, a pessoa fica
+   * cadastrada aqui do mesmo jeito e o motivo sobe para a tela — o primeiro
+   * pagamento tenta de novo sozinho (`garantirParaAvulso`), então o que se
+   * perde é a comodidade, nunca o cadastro que alguém acabou de digitar.
+   *
+   * Como efeito de ter o fornecedor desde já, a chave PIX também sobe agora
+   * para a aba "Dados bancários" — antes o `espelharPix` daqui não tinha a
+   * quem subir e voltava calado.
+   */
   async criarBeneficiario(
     dto: CriarBeneficiarioDto,
   ): Promise<BeneficiarioSalvo> {
-    const beneficiario = await this.prisma.beneficiarioAvulso.create({
+    const criado = await this.prisma.beneficiarioAvulso.create({
       data: { ...this.dadosDoCadastro(dto), nome: dto.nome.trim() },
     });
+
+    let idFornecedorIxc: number | null = null;
+    try {
+      idFornecedorIxc = await this.fornecedores.garantirParaAvulso(criado.id);
+    } catch (err) {
+      const motivo = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `Beneficiário ${criado.id} ficou sem fornecedor no IXC: ${motivo}`,
+      );
+      return {
+        beneficiario: criado,
+        avisoIxc:
+          `O cadastro ficou salvo aqui, mas o IXC não criou o fornecedor: ` +
+          `${motivo}. Dá para pagar assim mesmo — o primeiro pagamento tenta ` +
+          'de novo.',
+      };
+    }
+
+    // O número do fornecedor acabou de ser gravado na linha; devolvê-lo junto
+    // evita reler o cadastro só para ter o que já se sabe. É ele que o
+    // `espelharPix` usa para achar onde subir a chave.
+    const beneficiario = { ...criado, idFornecedorIxc };
     return { beneficiario, avisoIxc: await this.espelharPix(beneficiario) };
   }
 
