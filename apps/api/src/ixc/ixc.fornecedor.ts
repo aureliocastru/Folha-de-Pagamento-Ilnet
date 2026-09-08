@@ -768,6 +768,8 @@ function vazio(valor: string | null): boolean {
  * `padrao` vem primeiro porque é como esta base a chama.
  */
 const CAMPOS_CONTA_PADRAO = [
+  // O nome desta base, achado no log de uma linha que já paga por PIX.
+  'conta_principal',
   'padrao',
   'preferencial',
   'conta_preferencial',
@@ -782,6 +784,8 @@ const CAMPOS_CONTA_PADRAO = [
  * Ele é obrigatório na tela do IXC, e é o que decide por onde o dinheiro sai.
  */
 const CAMPOS_FORMA_PREFERENCIAL = [
+  // O nome desta base, achado no log; o valor dela é "PIX", em maiúsculas.
+  'meio_pagamento_preferencial',
   'forma_pagamento',
   'pagar_preferencialmente_por',
   'forma_preferencial',
@@ -920,7 +924,7 @@ export function aprenderPreferenciaPix(
   const comPix = linhas.filter((l) => escolherPix(l).chavePix);
 
   const campoPadrao = colunaExistente(linhas, CAMPOS_CONTA_PADRAO, {
-    casa: /padrao|prefer/,
+    casa: /padrao|prefer|principal/,
     recusa: /pix|pag|forma|tipo/,
   });
   if (campoPadrao) {

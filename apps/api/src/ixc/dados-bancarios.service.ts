@@ -166,7 +166,26 @@ export class DadosBancariosService {
         ? (preferencia.codigosTipo[tipo] ?? tipo)
         : null;
 
+      const existente = doFornecedor.registros[0];
+
+      /*
+       * A linha vai inteira, e não só os campos que mudam.
+       *
+       * O IXC recusava com "Preencha banco!" — e existe nesta base linha válida
+       * com banco vazio. O que ele quer é a **coluna presente**, ainda que em
+       * branco: é o mesmo formato do exemplo de `fornecedor` no manual, que
+       * manda todas as colunas e deixa quase todas com "".
+       *
+       * De onde vêm os brancos importa. Editando, a base é a própria linha de
+       * quem se está gravando: mandar só a chave num PUT apagaria o banco, a
+       * agência e a conta de quem já os tinha — o IXC substitui o registro
+       * inteiro. Criando, a base é o molde, e dele só se aproveitam os códigos
+       * de uma ou duas letras ("C" de conta corrente, "0" de sem vendedor):
+       * são padrões do formulário, não dado de ninguém. Nome de titular,
+       * documento e chave são maiores que isso e nunca atravessam.
+       */
       corpo = {
+        ...esqueleto(existente ?? modelo, !existente),
         [campo]: String(idFornecedor),
         [destino.campoChave]: chave,
         ...preferencia.campos,
@@ -174,8 +193,6 @@ export class DadosBancariosService {
           ? { [destino.campoTipo]: codigoDoTipo }
           : {}),
       };
-
-      const existente = doFornecedor.registros[0];
       if (existente?.id) {
         await this.ixc.update(tabela, String(existente.id), corpo);
         this.logger.log(
@@ -390,6 +407,34 @@ function semSegredo(linha: Record<string, unknown>): Record<string, string> {
     // Código de controle é curto e não é dado de ninguém ("S", "Pix",
     // "CPF_CNPJ", "359"). O que passa disso é conteúdo.
     fora[chave] = s.length <= 12 && !/^\d{6,}$/.test(s) ? s : '«preenchido»';
+  }
+  return fora;
+}
+
+/**
+ * As colunas que a linha precisa carregar, com os valores que ela deve levar.
+ *
+ * O IXC quer o registro inteiro: coluna ausente é coluna "não preenchida", e
+ * ele recusa a gravação pedindo justamente a que faltou. Este é o esqueleto
+ * disso — todas as colunas da linha de referência, menos o `id`, que é dela e
+ * não do que se vai gravar.
+ *
+ * @param soOsCodigos true quando a referência é a linha **de outra pessoa**
+ * (o molde usado ao criar). Aí só atravessam valores de uma ou duas letras —
+ * "C" de conta corrente, "S", "0" —, que são padrões do formulário. Nome de
+ * titular, documento e chave são maiores que isso e viram branco.
+ * Editando é false: os valores são de quem se está gravando, e apagá-los seria
+ * perder o banco e a conta de alguém para escrever uma chave PIX.
+ */
+function esqueleto(
+  referencia: Record<string, unknown>,
+  soOsCodigos: boolean,
+): Record<string, unknown> {
+  const fora: Record<string, unknown> = {};
+  for (const [chave, valor] of Object.entries(referencia)) {
+    if (chave.toLowerCase() === 'id') continue;
+    const s = String(valor ?? '').trim();
+    fora[chave] = !soOsCodigos || s.length <= 2 ? s : '';
   }
   return fora;
 }
