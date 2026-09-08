@@ -803,6 +803,15 @@ export interface PreferenciaPix {
   campos: Record<string, string>;
   /** Rótulo do tipo de chave → código cru desta base, quando dá para aprender. */
   codigosTipo: Partial<Record<TipoChavePix, string>>;
+  /**
+   * O que se viu na coluna do "Pagar preferencialmente por", quando não deu
+   * para descobrir qual daqueles códigos é o "Pix".
+   *
+   * Existe para a mensagem de erro carregar o diagnóstico junto. O IXC recusa
+   * dizendo só "Preencha Pagar preferencialmente por", e sem isto a única saída
+   * era abrir o banco do cliente para ver que códigos aquela coluna usa.
+   */
+  formaDesconhecida: { campo: string; valores: string[] } | null;
 }
 
 /** O valor mais repetido de uma coluna, entre as linhas dadas. */
@@ -864,7 +873,9 @@ export function aprenderPreferenciaPix(
 ): PreferenciaPix {
   const campos: Record<string, string> = {};
   const codigosTipo: Partial<Record<TipoChavePix, string>> = {};
-  if (linhas.length === 0) return { campos, codigosTipo };
+  if (linhas.length === 0) {
+    return { campos, codigosTipo, formaDesconhecida: null };
+  }
 
   const comPix = linhas.filter((l) => escolherPix(l).chavePix);
 
@@ -881,9 +892,29 @@ export function aprenderPreferenciaPix(
         : (maisComum(comPix, campoPadrao) ?? 'S');
   }
 
+  /*
+   * O rádio "Pagar preferencialmente por", que é obrigatório lá.
+   *
+   * Primeiro o jeito seguro: copiar de quem já paga por PIX nesta base. Não
+   * havendo ninguém — base em que o grid só tem conta de boleto —, ainda dá
+   * para reconhecer sem inventar: um código que **diz** pix é pix. O que não se
+   * faz é escolher entre "B", "D" e "T" no chute; aí o campo fica de fora e os
+   * valores vistos sobem na mensagem de erro, que é o que fecha a questão numa
+   * ida só em vez de exigir abrir o banco do cliente.
+   */
   const campoForma = colunaExistente(linhas, CAMPOS_FORMA_PREFERENCIAL);
-  const formaDeQuemUsaPix = campoForma ? maisComum(comPix, campoForma) : null;
-  if (campoForma && formaDeQuemUsaPix) campos[campoForma] = formaDeQuemUsaPix;
+  let formaDesconhecida: PreferenciaPix['formaDesconhecida'] = null;
+  if (campoForma) {
+    const vistos = [
+      ...new Set(
+        linhas.map((l) => String(l[campoForma] ?? '').trim()).filter(Boolean),
+      ),
+    ];
+    const forma =
+      maisComum(comPix, campoForma) ?? vistos.find((v) => /pix/i.test(v));
+    if (forma) campos[campoForma] = forma;
+    else formaDesconhecida = { campo: campoForma, valores: vistos };
+  }
 
   // E o código de cada tipo de chave, na coluna do "Tipo de Pix preferencial":
   // a chave da própria linha diz que tipo aquele código representa.
@@ -899,5 +930,5 @@ export function aprenderPreferenciaPix(
     }
   }
 
-  return { campos, codigosTipo };
+  return { campos, codigosTipo, formaDesconhecida };
 }

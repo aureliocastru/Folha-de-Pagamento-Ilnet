@@ -188,8 +188,35 @@ export class DadosBancariosService {
       this.logger.warn(
         `Não gravei a chave PIX do fornecedor #${idFornecedor}: ${message}`,
       );
-      return { gravado: false, motivo: message };
+      return {
+        gravado: false,
+        motivo: message + (await this.pistaDaRecusa(tabela)),
+      };
     }
+  }
+
+  /**
+   * O que o IXC não diz quando recusa.
+   *
+   * A recusa vem como "Preencha Pagar preferencialmente por" — o rótulo da
+   * tela, sem o nome da coluna nem o código que ela espera. Sem esta pista, a
+   * única forma de descobrir qual daqueles códigos é o "Pix" seria abrir o
+   * banco do cliente; com ela, a própria mensagem de erro traz o que se viu na
+   * coluna, e um caso basta para acertar.
+   */
+  private async pistaDaRecusa(tabela: string): Promise<string> {
+    const desconhecida = this.preferencia?.formaDesconhecida;
+    if (!desconhecida) return '';
+
+    const lista = desconhecida.valores.length
+      ? desconhecida.valores.map((v) => `"${v}"`).join(', ')
+      : 'nenhum valor preenchido';
+    return (
+      ` — não achei nesta base nenhuma conta que já pague por PIX, então não ` +
+      `sei que código a coluna "${desconhecida.campo}" usa para "Pix". ` +
+      `Nela aparecem: ${lista}. Cadastre a chave à mão numa pessoa no IXC ` +
+      `(marcando "Pagar preferencialmente por: Pix") e a partir daí eu copio.`
+    );
   }
 
   /**
@@ -222,7 +249,11 @@ export class DadosBancariosService {
       this.logger.warn(
         `Não deu para aprender a preferência de pagamento em "${tabela}": ${message}`,
       );
-      this.preferencia = { campos: {}, codigosTipo: {} };
+      this.preferencia = {
+        campos: {},
+        codigosTipo: {},
+        formaDesconhecida: null,
+      };
     }
     return this.preferencia;
   }

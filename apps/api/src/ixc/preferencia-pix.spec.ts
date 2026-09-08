@@ -93,6 +93,44 @@ describe('aprender a preferência de pagamento por PIX', () => {
   });
 
   it('tabela vazia não trava nada', () => {
-    expect(aprenderPreferenciaPix([])).toEqual({ campos: {}, codigosTipo: {} });
+    expect(aprenderPreferenciaPix([])).toEqual({
+      campos: {},
+      codigosTipo: {},
+      formaDesconhecida: null,
+    });
+  });
+
+  /**
+   * Base em que o grid só tem conta de boleto: não há de onde copiar o código
+   * de "Pix", e o que sobe na mensagem de erro é o que se viu na coluna. É por
+   * essa lista que se descobre, numa ida só, qual daqueles códigos é o certo —
+   * o IXC recusa dizendo só "Preencha Pagar preferencialmente por".
+   */
+  it('não sabendo o código, diz que valores existem na coluna', () => {
+    const r = aprenderPreferenciaPix([
+      linha({ id: '1', forma_pagamento: 'B' }),
+      linha({ id: '2', forma_pagamento: 'T' }),
+      linha({ id: '3', forma_pagamento: 'B' }),
+    ]);
+
+    expect(r.campos.forma_pagamento).toBeUndefined();
+    expect(r.formaDesconhecida).toEqual({
+      campo: 'forma_pagamento',
+      valores: ['B', 'T'],
+    });
+  });
+
+  /**
+   * Um código que **diz** pix é pix — reconhecer não é inventar. Vale para a
+   * base que guarda o rótulo em vez de uma letra.
+   */
+  it('reconhece o código que se chama "Pix" mesmo sem linha com chave', () => {
+    const r = aprenderPreferenciaPix([
+      linha({ id: '1', forma_pagamento: 'Boleto' }),
+      linha({ id: '2', forma_pagamento: 'PIX' }),
+    ]);
+
+    expect(r.campos.forma_pagamento).toBe('PIX');
+    expect(r.formaDesconhecida).toBeNull();
   });
 });

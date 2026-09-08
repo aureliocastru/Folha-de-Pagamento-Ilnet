@@ -175,6 +175,7 @@ export class FornecedorService {
   async garantirParaAvulso(beneficiarioId: string): Promise<number> {
     const ben = await this.prisma.beneficiarioAvulso.findUnique({
       where: { id: beneficiarioId },
+      include: { categoria: { select: { nome: true } } },
     });
     if (!ben) throw new NotFoundException('Beneficiário não encontrado');
     if (ben.idFornecedorIxc) return ben.idFornecedorIxc;
@@ -187,7 +188,19 @@ export class FornecedorService {
       cidadeId: ben.cidadeIxc ?? cfg.cidadePadraoId,
       email: ben.email,
       celular: ben.telefone,
-      obs: 'Beneficiário avulso — pagamento',
+      /*
+       * A Obs do fornecedor no IXC é a categoria escolhida aqui.
+       *
+       * Ela dizia "Beneficiário avulso — pagamento", que é a mesma frase em
+       * três mil cadastros: não separa ninguém de ninguém, e ocupa o único
+       * campo livre que quem abre o cadastro no IXC lê. A categoria é o que
+       * responde a pergunta que se faz ali — "de que é esse fornecedor?" —, e é
+       * a mesma etiqueta que o painel do Contas a Pagar usa deste lado.
+       *
+       * Sem categoria escolhida, a frase antiga volta: melhor dizer de onde o
+       * cadastro veio do que deixar o campo em branco.
+       */
+      obs: ben.categoria?.nome ?? 'Beneficiário avulso — pagamento',
       // Quem cadastrou foi avisado de que já existia fornecedor com aquele
       // documento e mesmo assim quis um novo: aqui a busca não roda.
       semReuso: ben.fornecedorNovoNoIxc,
