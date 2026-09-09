@@ -1,0 +1,93 @@
+import { Transform } from 'class-transformer';
+import {
+  IsBoolean,
+  IsInt,
+  IsISO8601,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  Min,
+  MinLength,
+} from 'class-validator';
+
+const textoOuNulo = ({ value }: { value: unknown }) => {
+  if (typeof value !== 'string') return value;
+  const limpo = value.trim();
+  return limpo === '' ? null : limpo;
+};
+
+const texto = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim() : value;
+
+const inteiroOuNulo = ({ value }: { value: unknown }) => {
+  if (value === '' || value === null || value === undefined) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.trunc(n) : value;
+};
+
+export class CriarFerramentaDto {
+  @Transform(texto)
+  @IsString()
+  @MinLength(2, { message: 'O nome da ferramenta é curto demais.' })
+  @MaxLength(120)
+  nome!: string;
+
+  /** A etiqueta de patrimônio. É ela que separa duas máquinas de fusão iguais. */
+  @IsOptional() @Transform(textoOuNulo) @IsString() @MaxLength(40)
+  patrimonio?: string | null;
+
+  @IsOptional() @Transform(textoOuNulo) @IsString() @MaxLength(2000)
+  descricao?: string | null;
+
+  /** O produto correspondente no IXC, quando ela também é item de estoque lá. */
+  @IsOptional() @Transform(inteiroOuNulo) @IsInt() @Min(1)
+  ixcProdutoId?: number | null;
+}
+
+export class AtualizarFerramentaDto {
+  @IsOptional()
+  @Transform(texto)
+  @IsString()
+  @MinLength(2, { message: 'O nome da ferramenta é curto demais.' })
+  @MaxLength(120)
+  nome?: string;
+
+  @IsOptional() @Transform(textoOuNulo) @IsString() @MaxLength(40)
+  patrimonio?: string | null;
+
+  @IsOptional() @Transform(textoOuNulo) @IsString() @MaxLength(2000)
+  descricao?: string | null;
+
+  @IsOptional() @Transform(inteiroOuNulo) @IsInt() @Min(1)
+  ixcProdutoId?: number | null;
+
+  @IsOptional() @IsBoolean() ativa?: boolean;
+}
+
+/**
+ * Entregar a ferramenta a alguém.
+ *
+ * `funcionarioId` e `quem` não são alternativas excludentes: com o funcionário,
+ * o nome dele é escrito na linha do mesmo jeito — é o que sobra quando o
+ * cadastro muda. Sem ele, o `quem` é o único registro, e é o que permite
+ * entregar ao terceirizado que não está em cadastro nenhum.
+ */
+export class EmprestarDto {
+  @IsOptional() @IsUUID() funcionarioId?: string;
+
+  @IsOptional() @Transform(texto) @IsString() @MaxLength(120)
+  quem?: string;
+
+  /** Para quando ficou de voltar (AAAA-MM-DD). Vazio = ninguém combinou dia. */
+  @IsOptional() @IsISO8601() previsaoDeVolta?: string;
+
+  @IsOptional() @Transform(textoOuNulo) @IsString() @MaxLength(2000)
+  observacao?: string | null;
+}
+
+export class DevolverDto {
+  /** Em que estado ela voltou. */
+  @IsOptional() @Transform(textoOuNulo) @IsString() @MaxLength(2000)
+  observacao?: string | null;
+}

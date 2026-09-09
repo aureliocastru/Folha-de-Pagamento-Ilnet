@@ -3,7 +3,7 @@ import {
   IconeCalculo,
   IconeCalendarioVolta,
   IconeCapacete,
-  IconeCarrinho,
+  IconeChaveInglesa,
   IconeChave,
   IconeChecklist,
   IconeDia,
@@ -16,6 +16,7 @@ import {
   IconePainel,
   IconePasta,
   IconePessoas,
+  IconePrateleira,
   IconePrecos,
   IconePredio,
   IconeRecibo,
@@ -215,30 +216,37 @@ const rh: Modulo = {
 };
 
 /**
- * Cotações de preços — o catálogo do que a casa compra.
+ * Almoxarifado — o material da casa, as ferramentas e o que cada coisa custa.
  *
- * Drop, roteador, ONU, OLT, conector: o preço de cada um em cada fornecedor,
- * para que a hora de fazer o pedido já comece sabendo onde está mais barato.
+ * Três perguntas que se fazem no mesmo lugar e que ninguém tinha onde
+ * responder:
  *
- * **Nada aqui vem do IXC**, e é de propósito. O cadastro de fornecedores de lá
- * responde "para quem a empresa já pagou?" — três mil e duzentos nomes, entre
- * prestador de serviço, concessionária e imposto. A pergunta deste módulo é
- * outra e a lista é curta: quem tem preço de material para dar. Fornecedor e
- * produto se cadastram aqui, um por um.
+ * - **quanto temos, e onde?** O estoque de material vem do IXC, que já o
+ *   controla com entrada de compra, ordem de serviço e transferência entre
+ *   almoxarifados. Aqui ele é **só lido** — o que esta tela faz é o que o IXC
+ *   faz mal: dizer de relance o que está acabando.
+ * - **quem está com a máquina de fusão?** Essa o IXC não responde: o que
+ *   existe lá é comodato de cliente e produto consumido em OS. O caderno de
+ *   ferramenta é registro desta casa, e ferramenta não é material — ela sai e
+ *   **volta**.
+ * - **onde está mais barato?** As cotações, que nasceram como módulo próprio e
+ *   viraram uma aba daqui. O caminho antigo (`/cotacoes`) continua valendo.
  */
-const cotacoes: Modulo = {
-  id: 'cotacoes',
-  nome: 'Cotações de Preços',
+const almoxarifado: Modulo = {
+  id: 'almoxarifado',
+  nome: 'Almoxarifado',
   descricao:
-    'O preço de cada material em cada fornecedor: onde o drop, a ONU e o ' +
-    'roteador estão mais baratos hoje',
-  base: '/cotacoes',
-  inicio: 'precos',
-  icone: IconeCarrinho,
+    'O estoque de material, as ferramentas que saem e voltam, e o preço de ' +
+    'cada coisa em cada fornecedor',
+  base: '/almoxarifado',
+  inicio: 'estoque',
+  icone: IconePrateleira,
   tom: 'bg-violet-500/15 text-violet-300',
   papeis: ['ADMIN', 'RH', 'VISUALIZADOR'],
   menu: [
-    { to: 'precos', label: 'Preços', icone: IconePrecos },
+    { to: 'estoque', label: 'Estoque', icone: IconeCaixa },
+    { to: 'ferramentas', label: 'Ferramentas', icone: IconeChaveInglesa },
+    { to: 'precos', label: 'Cotações de Preços', icone: IconePrecos },
     { to: 'fornecedores', label: 'Fornecedores', icone: IconePredio },
   ],
 };
@@ -247,14 +255,14 @@ const cotacoes: Modulo = {
 export const MODULOS: Modulo[] = [
   folha,
   contasPagar,
-  cotacoes,
+  almoxarifado,
   rh,
   seguranca,
 ];
 
 export const MODULO_FOLHA = folha;
 export const MODULO_CONTAS_PAGAR = contasPagar;
-export const MODULO_COTACOES = cotacoes;
+export const MODULO_ALMOXARIFADO = almoxarifado;
 export const MODULO_RH = rh;
 export const MODULO_SEGURANCA = seguranca;
 

@@ -411,3 +411,26 @@ export function IconePrecos({ className }: IconeProps) {
     </svg>
   );
 }
+
+/** Prateleira de almoxarifado: o módulo do estoque e das ferramentas. */
+export function IconePrateleira({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M3 4h18" />
+      <path d="M3 12h18" />
+      <path d="M3 20h18" />
+      <rect x="6" y="6.5" width="5" height="5.5" rx="0.6" />
+      <rect x="13" y="8.5" width="4" height="3.5" rx="0.6" />
+      <rect x="8" y="15" width="6" height="5" rx="0.6" />
+    </svg>
+  );
+}
+
+/** Chave inglesa: as ferramentas que saem e voltam. */
+export function IconeChaveInglesa({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M15.2 4.5a4.6 4.6 0 0 0-5.9 5.9L4 15.7a1.6 1.6 0 0 0 0 2.3l2 2a1.6 1.6 0 0 0 2.3 0l5.3-5.3a4.6 4.6 0 0 0 5.9-5.9l-2.8 2.8-2.6-.7-.7-2.6z" />
+    </svg>
+  );
+}

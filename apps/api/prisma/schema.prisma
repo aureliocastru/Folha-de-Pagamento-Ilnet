@@ -145,6 +145,8 @@ model Funcionario {
   ferias        FeriasMarcada[]
   pastaRh       PastaRh?
   aprsAssinadas ExecutanteApr[]
+  /// As ferramentas que esta pessoa pegou no almoxarifado.
+  ferramentas   EmprestimoDeFerramenta[]
 
   @@index([ativo])
   @@index([nome])
@@ -2375,4 +2377,97 @@ model PrecoDeProduto {
   @@index([produtoId, fornecedorId, data])
   @@index([fornecedorId])
   @@map("precos_de_produto")
+}
+
+// ---------------------------------------------------------------------------
+// Almoxarifado — as ferramentas da casa e o caderno de quem as levou
+// ---------------------------------------------------------------------------
+
+/// Uma ferramenta: a máquina de fusão, o alicate de crimpar, a furadeira.
+///
+/// **Ferramenta não é material**, e é por isso que ela tem tabela própria em
+/// vez de ser mais uma linha de estoque. Cem metros de drop saem e acabaram —
+/// a pergunta é "quanto sobrou". A máquina de fusão sai e **tem de voltar**, e
+/// a pergunta é outra: "quem está com ela?". Saldo não responde isso; um
+/// caderno de saída e volta responde.
+///
+/// O estoque de material continua sendo o do IXC, e esta casa só o lê. O
+/// caderno de ferramenta é daqui porque o IXC não tem onde guardá-lo: o que
+/// existe lá é comodato de cliente e produto de ordem de serviço, e nenhum dos
+/// dois é a chave de fenda que o Anderson levou na sexta.
+model Ferramenta {
+  id String @id @default(uuid())
+
+  nome String
+
+  /// O número da etiqueta de patrimônio, quando existe.
+  ///
+  /// Único, e é o que distingue duas máquinas de fusão iguais. Sem ele elas
+  /// são a mesma linha, e "quem está com a máquina de fusão" volta a não ter
+  /// resposta quando a casa tem duas.
+  patrimonio String? @unique
+
+  descricao String?
+
+  /// O produto correspondente no IXC, quando a ferramenta também é item de
+  /// estoque lá. Só para achar de que item se trata — o saldo continua sendo
+  /// de lá, e o caderno de empréstimo continua sendo daqui.
+  ixcProdutoId Int? @map("ixc_produto_id")
+
+  /// Baixada: quebrou, sumiu, foi vendida. Some da lista de emprestar, e o
+  /// histórico de quem a levou continua de pé.
+  ativa Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  emprestimos EmprestimoDeFerramenta[]
+
+  @@index([ativa])
+  @@map("ferramentas")
+}
+
+/// Uma saída de ferramenta: quem levou, quando, e quando devolveu.
+///
+/// `voltouEm` nulo é o empréstimo aberto — a ferramenta está na rua. Só pode
+/// haver um por ferramenta, e quem garante isso é um índice único parcial
+/// criado na migração (o Prisma não declara índice com `WHERE`). Sem ele, dois
+/// cliques em "Emprestar" poriam a mesma máquina de fusão na mão de duas
+/// pessoas, e a tela passaria a mostrar a última — a primeira sumiria sem
+/// ninguém notar.
+model EmprestimoDeFerramenta {
+  id String @id @default(uuid())
+
+  ferramenta   Ferramenta @relation(fields: [ferramentaId], references: [id], onDelete: Cascade)
+  ferramentaId String     @map("ferramenta_id")
+
+  /// Quem levou, no cadastro — quando é gente da casa.
+  funcionario   Funcionario? @relation(fields: [funcionarioId], references: [id], onDelete: SetNull)
+  funcionarioId String?      @map("funcionario_id")
+
+  /// O nome escrito, sempre, mesmo havendo funcionário.
+  ///
+  /// É o que sobra quando o cadastro muda: quem devolveu a ferramenta em março
+  /// continua tendo devolvido, ainda que o login tenha sido apagado depois. E é
+  /// o que permite emprestar ao terceirizado que não está no cadastro nenhum.
+  quem String
+
+  saiuEm          DateTime  @default(now()) @map("saiu_em")
+  /// Para quando ficou de voltar. Vazio = ninguém combinou dia.
+  previsaoDeVolta DateTime? @map("previsao_de_volta") @db.Date
+  /// Nulo = ainda está na rua.
+  voltouEm        DateTime? @map("voltou_em")
+
+  /// Para onde foi, ou em que estado voltou.
+  observacao String?
+
+  registradoPor String? @map("registrado_por")
+  recebidoPor   String? @map("recebido_por")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([ferramentaId, voltouEm])
+  @@index([funcionarioId])
+  @@map("emprestimos_de_ferramenta")
 }

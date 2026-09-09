@@ -3,7 +3,7 @@ import { Layout } from './components/Layout';
 import { useAuth } from './lib/auth';
 import {
   MODULO_CONTAS_PAGAR,
-  MODULO_COTACOES,
+  MODULO_ALMOXARIFADO,
   MODULO_FOLHA,
   MODULO_RH,
   MODULO_SEGURANCA,
@@ -16,8 +16,10 @@ import { Assinar } from './pages/Assinar';
 import { Login } from './pages/Login';
 import { Modulos } from './pages/Modulos';
 import { Inicio as ContasPagarInicio } from './pages/contas-pagar/Inicio';
-import { Fornecedores as FornecedoresDeCotacao } from './pages/cotacoes/Fornecedores';
-import { Precos } from './pages/cotacoes/Precos';
+import { Estoque } from './pages/almoxarifado/Estoque';
+import { Ferramentas } from './pages/almoxarifado/Ferramentas';
+import { Fornecedores as FornecedoresDeCotacao } from './pages/almoxarifado/Fornecedores';
+import { Precos } from './pages/almoxarifado/Precos';
 import { Categorias as ContasPagarCategorias } from './pages/contas-pagar/Categorias';
 import { Dashboard as ContasPagarDashboard } from './pages/contas-pagar/Dashboard';
 import { FechamentoCaixa } from './pages/contas-pagar/FechamentoCaixa';
@@ -174,25 +176,42 @@ export default function App() {
         <Route path="transferencias" element={<Transferencias />} />
       </Route>
 
-      {/* Cotações de Preços — o catálogo do que a casa compra.
+      {/* Almoxarifado — o material, as ferramentas e o que cada coisa custa.
 
-          Nada aqui fala com o IXC, e é de propósito: o fornecedor de lá é quem
-          já recebeu dinheiro da empresa, e a pergunta deste módulo é outra —
-          quem tem preço de drop, de ONU, de roteador para dar. Fornecedor e
-          produto se cadastram aqui, um por um. */}
+          O estoque vem do IXC e só se lê: ele já é controlado lá, e um segundo
+          lugar que escrevesse criaria dois saldos para a mesma prateleira. O
+          caderno de ferramentas é daqui — o IXC não tem onde guardar "quem
+          está com a máquina de fusão". */}
       <Route
-        path="/cotacoes"
+        path="/almoxarifado"
         element={
           <Protegida>
-            <Layout modulo={MODULO_COTACOES} />
+            <Layout modulo={MODULO_ALMOXARIFADO} />
           </Protegida>
         }
       >
-        <Route index element={<Navigate to="precos" replace />} />
+        <Route index element={<Navigate to="estoque" replace />} />
+        <Route path="estoque" element={<Estoque />} />
+        <Route path="ferramentas" element={<Ferramentas />} />
         <Route path="precos" element={<Precos />} />
         <Route path="fornecedores" element={<FornecedoresDeCotacao />} />
         <Route path="minha-conta" element={<MinhaConta />} />
       </Route>
+
+      {/* O endereço antigo das cotações continua valendo.
+
+          Elas nasceram como módulo próprio e viraram uma aba do almoxarifado.
+          Quem tem a tela no favorito ou aberta numa aba não pode cair num "não
+          encontrado" por causa de uma troca de nome nossa — é a mesma regra do
+          `/contas-pagar/painel`. */}
+      <Route
+        path="/cotacoes/fornecedores"
+        element={<Navigate to="/almoxarifado/fornecedores" replace />}
+      />
+      <Route
+        path="/cotacoes/*"
+        element={<Navigate to="/almoxarifado/precos" replace />}
+      />
 
       {/* RH — a estante de documentos. Quem recusa de verdade é a API, que
           exige ADMIN ou RH em cada rota; aqui o módulo só some do menu de quem

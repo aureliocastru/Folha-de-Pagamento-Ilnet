@@ -13,7 +13,7 @@ export const MODULOS = [
   'contas-pagar',
   'rh',
   'seguranca',
-  'cotacoes',
+  'almoxarifado',
 ] as const;
 export type ModuloId = (typeof MODULOS)[number];
 
@@ -49,9 +49,12 @@ const MODULO_DA_ROTA: Array<[string, ModuloId[]]> = [
 
   ['apr', ['seguranca']],
 
-  // O catálogo de preços. Prefixo único de propósito: rota nova deste módulo
-  // nasce coberta sem passar por aqui.
-  ['cotacoes', ['cotacoes']],
+  // O almoxarifado: o estoque lido do IXC, o caderno de ferramentas e as
+  // cotações de preços. Dois prefixos e um módulo só — as cotações nasceram
+  // como módulo próprio e viraram uma aba daqui, e trocar o caminho delas
+  // quebraria o favorito de quem já as usa.
+  ['almoxarifado', ['almoxarifado']],
+  ['cotacoes', ['almoxarifado']],
 
   ['contas-abertas', ['contas-pagar']],
   ['pagamentos-feitos', ['contas-pagar']],

@@ -2075,3 +2075,84 @@ export interface ProdutoCotado {
 export interface ProdutoCotadoDetalhado extends ProdutoCotado {
   historico: CotacaoDoHistorico[];
 }
+
+// ---------------------------------------------------------------------------
+// Almoxarifado — o estoque lido do IXC e o caderno de ferramentas
+// ---------------------------------------------------------------------------
+
+/** Quanto há de um produto num almoxarifado. */
+export interface SaldoNoAlmoxarifado {
+  almoxId: number;
+  almoxarifado: string;
+  saldo: number;
+  /** Do cadastro de mínimo/máximo do IXC. Null = ninguém definiu. */
+  minimo: number | null;
+  maximo: number | null;
+  abaixoDoMinimo: boolean;
+}
+
+/** Um item do estoque, com o saldo de cada almoxarifado. */
+export interface ItemDeEstoque {
+  produtoId: number;
+  descricao: string;
+  unidade: string | null;
+  precoBase: number | null;
+  ativo: boolean;
+  /** Um por almoxarifado, do maior saldo para o menor. */
+  saldos: SaldoNoAlmoxarifado[];
+  /** A soma de todos os almoxarifados — o "quanto a casa tem". */
+  total: number;
+  abaixoDoMinimo: boolean;
+  semNenhum: boolean;
+}
+
+export interface EstoqueNaTela {
+  itens: ItemDeEstoque[];
+  resumo: {
+    itens: number;
+    abaixoDoMinimo: number;
+    semNenhum: number;
+    /** Quanto vale o que está guardado, pelo preço base do cadastro do IXC. */
+    valorEmEstoque: number;
+  };
+  /** Quando o IXC foi lido — a tela diz isso, porque o dado é de lá. */
+  lidoEm: string;
+  almoxarifados: Array<{ id: number; nome: string }>;
+}
+
+/** Uma saída de ferramenta: quem levou, quando, e quando devolveu. */
+export interface EmprestimoDeFerramenta {
+  id: string;
+  quem: string;
+  funcionarioId: string | null;
+  saiuEm: string;
+  previsaoDeVolta: string | null;
+  /** Null = ainda está na rua. */
+  voltouEm: string | null;
+  observacao: string | null;
+  registradoPor: string | null;
+  recebidoPor: string | null;
+  /** Está fora e o dia combinado já passou. */
+  atrasado: boolean;
+  diasFora: number;
+}
+
+/** Uma ferramenta e a resposta que a tela existe para dar: com quem ela está. */
+export interface Ferramenta {
+  id: string;
+  nome: string;
+  patrimonio: string | null;
+  descricao: string | null;
+  ixcProdutoId: number | null;
+  ativa: boolean;
+  /** Null = está no almoxarifado. */
+  comQuem: EmprestimoDeFerramenta | null;
+  saidas: number;
+}
+
+/** Quem pode levar uma ferramenta. Só o que o campo precisa. */
+export interface PessoaDoAlmoxarifado {
+  id: string;
+  nome: string;
+  apelido: string | null;
+}
