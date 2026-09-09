@@ -11,6 +11,17 @@ import type { CategoriaDespesa } from '../lib/types';
  */
 const NOVA = '__nova';
 
+/**
+ * Prefixo da opção "— sem subcategoria —", que escolhe a própria mãe.
+ *
+ * Ela precisa de um valor **diferente** do da linha da mãe logo acima, embora
+ * as duas escolham a mesma categoria. Com o mesmo valor, clicar nela cairia no
+ * ramo que abre o grupo — o mesmo id, a mesma reação — e a opção não faria
+ * nada além de reabrir a lista que já estava aberta. O prefixo é o que separa
+ * "abre este grupo" de "para nesta categoria".
+ */
+const MAE = '__mae:';
+
 interface Props {
   categorias: CategoriaDespesa[] | undefined;
   value: string;
@@ -186,119 +197,148 @@ export function SeletorDeCategoria({
     onChange(id);
   }
 
+  /** O recuo das filhas. Espaço fixo: o normal seria colapsado pelo HTML. */
+  const RECUO = '\u2007\u2007\u2007';
+
+  /*
+   * O nível de cima, em ordem alfabética, sem a mãe que está aberta.
+   *
+   * Soltas e mães na mesma lista: para quem procura, "Seguro" e "Custo com
+   * Pessoal" são a mesma coisa — um nome do nível de cima. Qual das duas abre
+   * mais coisa é detalhe do cadastro, e o negrito já conta isso.
+   */
+  const doTopo = [
+    ...soltas.map((c) => ({ id: c.id, nome: c.nome, ehGrupo: false })),
+    ...grupos.map((g) => ({ id: g.mae.id, nome: g.mae.nome, ehGrupo: true })),
+  ]
+    .filter((c) => c.id !== grupo?.mae.id)
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+
+  /*
+   * O que o campo mostra fechado.
+   *
+   * Quase sempre é a categoria escolhida — inclusive a subcategoria, que é o
+   * ponto: o campo tem de dizer "Fazenda", e não "Expansão", ou quem confere a
+   * ficha do débito não vê o que foi classificado.
+   *
+   * A exceção é o instante em que se abriu um grupo e ainda não se escolheu
+   * dentro dele. Aí a categoria antiga é de outro grupo e não está na lista —
+   * as filhas dela estão recolhidas —, e um `value` que não bate com nenhuma
+   * opção deixaria o campo em branco no meio do gesto. Nesse instante ele
+   * mostra a mãe que se acabou de abrir, que é onde a pessoa está.
+   */
+  const valorAparece =
+    !grupo ||
+    value === grupo.mae.id ||
+    grupo.filhas.some((f) => f.id === value);
+  const selecionado = valorAparece ? value : grupoAtivo;
+
   return (
     /*
-     * Duas listas em vez de uma.
+     * Uma lista só, que se reorganiza.
      *
-     * A lista única mostrava as trinta e poucas categorias de uma vez, com as
-     * mães em negrito e as filhas recuadas por baixo. Cabia na tela do
-     * cadastro, onde se lê a árvore inteira; não cabia aqui, que é onde se
-     * **procura um nome**: rolar trinta linhas atrás de "Confraternização" no
-     * meio de sete grupos custava mais que a classificação valia, e o débito
+     * A lista original mostrava as trinta e poucas categorias de uma vez —
+     * sete grupos e as filhas de todos eles, abertos ao mesmo tempo. Cabia na
+     * tela do cadastro, onde se lê a árvore inteira; não cabia aqui, que é
+     * onde se **procura um nome**: rolar trinta linhas atrás de
+     * "Confraternização" custava mais que a classificação valia, e o débito
      * ficava sem etiqueta — que é o que o dashboard não sabe somar.
      *
-     * Agora a primeira lista tem só o nível de cima, sete ou oito nomes, e a
-     * segunda só aparece quando o grupo escolhido tem o que abrir.
+     * Aqui ela mostra só o nível de cima, oito ou nove nomes. Escolhida uma
+     * mãe, **ela sobe para o topo** com as filhas dela embaixo, e as outras
+     * mães continuam abaixo delas: o passo seguinte fica na primeira linha da
+     * lista, e o resto continua ao alcance sem uma segunda ida a lugar nenhum.
+     *
+     * As mães vão em negrito. É o que diz, sem palavra nenhuma, quais linhas
+     * abrem mais coisa e quais já são a escolha final.
      */
-    <div className="min-w-0 space-y-2">
-      <select
-        id={id}
-        className={className}
-        title={title}
-        value={grupoAtivo}
-        disabled={carregando || desabilitado}
-        onChange={(e) => {
-          const escolhido = e.target.value;
+    <select
+      id={id}
+      className={className}
+      title={title}
+      value={selecionado}
+      disabled={carregando || desabilitado}
+      onChange={(e) => {
+        const escolhido = e.target.value;
 
-          if (escolhido === NOVA) {
-            setCriando(true);
-            return;
-          }
+        if (escolhido === NOVA) {
+          setCriando(true);
+          return;
+        }
 
-          const abriu = grupos.find((g) => g.mae.id === escolhido);
-          if (abriu) {
-            /*
-             * Grupo escolhido não vira classificação: ele abre a segunda
-             * lista e espera.
-             *
-             * Nada é emitido aqui de propósito. Metade das telas que usam este
-             * campo salva no `onChange` — a ficha do débito classifica a conta
-             * no ato —, e mandar o id da mãe gravaria uma etiqueta que a
-             * pessoa não escolheu. Mandar vazio seria pior: apagaria a
-             * classificação que já existia no meio de uma troca que ela ainda
-             * não terminou.
-             *
-             * Quem quer mesmo a mãe sem subcategoria a encontra na segunda
-             * lista, quando ela já etiqueta alguma conta.
-             */
-            setGrupoAberto(escolhido);
-            return;
-          }
+        // "— sem subcategoria —": para na própria mãe, em vez de reabri-la.
+        if (escolhido.startsWith(MAE)) {
+          escolher(escolhido.slice(MAE.length));
+          return;
+        }
 
-          escolher(escolhido);
-        }}
-      >
-        <option value="">{vazio}</option>
-        {/* As soltas e as mães na mesma lista, em ordem alfabética: para quem
-            procura, "Seguro" e "Custo com Pessoal" são a mesma coisa — um nome
-            do nível de cima. Qual das duas abre uma segunda lista é detalhe do
-            cadastro, e não da procura. */}
-        {[
-          ...soltas.map((c) => ({ id: c.id, nome: c.nome, grupo: false })),
-          ...grupos.map((g) => ({
-            id: g.mae.id,
-            nome: g.mae.nome,
-            grupo: true,
-          })),
-        ]
-          .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
-          .map((c) => (
-            <option key={c.id} value={c.id}>
-              {/* A seta avisa que ali tem mais coisa dentro, e é o que evita a
-                  segunda lista aparecer como surpresa. */}
-              {c.grupo ? `${c.nome} ›` : c.nome}
-            </option>
-          ))}
-        {extras}
-        <option value={NOVA}>+ Criar nova categoria…</option>
-      </select>
+        const abriu = grupos.find((g) => g.mae.id === escolhido);
+        if (abriu) {
+          /*
+           * Clicar na mãe abre o grupo; não classifica nada.
+           *
+           * Nada é emitido aqui de propósito. Metade das telas que usam este
+           * campo salva no `onChange` — a ficha do débito classifica a conta
+           * no ato —, e mandar o id da mãe gravaria uma etiqueta que a pessoa
+           * não escolheu. Mandar vazio seria pior: apagaria a classificação
+           * que já existia no meio de uma troca ainda não terminada.
+           *
+           * Quem quer mesmo a mãe sem subcategoria a encontra logo abaixo
+           * dela, quando ela já etiqueta alguma conta.
+           */
+          setGrupoAberto(escolhido);
+          return;
+        }
 
+        escolher(escolhido);
+      }}
+    >
+      <option value="">{vazio}</option>
+
+      {/* A mãe aberta e as filhas dela, no topo: é onde está o passo seguinte. */}
       {grupo && (
-        <select
-          className={className}
-          aria-label={`Subcategoria de ${grupo.mae.nome}`}
-          value={
-            // A escolha só é desta lista quando ela é o próprio grupo ou uma
-            // filha dele; senão a segunda lista abre em branco, esperando.
-            value === grupo.mae.id ||
-            grupo.filhas.some((f) => f.id === value)
-              ? value
-              : ''
-          }
-          disabled={carregando || desabilitado}
-          onChange={(e) => escolher(e.target.value)}
-        >
-          <option value="">Escolha em {grupo.mae.nome}…</option>
+        <>
+          <option value={grupo.mae.id} className="font-bold">
+            {grupo.mae.nome}
+          </option>
           {/*
             A mãe só é escolhível quando já etiqueta alguma conta. Grupo é
             cabeçalho — quem etiqueta é a subcategoria, senão o gasto para no
             nível de cima e o dashboard não tem o que destrinchar. Mas quem
-            ganhou filhas depois de já ter contas etiquetadas continua na lista:
-            tirá-la seria mudar, sem avisar, a etiqueta de contas já
+            ganhou filhas depois de já ter contas etiquetadas continua na
+            lista: tirá-la seria mudar, sem avisar, a etiqueta de contas já
             classificadas.
+
+            O valor leva o prefixo `MAE` porque a linha de cima já usa o id
+            puro para abrir o grupo: são a mesma categoria, mas dois pedidos
+            diferentes.
           */}
           {grupo.mae.emUso > 0 && (
-            <option value={grupo.mae.id}>
-              {grupo.mae.nome} (sem subcategoria)
+            <option value={`${MAE}${grupo.mae.id}`}>
+              {RECUO}— sem subcategoria —
             </option>
           )}
           {grupo.filhas.map((c) => (
             <option key={c.id} value={c.id}>
+              {RECUO}
               {c.nome}
             </option>
           ))}
-        </select>
+        </>
       )}
-    </div>
+
+      {doTopo.map((c) => (
+        <option
+          key={c.id}
+          value={c.id}
+          className={c.ehGrupo ? 'font-bold' : undefined}
+        >
+          {c.nome}
+        </option>
+      ))}
+
+      {extras}
+      <option value={NOVA}>+ Criar nova categoria…</option>
+    </select>
   );
 }
