@@ -88,6 +88,28 @@ export interface ContaContratoDoMes {
     status: string;
     pagoEm: Date | null;
   } | null;
+  /**
+   * A fatura lançada que ainda não foi paga, quando ela é de outro mês.
+   *
+   * Existe porque virar o mês não paga conta nenhuma. Até aqui a linha só
+   * mostrava "lançada" na competência da própria fatura: no dia 1º de outubro
+   * a conta de setembro — lançada, no IXC, esperando o banco — desaparecia da
+   * tela, e o endereço voltava a parecer que não tinha nada pendente. Quem
+   * abre esta tela para saber o que falta pagar via o contrário do que
+   * acontecia.
+   *
+   * Sai daqui quando a conta é paga (ou cancelada), e não quando o calendário
+   * muda. `null` = não há fatura velha em aberto neste endereço.
+   */
+  pendente: {
+    id: string;
+    idFnApagarIxc: number | null;
+    /** De que mês é a fatura que ficou para trás. */
+    competencia: string;
+    valor: number;
+    dataVencimento: Date;
+    status: string;
+  } | null;
   /** O que já se pagou neste endereço, do mais recente para o mais antigo. */
   historico: Array<{ competencia: string; valor: number }>;
   /** A média do histórico — o que a tela usa para estranhar o valor de agora. */
@@ -99,6 +121,56 @@ export interface ContaContratoDoMes {
    * futuro não quer dizer nada.
    */
   diasParaChegar: number | null;
+}
+
+/** Quantos meses o cartão de um endereço mostra. */
+export const MESES_NO_CONSUMO = 12;
+
+/** Um mês na série de um endereço. */
+export interface MesDeConsumo {
+  competencia: string;
+  /** O que a fatura daquele mês custou. Null = não houve conta lançada. */
+  valor: number | null;
+  /**
+   * Quanto mudou em relação ao mês imediatamente anterior. Null quando um dos
+   * dois não tem valor: comparar com um mês sem fatura inventaria uma queda de
+   * 100% que nunca aconteceu.
+   */
+  variacao: { valor: number; percentual: number } | null;
+  /** A conta daquele mês já foi paga. */
+  pago: boolean;
+}
+
+/**
+ * O cartão de um endereço: o que ele consumiu mês a mês.
+ *
+ * A pergunta que ele responde é uma só — economizou ou gastou mais? —, e ela
+ * não se responde com um número: precisa da série ao lado. O valor de um mês
+ * sozinho não diz nada sobre uma conta de luz, que sobe no verão e desce
+ * quando a bomba d'água fica desligada.
+ *
+ * O que se mede é **reais**, e não kWh: o consumo em quilowatt-hora não está no
+ * título do IXC nem no cadastro daqui — o que a casa tem registrado é o que ela
+ * pagou. É o suficiente para a pergunta, e é honesto sobre o que mostra.
+ */
+export interface ConsumoDoEndereco {
+  contrato: {
+    id: string;
+    apelido: string;
+    numero: string;
+    fornecedorNome: string;
+    ativa: boolean;
+  };
+  /** Do mês mais antigo para o mais recente. */
+  meses: MesDeConsumo[];
+  media: number | null;
+  /** O mês mais caro e o mais barato da janela, entre os que têm valor. */
+  maior: { competencia: string; valor: number } | null;
+  menor: { competencia: string; valor: number } | null;
+  /** A soma da janela — o que este endereço custou no período. */
+  total: number;
+  /** Quantos meses da janela têm fatura lançada. */
+  meses_com_conta: number;
 }
 
 /** O que uma rodada de geração fez. */
@@ -249,6 +321,16 @@ export class ContasContratoService {
         const dela = lancadas.filter((l) => l.contaContratoId === contrato.id);
         const gerada = dela.find((l) => l.competencia === alvo) ?? null;
         /*
+         * A mais recente que ficou para trás sem ser paga. `lancadas` já vem
+         * da competência mais nova para a mais velha, então a primeira que
+         * sobra é a que interessa — mostrar as cinco de um endereço abandonado
+         * encheria a linha sem responder nada a mais.
+         */
+        const pendente =
+          dela.find(
+            (l) => l.competencia && l.competencia !== alvo && emAberto(l),
+          ) ?? null;
+        /*
          * O histórico não inclui a competência aberta: ela é o número que se
          * está conferindo agora, e uma média que já contenha o valor de hoje
          * não serve para estranhá-lo.
@@ -271,6 +353,16 @@ export class ContasContratoService {
                 dataVencimento: gerada.dataVencimento,
                 status: gerada.status,
                 pagoEm: gerada.pagoEm,
+              }
+            : null,
+          pendente: pendente
+            ? {
+                id: pendente.id,
+                idFnApagarIxc: pendente.idFnApagarIxc,
+                competencia: pendente.competencia!,
+                valor: Number(pendente.valor),
+                dataVencimento: pendente.dataVencimento,
+                status: pendente.status,
               }
             : null,
           historico,
@@ -733,6 +825,89 @@ export class ContasContratoService {
    * não deu daria mais trabalho do que lançar de novo a que faltou. Quem
    * clicou vê quais passaram e quais não.
    */
+  /**
+   * O consumo de um endereço, mês a mês.
+   *
+   * A janela é de calendário — os últimos doze meses, com buraco onde não
+   * houve fatura —, e não "as doze últimas contas". A diferença aparece
+   * justamente no endereço que interessa: um mês que ficou sem lançar tem de
+   * aparecer vazio, e não ser tapado pela fatura de um ano atrás como se
+   * fossem meses seguidos.
+   */
+  async consumo(
+    id: string,
+    meses = MESES_NO_CONSUMO,
+  ): Promise<ConsumoDoEndereco> {
+    const contrato = await this.buscar(id);
+
+    const janela = ultimasCompetencias(meses);
+    const contas = await this.prisma.contaPagar.findMany({
+      where: {
+        contaContratoId: id,
+        competencia: { in: janela },
+      },
+      select: {
+        competencia: true,
+        valor: true,
+        status: true,
+        pagoEm: true,
+      },
+    });
+
+    /* Somado, e não o primeiro: um endereço pode ter duas faturas no mesmo mês
+       (a normal e uma refaturada), e o que ele custou naquele mês é as duas. */
+    const porMes = new Map<string, { valor: number; pago: boolean }>();
+    for (const c of contas) {
+      if (!c.competencia) continue;
+      const atual = porMes.get(c.competencia);
+      const valor = (atual?.valor ?? 0) + Number(c.valor);
+      // "Pago" só quando não sobrou nenhuma em aberto naquele mês.
+      const pago = (atual?.pago ?? true) && !emAberto(c);
+      porMes.set(c.competencia, { valor, pago });
+    }
+
+    const meses_ = janela.map((competencia, i) => {
+      const aqui = porMes.get(competencia);
+      const antes = i > 0 ? porMes.get(janela[i - 1]) : undefined;
+      return {
+        competencia,
+        valor: aqui ? arredondar(aqui.valor) : null,
+        variacao:
+          aqui && antes && antes.valor > 0
+            ? {
+                valor: arredondar(aqui.valor - antes.valor),
+                percentual:
+                  Math.round(
+                    ((aqui.valor - antes.valor) / antes.valor) * 1000,
+                  ) / 10,
+              }
+            : null,
+        pago: aqui?.pago ?? false,
+      };
+    });
+
+    const comValor = meses_.filter(
+      (m): m is MesDeConsumo & { valor: number } => m.valor !== null,
+    );
+    const valores = comValor.map((m) => m.valor);
+
+    return {
+      contrato: {
+        id: contrato.id,
+        apelido: contrato.apelido,
+        numero: contrato.numero,
+        fornecedorNome: contrato.fornecedorNome,
+        ativa: contrato.ativa,
+      },
+      meses: meses_,
+      media: media(valores),
+      maior: extremo(comValor, (c, atual) => c > atual),
+      menor: extremo(comValor, (c, atual) => c < atual),
+      total: arredondar(valores.reduce((soma, v) => soma + v, 0)),
+      meses_com_conta: comValor.length,
+    };
+  }
+
   async gerar(
     competencia: string,
     lancamentos: LancamentoDeContrato[],
@@ -982,6 +1157,55 @@ function maisFrequente<T extends string | number>(valores: T[]): T | null {
 /** "AAAA-MM" da data — a competência a que aquela fatura se refere. */
 function mesDaData(data: Date): string {
   return `${data.getUTCFullYear()}-${String(data.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+/**
+ * A conta ainda espera pagamento?
+ *
+ * Paga é paga — pelo `pagoEm`, que é o retorno do banco, ou pelo status.
+ * Cancelada também sai: ela não vai ser paga nunca, e deixá-la em aberto
+ * cobraria para sempre uma fatura que alguém já resolveu por outro caminho.
+ */
+function emAberto(conta: { status: string; pagoEm: Date | null }): boolean {
+  if (conta.pagoEm) return false;
+  return conta.status !== 'PAGO' && conta.status !== 'CANCELADO';
+}
+
+/** As últimas `quantos` competências, do mais antigo ao mais recente. */
+function ultimasCompetencias(quantos: number): string[] {
+  const agora = new Date();
+  const lista: string[] = [];
+  for (let i = quantos - 1; i >= 0; i--) {
+    const d = new Date(
+      Date.UTC(agora.getFullYear(), agora.getMonth() - i, 1),
+    );
+    lista.push(
+      `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`,
+    );
+  }
+  return lista;
+}
+
+/*
+ * O mês mais caro e o mais barato saem com dois campos, e não com o objeto
+ * inteiro do mês.
+ *
+ * A lista que entra aqui é de `MesDeConsumo`, que carrega `variacao` e `pago`
+ * junto. Devolvê-lo cru faria a resposta prometer dois campos e entregar
+ * quatro — e o dia em que alguém lesse `maior.pago` na tela estaria lendo um
+ * campo que o tipo não promete e que ninguém garantiu.
+ */
+function extremo(
+  meses: Array<{ competencia: string; valor: number }>,
+  ganha: (candidato: number, atual: number) => boolean,
+): { competencia: string; valor: number } | null {
+  if (meses.length === 0) return null;
+  const achado = meses.reduce((a, b) => (ganha(b.valor, a.valor) ? b : a));
+  return { competencia: achado.competencia, valor: achado.valor };
+}
+
+function arredondar(valor: number): number {
+  return Math.round(valor * 100) / 100;
 }
 
 function media(valores: number[]): number | null {

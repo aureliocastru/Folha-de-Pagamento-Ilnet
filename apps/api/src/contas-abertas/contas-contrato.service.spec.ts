@@ -535,3 +535,196 @@ describe('foraDoPadrao', () => {
     expect(foraDoPadrao(3000, null)).toBe(false);
   });
 });
+
+/**
+ * A fatura lançada e ainda não paga.
+ *
+ * Virar o mês não paga conta nenhuma, e era isso que a tela dizia: no dia 1º
+ * de outubro a conta de setembro — lançada, no IXC, esperando o banco — sumia
+ * da linha, e o endereço voltava a parecer sem pendência. Quem abre esta tela
+ * para saber o que falta pagar via exatamente o contrário do que acontecia.
+ */
+describe('ContasContratoService.listar — a que ficou para trás', () => {
+  it('continua mostrando a fatura do mês passado que ninguém pagou', async () => {
+    const { service } = montarServico({
+      jaLancadas: [
+        {
+          id: 'c9',
+          contaContratoId: 'cc1',
+          competencia: '2026-08',
+          valor: 320.55,
+          dataVencimento: new Date('2026-09-10T00:00:00Z'),
+          status: 'AGUARDANDO_PAGAMENTO',
+          pagoEm: null,
+          idFnApagarIxc: 4242,
+        },
+      ],
+    });
+
+    const { contas } = await service.listar('2026-09');
+
+    // Setembro ainda não tem fatura, e a de agosto continua à vista.
+    expect(contas[0].gerada).toBeNull();
+    expect(contas[0].pendente).toMatchObject({
+      competencia: '2026-08',
+      valor: 320.55,
+      idFnApagarIxc: 4242,
+    });
+  });
+
+  it('some quando a conta é paga', async () => {
+    const { service } = montarServico({
+      jaLancadas: [
+        {
+          id: 'c9',
+          contaContratoId: 'cc1',
+          competencia: '2026-08',
+          valor: 320.55,
+          dataVencimento: new Date('2026-09-10T00:00:00Z'),
+          status: 'PAGO',
+          pagoEm: new Date('2026-09-09T00:00:00Z'),
+          idFnApagarIxc: 4242,
+        },
+      ],
+    });
+
+    const { contas } = await service.listar('2026-09');
+    expect(contas[0].pendente).toBeNull();
+  });
+
+  it('some quando a conta é cancelada — ela não vai ser paga nunca', async () => {
+    const { service } = montarServico({
+      jaLancadas: [
+        {
+          id: 'c9',
+          contaContratoId: 'cc1',
+          competencia: '2026-08',
+          valor: 320.55,
+          dataVencimento: new Date('2026-09-10T00:00:00Z'),
+          status: 'CANCELADO',
+          pagoEm: null,
+          idFnApagarIxc: 4242,
+        },
+      ],
+    });
+
+    const { contas } = await service.listar('2026-09');
+    expect(contas[0].pendente).toBeNull();
+  });
+
+  it('não repete no "pendente" a fatura do próprio mês que se está vendo', async () => {
+    const { service } = montarServico({
+      jaLancadas: [
+        {
+          id: 'c9',
+          contaContratoId: 'cc1',
+          competencia: '2026-09',
+          valor: 300,
+          dataVencimento: new Date('2026-10-10T00:00:00Z'),
+          status: 'AGUARDANDO_PAGAMENTO',
+          pagoEm: null,
+          idFnApagarIxc: 4243,
+        },
+      ],
+    });
+
+    const { contas } = await service.listar('2026-09');
+    expect(contas[0].gerada).not.toBeNull();
+    expect(contas[0].pendente).toBeNull();
+  });
+});
+
+/**
+ * O cartão do endereço: economizou ou gastou mais?
+ *
+ * A janela é de calendário, e não "as doze últimas contas". A diferença
+ * aparece no endereço que ficou um mês sem lançar: ele tem de aparecer vazio,
+ * e não ser tapado pela fatura anterior como se fossem meses seguidos — que é
+ * o que faria a comparação mês a mês mentir.
+ */
+describe('ContasContratoService.consumo', () => {
+  beforeAll(() => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-09-15T12:00:00Z'));
+  });
+  afterAll(() => jest.useRealTimers());
+
+  const conta = (competencia: string, valor: number, over = {}) => ({
+    competencia,
+    valor,
+    status: 'PAGO',
+    pagoEm: new Date(`${competencia}-20T00:00:00Z`),
+    ...over,
+  });
+
+  it('devolve a janela de calendário, com buraco no mês sem fatura', async () => {
+    const { service } = montarServico({
+      jaLancadas: [
+        conta('2026-07', 100),
+        // agosto ficou sem lançar
+        conta('2026-09', 120),
+      ],
+    });
+
+    const r = await service.consumo('cc1', 3);
+
+    expect(r.meses.map((m) => m.competencia)).toEqual([
+      '2026-07',
+      '2026-08',
+      '2026-09',
+    ]);
+    expect(r.meses.map((m) => m.valor)).toEqual([100, null, 120]);
+    // Sem comparação contra o mês vazio: seria uma queda de 100% que nunca
+    // aconteceu, e uma alta de 100% no mês seguinte.
+    expect(r.meses.map((m) => m.variacao)).toEqual([null, null, null]);
+    expect(r.meses_com_conta).toBe(2);
+  });
+
+  it('mede a variação de um mês para o outro', async () => {
+    const { service } = montarServico({
+      jaLancadas: [conta('2026-08', 200), conta('2026-09', 150)],
+    });
+
+    const r = await service.consumo('cc1', 2);
+
+    expect(r.meses[1].variacao).toEqual({ valor: -50, percentual: -25 });
+    expect(r.media).toBe(175);
+    expect(r.maior).toEqual({ competencia: '2026-08', valor: 200 });
+    expect(r.menor).toEqual({ competencia: '2026-09', valor: 150 });
+    expect(r.total).toBe(350);
+  });
+
+  it('soma as duas faturas do mesmo mês — a normal e a refaturada', async () => {
+    const { service } = montarServico({
+      jaLancadas: [conta('2026-09', 80), conta('2026-09', 45.5)],
+    });
+
+    const r = await service.consumo('cc1', 1);
+    expect(r.meses[0].valor).toBe(125.5);
+  });
+
+  it('só dá o mês por pago quando nenhuma fatura dele ficou em aberto', async () => {
+    const { service } = montarServico({
+      jaLancadas: [
+        conta('2026-09', 80),
+        conta('2026-09', 45.5, {
+          status: 'AGUARDANDO_PAGAMENTO',
+          pagoEm: null,
+        }),
+      ],
+    });
+
+    const r = await service.consumo('cc1', 1);
+    expect(r.meses[0].pago).toBe(false);
+  });
+
+  it('aguenta o endereço que nunca teve fatura lançada', async () => {
+    const { service } = montarServico({ jaLancadas: [] });
+
+    const r = await service.consumo('cc1', 3);
+
+    expect(r.meses.every((m) => m.valor === null)).toBe(true);
+    expect(r.media).toBeNull();
+    expect(r.maior).toBeNull();
+    expect(r.total).toBe(0);
+  });
+});

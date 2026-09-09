@@ -82,6 +82,22 @@ export class ContasContratoController {
     );
   }
 
+  /**
+   * O consumo de um endereço, mês a mês — o cartão que abre ao clicar nele.
+   *
+   * Antes do `:id` do `Patch` e do `Delete` não é preciso (o método é outro),
+   * mas fica junto do `Get` que já existe: quem procurar as leituras desta
+   * tela as encontra lado a lado.
+   */
+  @Get(':id/consumo')
+  consumo(@Param('id') id: string, @Query('meses') meses?: string) {
+    const quantos = Number(meses);
+    return this.service.consumo(
+      id,
+      Number.isFinite(quantos) && quantos > 0 ? Math.min(quantos, 36) : undefined,
+    );
+  }
+
   @Patch(':id')
   atualizar(@Param('id') id: string, @Body() dto: AtualizarContaContratoDto) {
     return this.service.atualizar(id, dto);

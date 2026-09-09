@@ -60,10 +60,53 @@ interface ContaContratoDoMes {
     status: string;
     pagoEm: string | null;
   } | null;
+  /**
+   * A fatura lançada de outro mês que ainda não foi paga.
+   *
+   * Virar o mês não paga conta nenhuma. Sem isto, no dia 1º a conta do mês
+   * anterior — lançada, no IXC, esperando o banco — sumia da linha e o
+   * endereço voltava a parecer sem pendência.
+   */
+  pendente: {
+    id: string;
+    idFnApagarIxc: number | null;
+    competencia: string;
+    valor: number;
+    dataVencimento: string;
+    status: string;
+  } | null;
   historico: Array<{ competencia: string; valor: number }>;
   media: number | null;
   /** Negativo = o dia em que ela costuma chegar já passou. Null = outro mês. */
   diasParaChegar: number | null;
+}
+
+/** Um mês na série de um endereço. */
+interface MesDeConsumo {
+  competencia: string;
+  /** Null = não houve fatura lançada naquele mês. */
+  valor: number | null;
+  /** Contra o mês imediatamente anterior. Null quando um dos dois é vazio. */
+  variacao: { valor: number; percentual: number } | null;
+  pago: boolean;
+}
+
+/** O cartão de um endereço: o que ele consumiu mês a mês. */
+interface ConsumoDoEndereco {
+  contrato: {
+    id: string;
+    apelido: string;
+    numero: string;
+    fornecedorNome: string;
+    ativa: boolean;
+  };
+  /** Do mês mais antigo para o mais recente. */
+  meses: MesDeConsumo[];
+  media: number | null;
+  maior: { competencia: string; valor: number } | null;
+  menor: { competencia: string; valor: number } | null;
+  total: number;
+  meses_com_conta: number;
 }
 
 interface RespostaDoMes {
@@ -252,6 +295,8 @@ export function ContasContrato() {
   const [cadastrando, setCadastrando] = useState(false);
   const [importando, setImportando] = useState(false);
   const [editando, setEditando] = useState<ContaContrato | null>(null);
+  /** O endereço cujo cartão está aberto — o que se vê ao clicar no nome. */
+  const [vendo, setVendo] = useState<ContaContrato | null>(null);
   const [aviso, setAviso] = useState<string | null>(null);
   const [erro, setErro] = useState(false);
 
@@ -267,6 +312,21 @@ export function ContasContrato() {
   });
 
   const contas = useMemo(() => lista.data?.contas ?? [], [lista.data]);
+
+  /*
+   * O nome da distribuidora só entra na linha quando há mais de uma.
+   *
+   * Nesta casa são onze endereços da mesma companhia, e o nome dela repetido
+   * onze vezes é a informação mais longa da coluna e a que menos distingue uma
+   * linha da outra — ela empurrava para baixo justamente o apelido e o número
+   * da conta contrato, que são o que se procura. Com dois fornecedores no
+   * cadastro ele volta, porque aí ele separa.
+   */
+  const variosFornecedores = useMemo(
+    () => new Set(contas.map((c) => c.contrato.fornecedorNome)).size > 1,
+    [contas],
+  );
+
   const ativas = contas.filter((c) => c.contrato.ativa);
   const pendentes = ativas.filter((c) => !c.gerada);
   const lancadas = ativas.filter((c) => c.gerada);
@@ -484,22 +544,28 @@ export function ContasContrato() {
           </Vazio>
         ) : (
           <div className="overflow-x-auto rolagem-fina">
-            <table className="w-full min-w-[1180px] table-fixed text-sm">
+            {/*
+              Seis colunas, e não sete. A "Costuma vir" saiu: a média não é
+              coisa que se lê em coluna própria — ela só serve no instante em
+              que se digita o valor, para estranhar o zero a mais. Agora ela
+              mora embaixo do campo, que é onde ela é usada, e a largura que
+              ela ocupava foi para o código de pagamento, que é o campo mais
+              apertado da tela.
+            */}
+            <table className="w-full min-w-[940px] table-fixed text-sm">
               <colgroup>
-                <col className="w-[20%]" />
-                <col className="w-[13%]" />
-                <col className="w-[12%]" />
-                <col className="w-[13%]" />
-                <col className="w-[12%]" />
-                <col className="w-[17%]" />
-                <col className="w-[13%]" />
+                <col className="w-[21%]" />
+                <col className="w-[16%]" />
+                <col className="w-[14%]" />
+                <col className="w-[14%]" />
+                <col className="w-[26%]" />
+                <col className="w-[9%]" />
               </colgroup>
               <thead>
                 <tr>
                   <th className="th">Endereço</th>
                   <th className="th">A fatura</th>
-                  <th className="th text-right">Costuma vir</th>
-                  <th className="th text-right">Valor desta</th>
+                  <th className="th text-right">Valor</th>
                   <th className="th">Vence</th>
                   <th className="th">Código de pagamento</th>
                   <th className="th text-right">Ação</th>
@@ -511,6 +577,8 @@ export function ContasContrato() {
                     key={linha.contrato.id}
                     linha={linha}
                     competencia={competencia}
+                    mostrarFornecedor={variosFornecedores}
+                    onAbrirCartao={() => setVendo(linha.contrato)}
                     valor={valores[linha.contrato.id] ?? ''}
                     vencimento={vencimentos[linha.contrato.id] ?? ''}
                     codigo={codigos[linha.contrato.id] ?? ''}
@@ -526,23 +594,6 @@ export function ContasContrato() {
                     onLer={(alvo) => setLendo({ id: linha.contrato.id, alvo })}
                     onGerar={() => gerar.mutate([linha.contrato.id])}
                     gerando={gerar.isPending}
-                    onEditar={() => setEditando(linha.contrato)}
-                    onLigarDesligar={() =>
-                      salvar.mutate({
-                        id: linha.contrato.id,
-                        dados: { ativa: !linha.contrato.ativa },
-                      })
-                    }
-                    onApagar={() => {
-                      if (
-                        confirm(
-                          `Apagar ${linha.contrato.apelido} do cadastro? As ` +
-                            'contas já lançadas continuam no IXC.',
-                        )
-                      ) {
-                        remover.mutate(linha.contrato.id);
-                      }
-                    }}
                   />
                 ))}
               </tbody>
@@ -602,6 +653,32 @@ export function ContasContrato() {
         />
       )}
 
+      {vendo && (
+        <CartaoDoEndereco
+          contrato={vendo}
+          onFechar={() => setVendo(null)}
+          onEditar={() => {
+            setEditando(vendo);
+            setVendo(null);
+          }}
+          onLigarDesligar={() => {
+            salvar.mutate({ id: vendo.id, dados: { ativa: !vendo.ativa } });
+            setVendo(null);
+          }}
+          onApagar={() => {
+            if (
+              confirm(
+                `Apagar ${vendo.apelido} do cadastro? As contas já lançadas ` +
+                  'continuam no IXC.',
+              )
+            ) {
+              remover.mutate(vendo.id);
+              setVendo(null);
+            }
+          }}
+        />
+      )}
+
       {(cadastrando || editando) && (
         <CadastroDoEndereco
           contrato={editando}
@@ -626,6 +703,7 @@ export function ContasContrato() {
 function LinhaDoEndereco({
   linha,
   competencia,
+  mostrarFornecedor,
   valor,
   vencimento,
   codigo,
@@ -635,12 +713,12 @@ function LinhaDoEndereco({
   onLer,
   onGerar,
   gerando,
-  onEditar,
-  onLigarDesligar,
-  onApagar,
+  onAbrirCartao,
 }: {
   linha: ContaContratoDoMes;
   competencia: string;
+  /** Há mais de uma distribuidora no cadastro — aí o nome dela distingue. */
+  mostrarFornecedor: boolean;
   valor: string;
   vencimento: string;
   codigo: string;
@@ -650,11 +728,16 @@ function LinhaDoEndereco({
   onLer: (alvo: AlvoDaLeitura) => void;
   onGerar: () => void;
   gerando: boolean;
-  onEditar: () => void;
-  onLigarDesligar: () => void;
-  onApagar: () => void;
+  onAbrirCartao: () => void;
 }) {
-  const { contrato: c, gerada, media, historico, diasParaChegar } = linha;
+  const {
+    contrato: c,
+    gerada,
+    pendente,
+    media,
+    historico,
+    diasParaChegar,
+  } = linha;
   const digitado = Number(valor) || 0;
   const estranho = foraDoPadrao(digitado, media);
   /** O dia de sempre daquele endereço, no mês escolhido. */
@@ -662,17 +745,46 @@ function LinhaDoEndereco({
 
   return (
     <tr className={`linha ${c.ativa ? '' : 'opacity-50'}`}>
+      {/*
+        O nome do endereço abre o cartão dele.
+
+        Editar, desligar e apagar moravam aqui, na ponta da linha, e eram três
+        botões por endereço — trinta e três numa tela de onze. Nenhum deles é do
+        trabalho de todo mês, que é digitar o valor e gerar; todos são do
+        cadastro, e cadastro é assunto do cartão. A linha ficou com o botão que
+        se usa, e só ele.
+      */}
       <td className="td">
-        <div className="text-tinta-800">{c.apelido}</div>
-        <div className="num text-xs text-tinta-400">conta contrato {c.numero}</div>
-        <div className="mt-1 flex flex-wrap items-center gap-1.5">
-          {!c.ativa && (
-            <Selo pequeno tom="neutro">
-              desligado
-            </Selo>
-          )}
-          <span className="text-[11px] text-tinta-400">{c.fornecedorNome}</span>
-        </div>
+        <button
+          type="button"
+          onClick={onAbrirCartao}
+          title={`Ver o consumo de ${c.apelido} mês a mês`}
+          className="group text-left"
+        >
+          <span className="flex items-center gap-1.5 font-medium text-tinta-800 transition group-hover:text-brand-700 dark:group-hover:text-brand-300">
+            {c.apelido}
+            <span className="text-tinta-300 transition group-hover:text-brand-500">
+              &rsaquo;
+            </span>
+          </span>
+          <span className="num block text-xs text-tinta-400">
+            conta contrato {c.numero}
+          </span>
+        </button>
+        {(!c.ativa || mostrarFornecedor) && (
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            {!c.ativa && (
+              <Selo pequeno tom="neutro">
+                desligado
+              </Selo>
+            )}
+            {mostrarFornecedor && (
+              <span className="text-[11px] text-tinta-400">
+                {c.fornecedorNome}
+              </span>
+            )}
+          </div>
+        )}
       </td>
 
       {/* Em que pé está a fatura deste mês: já virou conta, ou ainda se espera
@@ -681,8 +793,8 @@ function LinhaDoEndereco({
       <td className="td">
         {gerada ? (
           <>
-            <Selo pequeno tom="pago" ponto>
-              lançada
+            <Selo pequeno tom={gerada.pagoEm ? 'pago' : 'marca'} ponto>
+              {gerada.pagoEm ? 'paga' : 'lançada'}
             </Selo>
             <div className="mt-1 text-[11px] text-tinta-400">
               {gerada.idFnApagarIxc
@@ -692,51 +804,65 @@ function LinhaDoEndereco({
           </>
         ) : !c.ativa ? (
           <span className="text-tinta-400">—</span>
-        ) : diasParaChegar === null ? (
-          <Selo pequeno tom="neutro">
-            falta lançar
-          </Selo>
-        ) : diasParaChegar > 0 ? (
-          <>
-            <Selo pequeno tom="info">
-              chega em {diasParaChegar} dia(s)
-            </Selo>
-            <div className="mt-1 text-[11px] text-tinta-400">
-              costuma chegar dia {c.diaDeChegada}
-            </div>
-          </>
         ) : (
           <>
-            <Selo pequeno tom="atencao">
-              já era para ter chegado
-            </Selo>
-            <div className="mt-1 text-[11px] text-tinta-400">
-              chega dia {c.diaDeChegada} — há {Math.abs(diasParaChegar)} dia(s)
-            </div>
+            {diasParaChegar === null ? (
+              <Selo pequeno tom="neutro">
+                falta lançar
+              </Selo>
+            ) : diasParaChegar > 0 ? (
+              <>
+                <Selo pequeno tom="info">
+                  chega em {diasParaChegar} dia(s)
+                </Selo>
+                <div className="mt-1 text-[11px] text-tinta-400">
+                  costuma chegar dia {c.diaDeChegada}
+                </div>
+              </>
+            ) : (
+              <>
+                <Selo pequeno tom="atencao">
+                  já era para ter chegado
+                </Selo>
+                <div className="mt-1 text-[11px] text-tinta-400">
+                  chega dia {c.diaDeChegada} — há {Math.abs(diasParaChegar)}{' '}
+                  dia(s)
+                </div>
+              </>
+            )}
+
+            {/*
+              A fatura de outro mês que ainda não foi paga.
+
+              Ela sumia da tela na virada do mês e o endereço voltava a parecer
+              sem pendência — enquanto a conta continuava lá no IXC, esperando
+              o banco. Fica aqui até ser paga, e não até o calendário mudar.
+            */}
+            {pendente && (
+              <div className="mt-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] leading-tight text-amber-800 dark:text-amber-200">
+                <strong className="font-semibold">
+                  {rotuloDoMes(pendente.competencia)}
+                </strong>{' '}
+                lançada e não paga
+                <div className="num">
+                  {formatBRL(pendente.valor)} · vence{' '}
+                  {formatData(pendente.dataVencimento)}
+                </div>
+              </div>
+            )}
           </>
         )}
       </td>
 
-      {/* A média do que aquele endereço vem custando: é com ela que se percebe
-          o zero a mais na digitação, ou a fatura que veio de outro imóvel. */}
-      <td className="td text-right">
-        {media === null ? (
-          <span className="text-xs text-tinta-400">sem histórico</span>
-        ) : (
-          <>
-            <span className="valor">{formatBRL(media)}</span>
-            <div
-              className="text-[11px] text-tinta-400"
-              title={historico
-                .map((h) => `${h.competencia}: ${formatBRL(h.valor)}`)
-                .join(' · ')}
-            >
-              média de {historico.length} mês(es)
-            </div>
-          </>
-        )}
-      </td>
+      {/*
+        O valor da fatura, com a média logo abaixo.
 
+        A média tinha coluna própria e não precisava: ela não é um dado que se
+        consulta, é a régua do instante em que se digita — é com ela que se
+        percebe o zero a mais, ou a fatura que veio de outro imóvel. Embaixo do
+        campo ela está onde é usada, e a coluna que ela ocupava virou largura
+        para o código de pagamento, que era o campo mais apertado da tela.
+      */}
       <td className="td text-right">
         {gerada ? (
           <span className="valor">{formatBRL(gerada.valor)}</span>
@@ -747,11 +873,22 @@ function LinhaDoEndereco({
               onChange={onValor}
               className="campo py-1 text-right"
             />
-            {estranho && (
+            {estranho ? (
               <div className="mt-1 text-[11px] font-semibold text-amber-600">
                 {digitado > (media ?? 0)
-                  ? 'muito acima da média — confira a fatura'
-                  : 'muito abaixo da média — confira a fatura'}
+                  ? 'muito acima da média — confira'
+                  : 'muito abaixo da média — confira'}
+              </div>
+            ) : media === null ? (
+              <div className="mt-1 text-[11px] text-tinta-400">sem histórico</div>
+            ) : (
+              <div
+                className="num mt-1 text-[11px] text-tinta-400"
+                title={historico
+                  .map((h) => `${h.competencia}: ${formatBRL(h.valor)}`)
+                  .join(' · ')}
+              >
+                média {formatBRL(media)}
               </div>
             )}
           </>
@@ -789,28 +926,33 @@ function LinhaDoEndereco({
           <span className="text-xs text-tinta-400">—</span>
         ) : (
           <>
-            <input
-              value={codigo}
-              onChange={(e) => onCodigo(e.target.value)}
-              className="campo num py-1 text-xs"
-              placeholder="boleto ou PIX copia e cola"
-              title="A linha digitável do boleto (44, 47 ou 48 dígitos) ou o copia e cola do PIX. Em branco, a conta vai sem código."
-              autoComplete="off"
-            />
-            <div className="mt-1 flex gap-1.5">
+            {/* Os atalhos da câmera ao lado do campo, e não embaixo: eles
+                engordavam a altura das onze linhas para servir a um clique
+                ocasional. */}
+            <div className="flex items-center gap-1.5">
+              <input
+                value={codigo}
+                onChange={(e) => onCodigo(e.target.value)}
+                className="campo num min-w-0 flex-1 py-1 text-xs"
+                placeholder="boleto ou PIX"
+                title="A linha digitável do boleto (44, 47 ou 48 dígitos) ou o copia e cola do PIX. Em branco, a conta vai sem código."
+                autoComplete="off"
+              />
               <button
                 type="button"
                 onClick={() => onLer('boleto')}
-                className="btn btn-sutil btn-p"
+                title="Ler o código de barras da fatura com a câmera"
+                className="btn btn-ferramenta btn-p shrink-0"
               >
-                Ler boleto
+                Boleto
               </button>
               <button
                 type="button"
                 onClick={() => onLer('pix')}
-                className="btn btn-sutil btn-p"
+                title="Ler o QR do PIX com a câmera"
+                className="btn btn-ferramenta btn-p shrink-0"
               >
-                Ler QR
+                QR
               </button>
             </div>
             {codigo.trim() !== '' && (
@@ -823,41 +965,231 @@ function LinhaDoEndereco({
       </td>
 
       <td className="td text-right">
-        <div className="flex flex-wrap justify-end gap-1.5">
-          {!gerada && c.ativa && (
-            <button
-              onClick={onGerar}
-              disabled={gerando || !(digitado > 0)}
-              className="btn btn-primario btn-p"
-              title={
-                digitado > 0
-                  ? 'Cria a conta a pagar no IXC, já aprovada'
-                  : 'Digite o valor que veio na fatura'
-              }
-            >
-              Gerar
-            </button>
-          )}
-          <button onClick={onEditar} className="btn btn-neutro btn-p">
-            Editar
-          </button>
+        {!gerada && c.ativa ? (
           <button
-            onClick={onLigarDesligar}
-            className="btn btn-sutil btn-p"
+            onClick={onGerar}
+            disabled={gerando || !(digitado > 0)}
+            className="btn btn-primario btn-p"
             title={
-              c.ativa
+              digitado > 0
+                ? 'Cria a conta a pagar no IXC, já aprovada'
+                : 'Digite o valor que veio na fatura'
+            }
+          >
+            Gerar
+          </button>
+        ) : (
+          <span className="text-xs text-tinta-400">—</span>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+/** "2026-08" -> "ago/26", que é como se lê um mês de relance. */
+function rotuloDoMes(competencia: string): string {
+  const [ano, mes] = competencia.split('-').map(Number);
+  const nomes = [
+    'jan',
+    'fev',
+    'mar',
+    'abr',
+    'mai',
+    'jun',
+    'jul',
+    'ago',
+    'set',
+    'out',
+    'nov',
+    'dez',
+  ];
+  return `${nomes[mes - 1] ?? competencia}/${String(ano).slice(2)}`;
+}
+
+/**
+ * O cartão de um endereço: o que ele consumiu, mês a mês.
+ *
+ * A pergunta que ele responde é uma só — economizou ou gastou mais? —, e ela
+ * não se responde com um número. O valor de um mês sozinho não diz nada sobre
+ * uma conta de luz: ela sobe no verão, desce quando a bomba d'água fica
+ * desligada, e dobra no mês em que alguém deixou o ar ligado na obra. O que
+ * responde é a série ao lado, e a variação de cada mês para o anterior.
+ *
+ * O que se mede é **reais**, e não kWh: o consumo em quilowatt-hora não está no
+ * título do IXC nem no cadastro daqui — o que a casa tem registrado é o que ela
+ * pagou. Dá para responder a pergunta, e é honesto sobre o que mostra.
+ *
+ * O cadastro do endereço mora no rodapé deste cartão, e não na linha da
+ * tabela: editar, desligar e apagar não são o trabalho de todo mês (esse é
+ * digitar o valor e gerar), e três botões por linha eram trinta e três numa
+ * tela de onze endereços.
+ */
+function CartaoDoEndereco({
+  contrato,
+  onFechar,
+  onEditar,
+  onLigarDesligar,
+  onApagar,
+}: {
+  contrato: ContaContrato;
+  onFechar: () => void;
+  onEditar: () => void;
+  onLigarDesligar: () => void;
+  onApagar: () => void;
+}) {
+  const consulta = useQuery({
+    queryKey: ['contas-contrato', 'consumo', contrato.id],
+    queryFn: async () =>
+      (
+        await api.get<ConsumoDoEndereco>(
+          `/contas-contrato/${contrato.id}/consumo`,
+        )
+      ).data,
+  });
+
+  const dados = consulta.data;
+  /* A barra mais comprida é o mês mais caro: a escala é a do próprio endereço,
+     e não a da tela. Comparar a Loja (R$ 3.629) com a Vaquejada (R$ 39) na
+     mesma régua deixaria a segunda sem barra nenhuma. */
+  const teto = dados?.maior?.valor ?? 0;
+
+  return (
+    <Janela titulo={contrato.apelido} onFechar={onFechar}>
+      <p className="num mb-4 text-[13px] text-tinta-500">
+        conta contrato {contrato.numero} · {contrato.fornecedorNome}
+        {!contrato.ativa && ' · desligado'}
+      </p>
+
+      {consulta.isLoading && <Carregando texto="Lendo o histórico…" />}
+      {consulta.isError && (
+        <Vazio titulo="Não deu para ler o consumo">
+          {mensagemErro(consulta.error)}
+        </Vazio>
+      )}
+
+      {dados && dados.meses_com_conta === 0 && (
+        <Vazio titulo="Nenhuma fatura lançada nos últimos 12 meses">
+          O consumo aparece aqui a partir da primeira conta gerada por esta
+          tela.
+        </Vazio>
+      )}
+
+      {dados && dados.meses_com_conta > 0 && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-2.5 sm:gap-4 lg:grid-cols-4">
+            <Indicador
+              acento
+              rotulo="Média do período"
+              valor={formatBRL(dados.media)}
+              detalhe={`${dados.meses_com_conta} mês(es) com fatura`}
+            />
+            <Indicador
+              rotulo="Total no período"
+              valor={formatBRL(dados.total)}
+              detalhe="o que este endereço custou"
+            />
+            <Indicador
+              rotulo="Mês mais caro"
+              valor={formatBRL(dados.maior?.valor)}
+              detalhe={dados.maior ? rotuloDoMes(dados.maior.competencia) : '—'}
+            />
+            <Indicador
+              rotulo="Mês mais barato"
+              valor={formatBRL(dados.menor?.valor)}
+              detalhe={dados.menor ? rotuloDoMes(dados.menor.competencia) : '—'}
+            />
+          </div>
+
+          {/*
+            A série do mais recente para o mais antigo: a pergunta é sobre o
+            mês que acabou de chegar, e ele não deve estar no fim de uma lista
+            de doze.
+          */}
+          <div className="lista-dividida rounded-xl border border-tinta-200">
+            {[...dados.meses].reverse().map((m) => (
+              <div
+                key={m.competencia}
+                className="flex items-center gap-3 px-3.5 py-2"
+              >
+                <span className="num w-14 shrink-0 text-[12px] font-semibold text-tinta-500">
+                  {rotuloDoMes(m.competencia)}
+                </span>
+
+                <span className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-tinta-100">
+                  {m.valor !== null && teto > 0 && (
+                    <span
+                      className="block h-full rounded-full bg-brand-500"
+                      style={{ width: `${Math.max(2, (m.valor / teto) * 100)}%` }}
+                    />
+                  )}
+                </span>
+
+                {m.valor === null ? (
+                  <span className="w-24 shrink-0 text-right text-[12px] text-tinta-400">
+                    sem fatura
+                  </span>
+                ) : (
+                  <span className="valor w-24 shrink-0 text-right text-[13px]">
+                    {formatBRL(m.valor)}
+                  </span>
+                )}
+
+                {/*
+                  Verde é ter gastado menos que no mês anterior, e não "está
+                  tudo bem": é a única leitura que a cor pode ter aqui sem
+                  mentir, porque é a única coisa que o número compara.
+                */}
+                <span className="w-[4.5rem] shrink-0 text-right text-[12px] font-semibold">
+                  {m.variacao === null ? (
+                    <span className="text-tinta-300">—</span>
+                  ) : m.variacao.valor < 0 ? (
+                    <span className="text-emerald-600 dark:text-emerald-300">
+                      ↓ {Math.abs(m.variacao.percentual).toLocaleString('pt-BR')}%
+                    </span>
+                  ) : m.variacao.valor > 0 ? (
+                    <span className="text-rose-600 dark:text-rose-300">
+                      ↑ {m.variacao.percentual.toLocaleString('pt-BR')}%
+                    </span>
+                  ) : (
+                    <span className="text-tinta-400">igual</span>
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          <p className="ajuda">
+            A comparação é em reais — o consumo em kWh não vem no título do IXC.
+            Mês sem barra é mês sem fatura lançada, e por isso ele não entra na
+            comparação: contra um mês vazio, qualquer conta pareceria uma queda
+            de 100%.
+          </p>
+        </div>
+      )}
+
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-2 border-t border-tinta-200 pt-4">
+        <button type="button" onClick={onApagar} className="btn btn-perigo">
+          Apagar endereço
+        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onLigarDesligar}
+            className="btn btn-neutro"
+            title={
+              contrato.ativa
                 ? 'Some da lista do mês; o que já foi lançado continua lá'
                 : 'Volta para a lista do mês'
             }
           >
-            {c.ativa ? 'Desligar' : 'Religar'}
+            {contrato.ativa ? 'Desligar' : 'Religar'}
           </button>
-          <button onClick={onApagar} className="btn btn-perigo btn-p">
-            Apagar
+          <button type="button" onClick={onEditar} className="btn btn-primario">
+            Editar cadastro
           </button>
         </div>
-      </td>
-    </tr>
+      </div>
+    </Janela>
   );
 }
 
