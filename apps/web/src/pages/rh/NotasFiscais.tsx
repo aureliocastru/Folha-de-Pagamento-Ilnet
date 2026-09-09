@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   Aviso,
   Bloco,
@@ -10,6 +10,7 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { MolduraDoArrasto, useSoltarArquivos } from './arrastar';
 import { formatData } from '../../lib/format';
 import type { DocumentoRh, MesDeNotas } from '../../lib/types';
 import {
@@ -50,7 +51,6 @@ export function NotasFiscais() {
   const [erro, setErro] = useState<string | null>(null);
   const [feito, setFeito] = useState<string | null>(null);
   const [baixando, setBaixando] = useState<string | null>(null);
-  const [arrastando, setArrastando] = useState(false);
   const [subindo, setSubindo] = useState(0);
   const [abrindo, setAbrindo] = useState<string | null>(null);
 
@@ -152,86 +152,26 @@ export function NotasFiscais() {
   }
 
   /*
-   * O arrasto é da janela inteira, e não de um retângulo dentro dela.
+   * Arrastar a nota para dentro do mês.
    *
-   * A área de soltar era o cartão da lista, que tem a altura do que há dentro:
-   * num mês com duas notas ela é uma tira fina no alto, e o resto da tela — a
-   * maior parte dela — devolvia o arquivo. Pior que não pegar: soltar fora de
-   * uma zona de drop faz o navegador **abrir o arquivo**, trocando a página
-   * pelo PDF e perdendo onde a pessoa estava.
-   *
-   * Por isso os ouvintes moram na `window` e o `preventDefault` vale para a
-   * janela toda: dentro de um mês o arquivo é guardado, e fora dele o arrasto é
-   * recusado com uma frase em vez de a tela sumir.
-   *
-   * As funções entram por `ref` porque os ouvintes são registrados uma vez só;
-   * lidas na hora do evento, elas são sempre as do render atual.
+   * O gesto e os ouvintes vivem no `useSoltarArquivos`, que é o mesmo da pasta
+   * do RH: era daqui que ele saiu, e passou a valer nas duas telas quando a
+   * pasta de uma pessoa ganhou o mesmo arrasto. Uma implementação só, para o
+   * gesto não ser diferente de uma tela para a outra.
    */
-  const guardarRef = useRef(guardarArquivos);
   const mesRef = useRef(mes);
-  useEffect(() => {
-    guardarRef.current = guardarArquivos;
-    mesRef.current = mes;
+  mesRef.current = mes;
+
+  const arrastando = useSoltarArquivos((arquivos) => {
+    if (!mesRef.current) {
+      setErro(
+        'Abra um mês antes — ou entre num que já está aberto. É para dentro ' +
+          'da pasta do mês que as notas vão.',
+      );
+      return;
+    }
+    void guardarArquivos(arquivos);
   });
-
-  useEffect(() => {
-    /* Só arquivo acende a tela: arrastar um texto ou um link de outra aba
-       também dispara estes eventos, e não é disso que se trata aqui. */
-    const temArquivo = (e: DragEvent) =>
-      Array.from(e.dataTransfer?.types ?? []).includes('Files');
-
-    /* `dragenter` e `dragleave` disparam a cada elemento por que o cursor
-       passa. Sem contar as entradas e saídas, a moldura pisca ao cruzar cada
-       linha da tabela. */
-    let profundidade = 0;
-
-    function aoEntrar(e: DragEvent) {
-      if (!temArquivo(e)) return;
-      e.preventDefault();
-      profundidade += 1;
-      setArrastando(true);
-    }
-
-    function aoPassar(e: DragEvent) {
-      // Sem este `preventDefault` o `drop` nunca acontece: o padrão do
-      // navegador é recusar a soltura e abrir o arquivo.
-      if (temArquivo(e)) e.preventDefault();
-    }
-
-    function aoSair(e: DragEvent) {
-      if (!temArquivo(e)) return;
-      profundidade = Math.max(0, profundidade - 1);
-      if (profundidade === 0) setArrastando(false);
-    }
-
-    function aoSoltar(e: DragEvent) {
-      if (!temArquivo(e)) return;
-      e.preventDefault();
-      profundidade = 0;
-      setArrastando(false);
-
-      const arquivos = Array.from(e.dataTransfer?.files ?? []);
-      if (!mesRef.current) {
-        setErro(
-          'Abra um mês antes — ou entre num que já está aberto. É para dentro ' +
-            'da pasta do mês que as notas vão.',
-        );
-        return;
-      }
-      void guardarRef.current(arquivos);
-    }
-
-    window.addEventListener('dragenter', aoEntrar);
-    window.addEventListener('dragover', aoPassar);
-    window.addEventListener('dragleave', aoSair);
-    window.addEventListener('drop', aoSoltar);
-    return () => {
-      window.removeEventListener('dragenter', aoEntrar);
-      window.removeEventListener('dragover', aoPassar);
-      window.removeEventListener('dragleave', aoSair);
-      window.removeEventListener('drop', aoSoltar);
-    };
-  }, []);
 
   /**
    * Baixa o mês inteiro num zip.
@@ -501,14 +441,11 @@ export function NotasFiscais() {
           precisar de legenda — e cobre justamente a parte vazia da página, que
           é onde a pessoa naturalmente solta. */}
       {arrastando && (
-        <div className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center p-6">
-          <div className="absolute inset-4 rounded-3xl border-2 border-dashed border-brand-400 bg-brand-500/10 backdrop-blur-[1px]" />
-          <p className="relative rounded-2xl bg-papel px-6 py-4 text-center font-display text-sm font-semibold text-tinta-700 shadow-xl ring-1 ring-tinta-200">
-            {mes
-              ? `Solte para guardar em ${porExtenso(mes.competencia)}`
-              : 'Abra um mês antes de soltar as notas'}
-          </p>
-        </div>
+        <MolduraDoArrasto>
+          {mes
+            ? `Solte para guardar em ${porExtenso(mes.competencia)}`
+            : 'Abra um mês antes de soltar as notas'}
+        </MolduraDoArrasto>
       )}
 
       {abrindoMes && (

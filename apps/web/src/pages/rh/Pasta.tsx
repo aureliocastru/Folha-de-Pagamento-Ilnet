@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   Aviso,
@@ -12,6 +12,7 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { MolduraDoArrasto, useSoltarArquivos } from './arrastar';
 import { useAuth } from '../../lib/auth';
 import { combina, semAcento } from '../../lib/busca';
 import { formatData } from '../../lib/format';
@@ -45,6 +46,8 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
   const { usuario } = useAuth();
   const [termo, setTermo] = useState('');
   const [guardando, setGuardando] = useState(false);
+  /** O que veio arrastado para a tela e ainda não foi guardado. */
+  const [soltos, setSoltos] = useState<File[]>([]);
   const [criandoSubpasta, setCriandoSubpasta] = useState(false);
   const [renomeando, setRenomeando] = useState(false);
   const [editando, setEditando] = useState<DocumentoRh | null>(null);
@@ -92,6 +95,27 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
     : subpastas;
   /** O caminho até aqui, da estante para dentro. */
   const caminho = trilha(todas, pasta);
+
+  /*
+   * Arrastar o papel para dentro da pasta aberta.
+   *
+   * O gesto já existia nas Notas Fiscais e não existia aqui: nesta tela o
+   * arrasto só era aceito dentro da janela "Guardar documento", que era
+   * preciso abrir antes. Quem conhecia o gesto de lá o tentava aqui, e o
+   * navegador abria o PDF numa aba — a pasta se perdia junto.
+   *
+   * Soltar aqui abre a janela **com o arquivo dentro**. Não salva sozinho, e
+   * isso não é meio caminho: o documento precisa de um tipo (a prateleira em
+   * que ele mora), e tipo é a única coisa que não se adivinha de um nome de
+   * arquivo. Guardar sem ele encheria a pasta de papel que ninguém acha
+   * depois.
+   */
+  const arrastando = useSoltarArquivos((arquivos) => {
+    if (arquivos.length === 0 || !id) return;
+    setErro(null);
+    setSoltos(arquivos);
+    setGuardando(true);
+  });
 
   /*
    * Quem pode mexer na pasta em si.
@@ -237,6 +261,7 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
       guardarLeva(documentos, id!),
     onSuccess: (leva) => {
       setGuardando(false);
+      setSoltos([]);
       setErro(null);
       avisar(contarLeva(leva));
       recarregar();
@@ -731,8 +756,15 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
       )}
 
       {guardando && (
-        <Janela titulo="Guardar documento" onFechar={() => setGuardando(false)}>
+        <Janela
+          titulo="Guardar documento"
+          onFechar={() => {
+            setGuardando(false);
+            setSoltos([]);
+          }}
+        >
           <FormularioDoDocumento
+            arquivosIniciais={soltos}
             tipos={estante.data?.tipos ?? []}
             pendente={guardar.isPending}
             erro={erro}
@@ -792,6 +824,14 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
             onSalvar={([dados]) => editar.mutate({ id: editando.id, ...dados })}
           />
         </Janela>
+      )}
+
+      {arrastando && (
+        <MolduraDoArrasto>
+          {pasta
+            ? `Solte para guardar em ${pasta.nome}`
+            : 'Abra uma pasta antes de soltar o documento'}
+        </MolduraDoArrasto>
       )}
     </Pagina>
   );
@@ -1249,6 +1289,7 @@ function SeloDoPrazo({ prazo }: { prazo: PrazoDoDocumento }) {
 export function FormularioDoDocumento({
   documento,
   substituindo = false,
+  arquivosIniciais,
   tipos,
   pastas,
   pendente,
@@ -1265,6 +1306,14 @@ export function FormularioDoDocumento({
    * uma renovação para a outra.
    */
   substituindo?: boolean;
+  /**
+   * Os arquivos que já vieram arrastados para a pasta.
+   *
+   * Quem larga o papel na tela já fez a metade do gesto: o formulário abre com
+   * ele dentro, e o que sobra é o tipo — a única coisa que o sistema não tem
+   * como adivinhar de um nome de arquivo. Ver o `useSoltarArquivos`.
+   */
+  arquivosIniciais?: File[];
   tipos: string[];
   /** Todas as pastas: corrigindo, dá para mudar o documento de lugar. */
   pastas?: PastaRh[];
@@ -1346,6 +1395,30 @@ export function FormularioDoDocumento({
       setLendo(false);
     }
   }
+
+  /*
+   * Os arquivos arrastados entram assim que o formulário abre.
+   *
+   * O `jaEntraram` não é zelo: `receber` **acrescenta** à lista (arrastar de
+   * novo soma, e é assim que se larga três e lembra do quarto), e o React em
+   * desenvolvimento monta cada componente duas vezes de propósito. Sem a
+   * trava, um PDF solto na pasta aparecia duas vezes na janela e viraria dois
+   * documentos iguais na estante.
+   *
+   * A trava é um `ref` justamente porque ele sobrevive à montagem repetida —
+   * um `useState` seria zerado junto com ela e não travaria nada. E o
+   * formulário nasce e morre com a janela, então cada arrasto novo começa com
+   * a trava aberta.
+   */
+  const receberRef = useRef(receber);
+  receberRef.current = receber;
+  const jaEntraram = useRef(false);
+  useEffect(() => {
+    if (jaEntraram.current) return;
+    if (!arquivosIniciais || arquivosIniciais.length === 0) return;
+    jaEntraram.current = true;
+    void receberRef.current(arquivosIniciais);
+  }, [arquivosIniciais]);
 
   async function escolher(e: React.ChangeEvent<HTMLInputElement>) {
     // A cópia tem de sair antes de limpar o campo: `files` é uma lista viva, e

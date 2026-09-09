@@ -63,6 +63,17 @@ function NoCanto() {
     queryKey: CHAVE,
     queryFn: async () => (await api.get<Agenda>('/agenda')).data,
     staleTime: 60_000,
+    /*
+     * Insiste antes de desistir — a casa inteira tenta uma vez só.
+     *
+     * A primeira leitura deste bloco é a mais frágil do sistema: ela sai junto
+     * com o carregamento da página, e depois de a máquina reiniciar ela pega o
+     * servidor frio. Falhando, o bloco abria em branco e a primeira tecla
+     * apagava tudo o que estava guardado (ver o `podeGravar`). Hoje o segundo
+     * problema não existe mais, mas o primeiro continua sendo uma leitura que
+     * vale a pena repetir: sem o texto de lá, o bloco não deixa escrever.
+     */
+    retry: 3,
   });
 
   /*
@@ -77,10 +88,35 @@ function NoCanto() {
   const [rascunho, setRascunho] = useState<string | null>(null);
   const gravado = consulta.data?.texto ?? '';
   const texto = rascunho ?? gravado;
+
+  /*
+   * O bloco só aceita escrita depois de saber o que já está guardado.
+   *
+   * Este é o conserto de uma perda de recado de verdade, e a ordem dos fatos
+   * era esta: o bloco abre junto com a página, a leitura do servidor ainda
+   * está a caminho, e até ela chegar o campo mostra vazio — porque `gravado`
+   * é `''` enquanto não há resposta. O botão tem `autoFocus`, então quem
+   * clicava nele já começava a digitar. Oitocentos milissegundos depois saía
+   * um PUT com **só** a frase nova, por cima de tudo o que estava lá. O texto
+   * antigo não sumia do banco por acaso: era esta tela que o apagava.
+   *
+   * A janela para isso acontecer é estreita e abre exatamente quando o
+   * usuário é mais rápido que o servidor — o primeiro acesso depois de ligar a
+   * máquina, com o container ainda frio. E a leitura que falha de vez (o
+   * `retry` acima é novo) deixava a janela aberta para sempre: o bloco ficava
+   * em branco a sessão inteira, e qualquer tecla gravava esse branco.
+   *
+   * `isSuccess` é a única resposta que serve. Nem "não está mais carregando"
+   * nem "não deu erro": as duas valem `true` antes da primeira ida ao
+   * servidor.
+   */
+  const carregou = consulta.isSuccess;
+
   // O servidor apara as pontas do texto antes de guardar. A comparação apara
   // as duas pontas também, senão o Enter no fim da última linha voltaria
   // diferente do que foi mandado, e o bloco gravaria a si mesmo sem parar.
-  const porGravar = rascunho !== null && rascunho.trim() !== gravado.trim();
+  const porGravar =
+    carregou && rascunho !== null && rascunho.trim() !== gravado.trim();
 
   const salvar = useMutation({
     mutationFn: async (t: string) =>
@@ -185,12 +221,24 @@ function NoCanto() {
     campoRef.current?.setSelectionRange(onde, onde);
   });
 
+  /*
+   * Nada vira rascunho antes de o bloco abrir.
+   *
+   * O `readOnly` do campo já barra quem digita, e é o que a pessoa vê. Este
+   * `if` barra o resto: colar, o corretor do navegador, uma extensão, um
+   * teste. Sem ele, um rascunho nascido antes da leitura sobreviveria a ela —
+   * e no instante em que a resposta chegasse, esse rascunho de uma palavra
+   * passaria a valer contra o texto do servidor e o apagaria. Seria o mesmo
+   * bug por outra porta.
+   */
   function escrever(novo: string, cursor: number) {
+    if (!carregou) return;
     cursorRef.current = cursor;
     setRascunho(novo);
   }
 
   function teclaNoCampo(e: TeclaReact<HTMLTextAreaElement>) {
+    if (!carregou) return;
     const { selectionStart, selectionEnd, value } = e.currentTarget;
 
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -216,6 +264,7 @@ function NoCanto() {
   }
 
   function digitou(valor: string) {
+    if (!carregou) return;
     // A primeira letra do bloco em branco já nasce marcada: a primeira tarefa
     // é tarefa como as outras, e ninguém digita o ponto na mão para ela.
     if (texto.trim() === '' && valor.trim() !== '' && !valor.startsWith(PONTO)) {
@@ -304,18 +353,29 @@ function NoCanto() {
               passagem, com a tela cheia de outra coisa atrás dele. Um recado em
               peso de corpo de texto se perde nesse relance.
             */}
+            {/*
+              `readOnly` enquanto o bloco não abriu, e não `disabled`: o texto
+              continua selecionável e copiável, e o campo não fica cinza — o
+              que se quer dizer aqui é "espere", não "não é para você".
+
+              A tecla que se perde nesse instante é o preço de não perder o
+              recado da semana passada. Ver o `carregou`.
+            */}
             <textarea
               autoFocus
               ref={campoRef}
               value={texto}
+              readOnly={!carregou}
               onChange={(e) => digitou(e.target.value)}
               onKeyDown={teclaNoCampo}
               onBlur={gravarJa}
               spellCheck={false}
               placeholder={
-                consulta.isLoading
-                  ? 'Abrindo o bloco…'
-                  : 'O que não pode ser esquecido.\n\n• Ligar para a contabilidade\n• Guia do INSS vence dia 20'
+                carregou
+                  ? 'O que não pode ser esquecido.\n\n• Ligar para a contabilidade\n• Guia do INSS vence dia 20'
+                  : consulta.isError
+                    ? 'Não deu para abrir o bloco.\n\nO que está guardado continua lá — só não dá para escrever antes de ler.'
+                    : 'Abrindo o bloco…'
               }
               className="rolagem-fina min-h-0 w-full flex-1 resize-none bg-white px-4 py-3 text-sm font-bold leading-relaxed text-slate-800 placeholder:font-semibold placeholder:text-amber-700/45 focus:outline-none"
             />
@@ -323,6 +383,9 @@ function NoCanto() {
             <div className="flex items-center justify-between gap-3 border-t-2 border-amber-400 bg-amber-100 px-4 py-2 text-[11px] font-semibold text-amber-800">
               <span>Só você vê este bloco.</span>
               <Situacao
+                carregou={carregou}
+                naoAbriu={consulta.isError}
+                aoTentarDeNovo={() => void consulta.refetch()}
                 salvando={salvar.isPending}
                 porGravar={porGravar}
                 erro={salvar.isError}
@@ -345,16 +408,46 @@ function NoCanto() {
  * "salvo às 10:42", e não "PUT 200".
  */
 function Situacao({
+  carregou,
+  naoAbriu,
+  aoTentarDeNovo,
   salvando,
   porGravar,
   erro,
   atualizadoEm,
 }: {
+  /** Já sabemos o que está guardado no servidor? Antes disso não se escreve. */
+  carregou: boolean;
+  naoAbriu: boolean;
+  aoTentarDeNovo: () => void;
   salvando: boolean;
   porGravar: boolean;
   erro: boolean;
   atualizadoEm: string | null;
 }) {
+  /*
+   * A leitura que falhou tem de aparecer, e com a saída junto.
+   *
+   * Ela era invisível: o bloco abria em branco e parecia vazio, e não havia
+   * como distinguir "você não escreveu nada" de "não consegui ler o que você
+   * escreveu". Era a mesma tela para as duas coisas — e a segunda é a que
+   * fazia alguém redigitar o recado por cima do que já estava lá.
+   */
+  if (naoAbriu) {
+    return (
+      <span className="flex items-center gap-2">
+        <span className="font-medium text-rose-500">Não deu para abrir</span>
+        <button
+          type="button"
+          onClick={aoTentarDeNovo}
+          className="rounded px-1.5 py-0.5 font-semibold text-amber-900 underline decoration-amber-700/40 underline-offset-2 transition hover:bg-amber-500/30"
+        >
+          tentar de novo
+        </button>
+      </span>
+    );
+  }
+  if (!carregou) return <span>Abrindo…</span>;
   if (erro) {
     return (
       <span className="font-medium text-rose-500">
