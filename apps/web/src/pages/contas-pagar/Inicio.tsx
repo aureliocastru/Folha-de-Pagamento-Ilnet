@@ -346,7 +346,7 @@ export function Inicio() {
             carregando={categorias.isLoading}
             desabilitado={classificarLote.isPending}
             onChange={setCategoriaLote}
-            extras={<option value="__limpar">— tirar a categoria —</option>}
+            extras={[{ valor: '__limpar', rotulo: '— tirar a categoria —' }]}
           />
           <button
             onClick={() =>
