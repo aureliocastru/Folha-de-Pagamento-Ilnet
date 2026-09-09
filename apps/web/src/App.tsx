@@ -3,6 +3,7 @@ import { Layout } from './components/Layout';
 import { useAuth } from './lib/auth';
 import {
   MODULO_CONTAS_PAGAR,
+  MODULO_COTACOES,
   MODULO_FOLHA,
   MODULO_RH,
   MODULO_SEGURANCA,
@@ -15,6 +16,8 @@ import { Assinar } from './pages/Assinar';
 import { Login } from './pages/Login';
 import { Modulos } from './pages/Modulos';
 import { Inicio as ContasPagarInicio } from './pages/contas-pagar/Inicio';
+import { Fornecedores as FornecedoresDeCotacao } from './pages/cotacoes/Fornecedores';
+import { Precos } from './pages/cotacoes/Precos';
 import { Categorias as ContasPagarCategorias } from './pages/contas-pagar/Categorias';
 import { Dashboard as ContasPagarDashboard } from './pages/contas-pagar/Dashboard';
 import { FechamentoCaixa } from './pages/contas-pagar/FechamentoCaixa';
@@ -169,6 +172,26 @@ export default function App() {
             contas sem haver nota nenhuma para conferir depois. O servidor é
             quem recusa de verdade — aqui a rota só some do menu. */}
         <Route path="transferencias" element={<Transferencias />} />
+      </Route>
+
+      {/* Cotações de Preços — o catálogo do que a casa compra.
+
+          Nada aqui fala com o IXC, e é de propósito: o fornecedor de lá é quem
+          já recebeu dinheiro da empresa, e a pergunta deste módulo é outra —
+          quem tem preço de drop, de ONU, de roteador para dar. Fornecedor e
+          produto se cadastram aqui, um por um. */}
+      <Route
+        path="/cotacoes"
+        element={
+          <Protegida>
+            <Layout modulo={MODULO_COTACOES} />
+          </Protegida>
+        }
+      >
+        <Route index element={<Navigate to="precos" replace />} />
+        <Route path="precos" element={<Precos />} />
+        <Route path="fornecedores" element={<FornecedoresDeCotacao />} />
+        <Route path="minha-conta" element={<MinhaConta />} />
       </Route>
 
       {/* RH — a estante de documentos. Quem recusa de verdade é a API, que

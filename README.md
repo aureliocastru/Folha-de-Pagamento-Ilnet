@@ -7,6 +7,7 @@ organizado em módulos. Depois do login você escolhe em qual trabalhar:
 | --------------------- | --------------- | ---------------------------------------------------------- |
 | Folha de Pagamento    | `/folha`        | Funcionários, diaristas, vales, férias, impostos e a folha  |
 | Contas a Pagar        | `/contas-pagar` | Todas as saídas da empresa                                  |
+| Cotações de Preços    | `/cotacoes`     | O preço de cada material em cada fornecedor                 |
 | RH                    | `/rh`           | A estante de documentos: a pasta de cada funcionário        |
 | Segurança do Trabalho | `/seguranca`    | As análises de risco (APR) dos serviços e o formulário      |
 | — (tela do técnico)   | `/campo`        | A APR no celular, para quem trabalha em campo               |
@@ -42,6 +43,7 @@ folha-pagamento/
 | `funcionarios` | API REST do cadastro (listar, detalhar, editar, resumo)     |
 | `rh`           | A estante de documentos: pastas, arquivos e os recibos       |
 | `apr`          | Análise de risco: catálogo, APRs preenchidas e o PDF         |
+| `cotacoes`     | Catálogo de preços: produto, fornecedor daqui e a comparação |
 | `auth`         | Login JWT; todas as rotas protegidas por padrão             |
 | `prisma`       | Acesso ao PostgreSQL                                         |
 

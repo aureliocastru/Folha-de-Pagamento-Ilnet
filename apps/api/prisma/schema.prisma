@@ -44,10 +44,10 @@ model User {
   /// abriram, e ninguém fica trancado do lado de fora por causa de uma
   /// migração. Quem é ADMIN passa em qualquer caso — é ele quem distribui o
   /// acesso, e trancar a si mesmo não teria conserto pela tela.
-  modulos   String[] @default([])
+  modulos String[] @default([])
 
   /// O bloco de notas deste login. Ver o modelo `Agenda`.
-  agenda    Agenda?
+  agenda Agenda?
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -1860,7 +1860,6 @@ model DocumentoRh {
   @@map("documentos_rh")
 }
 
-
 // ---------------------------------------------------------------------------
 // Segurança do Trabalho — a Análise Preliminar de Risco (APR)
 //
@@ -2236,4 +2235,144 @@ model Agenda {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("agendas")
+}
+
+// ---------------------------------------------------------------------------
+// Cotações de preços — o que a casa compra, e por quanto, em cada fornecedor
+// ---------------------------------------------------------------------------
+
+/// A unidade em que um produto é comprado e cotado.
+///
+/// Ela mora no produto, e não no preço, e é isso que faz a comparação valer:
+/// todos os preços de um mesmo produto falam da mesma unidade. Drop cotado a
+/// R$ 0,85 o metro num fornecedor e a R$ 780,00 o rolo noutro não é o mesmo
+/// produto para efeito de comparação — são dois, ou é um só com a unidade
+/// escolhida e os dois preços convertidos por quem cadastra.
+///
+/// Nada aqui vem do IXC: este módulo é cadastro desta casa do começo ao fim.
+enum UnidadeProduto {
+  /// Peça: roteador, ONU, conector, caixa de emenda.
+  UN
+  M
+  KM
+  /// Caixa fechada, quando é assim que o fornecedor vende.
+  CX
+  ROLO
+  PCT
+  KG
+  L
+  PAR
+}
+
+/// Quem vende para a casa.
+///
+/// Cadastro próprio, um por um. **Não é o fornecedor do IXC**: lá estão os três
+/// mil e duzentos que já receberam dinheiro da empresa — prestador de serviço,
+/// concessionária, aluguel —, e aqui é a lista curta de quem tem preço de
+/// material para dar. As duas listas se cruzam em alguns nomes e nem por isso
+/// respondem a mesma pergunta.
+model FornecedorCotacao {
+  id String @id @default(uuid())
+
+  /// Como a casa chama este fornecedor. Único: dois cadastros do mesmo lugar
+  /// espalhariam os preços dele em duas listas, e a comparação apontaria o
+  /// mais barato entre metades.
+  nome         String  @unique
+  nomeFantasia String? @map("nome_fantasia")
+  cnpj         String?
+
+  /// O vendedor com quem se fala — é dele que o preço costuma vir.
+  contato    String?
+  telefone   String?
+  email      String?
+  site       String?
+  observacao String?
+
+  /// Desativado some das opções de cotação nova, mas os preços que ele já deu
+  /// continuam de pé: parar de comprar de alguém não apaga o que ele cobrava.
+  ativo Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  precos PrecoDeProduto[]
+
+  @@map("fornecedores_cotacao")
+}
+
+/// Uma coisa que a casa compra: drop, roteador, ONU, OLT, conector, cordoalha.
+model ProdutoCotado {
+  id String @id @default(uuid())
+
+  /// Único, e pela mesma razão do fornecedor: "ONU" cadastrada duas vezes vira
+  /// duas listas de preço, e a pergunta "onde está mais barato?" passa a ter
+  /// duas respostas certas e nenhuma completa.
+  nome String @unique
+
+  /// O código do fabricante ou o da casa, quando existe. Serve para achar o
+  /// produto exato numa família parecida (ONU de uma antena e de duas).
+  codigo String?
+
+  unidade UnidadeProduto @default(UN)
+
+  observacao String?
+
+  ativo Boolean @default(true)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  precos PrecoDeProduto[]
+
+  @@map("produtos_cotados")
+}
+
+/// Um preço: o que este fornecedor cobrou por este produto, nesta data.
+///
+/// É um registro por cotação, e não um campo que se sobrescreve. O preço de
+/// material muda o tempo todo, e guardar só o último responderia "onde está
+/// mais barato hoje" perdendo "isto subiu 40% desde março" — que é a pergunta
+/// que faz alguém pedir desconto. O preço que vale é o mais recente de cada
+/// fornecedor; o resto é a história dele.
+model PrecoDeProduto {
+  id String @id @default(uuid())
+
+  /// `Restrict`: um produto com preço cadastrado não some por um clique. Quem
+  /// quiser mesmo apagá-lo apaga os preços antes — e a tela avisa quantos são.
+  produto   ProdutoCotado @relation(fields: [produtoId], references: [id], onDelete: Restrict)
+  produtoId String        @map("produto_id")
+
+  fornecedor   FornecedorCotacao @relation(fields: [fornecedorId], references: [id], onDelete: Restrict)
+  fornecedorId String            @map("fornecedor_id")
+
+  /// O preço de **uma** unidade do produto, na unidade que ele declara.
+  ///
+  /// Quatro casas, e não as duas do resto da casa: drop sai a R$ 0,4750 o
+  /// metro, e arredondar isso para R$ 0,48 erra R$ 25,00 num rolo de dez mil
+  /// metros — bem acima do que a comparação entre dois fornecedores costuma
+  /// separar.
+  valor Decimal @db.Decimal(14, 4)
+
+  /// O dia da cotação, e não o dia em que foi digitada: o preço que o vendedor
+  /// passou na terça continua sendo de terça mesmo que só se lance na sexta.
+  data DateTime @db.Date
+
+  /// A partir de quanto este preço vale. Null = vale para qualquer quantidade.
+  /// É o que explica por que o mais barato da lista às vezes não serve.
+  quantidadeMinima Decimal? @map("quantidade_minima") @db.Decimal(14, 3)
+
+  observacao String?
+
+  /// Quem anotou, pelo nome. Texto, e não um vínculo com `users`: o valor é
+  /// histórico e não pode mudar de dono nem sumir quando um login é apagado.
+  registradoPor String? @map("registrado_por")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  /// A consulta que a tela inteira faz: os preços de um produto, do mais
+  /// recente para o mais antigo, por fornecedor.
+  @@index([produtoId, fornecedorId, data])
+  @@index([fornecedorId])
+  @@map("precos_de_produto")
 }

@@ -8,7 +8,13 @@ import { UserRole } from '@prisma/client';
 import type { Request } from 'express';
 
 /** Os módulos do app, como a tela os chama. */
-export const MODULOS = ['folha', 'contas-pagar', 'rh', 'seguranca'] as const;
+export const MODULOS = [
+  'folha',
+  'contas-pagar',
+  'rh',
+  'seguranca',
+  'cotacoes',
+] as const;
 export type ModuloId = (typeof MODULOS)[number];
 
 /**
@@ -42,6 +48,10 @@ const MODULO_DA_ROTA: Array<[string, ModuloId[]]> = [
   ['rh', ['rh']],
 
   ['apr', ['seguranca']],
+
+  // O catálogo de preços. Prefixo único de propósito: rota nova deste módulo
+  // nasce coberta sem passar por aqui.
+  ['cotacoes', ['cotacoes']],
 
   ['contas-abertas', ['contas-pagar']],
   ['pagamentos-feitos', ['contas-pagar']],

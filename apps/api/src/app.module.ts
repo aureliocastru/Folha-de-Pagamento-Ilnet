@@ -21,6 +21,7 @@ import { UsuariosModule } from './usuarios/usuarios.module';
 import { AgendaModule } from './agenda/agenda.module';
 import { RhModule } from './rh/rh.module';
 import { AprModule } from './apr/apr.module';
+import { CotacoesModule } from './cotacoes/cotacoes.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { ModulosGuard } from './auth/modulos.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -52,6 +53,7 @@ import { HealthController } from './health/health.controller';
     TransferenciasModule,
     RhModule,
     AprModule,
+    CotacoesModule,
   ],
   controllers: [HealthController],
   providers: [

@@ -1987,3 +1987,91 @@ export interface Agenda {
   /** Última gravação, ou null enquanto o bloco nunca recebeu nada. */
   atualizadoEm: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// Cotações de preços — o que a casa compra, e por quanto, em cada fornecedor
+// ---------------------------------------------------------------------------
+
+/**
+ * A unidade em que o produto é comprado. Ela mora no produto, e não no preço:
+ * é isso que faz a comparação valer — todos os preços de um item falam da
+ * mesma unidade.
+ */
+export type UnidadeProduto =
+  | 'UN'
+  | 'M'
+  | 'KM'
+  | 'CX'
+  | 'ROLO'
+  | 'PCT'
+  | 'KG'
+  | 'L'
+  | 'PAR';
+
+/** Quem vende material para a casa. Nada a ver com o fornecedor do IXC. */
+export interface FornecedorCotacao {
+  id: string;
+  nome: string;
+  nomeFantasia: string | null;
+  cnpj: string | null;
+  contato: string | null;
+  telefone: string | null;
+  email: string | null;
+  site: string | null;
+  observacao: string | null;
+  ativo: boolean;
+  /** Quantos produtos diferentes ele já cotou. */
+  produtos: number;
+  /** Em quantos deles ele é o mais barato hoje — é isto que diz de quem comprar. */
+  maisBaratoEm: number;
+  /** Quantas cotações ele tem no histórico. */
+  cotacoes: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** O preço que vale hoje, de um fornecedor. */
+export interface PrecoDoFornecedor {
+  id: string;
+  fornecedor: { id: string; nome: string; ativo: boolean };
+  valor: number;
+  /** "AAAA-MM-DD" — o dia em que o vendedor passou o preço. */
+  data: string;
+  quantidadeMinima: number | null;
+  observacao: string | null;
+  registradoPor: string | null;
+  /** Quanto este custa a mais que o mais barato, por unidade. Zero no campeão. */
+  aMaisQueOMenor: number;
+}
+
+/** Uma linha do histórico: toda cotação já lançada, valendo ou não. */
+export interface CotacaoDoHistorico
+  extends Omit<PrecoDoFornecedor, 'aMaisQueOMenor'> {
+  /** É este o preço que vale hoje deste fornecedor? */
+  vale: boolean;
+}
+
+export interface ProdutoCotado {
+  id: string;
+  nome: string;
+  codigo: string | null;
+  unidade: UnidadeProduto;
+  observacao: string | null;
+  ativo: boolean;
+  /** Um por fornecedor — o mais recente dele —, do mais barato ao mais caro. */
+  precos: PrecoDoFornecedor[];
+  /** O primeiro de `precos`. Null = ninguém cotou este produto ainda. */
+  maisBarato: PrecoDoFornecedor | null;
+  /**
+   * O que se deixa de gastar por unidade comprando do mais barato em vez do
+   * mais caro. Null com um fornecedor só — não há escolha a fazer.
+   */
+  economia: { valor: number; percentual: number } | null;
+  /** Quantas cotações há no histórico, e não só as que valem hoje. */
+  cotacoes: number;
+}
+
+/** O produto com o histórico junto — o que a janela de detalhe recebe. */
+export interface ProdutoCotadoDetalhado extends ProdutoCotado {
+  historico: CotacaoDoHistorico[];
+}

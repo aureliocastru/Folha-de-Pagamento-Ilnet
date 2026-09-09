@@ -390,3 +390,24 @@ export function IconeBloco({ className }: IconeProps) {
     </svg>
   );
 }
+
+/** Carrinho de compras: o módulo das cotações — o que a casa compra. */
+export function IconeCarrinho({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M2.5 3h1.8a1 1 0 0 1 .97.76L6 7m0 0 1.7 7.1a1.5 1.5 0 0 0 1.46 1.15h7.9a1.5 1.5 0 0 0 1.46-1.15L20 7z" />
+      <circle cx="9.5" cy="19.5" r="1.3" />
+      <circle cx="17" cy="19.5" r="1.3" />
+    </svg>
+  );
+}
+
+/** Duas etiquetas de preço lado a lado: o mesmo produto em dois fornecedores. */
+export function IconePrecos({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M12.5 3H6a2 2 0 0 0-2 2v6.5a2 2 0 0 0 .6 1.4l6.5 6.5a2 2 0 0 0 2.8 0l5.6-5.6a2 2 0 0 0 0-2.8l-6.5-6.5A2 2 0 0 0 12.5 3z" />
+      <circle cx="8" cy="7.5" r="1.2" />
+    </svg>
+  );
+}

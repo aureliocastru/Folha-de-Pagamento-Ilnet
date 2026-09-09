@@ -47,8 +47,9 @@ export function CampoDinheiro({
   valor,
   onChange,
   className = 'campo',
-  placeholder = '0,00',
+  placeholder,
   id,
+  casas = 2,
 }: {
   /** Valor canônico: "2107.03" ou "" quando vazio. */
   valor: string;
@@ -57,9 +58,18 @@ export function CampoDinheiro({
   placeholder?: string;
   /** Para o `htmlFor` do rótulo: sem ele, clicar no rótulo não faz nada. */
   id?: string;
+  /**
+   * Quantas casas decimais a máscara monta. Duas por padrão — é o dinheiro que
+   * sai do caixa, e é o que o resto da casa usa.
+   *
+   * Quatro serve ao preço unitário das cotações: drop se compra a R$ 0,4750 o
+   * metro, e arredondar para R$ 0,48 erra R$ 25,00 num rolo de dez mil metros.
+   */
+  casas?: number;
 }) {
+  const fator = 10 ** casas;
   /** O que está escrito, guardado como os dígitos que o compõem. */
-  const [digitos, setDigitos] = useState(() => digitosDoValor(valor));
+  const [digitos, setDigitos] = useState(() => digitosDoValor(valor, casas));
   const emitido = useRef(valor);
   const campo = useRef<HTMLInputElement>(null);
 
@@ -68,8 +78,8 @@ export function CampoDinheiro({
   useEffect(() => {
     if (valor === emitido.current) return;
     emitido.current = valor;
-    setDigitos(digitosDoValor(valor));
-  }, [valor]);
+    setDigitos(digitosDoValor(valor, casas));
+  }, [valor, casas]);
 
   /*
    * O cursor fica sempre no fim.
@@ -90,9 +100,9 @@ export function CampoDinheiro({
     const novos = somenteDigitosSignificativos(bruto);
     setDigitos(novos);
 
-    // Canônico com as duas casas, que é o que a API espera. Vazio continua
+    // Canônico com as casas pedidas, que é o que a API espera. Vazio continua
     // vazio: campo em branco não é zero, é "não preenchido".
-    const canonico = novos ? (Number(novos) / 100).toFixed(2) : '';
+    const canonico = novos ? (Number(novos) / fator).toFixed(casas) : '';
     emitido.current = canonico;
     onChange(canonico);
   }
@@ -105,8 +115,8 @@ export function CampoDinheiro({
       // Só dígitos são teclados aqui, então o celular abre o teclado numérico
       // em vez do de decimais com vírgula que ninguém precisa mais usar.
       inputMode="numeric"
-      value={digitos ? formatNumeroBR(Number(digitos) / 100) : ''}
-      placeholder={placeholder}
+      value={digitos ? formatNumeroBR(Number(digitos) / fator, casas) : ''}
+      placeholder={placeholder ?? (0).toFixed(casas).replace('.', ',')}
       className={className}
       onChange={(e) => aoDigitar(e.target.value)}
       onFocus={(e) =>
@@ -129,12 +139,14 @@ function somenteDigitosSignificativos(bruto: string): string {
 }
 
 /** Canônico ("2107.03") → os dígitos que o escrevem ("210703"). */
-function digitosDoValor(valor: string): string {
+function digitosDoValor(valor: string, casas = 2): string {
   const n = Number(valor);
   if (!valor || !Number.isFinite(n)) return '';
   // Arredondar antes é obrigatório: 2107.03 * 100 dá 210702.99999… em ponto
   // flutuante, e truncar isso comeria um centavo.
-  return somenteDigitosSignificativos(String(Math.round(Math.abs(n) * 100)));
+  return somenteDigitosSignificativos(
+    String(Math.round(Math.abs(n) * 10 ** casas)),
+  );
 }
 
 export function Pagina({ children }: { children: ReactNode }) {

@@ -3,6 +3,7 @@ import {
   IconeCalculo,
   IconeCalendarioVolta,
   IconeCapacete,
+  IconeCarrinho,
   IconeChave,
   IconeChecklist,
   IconeDia,
@@ -15,6 +16,7 @@ import {
   IconePainel,
   IconePasta,
   IconePessoas,
+  IconePrecos,
   IconePredio,
   IconeRecibo,
   IconeSaida,
@@ -212,11 +214,47 @@ const rh: Modulo = {
   ],
 };
 
+/**
+ * Cotações de preços — o catálogo do que a casa compra.
+ *
+ * Drop, roteador, ONU, OLT, conector: o preço de cada um em cada fornecedor,
+ * para que a hora de fazer o pedido já comece sabendo onde está mais barato.
+ *
+ * **Nada aqui vem do IXC**, e é de propósito. O cadastro de fornecedores de lá
+ * responde "para quem a empresa já pagou?" — três mil e duzentos nomes, entre
+ * prestador de serviço, concessionária e imposto. A pergunta deste módulo é
+ * outra e a lista é curta: quem tem preço de material para dar. Fornecedor e
+ * produto se cadastram aqui, um por um.
+ */
+const cotacoes: Modulo = {
+  id: 'cotacoes',
+  nome: 'Cotações de Preços',
+  descricao:
+    'O preço de cada material em cada fornecedor: onde o drop, a ONU e o ' +
+    'roteador estão mais baratos hoje',
+  base: '/cotacoes',
+  inicio: 'precos',
+  icone: IconeCarrinho,
+  tom: 'bg-violet-500/15 text-violet-300',
+  papeis: ['ADMIN', 'RH', 'VISUALIZADOR'],
+  menu: [
+    { to: 'precos', label: 'Preços', icone: IconePrecos },
+    { to: 'fornecedores', label: 'Fornecedores', icone: IconePredio },
+  ],
+};
+
 /** A ordem daqui é a ordem dos cartões na tela de módulos. */
-export const MODULOS: Modulo[] = [folha, contasPagar, rh, seguranca];
+export const MODULOS: Modulo[] = [
+  folha,
+  contasPagar,
+  cotacoes,
+  rh,
+  seguranca,
+];
 
 export const MODULO_FOLHA = folha;
 export const MODULO_CONTAS_PAGAR = contasPagar;
+export const MODULO_COTACOES = cotacoes;
 export const MODULO_RH = rh;
 export const MODULO_SEGURANCA = seguranca;
 
