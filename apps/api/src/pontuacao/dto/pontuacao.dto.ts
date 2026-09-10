@@ -1,7 +1,7 @@
 import { Transform } from 'class-transformer';
 import {
   IsBoolean,
-  IsInt,
+  IsIn,
   IsISO8601,
   IsOptional,
   IsString,
@@ -35,14 +35,33 @@ export class MinhaPontuacaoDto {
 export class LancarPontosDto {
   @IsUUID() funcionarioId!: string;
 
+  /** +1 ou −1. */
   @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
-  @IsInt()
+  @IsIn([1, -1], { message: 'Cada lançamento é de um ponto: +1 ou −1.' })
   pontos!: number;
 
   @IsString() @MinLength(3) @MaxLength(300) motivo!: string;
 
   /** O dia do que aconteceu (AAAA-MM-DD). Vazio = hoje. */
   @IsOptional() @IsISO8601() data?: string;
+
+  /** A foto, em data URL. O teto de tamanho de verdade é o do service. */
+  @IsOptional() @IsString() @MaxLength(5_000_000) foto?: string;
+}
+
+/** A foto de um ponto, pedida da tela do funcionário. */
+export class FotoDaMinhaPontuacaoDto {
+  @IsString() @MaxLength(20) cpf!: string;
+  @IsUUID() lancamentoId!: string;
+}
+
+export class CriarMotivoDto {
+  @IsString() @MinLength(3) @MaxLength(60) texto!: string;
+  @IsBoolean() positivo!: boolean;
+}
+
+export class AtualizarMotivoDto {
+  @IsString() @MinLength(3) @MaxLength(60) texto!: string;
 }
 
 export class CriarCoordenadorDto {

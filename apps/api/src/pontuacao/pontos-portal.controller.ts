@@ -18,6 +18,7 @@ import {
 } from './coordenador.guard';
 import {
   EntrarDto,
+  FotoDaMinhaPontuacaoDto,
   IdentificarDto,
   LancarPontosDto,
   MinhaPontuacaoDto,
@@ -68,6 +69,14 @@ export class PontosPortalController {
     return this.service.visaoDoFuncionario(dto.cpf, dto.competencia);
   }
 
+  /** A foto de um dos pontos da tela do funcionário — só dos dele. */
+  @Post('minha/foto')
+  @HttpCode(200)
+  minhaFoto(@Body() dto: FotoDaMinhaPontuacaoDto, @Req() req: Request) {
+    this.limite.conferir(req);
+    return this.service.fotoDoFuncionario(dto.cpf, dto.lancamentoId);
+  }
+
   // --- Do coordenador, com o token do portal ---
 
   @Get('eu')
@@ -105,5 +114,18 @@ export class PontosPortalController {
   async apagar(@Param('id') id: string, @Req() req: RequisicaoDoCoordenador) {
     await this.service.apagar(id, autor(req));
     return { ok: true };
+  }
+
+  @Get('lancamentos/:id/foto')
+  @UseGuards(CoordenadorGuard)
+  foto(@Param('id') id: string) {
+    return this.service.fotoDoLancamento(id);
+  }
+
+  /** Os motivos de um toque. Quem os cadastra é o ADMIN, por dentro. */
+  @Get('motivos')
+  @UseGuards(CoordenadorGuard)
+  motivos() {
+    return this.service.listarMotivos();
   }
 }

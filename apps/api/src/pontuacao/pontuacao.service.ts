@@ -7,8 +7,13 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { CoordenadorPontuacao, LancamentoDePontos } from '@prisma/client';
+import {
+  CoordenadorPontuacao,
+  LancamentoDePontos,
+  MotivoDePontos,
+} from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { conferirArquivo, lerDataUrl } from '../arquivos/data-url';
 import { PrismaService } from '../prisma/prisma.service';
 import { cpfValido, somenteDigitos } from './cpf';
 
@@ -16,10 +21,16 @@ import { cpfValido, somenteDigitos } from './cpf';
 const TENTATIVAS_ATE_TRAVAR = 5;
 /** Por quanto tempo ele fica travado. */
 const TRAVA_MS = 15 * 60 * 1000;
-/** O teto de um lançamento, para um zero a mais não virar mil pontos. */
-const TETO_DE_PONTOS = 100;
 /** Quantos meses a tela do funcionário mostra de relance. */
 const MESES_NO_HISTORICO = 6;
+
+/**
+ * A foto chega reduzida pelo navegador (1600px, JPEG a 70%, uns 300 KB). O
+ * teto é folgado para o celular que não reduz, e apertado para ninguém
+ * guardar um vídeo aqui.
+ */
+const FOTO_ACEITA = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const FOTO_MAXIMA = 3 * 1024 * 1024;
 
 /** O que o token do portal carrega. */
 export interface TokenDoCoordenador {
@@ -51,6 +62,8 @@ export interface LancamentoNaTela {
   motivo: string;
   data: Date;
   lancadoPor: string;
+  /** Tem foto — que se pede à parte, só quando alguém quer ver. */
+  temFoto: boolean;
   /** Quem está vendo pode apagar este. */
   podeApagar: boolean;
 }
@@ -217,6 +230,7 @@ export class PontuacaoService {
 
     const lancamentos = await this.prisma.lancamentoDePontos.findMany({
       where: { funcionarioId: funcionario.id, competencia: alvo },
+      include: { foto: { select: { id: true } } },
       orderBy: [{ data: 'desc' }, { createdAt: 'desc' }],
     });
 
@@ -233,12 +247,13 @@ export class PontuacaoService {
       pontos: eu?.pontos ?? 0,
       posicao: eu?.posicao ?? painel.funcionarios.length,
       de: painel.funcionarios.length,
-      lancamentos: lancamentos.map(({ id, pontos, motivo, data, lancadoPor }) => ({
+      lancamentos: lancamentos.map(({ id, pontos, motivo, data, lancadoPor, foto }) => ({
         id,
         pontos,
         motivo,
         data,
         lancadoPor,
+        temFoto: !!foto,
       })),
       meses: meses.map((m) => ({
         competencia: m,
@@ -296,6 +311,7 @@ export class PontuacaoService {
     const alvo = validarCompetencia(competencia ?? mesAtual());
     const lista = await this.prisma.lancamentoDePontos.findMany({
       where: { funcionarioId, competencia: alvo },
+      include: { foto: { select: { id: true } } },
       orderBy: [{ data: 'desc' }, { createdAt: 'desc' }],
     });
     return lista.map((l) => ({
@@ -304,25 +320,47 @@ export class PontuacaoService {
       motivo: l.motivo,
       data: l.data,
       lancadoPor: l.lancadoPor,
+      temFoto: !!l.foto,
       podeApagar: podeApagar(l, quemVe),
     }));
   }
 
+  /**
+   * Um ponto a mais ou a menos, com o motivo e, se houver, a foto.
+   *
+   * É sempre um ponto: o que pesa é quantas vezes o motivo acontece, e não
+   * quantos pontos cada coordenador acha que ele vale — dez de um e um de
+   * outro pelo mesmo atraso fariam o ranking medir quem pontuou, e não quem
+   * trabalhou.
+   */
   async lancar(
-    dados: { funcionarioId: string; pontos: number; motivo: string; data?: string },
+    dados: {
+      funcionarioId: string;
+      pontos: number;
+      motivo: string;
+      data?: string;
+      foto?: string;
+    },
     autor: Autor,
   ): Promise<LancamentoDePontos> {
     const pontos = Number(dados.pontos);
-    if (!Number.isInteger(pontos) || pontos === 0 || Math.abs(pontos) > TETO_DE_PONTOS) {
-      throw new BadRequestException(
-        `Os pontos precisam ser um número inteiro de 1 a ${TETO_DE_PONTOS}, a mais ou a menos.`,
-      );
+    if (pontos !== 1 && pontos !== -1) {
+      throw new BadRequestException('Cada lançamento é de um ponto: +1 ou −1.');
     }
     const motivo = String(dados.motivo ?? '').trim();
     if (motivo.length < 3) {
       throw new BadRequestException(
         'Escreva o motivo: é ele que diz ao funcionário o que fez para ganhar ou perder.',
       );
+    }
+
+    // A foto se confere antes de tudo: recusada depois de gravado o ponto,
+    // ficaria um lançamento sem a prova que quem pontuou quis juntar.
+    let foto: string | null = null;
+    if (dados.foto) {
+      const arquivo = lerDataUrl(dados.foto);
+      conferirArquivo(arquivo, FOTO_ACEITA, FOTO_MAXIMA, 'A foto precisa ser JPEG, PNG ou WebP.');
+      foto = dados.foto;
     }
 
     const funcionario = await this.prisma.funcionario.findFirst({
@@ -350,12 +388,93 @@ export class PontuacaoService {
         coordenadorId: autor.tipo === 'coordenador' ? autor.id : null,
         usuarioId: autor.tipo === 'admin' ? autor.id : null,
         lancadoPor: autor.nome,
+        ...(foto ? { foto: { create: { foto } } } : {}),
       },
     });
     this.logger.log(
-      `${autor.nome} deu ${pontos > 0 ? '+' : ''}${pontos} a ${funcionario.nome}: ${motivo}`,
+      `${autor.nome} deu ${pontos > 0 ? '+' : ''}${pontos} a ${funcionario.nome}: ${motivo}` +
+        (foto ? ' (com foto)' : ''),
     );
     return criado;
+  }
+
+  /**
+   * A foto de um lançamento, em data URL.
+   *
+   * `doFuncionario` é a trava da tela do funcionário: ali quem pede só prova o
+   * CPF, e só vê a foto dos próprios pontos.
+   */
+  async fotoDoLancamento(
+    lancamentoId: string,
+    doFuncionario?: string,
+  ): Promise<{ foto: string }> {
+    const f = await this.prisma.fotoDosPontos.findUnique({
+      where: { lancamentoId },
+      include: { lancamento: { select: { funcionarioId: true } } },
+    });
+    if (!f || (doFuncionario && f.lancamento.funcionarioId !== doFuncionario)) {
+      throw new NotFoundException('Foto não encontrada.');
+    }
+    return { foto: f.foto };
+  }
+
+  /** A foto de um ponto, pedida da tela do funcionário (que só tem o CPF). */
+  async fotoDoFuncionario(cpf: string, lancamentoId: string): Promise<{ foto: string }> {
+    const funcionario = await this.funcionarioPeloCpf(somenteDigitos(cpf));
+    if (!funcionario) throw new NotFoundException('Foto não encontrada.');
+    return this.fotoDoLancamento(lancamentoId, funcionario.id);
+  }
+
+  // --- Os motivos de um toque ---
+
+  /** Os a mais primeiro, cada lado em ordem alfabética. */
+  listarMotivos(): Promise<MotivoDePontos[]> {
+    return this.prisma.motivoDePontos.findMany({
+      orderBy: [{ positivo: 'desc' }, { texto: 'asc' }],
+    });
+  }
+
+  async criarMotivo(dados: { texto: string; positivo: boolean }): Promise<MotivoDePontos> {
+    const texto = textoDoMotivo(dados.texto);
+    await this.recusarMotivoRepetido(texto, dados.positivo);
+    return this.prisma.motivoDePontos.create({
+      data: { texto, positivo: dados.positivo },
+    });
+  }
+
+  /** Troca o texto. O que já foi lançado com o texto velho fica como está. */
+  async atualizarMotivo(id: string, dados: { texto: string }): Promise<MotivoDePontos> {
+    const m = await this.prisma.motivoDePontos.findUnique({ where: { id } });
+    if (!m) throw new NotFoundException('Motivo não encontrado.');
+    const texto = textoDoMotivo(dados.texto);
+    await this.recusarMotivoRepetido(texto, m.positivo, id);
+    return this.prisma.motivoDePontos.update({ where: { id }, data: { texto } });
+  }
+
+  async removerMotivo(id: string): Promise<void> {
+    const m = await this.prisma.motivoDePontos.findUnique({ where: { id } });
+    if (!m) throw new NotFoundException('Motivo não encontrado.');
+    await this.prisma.motivoDePontos.delete({ where: { id } });
+  }
+
+  /** O mesmo motivo duas vezes do mesmo lado é só um botão a mais na tela. */
+  private async recusarMotivoRepetido(
+    texto: string,
+    positivo: boolean,
+    menosEste?: string,
+  ): Promise<void> {
+    const repetido = await this.prisma.motivoDePontos.findFirst({
+      where: {
+        texto: { equals: texto, mode: 'insensitive' },
+        positivo,
+        ...(menosEste ? { id: { not: menosEste } } : {}),
+      },
+    });
+    if (repetido) {
+      throw new BadRequestException(
+        `"${repetido.texto}" já está entre os motivos ${positivo ? 'a mais' : 'a menos'}.`,
+      );
+    }
   }
 
   /**
@@ -484,6 +603,19 @@ function senhaCurta(senha: string): string {
     throw new BadRequestException('A senha é de 4 a 6 números.');
   }
   return s;
+}
+
+function textoDoMotivo(texto: string): string {
+  const t = String(texto ?? '').trim().replace(/\s+/g, ' ');
+  if (t.length < 3) {
+    throw new BadRequestException('O motivo precisa de pelo menos 3 letras.');
+  }
+  if (t.length > 60) {
+    throw new BadRequestException(
+      'Motivo curto, de botão: até 60 letras. O detalhe se escreve na hora de pontuar.',
+    );
+  }
+  return t;
 }
 
 function primeiroNome(nome: string | null): string | null {

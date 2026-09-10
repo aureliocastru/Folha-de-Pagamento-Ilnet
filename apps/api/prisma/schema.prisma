@@ -2634,7 +2634,7 @@ model LancamentoDePontos {
   funcionario   Funcionario @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
   funcionarioId String      @map("funcionario_id")
 
-  /// A mais (positivo) ou a menos (negativo). Nunca zero.
+  /// +1 ou −1: cada motivo vale um ponto, a mais ou a menos.
   pontos Int
   /// O que aconteceu. Obrigatório: ponto sem motivo não ensina nada a quem
   /// recebe, e não se defende quando alguém pergunta depois.
@@ -2651,9 +2651,44 @@ model LancamentoDePontos {
   /// O nome de quem lançou, escrito: sobrevive ao coordenador ser apagado.
   lancadoPor    String                @map("lancado_por")
 
+  foto FotoDosPontos?
+
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([competencia])
   @@index([funcionarioId, competencia])
   @@map("lancamentos_de_pontos")
+}
+
+/// A foto de um lançamento — a prova do que aconteceu, tirada na hora.
+///
+/// Mora numa tabela à parte, e não numa coluna do lançamento: são centenas de
+/// KB cada, e o painel lê os lançamentos do mês inteiro para somar pontos.
+model FotoDosPontos {
+  id String @id @default(uuid())
+
+  lancamento   LancamentoDePontos @relation(fields: [lancamentoId], references: [id], onDelete: Cascade)
+  lancamentoId String             @unique @map("lancamento_id")
+
+  /// A imagem, em data URL, já reduzida no navegador.
+  foto String
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("fotos_dos_pontos")
+}
+
+/// Os motivos de um toque que aparecem na hora de pontuar. O ADMIN cadastra;
+/// o lançamento guarda o texto, e não o motivo — apagar um daqui não mexe no
+/// que já foi dado.
+model MotivoDePontos {
+  id String @id @default(uuid())
+
+  texto    String
+  /// A mais (verdadeiro) ou a menos.
+  positivo Boolean
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("motivos_de_pontos")
 }

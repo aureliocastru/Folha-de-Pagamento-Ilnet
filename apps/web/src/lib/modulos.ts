@@ -276,6 +276,7 @@ const pontuacao: Modulo = {
   papeis: ['ADMIN'],
   menu: [
     { to: 'pontuar', label: 'Pontuar', icone: IconeTrofeu },
+    { to: 'motivos', label: 'Motivos', icone: IconeChecklist },
     { to: 'coordenadores', label: 'Coordenadores', icone: IconeChave },
   ],
 };

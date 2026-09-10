@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AxiosInstance } from 'axios';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ChangeEvent } from 'react';
 import { mensagemErro } from '../lib/api';
 import { semAcento } from '../lib/busca';
+import { useCelular } from '../lib/celular';
 import { formatData } from '../lib/format';
+import { reduzirFoto } from '../lib/foto';
 import { Aviso, Carregando, Janela, Vazio } from './ui';
 
 /** Uma linha do painel, como a API a devolve. */
@@ -23,18 +25,16 @@ interface LancamentoNaTela {
   motivo: string;
   data: string;
   lancadoPor: string;
+  temFoto: boolean;
   podeApagar: boolean;
 }
 
-/** Os valores de um toque. Cobrem quase tudo; o campo livre cobre o resto. */
-const ATALHOS = [1, 2, 5, 10];
-
-/**
- * Motivos de um toque. Só preenchem o campo — quem pontua ainda pode (e
- * deve) completar com o que aconteceu de fato.
- */
-const MOTIVOS_A_MAIS = ['Pontualidade', 'Elogio de cliente', 'Serviço bem feito', 'Ajudou a equipe'];
-const MOTIVOS_A_MENOS = ['Atraso', 'Falta sem aviso', 'Retrabalho', 'Material perdido'];
+/** Um motivo de um toque, cadastrado pelo ADMIN em Pontuação → Motivos. */
+export interface MotivoDePontos {
+  id: string;
+  texto: string;
+  positivo: boolean;
+}
 
 /**
  * O painel de pontuar: todos os funcionários, os pontos do mês de cada um e
@@ -169,10 +169,11 @@ export function PainelDePontos({
 }
 
 /**
- * A ficha de um funcionário: dar pontos, e o que ele já recebeu no mês.
+ * A ficha de um funcionário: dar um ponto, e o que ele já recebeu no mês.
  *
- * Os pontos se escolhem num toque (+1, +2, +5, +10, ou os mesmos a menos), e o
- * motivo é obrigatório — ponto sem motivo não ensina nada a quem recebe.
+ * É sempre um ponto, a mais ou a menos: o que se escolhe é o motivo, que é
+ * obrigatório — ponto sem motivo não ensina nada a quem recebe. A foto é
+ * opcional, e no celular sai da câmera na hora.
  */
 function FichaDePontos({
   cliente,
@@ -188,11 +189,21 @@ function FichaDePontos({
   onFechar: () => void;
 }) {
   const qc = useQueryClient();
+  const celular = useCelular();
   const [sinal, setSinal] = useState<1 | -1>(1);
-  const [quantos, setQuantos] = useState('');
   const [motivo, setMotivo] = useState('');
   const [data, setData] = useState(hojeIso);
+  const [foto, setFoto] = useState<string | null>(null);
+  const [preparandoFoto, setPreparandoFoto] = useState(false);
+  const [erroFoto, setErroFoto] = useState<string | null>(null);
   const [feito, setFeito] = useState<string | null>(null);
+
+  // Os motivos mudam pouco: lidos uma vez, servem para todas as fichas.
+  const cadastrados = useQuery({
+    queryKey: ['pontos', base, 'motivos'],
+    queryFn: async () => (await cliente.get<MotivoDePontos[]>(`${base}/motivos`)).data,
+    staleTime: 5 * 60 * 1000,
+  });
 
   const chave = ['pontos', base, 'lancamentos', funcionario.id, competencia];
   const lancamentos = useQuery({
@@ -210,30 +221,45 @@ function FichaDePontos({
     void qc.invalidateQueries({ queryKey: ['pontos', base] });
   }
 
-  const n = Number(quantos);
-  const pontos = sinal * n;
-  const valido = Number.isInteger(n) && n >= 1 && n <= 100 && motivo.trim().length >= 3;
+  const valido = motivo.trim().length >= 3 && !preparandoFoto;
 
   const lancar = useMutation({
     mutationFn: async () => {
       await cliente.post(`${base}/lancamentos`, {
         funcionarioId: funcionario.id,
-        pontos,
+        pontos: sinal,
         motivo: motivo.trim(),
         data,
+        ...(foto ? { foto } : {}),
       });
     },
     onSuccess: () => {
       setFeito(
-        `${pontos > 0 ? '+' : ''}${pontos} ponto${Math.abs(pontos) > 1 ? 's' : ''} para ${
+        `${sinal > 0 ? '+1 ponto para' : '−1 ponto de'} ${
           funcionario.apelido || funcionario.nome.split(' ')[0]
         }.`,
       );
-      setQuantos('');
       setMotivo('');
+      setFoto(null);
       recarregar();
     },
   });
+
+  async function aoEscolherFoto(e: ChangeEvent<HTMLInputElement>) {
+    const arquivo = e.target.files?.[0];
+    // Limpo sempre: sem isso, escolher a mesma foto de novo não dispara nada.
+    e.target.value = '';
+    if (!arquivo) return;
+    setErroFoto(null);
+    setPreparandoFoto(true);
+    try {
+      setFoto(await reduzirFoto(arquivo));
+    } catch (err) {
+      setErroFoto(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPreparandoFoto(false);
+    }
+  }
 
   const apagar = useMutation({
     mutationFn: async (id: string) => {
@@ -243,7 +269,28 @@ function FichaDePontos({
   });
 
   const total = (lancamentos.data ?? []).reduce((s, l) => s + l.pontos, 0);
-  const motivos = sinal > 0 ? MOTIVOS_A_MAIS : MOTIVOS_A_MENOS;
+  const todos = cadastrados.data ?? [];
+  const motivos = todos.filter((m) => m.positivo === sinal > 0).map((m) => m.texto);
+
+  /**
+   * O toque num motivo: no campo vazio (ou com outro motivo de um toque) ele
+   * entra no lugar; tocado de novo, sai. Com texto escrito à mão, ele vai na
+   * frente, e o que foi escrito fica como o detalhe.
+   */
+  function tocarMotivo(m: string) {
+    setMotivo((atual) => {
+      const t = atual.trim();
+      if (t === m) return '';
+      if (!t || todos.some((x) => x.texto === t)) return m;
+      return t.startsWith(m) ? atual : `${m}: ${t}`;
+    });
+  }
+
+  function trocarSinal(novo: 1 | -1) {
+    setSinal(novo);
+    // O motivo de um toque do outro lado não serve mais ("Atraso" num +1).
+    setMotivo((atual) => (todos.some((x) => x.texto === atual.trim()) ? '' : atual));
+  }
 
   return (
     <Janela titulo={funcionario.apelido || funcionario.nome} onFechar={onFechar}>
@@ -273,7 +320,7 @@ function FichaDePontos({
       <div className="mb-3 grid grid-cols-2 gap-2">
         <button
           type="button"
-          onClick={() => setSinal(1)}
+          onClick={() => trocarSinal(1)}
           aria-pressed={sinal === 1}
           className={`rounded-xl border-2 px-3 py-2.5 text-sm font-semibold transition ${
             sinal === 1
@@ -281,11 +328,11 @@ function FichaDePontos({
               : 'border-tinta-200 text-tinta-500'
           }`}
         >
-          + Dar pontos
+          +1 ponto
         </button>
         <button
           type="button"
-          onClick={() => setSinal(-1)}
+          onClick={() => trocarSinal(-1)}
           aria-pressed={sinal === -1}
           className={`rounded-xl border-2 px-3 py-2.5 text-sm font-semibold transition ${
             sinal === -1
@@ -293,68 +340,98 @@ function FichaDePontos({
               : 'border-tinta-200 text-tinta-500'
           }`}
         >
-          − Tirar pontos
+          −1 ponto
         </button>
-      </div>
-
-      <label className="rotulo" htmlFor="pontos-quantos">
-        Quantos pontos
-      </label>
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        {ATALHOS.map((a) => (
-          <button
-            key={a}
-            type="button"
-            onClick={() => setQuantos(String(a))}
-            aria-pressed={quantos === String(a)}
-            className={`num h-11 min-w-[52px] rounded-xl border text-base font-semibold transition ${
-              quantos === String(a)
-                ? sinal > 0
-                  ? 'border-emerald-500 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                  : 'border-rose-500 bg-rose-500/15 text-rose-700 dark:text-rose-300'
-                : 'border-tinta-200 text-tinta-700 hover:border-brand-300'
-            }`}
-          >
-            {sinal > 0 ? '+' : '−'}
-            {a}
-          </button>
-        ))}
-        <input
-          id="pontos-quantos"
-          type="number"
-          inputMode="numeric"
-          min={1}
-          max={100}
-          value={quantos}
-          onChange={(e) => setQuantos(e.target.value.replace(/\D/g, '').slice(0, 3))}
-          className="campo num h-11 w-20 text-center"
-          placeholder="outro"
-        />
       </div>
 
       <label className="rotulo" htmlFor="pontos-motivo">
         Motivo
       </label>
-      <div className="mb-2 flex flex-wrap gap-1.5">
-        {motivos.map((m) => (
-          <button
-            key={m}
-            type="button"
-            onClick={() => setMotivo((atual) => (atual.trim() ? atual : `${m}: `))}
-            className="rounded-full border border-tinta-200 px-2.5 py-1 text-xs text-tinta-600 transition hover:border-brand-300 hover:text-brand-700"
-          >
-            {m}
-          </button>
-        ))}
-      </div>
+      {motivos.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {motivos.map((m) => {
+            const escolhido = motivo.trim() === m || motivo.startsWith(`${m}:`);
+            return (
+              <button
+                key={m}
+                type="button"
+                onClick={() => tocarMotivo(m)}
+                aria-pressed={escolhido}
+                className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                  escolhido
+                    ? sinal > 0
+                      ? 'border-emerald-500 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                      : 'border-rose-500 bg-rose-500/15 text-rose-700 dark:text-rose-300'
+                    : 'border-tinta-200 text-tinta-600 hover:border-brand-300 hover:text-brand-700'
+                }`}
+              >
+                {m}
+              </button>
+            );
+          })}
+        </div>
+      )}
       <textarea
         id="pontos-motivo"
         value={motivo}
         onChange={(e) => setMotivo(e.target.value.slice(0, 300))}
         rows={2}
         className="campo mb-3"
-        placeholder="O que aconteceu? É isto que o funcionário vai ler."
+        placeholder={
+          motivos.length > 0
+            ? 'Toque num motivo acima ou escreva o que aconteceu. É isto que o funcionário vai ler.'
+            : 'O que aconteceu? É isto que o funcionário vai ler.'
+        }
       />
+
+      {/* A foto: opcional, e a prova do que aconteceu. No celular, a câmera
+          abre direto no "Tirar foto"; a galeria fica no outro botão. */}
+      <p className="rotulo">Foto (se quiser)</p>
+      <div className="mb-3">
+        {foto ? (
+          <div className="flex items-start gap-3">
+            <img
+              src={foto}
+              alt="Foto que vai junto com o ponto"
+              className="h-24 w-24 rounded-xl border border-tinta-200 object-cover"
+            />
+            <button type="button" onClick={() => setFoto(null)} className="btn btn-sutil btn-p text-rose-600">
+              Tirar a foto
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {celular && (
+              <label className="btn btn-neutro btn-p cursor-pointer">
+                {preparandoFoto ? 'Preparando…' : 'Tirar foto'}
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={aoEscolherFoto}
+                  disabled={preparandoFoto}
+                />
+              </label>
+            )}
+            <label className="btn btn-neutro btn-p cursor-pointer">
+              {preparandoFoto && !celular
+                ? 'Preparando…'
+                : celular
+                  ? 'Escolher da galeria'
+                  : 'Anexar foto'}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={aoEscolherFoto}
+                disabled={preparandoFoto}
+              />
+            </label>
+          </div>
+        )}
+        {erroFoto && <p className="mt-1.5 text-xs text-rose-600">{erroFoto}</p>}
+      </div>
 
       <div className="mb-4 flex flex-wrap items-end gap-2">
         <div>
@@ -377,12 +454,16 @@ function FichaDePontos({
           className={`btn ml-auto h-11 flex-1 sm:flex-none ${sinal > 0 ? 'btn-primario' : 'border-rose-600 bg-rose-600 text-white hover:bg-rose-500 disabled:opacity-50'}`}
         >
           {lancar.isPending
-            ? 'Gravando…'
-            : valido
-              ? `${sinal > 0 ? 'Dar' : 'Tirar'} ${n} ponto${n > 1 ? 's' : ''}`
-              : !(n >= 1)
-                ? 'Escolha os pontos'
-                : 'Escreva o motivo'}
+            ? foto
+              ? 'Enviando a foto…'
+              : 'Gravando…'
+            : preparandoFoto
+              ? 'Preparando a foto…'
+              : !valido
+                ? 'Escolha o motivo'
+                : sinal > 0
+                  ? 'Dar +1 ponto'
+                  : 'Tirar 1 ponto'}
         </button>
       </div>
 
@@ -406,12 +487,21 @@ function FichaDePontos({
                 <span className="block text-[11px] text-tinta-400">
                   {formatData(l.data)} · {l.lancadoPor}
                 </span>
+                {l.temFoto && (
+                  <FotoDoPonto
+                    chave={['pontos', base, 'foto', l.id]}
+                    buscar={async () =>
+                      (await cliente.get<{ foto: string }>(`${base}/lancamentos/${l.id}/foto`)).data
+                        .foto
+                    }
+                  />
+                )}
               </span>
               {l.podeApagar && (
                 <button
                   type="button"
                   onClick={() => {
-                    if (confirm(`Apagar "${l.motivo}" (${l.pontos} pontos)?`)) {
+                    if (confirm(`Apagar "${l.motivo}" (${l.pontos > 0 ? '+' : ''}${l.pontos})?`)) {
                       apagar.mutate(l.id);
                     }
                   }}
@@ -426,6 +516,52 @@ function FichaDePontos({
         </ul>
       )}
     </Janela>
+  );
+}
+
+/**
+ * A foto de um ponto, aberta ali mesmo na lista.
+ *
+ * A lista chega só com o aviso de que há foto; a imagem se pede no toque. São
+ * centenas de KB cada, e o mês de um funcionário pode ter dezenas de pontos.
+ */
+export function FotoDoPonto({
+  chave,
+  buscar,
+}: {
+  chave: unknown[];
+  buscar: () => Promise<string>;
+}) {
+  const [aberta, setAberta] = useState(false);
+  const foto = useQuery({
+    queryKey: chave,
+    queryFn: buscar,
+    enabled: aberta,
+    staleTime: Infinity,
+  });
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setAberta((a) => !a)}
+        className="mt-1 text-xs font-medium text-brand-600 hover:underline dark:text-brand-300"
+      >
+        {aberta ? 'Esconder a foto' : 'Ver a foto'}
+      </button>
+      {aberta &&
+        (foto.isLoading ? (
+          <span className="block text-xs text-tinta-400">Abrindo a foto…</span>
+        ) : foto.isError ? (
+          <span className="block text-xs text-rose-600">{mensagemErro(foto.error)}</span>
+        ) : (
+          <img
+            src={foto.data}
+            alt="Foto do ponto"
+            className="mt-2 max-h-96 w-full rounded-lg bg-tinta-100 object-contain"
+          />
+        ))}
+    </>
   );
 }
 

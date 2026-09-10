@@ -44,6 +44,7 @@ import { Usuarios } from './pages/folha/Usuarios';
 import { Vales } from './pages/folha/Vales';
 import { Portal as PortalDePontos } from './pages/pontos/Portal';
 import { Coordenadores } from './pages/pontuacao/Coordenadores';
+import { Motivos } from './pages/pontuacao/Motivos';
 import { Pontuar } from './pages/pontuacao/Pontuar';
 import { PastaDaEmpresa, PastaRhAberta } from './pages/rh/Pasta';
 import { Licitacoes } from './pages/rh/Licitacoes';
@@ -296,6 +297,7 @@ export default function App() {
       >
         <Route index element={<Navigate to="pontuar" replace />} />
         <Route path="pontuar" element={<Pontuar />} />
+        <Route path="motivos" element={<Motivos />} />
         <Route path="coordenadores" element={<Coordenadores />} />
         <Route path="minha-conta" element={<MinhaConta />} />
       </Route>

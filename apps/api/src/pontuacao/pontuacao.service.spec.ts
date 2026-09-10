@@ -18,12 +18,16 @@ import { PontuacaoService } from './pontuacao.service';
  *    diz se foi o CPF ou a senha que errou;
  *  - o token do portal só abre o portal;
  *  - coordenador apaga só o que ele mesmo lançou; o ADMIN apaga tudo;
- *  - ponto sem motivo, zero ou com um zero a mais é recusado.
+ *  - ponto é sempre +1 ou −1, e sempre com motivo;
+ *  - a foto de um ponto só se vê pelo CPF do próprio funcionário.
  */
 
 // CPFs de teste, gerados só para fechar a conta dos dígitos — de ninguém.
 const CPF_COORD = '52998224725';
 const CPF_ANA = '11144477735';
+
+/** Um JPEG de mentira: só o começo do arquivo, o bastante para ter tipo e corpo. */
+const FOTO = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==';
 
 const funcionarios = [
   { id: 'f-ana', nome: 'Ana Souza', apelido: null, funcao: 'Técnica', cpfCnpj: '111.444.777-35' },
@@ -37,6 +41,8 @@ function montar(
     somas?: Array<{ funcionarioId: string; pontos: number; qtd: number }>;
     coordenador?: Record<string, unknown> | null;
     lancamento?: Record<string, unknown> | null;
+    foto?: Record<string, unknown> | null;
+    motivoRepetido?: Record<string, unknown> | null;
   } = {},
 ) {
   const prisma = {
@@ -60,6 +66,13 @@ function montar(
       findUnique: jest.fn(async () => opts.lancamento ?? null),
       create: jest.fn(async ({ data }: { data: unknown }) => data),
       delete: jest.fn(),
+    },
+    fotoDosPontos: {
+      findUnique: jest.fn(async () => opts.foto ?? null),
+    },
+    motivoDePontos: {
+      findFirst: jest.fn(async () => opts.motivoRepetido ?? null),
+      create: jest.fn(async ({ data }: { data: unknown }) => data),
     },
     coordenadorPontuacao: {
       findFirst: jest.fn(async () => opts.coordenador ?? null),
@@ -206,31 +219,79 @@ describe('PontuacaoService.lancar', () => {
   it('grava os pontos com o motivo, o mês e o nome de quem deu', async () => {
     const { service, prisma } = montar();
     await service.lancar(
-      { funcionarioId: 'f-ana', pontos: -5, motivo: 'Chegou atrasada', data: '2026-09-08' },
+      { funcionarioId: 'f-ana', pontos: -1, motivo: 'Chegou atrasada', data: '2026-09-08' },
       coordenador,
     );
     expect(prisma.lancamentoDePontos.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         funcionarioId: 'f-ana',
-        pontos: -5,
+        pontos: -1,
         competencia: '2026-09',
         coordenadorId: 'c1',
         usuarioId: null,
         lancadoPor: 'Coordenadora',
       }),
     });
+    const { data } = prisma.lancamentoDePontos.create.mock.calls[0][0] as {
+      data: Record<string, unknown>;
+    };
+    expect(data).not.toHaveProperty('foto');
+  });
+
+  it('a foto vai junto, na tabela dela', async () => {
+    const { service, prisma } = montar();
+    await service.lancar(
+      { funcionarioId: 'f-ana', pontos: 1, motivo: 'Caixa organizada', foto: FOTO },
+      coordenador,
+    );
+    expect(prisma.lancamentoDePontos.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ foto: { create: { foto: FOTO } } }),
+    });
   });
 
   it.each([
     [{ pontos: 0, motivo: 'Zero não' }],
-    [{ pontos: 1000, motivo: 'Um zero a mais' }],
-    [{ pontos: 5, motivo: '' }],
+    [{ pontos: 5, motivo: 'Cada ponto é um' }],
+    [{ pontos: -2, motivo: 'Cada ponto é um' }],
+    [{ pontos: 1, motivo: '' }],
+    [{ pontos: 1, motivo: 'Foto que não é foto', foto: 'data:application/pdf;base64,JVBERi0=' }],
+    [{ pontos: 1, motivo: 'Foto quebrada', foto: 'não é data url' }],
   ])('recusa %j', async (dados) => {
     const { service, prisma } = montar();
     await expect(
       service.lancar({ funcionarioId: 'f-ana', ...dados }, admin),
     ).rejects.toThrow(BadRequestException);
     expect(prisma.lancamentoDePontos.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('PontuacaoService.fotoDoFuncionario', () => {
+  it('o funcionário vê a foto dos próprios pontos', async () => {
+    const { service } = montar({ foto: { foto: FOTO, lancamento: { funcionarioId: 'f-ana' } } });
+    await expect(service.fotoDoFuncionario(CPF_ANA, 'l1')).resolves.toEqual({ foto: FOTO });
+  });
+
+  it('e não a dos pontos de um colega', async () => {
+    const { service } = montar({ foto: { foto: FOTO, lancamento: { funcionarioId: 'f-bia' } } });
+    await expect(service.fotoDoFuncionario(CPF_ANA, 'l1')).rejects.toThrow(NotFoundException);
+  });
+});
+
+describe('PontuacaoService motivos', () => {
+  it('limpa os espaços e grava do lado pedido', async () => {
+    const { service, prisma } = montar();
+    await service.criarMotivo({ texto: '  Uniforme   completo ', positivo: true });
+    expect(prisma.motivoDePontos.create).toHaveBeenCalledWith({
+      data: { texto: 'Uniforme completo', positivo: true },
+    });
+  });
+
+  it('recusa o repetido do mesmo lado', async () => {
+    const { service, prisma } = montar({ motivoRepetido: { texto: 'Atraso' } });
+    await expect(service.criarMotivo({ texto: 'atraso', positivo: false })).rejects.toThrow(
+      /já está entre os motivos a menos/,
+    );
+    expect(prisma.motivoDePontos.create).not.toHaveBeenCalled();
   });
 });
 

@@ -15,7 +15,9 @@ import type { Request } from 'express';
 import { Roles } from '../auth/roles.decorator';
 import {
   AtualizarCoordenadorDto,
+  AtualizarMotivoDto,
   CriarCoordenadorDto,
+  CriarMotivoDto,
   LancarPontosDto,
 } from './dto/pontuacao.dto';
 import { type Autor, PontuacaoService } from './pontuacao.service';
@@ -60,6 +62,34 @@ export class PontuacaoController {
   @HttpCode(200)
   async apagar(@Param('id') id: string, @Req() req: Request) {
     await this.service.apagar(id, autor(req));
+    return { ok: true };
+  }
+
+  @Get('lancamentos/:id/foto')
+  foto(@Param('id') id: string) {
+    return this.service.fotoDoLancamento(id);
+  }
+
+  @Get('motivos')
+  motivos() {
+    return this.service.listarMotivos();
+  }
+
+  @Post('motivos')
+  @HttpCode(201)
+  criarMotivo(@Body() dto: CriarMotivoDto) {
+    return this.service.criarMotivo(dto);
+  }
+
+  @Patch('motivos/:id')
+  atualizarMotivo(@Param('id') id: string, @Body() dto: AtualizarMotivoDto) {
+    return this.service.atualizarMotivo(id, dto);
+  }
+
+  @Delete('motivos/:id')
+  @HttpCode(200)
+  async removerMotivo(@Param('id') id: string) {
+    await this.service.removerMotivo(id);
     return { ok: true };
   }
 

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
+  FotoDoPonto,
   PainelDePontos,
   Pontos,
   corDosPontos,
@@ -26,7 +27,14 @@ interface MinhaPontuacao {
   pontos: number;
   posicao: number;
   de: number;
-  lancamentos: Array<{ id: string; pontos: number; motivo: string; data: string; lancadoPor: string }>;
+  lancamentos: Array<{
+    id: string;
+    pontos: number;
+    motivo: string;
+    data: string;
+    lancadoPor: string;
+    temFoto: boolean;
+  }>;
   meses: Array<{ competencia: string; pontos: number }>;
 }
 
@@ -379,6 +387,19 @@ function TelaDoFuncionario({ cpf }: { cpf: string }) {
                   <span className="block text-[11px] text-tinta-400">
                     {formatData(l.data)} · {l.lancadoPor}
                   </span>
+                  {l.temFoto && (
+                    <FotoDoPonto
+                      chave={['pontos', 'minha', 'foto', l.id]}
+                      buscar={async () =>
+                        (
+                          await apiPontos.post<{ foto: string }>('/pontos/minha/foto', {
+                            cpf,
+                            lancamentoId: l.id,
+                          })
+                        ).data.foto
+                      }
+                    />
+                  )}
                 </span>
               </li>
             ))}
