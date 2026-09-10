@@ -61,8 +61,13 @@ export async function lerPdfPorImagem(
 ): Promise<LeituraPorImagem> {
   aoAvancar('Abrindo o PDF…');
   const pdfjs = await import('pdfjs-dist');
-  const { default: urlDoWorker } = await import('pdfjs-dist/build/pdf.worker.min.mjs?url');
-  pdfjs.GlobalWorkerOptions.workerSrc = urlDoWorker;
+  // O worker vem empacotado pelo Vite (`?worker`), e não pela URL do `.mjs`
+  // do pacote: o nginx do front serve `.mjs` como octet-stream, e o navegador
+  // se recusa a rodar módulo com esse tipo — a leitura quebraria só em
+  // produção. Empacotado, ele sai `.js`.
+  const { default: WorkerDoPdf } = await import('pdfjs-dist/build/pdf.worker.min.mjs?worker');
+  const worker = new WorkerDoPdf();
+  pdfjs.GlobalWorkerOptions.workerPort = worker;
   const documento = await pdfjs.getDocument({ data: await arquivo.arrayBuffer() }).promise;
 
   aoAvancar('Preparando a leitura da imagem…');
@@ -121,6 +126,8 @@ export async function lerPdfPorImagem(
   } finally {
     await leitor.terminate();
     await documento.destroy();
+    pdfjs.GlobalWorkerOptions.workerPort = null;
+    worker.terminate();
   }
 }
 
