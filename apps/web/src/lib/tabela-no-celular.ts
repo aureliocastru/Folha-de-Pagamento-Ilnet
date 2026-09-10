@@ -61,7 +61,7 @@ export function useTabelasNoCelular(): void {
 }
 
 function marcarTabela(tabela: HTMLTableElement): void {
-  const rotulos = rotulosDoCabecalho(tabela);
+  const { rotulos, dicas } = rotulosDoCabecalho(tabela);
 
   for (const secao of [...Array.from(tabela.tBodies), tabela.tFoot]) {
     if (!secao) continue;
@@ -86,6 +86,7 @@ function marcarTabela(tabela: HTMLTableElement): void {
         // baixo, na largura toda. Ao lado do rótulo ela ficava espremida numa
         // coluna de três palavras por linha.
         escrever(celula, 'data-forma', papeis[i] === 'dado' && celulaLarga(celula) ? 'bloco' : '');
+        escrever(celula, 'data-celular', dicas[colunas[i]] ?? '');
       });
     }
   }
@@ -95,16 +96,32 @@ function marcarTabela(tabela: HTMLTableElement): void {
  * O nome de cada coluna, pela última linha do cabeçalho (a de cima, quando há
  * duas, agrupa colunas). Uma coluna de `colSpan` 2 empresta o nome às duas.
  */
-function rotulosDoCabecalho(tabela: HTMLTableElement): string[] {
+function rotulosDoCabecalho(tabela: HTMLTableElement): {
+  rotulos: string[];
+  /**
+   * O `data-celular` de cada coluna, quando a tela quer um cartão mais justo
+   * do que o de sempre:
+   *
+   *  - `sem-rotulo`: o dado dispensa o nome da coluna ("03/09/2026 · 7 dias em
+   *    atraso" se explica sozinho) e divide a linha com o vizinho;
+   *  - `ao-lado`: sobe para a linha do título, na ponta direita — o valor da
+   *    conta, que é a segunda coisa que se procura depois do nome.
+   */
+  dicas: string[];
+} {
   const cabeca = tabela.tHead;
   const linha = cabeca?.rows[cabeca.rows.length - 1];
-  if (!linha) return [];
+  if (!linha) return { rotulos: [], dicas: [] };
   const rotulos: string[] = [];
+  const dicas: string[] = [];
   for (const celula of Array.from(linha.cells)) {
     const texto = (celula.textContent ?? '').replace(/\s+/g, ' ').trim();
-    for (let i = 0; i < (celula.colSpan || 1); i++) rotulos.push(texto);
+    for (let i = 0; i < (celula.colSpan || 1); i++) {
+      rotulos.push(texto);
+      dicas.push(celula.dataset.celular ?? '');
+    }
   }
-  return rotulos;
+  return { rotulos, dicas };
 }
 
 type Papel = 'controle' | 'titulo' | 'acoes' | 'inteira' | 'vazia' | 'dado';
@@ -161,6 +178,9 @@ function papelDaCelula(celula: HTMLTableCellElement): Papel {
   const temImagem = !!celula.querySelector('img, svg, canvas');
 
   if (!texto && !temCampo && !temMarcador && !temBotao && !temImagem) return 'vazia';
+  // Só um travessão: na tabela ele segura a coluna; no cartão seria uma linha
+  // inteira ("Documento —") para dizer que não há nada.
+  if (/^[—–-]$/.test(texto) && !temCampo && !temMarcador && !temBotao) return 'vazia';
   if (temMarcador && !texto && !temCampo && !temBotao) return 'controle';
 
   // Botões de ação (`.btn`), e no máximo uma palavra solta ao lado deles

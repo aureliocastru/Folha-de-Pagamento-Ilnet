@@ -736,7 +736,7 @@
   /* O cartão. */
   table:not(.tabela-fixa) > tbody > tr,
   table:not(.tabela-fixa) > tfoot > tr {
-    @apply flex flex-wrap items-center gap-x-3 gap-y-1 px-3.5 py-3;
+    @apply flex flex-wrap items-center gap-x-3 gap-y-1 px-3.5 py-2.5;
   }
   table:not(.tabela-fixa) > tbody > tr + tr,
   table:not(.tabela-fixa) > tfoot > tr {
@@ -796,8 +796,13 @@
   table:not(.tabela-fixa) td[data-papel='controle'] {
     @apply order-[-2] shrink-0 basis-auto items-center py-0;
   }
+  /*
+   * O título parte de metade da linha e cresce até o fim dela. Com base zero,
+   * o dado curto seguinte (a data, com `sem-rotulo`) cabia na mesma linha e o
+   * nome ficava com 8px — uma coluna de letras.
+   */
   table:not(.tabela-fixa) td[data-papel='titulo'] {
-    @apply order-[-1] block flex-1 basis-0 pb-1 text-left text-[15px] text-tinta-900;
+    @apply order-[-1] block min-w-0 flex-1 basis-1/2 pb-1 text-left text-[15px] text-tinta-900;
   }
 
   /* Os botões no pé, inteiros. */
@@ -810,6 +815,58 @@
   }
   table:not(.tabela-fixa) td[data-papel='acoes'] .btn {
     @apply min-h-[40px];
+  }
+
+  /*
+   * As dicas da tela (`data-celular` no cabeçalho — ver
+   * `lib/tabela-no-celular.ts`), para o cartão que precisa ser mais justo.
+   *
+   * `sem-rotulo`: o dado se explica sozinho e divide a linha com o vizinho —
+   * o primeiro à esquerda, o seguinte na ponta direita.
+   * `ao-lado`: sobe para a linha do título, na ponta direita.
+   */
+  table:not(.tabela-fixa) td:is([data-celular='sem-rotulo'], [data-celular='ao-lado'])::before {
+    content: none;
+  }
+  table:not(.tabela-fixa) td[data-celular='sem-rotulo'] {
+    @apply block flex-initial basis-auto text-left;
+  }
+  table:not(.tabela-fixa) td[data-celular='sem-rotulo'] ~ td[data-celular='sem-rotulo'] {
+    @apply ml-auto text-right;
+  }
+  table:not(.tabela-fixa) td[data-celular='ao-lado'] {
+    @apply order-[-1] block shrink-0 grow-0 basis-auto self-start pt-0 text-right;
+  }
+
+  /*
+   * O cartão pintado pela situação, quando a linha diz qual é
+   * (`data-estado`): o fundo inteiro no tom, e a faixa forte na borda. No
+   * computador essa cor mora numa barrinha na coluna do vencimento; no
+   * cartão ela precisa ser o cartão, ou se perde entre os selos.
+   *
+   * A linha marcada fica de fora: o véu da seleção é o que diz o que o
+   * "Pagar (3)" vai pagar, e ele ganha de qualquer outra cor.
+   */
+  table:not(.tabela-fixa) > tbody > tr[data-estado='vencida']:not(.linha-marcada) {
+    background-color: rgb(244 63 94 / 0.11);
+    box-shadow: inset 4px 0 0 rgb(244 63 94);
+  }
+  table:not(.tabela-fixa) > tbody > tr[data-estado='hoje']:not(.linha-marcada) {
+    background-color: rgb(251 191 36 / 0.16);
+    box-shadow: inset 4px 0 0 rgb(245 158 11);
+  }
+  table:not(.tabela-fixa) > tbody > tr[data-estado='prazo']:not(.linha-marcada) {
+    background-color: rgb(16 185 129 / 0.09);
+    box-shadow: inset 4px 0 0 rgb(16 185 129);
+  }
+  .dark table:not(.tabela-fixa) > tbody > tr[data-estado='vencida']:not(.linha-marcada) {
+    background-color: rgb(251 113 133 / 0.14);
+  }
+  .dark table:not(.tabela-fixa) > tbody > tr[data-estado='hoje']:not(.linha-marcada) {
+    background-color: rgb(251 191 36 / 0.13);
+  }
+  .dark table:not(.tabela-fixa) > tbody > tr[data-estado='prazo']:not(.linha-marcada) {
+    background-color: rgb(52 211 153 / 0.1);
   }
 
   /* O "carregando", o grupo, o total que ocupa várias colunas. */

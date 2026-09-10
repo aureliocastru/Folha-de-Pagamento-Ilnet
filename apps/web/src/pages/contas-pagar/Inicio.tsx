@@ -450,10 +450,14 @@ export function Inicio() {
                       className="h-4 w-4 cursor-pointer accent-brand-600"
                     />
                   </th>
-                  <th className="th">Vencimento</th>
+                  {/* As dicas do cartão no celular (ver `lib/tabela-no-celular`):
+                      o valor sobe para o lado do nome, e o vencimento e o
+                      documento dividem uma linha sem rótulo — tudo aqui é
+                      conta em aberto, o cartão não precisa dizer. */}
+                  <th className="th" data-celular="sem-rotulo">Vencimento</th>
                   <th className="th">Fornecedor</th>
-                  <th className="th">Documento</th>
-                  <th className="th text-right">Em aberto</th>
+                  <th className="th" data-celular="sem-rotulo">Documento</th>
+                  <th className="th text-right" data-celular="ao-lado">Em aberto</th>
                   <th className="th text-right">Pagar</th>
                 </tr>
               </thead>
@@ -550,6 +554,8 @@ function Linha({
         }
       }}
       title="Abrir o detalhe deste débito"
+      // No celular o cartão inteiro fica na cor do prazo (ver `index.css`).
+      data-estado={urgencia.estado}
       className={`linha cursor-pointer focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-500 ${
         marcado ? 'linha-marcada' : ''
       }`}
@@ -565,13 +571,15 @@ function Linha({
           className="h-4 w-4 cursor-pointer accent-brand-600"
         />
       </td>
-      <td
-        className={`td whitespace-nowrap border-l-4 ${urgencia.barra}`}
-      >
-        <div className="num text-tinta-700">
-          {conta.vencimento ? formatData(conta.vencimento) : '—'}
+      {/* A barra da cor fica só no computador: no celular quem leva a cor é
+          o cartão inteiro. Lá a data e o selo dividem a linha. */}
+      <td className={`td whitespace-nowrap md:border-l-4 ${urgencia.barra}`}>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 md:block">
+          <div className="num text-tinta-700">
+            {conta.vencimento ? formatData(conta.vencimento) : '—'}
+          </div>
+          <PrazoDaConta conta={conta} />
         </div>
-        <PrazoDaConta conta={conta} />
       </td>
       <td className="td">
         {/* Nome inteiro, sem corte: é por ele que se reconhece a conta, e
@@ -708,6 +716,8 @@ function Linha({
 interface Urgencia {
   /** Classe da barra colorida na borda da linha */
   barra: string;
+  /** A cor do cartão inteiro, no celular. */
+  estado: 'vencida' | 'hoje' | 'prazo' | 'sem-data';
   tom: Tom;
   texto: string;
 }
@@ -716,21 +726,23 @@ function urgenciaDaConta(conta: ContaAberta): Urgencia {
   const dias = conta.diasParaVencer;
 
   if (dias === null) {
-    return { barra: 'border-tinta-200', tom: 'neutro', texto: 'sem data' };
+    return { barra: 'border-tinta-200', estado: 'sem-data', tom: 'neutro', texto: 'sem data' };
   }
   if (dias < 0) {
     const atraso = Math.abs(dias);
     return {
       barra: 'border-rose-500',
+      estado: 'vencida',
       tom: 'erro',
       texto: atraso === 1 ? 'venceu ontem' : `${atraso} dias em atraso`,
     };
   }
   if (dias === 0) {
-    return { barra: 'border-amber-400', tom: 'atencao', texto: 'vence hoje' };
+    return { barra: 'border-amber-400', estado: 'hoje', tom: 'atencao', texto: 'vence hoje' };
   }
   return {
     barra: 'border-emerald-500',
+    estado: 'prazo',
     tom: 'pago',
     texto: dias === 1 ? 'vence amanhã' : `em ${dias} dias`,
   };

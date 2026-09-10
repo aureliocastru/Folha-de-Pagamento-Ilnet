@@ -184,7 +184,7 @@ export function BarrasEmpilhadas({
               </div>
 
               {total > 0 && (
-                <Balao>
+                <Balao posicao={i} de={meses.length}>
                   <p className="mb-1.5 font-semibold text-tinta-100">
                     {rotuloMes(mes.competencia)}
                   </p>
@@ -321,9 +321,39 @@ function Legenda({
   );
 }
 
-function Balao({ children }: { children: ReactNode }) {
+/**
+ * O balão com os números de uma barra.
+ *
+ * Fica fora da página até o toque (`hidden`), e não só transparente: o balão
+ * transparente ainda ocupa lugar, e os das últimas barras passavam da borda
+ * direita da tela. No celular isso alargava a página inteira — o cabeçalho, a
+ * lista e a barra de baixo andavam para o lado junto com o dedo.
+ *
+ * E ele abre para dentro do gráfico: nas barras da ponta esquerda, a partir
+ * da barra para a direita; nas da ponta direita, para a esquerda. Centrado,
+ * o da última barra saía metade para fora do cartão.
+ */
+function Balao({
+  children,
+  posicao,
+  de,
+}: {
+  children: ReactNode;
+  /** Qual barra é (0 = a primeira) e quantas há — decide para que lado abre. */
+  posicao: number;
+  de: number;
+}) {
+  const fracao = de > 1 ? posicao / (de - 1) : 0.5;
+  const lado =
+    fracao < 0.3
+      ? 'left-0'
+      : fracao > 0.7
+        ? 'right-0'
+        : 'left-1/2 -translate-x-1/2';
   return (
-    <div className="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 w-max -translate-x-1/2 scale-95 rounded-xl bg-barra px-3 py-2 text-[11px] leading-relaxed text-white/75 opacity-0 shadow-card-hover transition duration-150 group-hover:scale-100 group-hover:opacity-100">
+    <div
+      className={`pointer-events-none absolute bottom-full z-20 mb-2 hidden w-max max-w-[16rem] rounded-xl bg-barra px-3 py-2 text-[11px] leading-relaxed text-white/75 shadow-card-hover group-hover:block ${lado}`}
+    >
       {children}
     </div>
   );

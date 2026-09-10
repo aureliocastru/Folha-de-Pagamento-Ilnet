@@ -245,6 +245,14 @@ export function SeletorDeCategoria({
 const ALTURA_DA_LISTA = 'max-h-[19rem]';
 
 /**
+ * Aparelho de toque (celular, tablet): sem mouse, e com teclado que sobe na
+ * tela quando um campo ganha foco.
+ */
+const TELA_DE_TOQUE =
+  typeof window !== 'undefined' &&
+  window.matchMedia?.('(hover: none) and (pointer: coarse)').matches === true;
+
+/**
  * A lista aberta.
  *
  * Vai pendurada no `body` e posicionada por `fixed` a partir do botão. Escrita
@@ -371,8 +379,12 @@ function ListaDeCategorias({
         className={`fixed z-[56] overflow-hidden rounded-xl border border-tinta-200 bg-papel shadow-2xl`}
       >
         <div className="border-b border-tinta-200 p-2">
+          {/* No computador a busca já abre com o cursor: digitar é o jeito
+              mais rápido de achar. Na tela de toque, não — o foco levanta o
+              teclado, que cobre metade da lista que se abriu para ser vista.
+              Lá, quem quer procurar toca no campo. */}
           <input
-            autoFocus
+            autoFocus={!TELA_DE_TOQUE}
             value={busca}
             onChange={(e) => onBusca(e.target.value)}
             placeholder="Procurar categoria…"
