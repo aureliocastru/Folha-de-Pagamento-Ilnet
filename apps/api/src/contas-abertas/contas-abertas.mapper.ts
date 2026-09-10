@@ -134,6 +134,18 @@ export interface ContaAberta {
     nome: string;
     grupo: { id: string; nome: string } | null;
   } | null;
+  /**
+   * A fatura do cartão dividida pelas categorias das compras dentro dela.
+   * Presente, é por ela que os relatórios somam, e não por `classificacao`.
+   */
+  rateio?: Array<{
+    classificacao: {
+      id: string;
+      nome: string;
+      grupo: { id: string; nome: string } | null;
+    } | null;
+    valor: number;
+  }>;
   /** Preenchido depois, cruzando com o que a folha lançou */
   origem: OrigemNaFolha | null;
 }

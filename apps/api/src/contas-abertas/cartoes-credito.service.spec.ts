@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { CategoriasService } from './categorias.service';
 import {
   CartoesCreditoService,
   normalizarCompra,
@@ -61,6 +62,7 @@ function montarServico(
   const vinculos: Array<Record<string, unknown>> = [];
 
   const prisma = {
+    $transaction: jest.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
     cartaoCredito: {
       findUnique: jest.fn(async () => cartao()),
       findMany: jest.fn(async () => [{ ...cartao(), compras }]),
@@ -379,5 +381,232 @@ describe('CartoesCreditoService.listar', () => {
       '2026-08', '2026-09', '2026-10', '2026-11', '2026-12', '2027-01',
     ]);
     expect(k.faturas[1].lancada?.idFnApagarIxc).toBe(4444);
+  });
+});
+
+describe('Assinatura no cartão', () => {
+  function assinatura(over: Record<string, unknown> = {}) {
+    return compra({
+      id: 'a1',
+      descricao: 'ChatGPT',
+      valorTotal: 110,
+      primeiraFatura: '2026-08',
+      assinatura: true,
+      ultimaFatura: null,
+      ...over,
+    });
+  }
+  const lancadaEmOutubro = [
+    { id: 'c0', competencia: '2026-10', idFnApagarIxc: 4444, valor: 110, status: 'APROVADO' },
+  ];
+
+  it('cobra o mesmo valor todo mês, até o horizonte ou até ser encerrada', () => {
+    expect(
+      parcelasDaCompra(assinatura(), '2026-11').map((p) => [p.competencia, p.valor]),
+    ).toEqual([
+      ['2026-08', 110],
+      ['2026-09', 110],
+      ['2026-10', 110],
+      ['2026-11', 110],
+    ]);
+    expect(
+      parcelasDaCompra(assinatura({ ultimaFatura: '2026-09' }), '2026-12'),
+    ).toHaveLength(2);
+    // Sem horizonte e sem fim, não há lista que caiba.
+    expect(parcelasDaCompra(assinatura())).toEqual([]);
+  });
+
+  it('entra na fatura de qualquer mês depois de começar', async () => {
+    const { service, criadas } = montarServico({
+      compras: [compra({ primeiraFatura: '2026-11' }), assinatura()],
+    });
+    const r = await service.gerarFatura('k1', '2026-11', {});
+    expect(r.total).toBe(230);
+    expect(criadas[0].observacao).toContain('ChatGPT 110,00');
+  });
+
+  it('aparece nas faturas seguintes, mas não conta como já comprometido', async () => {
+    const { service } = montarServico({ compras: [assinatura()] });
+    const k = (await service.listar('2026-10')).cartoes[0];
+    expect(k.itens[0]).toMatchObject({ descricao: 'ChatGPT', assinatura: true });
+    expect(k.faturas.map((f) => f.total)).toEqual([110, 110, 110, 110, 110, 110]);
+    expect(k.comprometidoDepois).toBe(0);
+  });
+
+  it('normalizarCompra: assinatura ignora parcelas e recusa estorno', () => {
+    const c = normalizarCompra({
+      descricao: 'Domínio',
+      valor: 40,
+      parcelas: 12,
+      parcelaInicial: 5,
+      primeiraFatura: '2026-10',
+      assinatura: true,
+    });
+    expect(c).toMatchObject({ parcelas: 1, parcelaInicial: 1, valorTotal: 40, assinatura: true });
+    expect(() =>
+      normalizarCompra({ descricao: 'X', valor: -5, parcelas: 1, primeiraFatura: '2026-10', assinatura: true }),
+    ).toThrow(BadRequestException);
+  });
+
+  it('não pode nascer numa fatura já lançada — nem antes dela', async () => {
+    const { service, prisma } = montarServico({ contas: lancadaEmOutubro });
+    await expect(
+      service.criarCompra('k1', {
+        descricao: 'ChatGPT',
+        valor: 110,
+        parcelas: 1,
+        primeiraFatura: '2026-09',
+        assinatura: true,
+      }),
+    ).rejects.toThrow(/outubro\/2026 já virou conta a pagar/);
+    expect(prisma.compraNoCartao.create).not.toHaveBeenCalled();
+  });
+
+  it('encerrar a partir da próxima fatura mantém as já lançadas', async () => {
+    const { service, prisma } = montarServico({
+      compras: [assinatura()],
+      contas: lancadaEmOutubro,
+    });
+    const r = await service.encerrarAssinatura('a1', '2026-11');
+    expect(r.apagada).toBe(false);
+    expect(prisma.compraNoCartao.update).toHaveBeenCalledWith({
+      where: { id: 'a1' },
+      data: { ultimaFatura: '2026-10' },
+    });
+  });
+
+  it('encerrar numa fatura já lançada é recusado', async () => {
+    const { service, prisma } = montarServico({
+      compras: [assinatura()],
+      contas: lancadaEmOutubro,
+    });
+    await expect(service.encerrarAssinatura('a1', '2026-10')).rejects.toThrow(
+      BadRequestException,
+    );
+    expect(prisma.compraNoCartao.update).not.toHaveBeenCalled();
+  });
+
+  it('encerrar no mês em que começou é apagar', async () => {
+    const { service, prisma } = montarServico({
+      compras: [assinatura({ primeiraFatura: '2026-11' })],
+      contas: lancadaEmOutubro,
+    });
+    const r = await service.encerrarAssinatura('a1', '2026-11');
+    expect(r.apagada).toBe(true);
+    expect(prisma.compraNoCartao.delete).toHaveBeenCalledWith({ where: { id: 'a1' } });
+  });
+
+  it('preço novo vale a partir da fatura pedida: a linha velha fecha no mês anterior', async () => {
+    const { service, prisma } = montarServico({
+      compras: [assinatura()],
+      contas: lancadaEmOutubro,
+    });
+    await service.atualizarCompra('a1', { valor: 120, aPartirDe: '2026-11' });
+
+    expect(prisma.compraNoCartao.update).toHaveBeenCalledWith({
+      where: { id: 'a1' },
+      data: { descricao: 'ChatGPT', ultimaFatura: '2026-10' },
+    });
+    const criada = (prisma.compraNoCartao.create.mock.calls[0] as unknown as [
+      { data: Record<string, unknown> },
+    ])[0].data;
+    expect(criada).toMatchObject({
+      primeiraFatura: '2026-11',
+      assinatura: true,
+      ultimaFatura: null,
+    });
+    expect(Number(criada.valorTotal)).toBe(120);
+  });
+
+  it('preço novo que alcançaria a fatura lançada é recusado', async () => {
+    const { service, prisma } = montarServico({
+      compras: [assinatura()],
+      contas: lancadaEmOutubro,
+    });
+    await expect(
+      service.atualizarCompra('a1', { valor: 120, aPartirDe: '2026-10' }),
+    ).rejects.toThrow(BadRequestException);
+    expect(prisma.compraNoCartao.create).not.toHaveBeenCalled();
+  });
+
+  it('trocar só o nome passa, mesmo com fatura lançada', async () => {
+    const { service, prisma } = montarServico({
+      compras: [assinatura()],
+      contas: lancadaEmOutubro,
+    });
+    await service.atualizarCompra('a1', { descricao: 'ChatGPT Plus', aPartirDe: '2026-11' });
+    expect(prisma.compraNoCartao.create).not.toHaveBeenCalled();
+    expect(prisma.compraNoCartao.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ descricao: 'ChatGPT Plus' }) }),
+    );
+  });
+});
+
+describe('Categoria por compra', () => {
+  const lancadaEmOutubro = [
+    { id: 'c0', competencia: '2026-10', idFnApagarIxc: 4444, valor: 120, status: 'APROVADO' },
+  ];
+
+  it('fatura toda de uma categoria: o título ganha a etiqueta dela', async () => {
+    const { service } = montarServico({
+      compras: [compra({ categoriaId: 'veic' }), compra({ id: 'p2', categoriaId: 'veic' })],
+    });
+    const categorias = (service as unknown as { categorias: { classificar: jest.Mock } })
+      .categorias;
+    await service.gerarFatura('k1', '2026-10', {});
+    expect(categorias.classificar).toHaveBeenCalledWith(5555, 'veic', undefined);
+  });
+
+  it('fatura misturada: o título fica sem etiqueta, quem divide é o rateio', async () => {
+    const { service } = montarServico({
+      compras: [compra({ categoriaId: 'veic' }), compra({ id: 'p2', categoriaId: 'tarifa' })],
+    });
+    const categorias = (service as unknown as { categorias: { classificar: jest.Mock } })
+      .categorias;
+    await service.gerarFatura('k1', '2026-10', {});
+    expect(categorias.classificar).not.toHaveBeenCalled();
+  });
+
+  it('trocar a categoria vale até em fatura já lançada', async () => {
+    const { service, prisma } = montarServico({
+      compras: [compra()],
+      contas: lancadaEmOutubro,
+    });
+    await service.atualizarCompra('p1', { categoriaId: 'veic' });
+    expect(prisma.compraNoCartao.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ categoriaId: 'veic' }) }),
+    );
+  });
+
+  it('rateiosDosTitulos divide a fatura pelas categorias das compras do mês', async () => {
+    const veiculos = { id: 'veic', nome: 'Compra de veículos', pai: { id: 'v', nome: 'Veículos' } };
+    const prisma = {
+      contaPagar: {
+        findMany: jest.fn().mockResolvedValue([
+          { idFnApagarIxc: 4444, cartaoCreditoId: 'k1', competencia: '2026-10' },
+        ]),
+      },
+      compraNoCartao: {
+        findMany: jest.fn().mockResolvedValue([
+          compra({ id: 'moto', valorTotal: 29148.7, parcelas: 10, primeiraFatura: '2026-10', categoriaId: 'veic', categoria: veiculos }),
+          compra({ id: 'anu', valorTotal: 552, parcelas: 12, parcelaInicial: 8, primeiraFatura: '2026-10', categoriaId: null, categoria: null }),
+          compra({ id: 'gpt', valorTotal: 110, primeiraFatura: '2026-08', assinatura: true, ultimaFatura: null, categoriaId: null, categoria: null }),
+          // Só em novembro: fora da fatura de outubro.
+          compra({ id: 'nov', valorTotal: 999, primeiraFatura: '2026-11', categoriaId: 'veic', categoria: veiculos }),
+        ]),
+      },
+    };
+    const categorias = new CategoriasService(prisma as never);
+
+    const mapa = await categorias.rateiosDosTitulos([4444, 1]);
+
+    expect(mapa.has(1)).toBe(false);
+    expect(mapa.get(4444)).toEqual([
+      {
+        classificacao: { id: 'veic', nome: 'Compra de veículos', grupo: { id: 'v', nome: 'Veículos' } },
+        valor: 2914.87,
+      },
+      { classificacao: null, valor: 156 },
+    ]);
   });
 });

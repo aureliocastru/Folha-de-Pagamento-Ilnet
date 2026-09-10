@@ -18,6 +18,7 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { estaClassificado } from '../../lib/categorias';
 import { formatBRL, formatData } from '../../lib/format';
 import type {
   ContaAberta,
@@ -93,7 +94,7 @@ export function Dashboard() {
   const agenda = useMemo(() => agruparPorDia(contas), [contas]);
   /** O que ainda não foi etiquetado — fica de fora de todo relatório por categoria. */
   const semClassificar = useMemo(
-    () => contas.filter((c) => !c.classificacao),
+    () => contas.filter((c) => !estaClassificado(c)),
     [contas],
   );
   /** O que precisa sair primeiro: o que venceu, depois o que vence antes. */

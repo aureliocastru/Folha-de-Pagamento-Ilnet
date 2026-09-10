@@ -13,6 +13,7 @@ import {
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { semAcento } from '../../lib/busca';
+import { estaClassificado } from '../../lib/categorias';
 import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
 import { formatBRL, formatData } from '../../lib/format';
 import { TIPO_LABEL } from '../../lib/status';
@@ -166,7 +167,7 @@ export function Inicio() {
   }
 
   const semCategoria = (consulta.data?.contas ?? []).filter(
-    (c) => !c.classificacao,
+    (c) => !estaClassificado(c),
   ).length;
 
   const resumo = consulta.data?.resumo;
@@ -595,7 +596,23 @@ function Linha({
           </div>
         )}
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
-          {conta.classificacao ? (
+          {/* A fatura do cartão se classifica pelas compras de dentro: o selo
+              diz em quantas categorias ela se divide, e o nome delas fica no
+              título do selo. */}
+          {conta.rateio && conta.rateio.length > 1 ? (
+            <Selo
+              pequeno
+              tom={estaClassificado(conta) ? 'info' : 'atencao'}
+              titulo={conta.rateio
+                .map(
+                  (f) =>
+                    `${f.classificacao?.nome ?? 'Sem categoria'}: ${formatBRL(f.valor)}`,
+                )
+                .join(' · ')}
+            >
+              cartão · {conta.rateio.length} categorias
+            </Selo>
+          ) : conta.classificacao ? (
             <Selo
               pequeno
               tom="info"
@@ -747,7 +764,7 @@ function filtrar(
   const termo = semAcento(busca.trim());
 
   return contas.filter((c) => {
-    if (soSemCategoria && c.classificacao) return false;
+    if (soSemCategoria && estaClassificado(c)) return false;
     const dias = c.diasParaVencer;
     const passaRecorte =
       recorte === 'todas' ||

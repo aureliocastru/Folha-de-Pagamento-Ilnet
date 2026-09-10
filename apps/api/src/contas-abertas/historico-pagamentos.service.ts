@@ -669,6 +669,15 @@ export class HistoricoPagamentosService {
         p.classificacao = categoria;
       }
     }
+
+    // A fatura do cartão é dividida pelas categorias das compras dentro.
+    const rateios = await this.categorias.rateiosDosTitulos(
+      pagamentos.map((p) => p.idFnApagar),
+    );
+    for (const p of pagamentos) {
+      const rateio = rateios.get(p.idFnApagar);
+      if (rateio) p.rateio = rateio;
+    }
   }
 
   /**

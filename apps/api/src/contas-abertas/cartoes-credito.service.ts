@@ -25,6 +25,17 @@ import {
   validarCompetencia,
 } from './contas-contrato.service';
 import { proximoDiaUtil } from './dias-uteis';
+import {
+  CompraCalculavel,
+  parcelasDaCompra,
+  somar,
+  somarMeses,
+} from './parcelas-do-cartao';
+
+// A conta das parcelas mora em arquivo próprio; quem já a importava daqui
+// continua achando.
+export { parcelasDaCompra, somarMeses } from './parcelas-do-cartao';
+export type { CompraCalculavel, ParcelaDaCompra } from './parcelas-do-cartao';
 
 /** Quantas faturas a tela mostra em volta da escolhida. */
 const FATURAS_ANTES = 2;
@@ -32,13 +43,6 @@ const FATURAS_DEPOIS = 3;
 
 /** O teto da observação do título no IXC. */
 const TETO_DA_OBSERVACAO = 500;
-
-/** Uma parcela de uma compra: em que fatura ela cai, e quanto. */
-export interface ParcelaDaCompra {
-  numero: number;
-  competencia: string;
-  valor: number;
-}
 
 /** Uma linha da fatura, como a tela a mostra. */
 export interface ItemDaFatura {
@@ -52,6 +56,12 @@ export interface ItemDaFatura {
   valorTotal: number;
   parcelaInicial: number;
   primeiraFatura: string;
+  /** Cobra todo mês; `parcela`/`parcelas` não querem dizer nada nela. */
+  assinatura: boolean;
+  /** Desde quando a assinatura cobra, e até quando (vazio = ativa). */
+  ultimaFatura: string | null;
+  /** Com o que se gastou nesta compra. */
+  categoriaId: string | null;
 }
 
 /** A conta a pagar em que uma fatura virou. */
@@ -94,49 +104,10 @@ export interface DadosDaCompra {
   parcelas: number;
   parcelaInicial?: number;
   primeiraFatura: string;
-}
-
-/**
- * As parcelas de uma compra, cada uma na sua fatura.
- *
- * A conta é feita em centavos: dividir R$ 100,00 em três com número quebrado
- * dá três de 33,33 e some um centavo — que aparece depois como diferença entre
- * a fatura do banco e a daqui. A sobra vai para a primeira parcela, que é como
- * os bancos fazem.
- *
- * Parcelas antes de `parcelaInicial` não aparecem: a compra que já vinha sendo
- * paga quando foi cadastrada teve as primeiras pagas fora daqui.
- */
-export function parcelasDaCompra(compra: {
-  valorTotal: Prisma.Decimal | number | string;
-  parcelas: number;
-  parcelaInicial: number;
-  primeiraFatura: string;
-}): ParcelaDaCompra[] {
-  const centavos = Math.round(Number(compra.valorTotal) * 100);
-  const n = Math.max(1, compra.parcelas);
-  const base = Math.trunc(centavos / n);
-  const sobra = centavos - base * n;
-
-  const lista: ParcelaDaCompra[] = [];
-  for (let numero = Math.max(1, compra.parcelaInicial); numero <= n; numero++) {
-    lista.push({
-      numero,
-      competencia: somarMeses(
-        compra.primeiraFatura,
-        numero - compra.parcelaInicial,
-      ),
-      valor: (numero === 1 ? base + sobra : base) / 100,
-    });
-  }
-  return lista;
-}
-
-/** "2026-11" + 3 → "2027-02". */
-export function somarMeses(competencia: string, meses: number): string {
-  const [ano, mes] = competencia.split('-').map(Number);
-  const d = new Date(Date.UTC(ano, mes - 1 + meses, 1));
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  /** Cobra todo mês, sem parcelas: o valor é o de cada fatura. */
+  assinatura?: boolean;
+  /** Com o que se gastou. Vazio = sem categoria. */
+  categoriaId?: string | null;
 }
 
 /**
@@ -155,11 +126,6 @@ function valeComoLancada(conta: {
     return false;
   }
   return true;
-}
-
-/** Soma em centavos, para a soma de uma fatura bater com a do banco. */
-function somar(valores: number[]): number {
-  return valores.reduce((s, v) => s + Math.round(v * 100), 0) / 100;
 }
 
 /**
@@ -226,11 +192,15 @@ export class CartoesCreditoService {
       janela.push(somarMeses(alvo, d));
     }
 
+    // As assinaturas são calculadas até o fim da janela: além dela ninguém
+    // está olhando, e elas não têm fim próprio.
+    const horizonte = janela[janela.length - 1];
+
     return {
       competencia: alvo,
       cartoes: cartoes.map(({ compras, ...cartao }) => {
         const parcelas = compras.flatMap((compra) =>
-          parcelasDaCompra(compra).map((p) => ({ compra, ...p })),
+          parcelasDaCompra(compra, horizonte).map((p) => ({ compra, ...p })),
         );
 
         const lancadaEm = (mes: string): FaturaLancada | null => {
@@ -265,6 +235,9 @@ export class CartoesCreditoService {
             valorTotal: Number(p.compra.valorTotal),
             parcelaInicial: p.compra.parcelaInicial,
             primeiraFatura: p.compra.primeiraFatura,
+            assinatura: p.compra.assinatura,
+            categoriaId: p.compra.categoriaId,
+            ultimaFatura: p.compra.ultimaFatura,
           })),
           total: somar(doMes.map((p) => p.valor)),
           lancada: lancadaEm(alvo),
@@ -278,8 +251,15 @@ export class CartoesCreditoService {
             ),
             lancada: lancadaEm(mes),
           })),
+          /*
+           * Só o parcelado. A assinatura não é dívida assumida — pode ser
+           * cancelada amanhã —, e contada até o fim da janela ela faria o
+           * número depender de quantos meses a tela resolveu mostrar.
+           */
           comprometidoDepois: somar(
-            parcelas.filter((p) => p.competencia > alvo).map((p) => p.valor),
+            parcelas
+              .filter((p) => p.competencia > alvo && !p.compra.assinatura)
+              .map((p) => p.valor),
           ),
         };
       }),
@@ -385,7 +365,7 @@ export class CartoesCreditoService {
     return c;
   }
 
-  /** Uma linha nova na fatura — à vista, parcelada, ou um estorno. */
+  /** Uma linha nova na fatura — à vista, parcelada, assinatura ou estorno. */
   async criarCompra(
     cartaoId: string,
     dados: DadosDaCompra,
@@ -394,7 +374,7 @@ export class CartoesCreditoService {
     await this.buscar(cartaoId);
     const compra = normalizarCompra(dados);
 
-    await this.conferirFaturasLancadas(cartaoId, [], parcelasDaCompra(compra));
+    await this.conferirFaturasLancadas(cartaoId, [], [compra]);
 
     return this.prisma.compraNoCartao.create({
       data: {
@@ -404,6 +384,8 @@ export class CartoesCreditoService {
         parcelas: compra.parcelas,
         parcelaInicial: compra.parcelaInicial,
         primeiraFatura: compra.primeiraFatura,
+        assinatura: compra.assinatura,
+        categoriaId: dados.categoriaId ?? null,
         criadoPor: usuarioId ?? null,
       },
     });
@@ -413,13 +395,24 @@ export class CartoesCreditoService {
    * Corrige uma compra.
    *
    * O valor que não veio no pedido fica o que era: trocar só a descrição não
-   * pode recalcular as parcelas.
+   * pode recalcular as parcelas. Compra não vira assinatura nem o contrário —
+   * são coisas diferentes, e quem errou o tipo apaga e lança de novo.
+   *
+   * Na assinatura, preço novo vale **a partir de** `aPartirDe` (a fatura que
+   * estava na tela). O ChatGPT que subiu de R$ 110 para R$ 120 em outubro não
+   * cobrou R$ 120 em agosto: a linha velha é encerrada em setembro e outra
+   * nasce em outubro, e as faturas já lançadas continuam somando o que o
+   * banco cobrou.
    */
   async atualizarCompra(
     compraId: string,
-    dados: Partial<DadosDaCompra>,
+    dados: Partial<DadosDaCompra> & { aPartirDe?: string },
   ): Promise<CompraNoCartao> {
     const atual = await this.buscarCompra(compraId);
+
+    if (atual.assinatura) {
+      return this.atualizarAssinatura(atual, dados);
+    }
 
     const parcelas = dados.parcelas ?? atual.parcelas;
     const nova = normalizarCompra({
@@ -432,11 +425,7 @@ export class CartoesCreditoService {
       primeiraFatura: dados.primeiraFatura ?? atual.primeiraFatura,
     });
 
-    await this.conferirFaturasLancadas(
-      atual.cartaoId,
-      parcelasDaCompra(atual),
-      parcelasDaCompra(nova),
-    );
+    await this.conferirFaturasLancadas(atual.cartaoId, [atual], [nova]);
 
     return this.prisma.compraNoCartao.update({
       where: { id: compraId },
@@ -446,17 +435,122 @@ export class CartoesCreditoService {
         parcelas: nova.parcelas,
         parcelaInicial: nova.parcelaInicial,
         primeiraFatura: nova.primeiraFatura,
+        // A categoria não mexe em valor nenhum: troca até em fatura lançada.
+        ...(dados.categoriaId === undefined
+          ? {}
+          : { categoriaId: dados.categoriaId }),
       },
     });
   }
 
-  async removerCompra(compraId: string): Promise<void> {
-    const atual = await this.buscarCompra(compraId);
+  private async atualizarAssinatura(
+    atual: CompraNoCartao,
+    dados: Partial<DadosDaCompra> & { aPartirDe?: string },
+  ): Promise<CompraNoCartao> {
+    const descricao = (dados.descricao ?? atual.descricao).trim().slice(0, 200);
+    if (!descricao) {
+      throw new BadRequestException('A assinatura precisa de uma descrição.');
+    }
+    const valor =
+      dados.valor === undefined
+        ? Number(atual.valorTotal)
+        : Math.round(Number(dados.valor) * 100) / 100;
+    if (!(valor > 0)) {
+      throw new BadRequestException('Falta o valor da assinatura.');
+    }
+
+    const categoriaId =
+      dados.categoriaId === undefined ? atual.categoriaId : dados.categoriaId;
+    const mudouPreco =
+      Math.round(valor * 100) !== Math.round(Number(atual.valorTotal) * 100);
+    const aPartirDe = dados.aPartirDe
+      ? validarCompetencia(dados.aPartirDe)
+      : null;
+
+    if (mudouPreco && aPartirDe && aPartirDe > atual.primeiraFatura) {
+      const velha = { ...atual, descricao, ultimaFatura: somarMeses(aPartirDe, -1) };
+      const nova = {
+        ...atual,
+        descricao,
+        valorTotal: new Prisma.Decimal(valor),
+        primeiraFatura: aPartirDe,
+      };
+      await this.conferirFaturasLancadas(atual.cartaoId, [atual], [velha, nova]);
+
+      const [, criada] = await this.prisma.$transaction([
+        this.prisma.compraNoCartao.update({
+          where: { id: atual.id },
+          data: { descricao, categoriaId, ultimaFatura: velha.ultimaFatura },
+        }),
+        this.prisma.compraNoCartao.create({
+          data: {
+            cartaoId: atual.cartaoId,
+            descricao,
+            valorTotal: nova.valorTotal,
+            parcelas: 1,
+            parcelaInicial: 1,
+            primeiraFatura: aPartirDe,
+            ultimaFatura: atual.ultimaFatura,
+            assinatura: true,
+            categoriaId,
+            criadoPor: atual.criadoPor,
+          },
+        }),
+      ]);
+      return criada;
+    }
+
     await this.conferirFaturasLancadas(
       atual.cartaoId,
-      parcelasDaCompra(atual),
-      [],
+      [atual],
+      [{ ...atual, valorTotal: new Prisma.Decimal(valor) }],
     );
+    return this.prisma.compraNoCartao.update({
+      where: { id: atual.id },
+      data: { descricao, categoriaId, valorTotal: new Prisma.Decimal(valor) },
+    });
+  }
+
+  /**
+   * Encerra a assinatura: ela sai da fatura `aPartirDe` e das seguintes.
+   *
+   * As anteriores ficam — foram cobradas. Encerrar na própria fatura em que
+   * ela começou é o mesmo que ela nunca ter existido, e aí a linha é apagada.
+   */
+  async encerrarAssinatura(
+    compraId: string,
+    aPartirDe: string,
+  ): Promise<{ apagada: boolean }> {
+    const atual = await this.buscarCompra(compraId);
+    if (!atual.assinatura) {
+      throw new BadRequestException(
+        'Só assinatura se encerra. A compra parcelada acaba sozinha na última parcela.',
+      );
+    }
+    const mes = validarCompetencia(aPartirDe);
+
+    if (mes <= atual.primeiraFatura) {
+      await this.conferirFaturasLancadas(atual.cartaoId, [atual], []);
+      await this.prisma.compraNoCartao.delete({ where: { id: compraId } });
+      return { apagada: true };
+    }
+
+    const ultimaFatura = somarMeses(mes, -1);
+    await this.conferirFaturasLancadas(
+      atual.cartaoId,
+      [atual],
+      [{ ...atual, ultimaFatura }],
+    );
+    await this.prisma.compraNoCartao.update({
+      where: { id: compraId },
+      data: { ultimaFatura },
+    });
+    return { apagada: false };
+  }
+
+  async removerCompra(compraId: string): Promise<void> {
+    const atual = await this.buscarCompra(compraId);
+    await this.conferirFaturasLancadas(atual.cartaoId, [atual], []);
     await this.prisma.compraNoCartao.delete({ where: { id: compraId } });
   }
 
@@ -472,19 +566,18 @@ export class CartoesCreditoService {
    * Compara o que a compra punha em cada fatura antes e depois. Trocar a
    * descrição, ou mexer só em parcelas de faturas ainda abertas, passa; o que
    * mudaria a soma de um título que já está no IXC, não.
+   *
+   * Recebe as compras, e não as parcelas, por causa da assinatura: ela não tem
+   * fim, e as parcelas dela só se calculam até um horizonte — que aqui é a
+   * fatura lançada mais adiante no calendário.
    */
   private async conferirFaturasLancadas(
     cartaoId: string,
-    antes: ParcelaDaCompra[],
-    depois: ParcelaDaCompra[],
+    antes: CompraCalculavel[],
+    depois: CompraCalculavel[],
   ): Promise<void> {
-    const tocadas = [
-      ...new Set([...antes, ...depois].map((p) => p.competencia)),
-    ];
-    if (tocadas.length === 0) return;
-
     const contas = await this.prisma.contaPagar.findMany({
-      where: { cartaoCreditoId: cartaoId, competencia: { in: tocadas } },
+      where: { cartaoCreditoId: cartaoId },
       select: {
         competencia: true,
         idFnApagarIxc: true,
@@ -492,14 +585,25 @@ export class CartoesCreditoService {
         status: true,
       },
     });
+    const lancadas = contas.filter(
+      (c): c is typeof c & { competencia: string } =>
+        !!c.competencia && valeComoLancada(c),
+    );
+    if (lancadas.length === 0) return;
 
-    for (const conta of contas.filter(valeComoLancada)) {
-      const mes = conta.competencia!;
+    const horizonte = lancadas
+      .map((c) => c.competencia)
+      .reduce((a, b) => (a > b ? a : b));
+    const parcelasAntes = antes.flatMap((c) => parcelasDaCompra(c, horizonte));
+    const parcelasDepois = depois.flatMap((c) => parcelasDaCompra(c, horizonte));
+
+    for (const conta of lancadas) {
+      const mes = conta.competencia;
       const eraAssim = somar(
-        antes.filter((p) => p.competencia === mes).map((p) => p.valor),
+        parcelasAntes.filter((p) => p.competencia === mes).map((p) => p.valor),
       );
       const ficaria = somar(
-        depois.filter((p) => p.competencia === mes).map((p) => p.valor),
+        parcelasDepois.filter((p) => p.competencia === mes).map((p) => p.valor),
       );
       if (eraAssim === ficaria) continue;
 
@@ -552,7 +656,7 @@ export class CartoesCreditoService {
       orderBy: { createdAt: 'asc' },
     });
     const itens = compras.flatMap((compra) =>
-      parcelasDaCompra(compra)
+      parcelasDaCompra(compra, alvo)
         .filter((p) => p.competencia === alvo)
         .map((p) => ({ compra, ...p })),
     );
@@ -633,9 +737,18 @@ export class CartoesCreditoService {
       data: { cartaoCreditoId: cartao.id, competencia: alvo },
     });
 
-    if (cartao.categoriaId && conta.idFnApagarIxc) {
+    /*
+     * O título ganha etiqueta própria só quando a fatura inteira é de uma
+     * categoria. Misturada, ele fica sem: quem divide o valor pelas compras
+     * são os relatórios (ver `CategoriasService.rateiosDosTitulos`), e uma
+     * etiqueta única no título diria que a moto e a anuidade são a mesma coisa.
+     */
+    const categoriasDaFatura = new Set(itens.map((i) => i.compra.categoriaId));
+    const etiqueta =
+      categoriasDaFatura.size === 1 ? [...categoriasDaFatura][0] : null;
+    if (etiqueta && conta.idFnApagarIxc) {
       await this.categorias
-        .classificar(conta.idFnApagarIxc, cartao.categoriaId, usuarioId)
+        .classificar(conta.idFnApagarIxc, etiqueta, usuarioId)
         .catch((err: unknown) => {
           this.logger.warn(
             `Fatura ${conta.idFnApagarIxc} nasceu sem categoria: ${
@@ -659,6 +772,9 @@ export class CartoesCreditoService {
  *
  * O valor digitado pode ser o da parcela — é o que a fatura imprime ("03/10
  * R$ 89,90") —, e aí o total é ele vezes o número de parcelas.
+ *
+ * Na assinatura o valor é o de cada fatura, e as parcelas não se aplicam:
+ * ficam em 1, sem perguntar o que veio no pedido.
  */
 export function normalizarCompra(dados: DadosDaCompra): {
   descricao: string;
@@ -666,10 +782,28 @@ export function normalizarCompra(dados: DadosDaCompra): {
   parcelas: number;
   parcelaInicial: number;
   primeiraFatura: string;
+  assinatura: boolean;
 } {
   const descricao = dados.descricao.trim();
   if (!descricao) {
     throw new BadRequestException('A compra precisa de uma descrição.');
+  }
+
+  if (dados.assinatura) {
+    const valor = Math.round(Number(dados.valor) * 100) / 100;
+    // Estorno que se repete todo mês não existe: o crédito entra como
+    // compra avulsa, na fatura em que veio.
+    if (!(valor > 0)) {
+      throw new BadRequestException('Falta o valor da assinatura.');
+    }
+    return {
+      descricao: descricao.slice(0, 200),
+      valorTotal: valor,
+      parcelas: 1,
+      parcelaInicial: 1,
+      primeiraFatura: validarCompetencia(dados.primeiraFatura),
+      assinatura: true,
+    };
   }
 
   const parcelas = dados.parcelas;
@@ -706,6 +840,7 @@ export function normalizarCompra(dados: DadosDaCompra): {
     parcelas,
     parcelaInicial,
     primeiraFatura: validarCompetencia(dados.primeiraFatura),
+    assinatura: false,
   };
 }
 

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { CategoriaDespesa } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { parcelasDaCompra, somar } from './parcelas-do-cartao';
 
 /** Uma categoria com quantas contas já foram etiquetadas com ela. */
 export interface CategoriaComUso extends CategoriaDespesa {
@@ -28,6 +29,15 @@ export interface EtiquetaDoTitulo {
   id: string;
   nome: string;
   grupo: { id: string; nome: string } | null;
+}
+
+/**
+ * Um pedaço de um título que se divide entre categorias — hoje, a fatura do
+ * cartão de crédito, pelas compras que vieram nela.
+ */
+export interface FatiaDoRateio {
+  classificacao: EtiquetaDoTitulo | null;
+  valor: number;
 }
 
 /**
@@ -253,6 +263,82 @@ export class CategoriasService {
       `${ids.length} conta(s) classificadas como "${categoria.nome}".`,
     );
     return ids.length;
+  }
+
+  /**
+   * Como a fatura do cartão se divide pelas categorias das compras dentro.
+   *
+   * A fatura é um título só no IXC, mas a moto, a anuidade e o ChatGPT que
+   * vieram nela são três gastos diferentes. Uma etiqueta no título diria que
+   * são uma coisa só; aqui cada título que é fatura de cartão ganha a lista
+   * de fatias — categoria e quanto —, e é por ela que os relatórios somam.
+   *
+   * Título que não é fatura de cartão não aparece no mapa: para ele vale a
+   * etiqueta de sempre.
+   */
+  async rateiosDosTitulos(ids: number[]): Promise<Map<number, FatiaDoRateio[]>> {
+    if (ids.length === 0) return new Map();
+
+    const faturas = await this.prisma.contaPagar.findMany({
+      where: {
+        idFnApagarIxc: { in: ids },
+        cartaoCreditoId: { not: null },
+        competencia: { not: null },
+      },
+      select: { idFnApagarIxc: true, cartaoCreditoId: true, competencia: true },
+    });
+    if (faturas.length === 0) return new Map();
+
+    const compras = await this.prisma.compraNoCartao.findMany({
+      where: {
+        cartaoId: { in: [...new Set(faturas.map((f) => f.cartaoCreditoId!))] },
+      },
+      include: {
+        categoria: { include: { pai: { select: { id: true, nome: true } } } },
+      },
+    });
+
+    const mapa = new Map<number, FatiaDoRateio[]>();
+    for (const fatura of faturas) {
+      const mes = fatura.competencia!;
+      const porCategoria = new Map<
+        string,
+        { classificacao: EtiquetaDoTitulo | null; valores: number[] }
+      >();
+
+      for (const compra of compras) {
+        if (compra.cartaoId !== fatura.cartaoCreditoId) continue;
+        const valores = parcelasDaCompra(compra, mes)
+          .filter((p) => p.competencia === mes)
+          .map((p) => p.valor);
+        if (valores.length === 0) continue;
+
+        const chave = compra.categoriaId ?? '';
+        const fatia = porCategoria.get(chave) ?? {
+          classificacao: compra.categoria
+            ? {
+                id: compra.categoria.id,
+                nome: compra.categoria.nome,
+                grupo: compra.categoria.pai ?? null,
+              }
+            : null,
+          valores: [],
+        };
+        fatia.valores.push(...valores);
+        porCategoria.set(chave, fatia);
+      }
+
+      if (porCategoria.size > 0 && fatura.idFnApagarIxc) {
+        mapa.set(
+          fatura.idFnApagarIxc,
+          [...porCategoria.values()].map((f) => ({
+            classificacao: f.classificacao,
+            valor: somar(f.valores),
+          })),
+        );
+      }
+    }
+    return mapa;
   }
 
   /** As etiquetas de um punhado de títulos, para a listagem. */

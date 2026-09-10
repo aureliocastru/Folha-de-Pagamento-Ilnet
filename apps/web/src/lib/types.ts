@@ -737,7 +737,18 @@ export interface ContaAberta {
    * relatórios. Null = ninguém classificou ainda.
    */
   classificacao: EtiquetaDaConta | null;
+  /**
+   * A fatura do cartão dividida pelas categorias das compras dentro dela.
+   * Presente, é por ela que os relatórios somam, e não por `classificacao`.
+   */
+  rateio?: FatiaDoRateio[];
   origem: OrigemNaFolha | null;
+}
+
+/** Um pedaço de título que se divide entre categorias (a fatura do cartão). */
+export interface FatiaDoRateio {
+  classificacao: EtiquetaDaConta | null;
+  valor: number;
 }
 
 /** Por onde o dinheiro sai ao pagar um título do IXC. */
@@ -1382,6 +1393,8 @@ export interface PagamentoFeito {
   statusEhDePago: boolean;
   categoria: { id: number | null; nome: string | null };
   classificacao: EtiquetaDaConta | null;
+  /** A fatura do cartão dividida pelas categorias das compras dentro dela. */
+  rateio?: FatiaDoRateio[];
   origem: OrigemNaFolha | null;
   conferencia: ConferenciaDoPagamento;
 }

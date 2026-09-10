@@ -1,4 +1,20 @@
-import type { CategoriaDespesa } from './types';
+import type { CategoriaDespesa, EtiquetaDaConta, FatiaDoRateio } from './types';
+
+/**
+ * O título já diz com o que se gastou?
+ *
+ * A fatura do cartão responde pelas compras de dentro, e não por uma etiqueta
+ * no título: ela está classificada quando todas as compras estão. Uma compra
+ * sem categoria deixa a fatura na lista do que falta classificar — é ali que
+ * alguém vai procurar o que ficou de fora dos relatórios.
+ */
+export function estaClassificado(titulo: {
+  classificacao: EtiquetaDaConta | null;
+  rateio?: FatiaDoRateio[];
+}): boolean {
+  if (titulo.rateio?.length) return titulo.rateio.every((f) => f.classificacao);
+  return !!titulo.classificacao;
+}
 
 /** Uma categoria de cima com as subcategorias que moram nela. */
 export interface GrupoDeCategorias {

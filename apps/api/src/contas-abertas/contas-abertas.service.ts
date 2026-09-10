@@ -623,6 +623,15 @@ export class ContasAbertasService {
         conta.classificacao = categoria;
       }
     }
+
+    // A fatura do cartão é dividida pelas categorias das compras dentro.
+    const rateios = await this.categorias.rateiosDosTitulos(
+      contas.map((c) => c.idFnApagar),
+    );
+    for (const conta of contas) {
+      const rateio = rateios.get(conta.idFnApagar);
+      if (rateio) conta.rateio = rateio;
+    }
   }
 
   /**

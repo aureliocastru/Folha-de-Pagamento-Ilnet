@@ -105,7 +105,10 @@ function montarServico(opts: {
   };
 
   const prisma = { contaPagar: { findMany: jest.fn().mockResolvedValue([]) } };
-  const categorias = { dosTitulos: jest.fn().mockResolvedValue(new Map()) };
+  const categorias = {
+    dosTitulos: jest.fn().mockResolvedValue(new Map()),
+    rateiosDosTitulos: jest.fn().mockResolvedValue(new Map()),
+  };
   const contasAbertas = {
     nomesDosFornecedores: jest.fn().mockResolvedValue(new Map()),
     nomesDasContasDeDespesa: jest.fn().mockResolvedValue(new Map()),

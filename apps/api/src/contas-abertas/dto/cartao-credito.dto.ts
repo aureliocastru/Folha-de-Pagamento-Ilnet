@@ -92,6 +92,12 @@ export class CriarCompraDto {
   /** A fatura (AAAA-MM do vencimento) em que a compra aparece primeiro. */
   @Matches(COMPETENCIA, { message: MENSAGEM_COMPETENCIA })
   primeiraFatura!: string;
+
+  /** Cobra todo mês, sem parcelas, até ser encerrada. */
+  @IsOptional() @IsBoolean() assinatura?: boolean;
+
+  /** Com o que se gastou nesta compra. */
+  @IsOptional() @IsUUID() categoriaId?: string | null;
 }
 
 export class AtualizarCompraDto {
@@ -108,6 +114,23 @@ export class AtualizarCompraDto {
   @IsOptional()
   @Matches(COMPETENCIA, { message: MENSAGEM_COMPETENCIA })
   primeiraFatura?: string;
+
+  /**
+   * Na assinatura: a fatura a partir da qual o preço novo vale. As anteriores
+   * continuam com o preço de antes.
+   */
+  @IsOptional()
+  @Matches(COMPETENCIA, { message: MENSAGEM_COMPETENCIA })
+  aPartirDe?: string;
+
+  /** Trocar a categoria não mexe em valor: vale até em fatura já lançada. */
+  @IsOptional() @IsUUID() categoriaId?: string | null;
+}
+
+/** Encerrar a assinatura: ela sai desta fatura e das seguintes. */
+export class EncerrarAssinaturaDto {
+  @Matches(COMPETENCIA, { message: MENSAGEM_COMPETENCIA })
+  aPartirDe!: string;
 }
 
 /** A fatura do mês vira uma conta a pagar só, no valor da soma. */

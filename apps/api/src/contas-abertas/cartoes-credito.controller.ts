@@ -17,6 +17,7 @@ import {
   AtualizarCompraDto,
   CriarCartaoDto,
   CriarCompraDto,
+  EncerrarAssinaturaDto,
   GerarFaturaDto,
 } from './dto/cartao-credito.dto';
 
@@ -50,6 +51,16 @@ export class CartoesCreditoController {
     @Body() dto: AtualizarCompraDto,
   ) {
     return this.service.atualizarCompra(compraId, dto);
+  }
+
+  /** A assinatura sai da fatura `aPartirDe` e das seguintes. */
+  @Post('compras/:compraId/encerrar')
+  @HttpCode(200)
+  encerrarAssinatura(
+    @Param('compraId') compraId: string,
+    @Body() dto: EncerrarAssinaturaDto,
+  ) {
+    return this.service.encerrarAssinatura(compraId, dto.aPartirDe);
   }
 
   @Delete('compras/:compraId')

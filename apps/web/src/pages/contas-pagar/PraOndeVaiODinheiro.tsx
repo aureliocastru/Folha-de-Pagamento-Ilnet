@@ -12,6 +12,8 @@ import { api, mensagemErro } from '../../lib/api';
 import { formatBRL, formatData } from '../../lib/format';
 import type {
   ContaAberta,
+  EtiquetaDaConta,
+  FatiaDoRateio,
   HistoricoPagamentos,
   PagamentoFeito,
   ParcelaDoTitulo,
@@ -28,6 +30,33 @@ import {
 /** O que ainda vai sair, ou o que já saiu. */
 type Recorte = 'abertas' | 'pagas';
 
+/**
+ * Em quantas categorias um título entra, e com quanto em cada.
+ *
+ * O título comum é uma fatia só, a da etiqueta dele. A fatura do cartão se
+ * divide pelas compras de dentro — a moto vai para Veículos, a anuidade para
+ * Tarifas —, e cada fatia leva a sua parte do valor. A parte é proporcional ao
+ * que a linha mostra (o aberto ou o pago), e não ao valor cheio: a fatura paga
+ * pela metade entra pela metade em cada categoria.
+ */
+function fatiasDoTitulo(
+  titulo: {
+    classificacao: EtiquetaDaConta | null;
+    rateio?: FatiaDoRateio[];
+  },
+  valor: number,
+): Array<{ classificacao: EtiquetaDaConta | null; valor: number }> {
+  const rateio = titulo.rateio ?? [];
+  const soma = rateio.reduce((s, f) => s + f.valor, 0);
+  if (rateio.length === 0 || !(soma > 0)) {
+    return [{ classificacao: titulo.classificacao, valor }];
+  }
+  return rateio.map((f) => ({
+    classificacao: f.classificacao,
+    valor: Math.round((f.valor / soma) * valor * 100) / 100,
+  }));
+}
+
 /** O rótulo do que não foi classificado — e que por isso não está em barra nenhuma. */
 const SEM_CATEGORIA = 'Sem categoria';
 
@@ -40,6 +69,9 @@ const SEM_CATEGORIA = 'Sem categoria';
  * porque é ele que a ficha abre no fim do caminho.
  */
 interface LinhaDoDinheiro {
+  /** Único na lista: a fatura do cartão vira uma linha por categoria. */
+  id: string;
+  /** O título no IXC — duas fatias da mesma fatura têm a mesma chave. */
   chave: number;
   grupo: string;
   subcategoria: string;
@@ -102,33 +134,40 @@ export function PraOndeVaiODinheiro({ contas }: { contas: ContaAberta[] }) {
 
   const linhas = useMemo<LinhaDoDinheiro[]>(() => {
     if (recorte === 'abertas') {
-      return contas.map((c) => ({
-        chave: c.idFnApagar,
-        grupo: c.classificacao
-          ? (c.classificacao.grupo?.nome ?? c.classificacao.nome)
-          : SEM_CATEGORIA,
-        subcategoria: c.classificacao?.nome ?? SEM_CATEGORIA,
-        fornecedor: c.fornecedor.nome || `Fornecedor ${c.fornecedor.id ?? '?'}`,
-        fornecedorId: c.fornecedor.id,
-        valor: c.valorAberto,
-        data: c.vencimento,
-        observacao: c.observacao,
-        conta: c,
-      }));
+      return contas.flatMap((c) =>
+        fatiasDoTitulo(c, c.valorAberto).map((f, i) => ({
+          id: `${c.idFnApagar}-${i}`,
+          chave: c.idFnApagar,
+          grupo: f.classificacao
+            ? (f.classificacao.grupo?.nome ?? f.classificacao.nome)
+            : SEM_CATEGORIA,
+          subcategoria: f.classificacao?.nome ?? SEM_CATEGORIA,
+          fornecedor:
+            c.fornecedor.nome || `Fornecedor ${c.fornecedor.id ?? '?'}`,
+          fornecedorId: c.fornecedor.id,
+          valor: f.valor,
+          data: c.vencimento,
+          observacao: c.observacao,
+          conta: c,
+        })),
+      );
     }
-    return (pagos.data?.pagamentos ?? []).map((p) => ({
-      chave: p.idFnApagar,
-      grupo: p.classificacao
-        ? (p.classificacao.grupo?.nome ?? p.classificacao.nome)
-        : SEM_CATEGORIA,
-      subcategoria: p.classificacao?.nome ?? SEM_CATEGORIA,
-      fornecedor: p.fornecedor.nome || `Fornecedor ${p.fornecedor.id ?? '?'}`,
-      fornecedorId: p.fornecedor.id,
-      valor: p.valorPago,
-      data: p.pagoEm,
-      observacao: p.observacao,
-      pagamento: p,
-    }));
+    return (pagos.data?.pagamentos ?? []).flatMap((p) =>
+      fatiasDoTitulo(p, p.valorPago).map((f, i) => ({
+        id: `${p.idFnApagar}-${i}`,
+        chave: p.idFnApagar,
+        grupo: f.classificacao
+          ? (f.classificacao.grupo?.nome ?? f.classificacao.nome)
+          : SEM_CATEGORIA,
+        subcategoria: f.classificacao?.nome ?? SEM_CATEGORIA,
+        fornecedor: p.fornecedor.nome || `Fornecedor ${p.fornecedor.id ?? '?'}`,
+        fornecedorId: p.fornecedor.id,
+        valor: f.valor,
+        data: p.pagoEm,
+        observacao: p.observacao,
+        pagamento: p,
+      })),
+    );
   }, [recorte, contas, pagos.data]);
 
   const fatias = useMemo(() => agruparPorGrupo(linhas), [linhas]);
@@ -448,7 +487,7 @@ function ContasDaFatia({
                         const escrita =
                           l.conta?.parcela ?? l.pagamento?.parcela ?? null;
                         return (
-                        <tr key={l.chave} className="linha">
+                        <tr key={l.id} className="linha">
                           <td className="td">
                             <button
                               type="button"

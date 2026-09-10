@@ -54,6 +54,10 @@ interface ItemDaFatura {
   valorTotal: number;
   parcelaInicial: number;
   primeiraFatura: string;
+  /** Cobra todo mês, sem parcelas, até ser encerrada. */
+  assinatura: boolean;
+  ultimaFatura: string | null;
+  categoriaId: string | null;
 }
 
 /** A conta a pagar em que a fatura virou. */
@@ -358,9 +362,42 @@ function FaturaDoCartao({
     setCorrigindo(null);
   }, [competencia]);
 
+  const categorias = useQuery({
+    queryKey: ['categorias-despesa'],
+    queryFn: async () =>
+      (await api.get<CategoriaDespesa[]>('/categorias-despesa')).data,
+  });
+
   const remover = useMutation({
     mutationFn: async (compraId: string) => {
       await api.delete(`/cartoes-credito/compras/${compraId}`);
+    },
+    onSuccess: onMudou,
+    onError: (err) => onAviso(mensagemErro(err), true),
+  });
+
+  /** A assinatura sai desta fatura e das seguintes; as de trás ficam. */
+  const encerrar = useMutation({
+    mutationFn: async (compraId: string) =>
+      (
+        await api.post<{ apagada: boolean }>(
+          `/cartoes-credito/compras/${compraId}/encerrar`,
+          { aPartirDe: competencia },
+        )
+      ).data,
+    onSuccess: onMudou,
+    onError: (err) => onAviso(mensagemErro(err), true),
+  });
+
+  /*
+   * A categoria troca direto na linha, e até em fatura já lançada: ela não
+   * mexe no valor de nada — só em qual barra do relatório o dinheiro cai.
+   */
+  const recategorizar = useMutation({
+    mutationFn: async (args: { compraId: string; categoriaId: string }) => {
+      await api.patch(`/cartoes-credito/compras/${args.compraId}`, {
+        categoriaId: args.categoriaId || null,
+      });
     },
     onSuccess: onMudou,
     onError: (err) => onAviso(mensagemErro(err), true),
@@ -428,16 +465,18 @@ function FaturaDoCartao({
       </div>
 
       <div className="overflow-x-auto rolagem-fina">
-        <table className="w-full min-w-[640px] table-fixed text-sm">
+        <table className="w-full min-w-[860px] table-fixed text-sm">
           <colgroup>
-            <col className="w-[50%]" />
-            <col className="w-[16%]" />
-            <col className="w-[16%]" />
-            <col className="w-[18%]" />
+            <col className="w-[32%]" />
+            <col className="w-[22%]" />
+            <col className="w-[13%]" />
+            <col className="w-[14%]" />
+            <col className="w-[19%]" />
           </colgroup>
           <thead>
             <tr>
               <th className="th">Compra</th>
+              <th className="th">Categoria</th>
               <th className="th">Parcela</th>
               <th className="th text-right">Nesta fatura</th>
               <th className="th text-right">Ação</th>
@@ -446,7 +485,7 @@ function FaturaDoCartao({
           <tbody>
             {itens.length === 0 && (
               <tr>
-                <td colSpan={4} className="td text-center text-tinta-400">
+                <td colSpan={5} className="td text-center text-tinta-400">
                   Nenhuma compra nesta fatura ainda.
                 </td>
               </tr>
@@ -460,6 +499,14 @@ function FaturaDoCartao({
                   <div className="truncate text-tinta-800" title={i.descricao}>
                     {i.descricao}
                   </div>
+                  {i.assinatura && (
+                    <div className="num text-[11px] text-tinta-400">
+                      {formatBRL(i.valorTotal)} por mês
+                      {i.ultimaFatura
+                        ? ` · última em ${rotuloDoMes(i.ultimaFatura)}`
+                        : ''}
+                    </div>
+                  )}
                   {i.parcelas > 1 && (
                     <div className="num text-[11px] text-tinta-400">
                       compra de {formatBRL(i.valorTotal)}
@@ -470,8 +517,34 @@ function FaturaDoCartao({
                     </div>
                   )}
                 </td>
+                <td className="td">
+                  <SeletorDeCategoria
+                    categorias={categorias.data ?? []}
+                    value={i.categoriaId ?? ''}
+                    onChange={(categoriaId) =>
+                      recategorizar.mutate({ compraId: i.compraId, categoriaId })
+                    }
+                    vazio="Sem categoria"
+                    carregando={categorias.isLoading}
+                    className="campo py-1 text-xs"
+                    title="Com o que se gastou nesta compra — troca até em fatura lançada"
+                  />
+                </td>
                 <td className="td num text-tinta-600">
-                  {i.parcelas > 1 ? `${i.parcela}/${i.parcelas}` : 'à vista'}
+                  {i.assinatura ? (
+                    <>
+                      <Selo pequeno tom="info">
+                        assinatura
+                      </Selo>
+                      <div className="mt-0.5 text-[11px] text-tinta-400">
+                        desde {rotuloDoMes(i.primeiraFatura)}
+                      </div>
+                    </>
+                  ) : i.parcelas > 1 ? (
+                    `${i.parcela}/${i.parcelas}`
+                  ) : (
+                    'à vista'
+                  )}
                 </td>
                 <td className="td text-right">
                   <span
@@ -496,6 +569,26 @@ function FaturaDoCartao({
                       >
                         Editar
                       </button>
+                      {i.assinatura ? (
+                        <button
+                          onClick={() => {
+                            if (
+                              confirm(
+                                `Encerrar a assinatura "${i.descricao}"? Ela sai da fatura de ` +
+                                  `${mesPorExtenso(competencia)} e das seguintes; as anteriores ` +
+                                  'ficam como estavam.',
+                              )
+                            ) {
+                              encerrar.mutate(i.compraId);
+                            }
+                          }}
+                          disabled={encerrar.isPending}
+                          className="btn btn-perigo btn-p"
+                          title="Para de cobrar a partir desta fatura"
+                        >
+                          Encerrar
+                        </button>
+                      ) : (
                       <button
                         onClick={() => {
                           if (
@@ -513,6 +606,7 @@ function FaturaDoCartao({
                       >
                         Apagar
                       </button>
+                      )}
                     </div>
                   )}
                 </td>
@@ -542,6 +636,8 @@ function FaturaDoCartao({
           cartaoId={cartao.id}
           competencia={competencia}
           corrigindo={corrigindo}
+          categorias={categorias.data ?? []}
+          carregandoCategorias={categorias.isLoading}
           onCancelar={() => setCorrigindo(null)}
           onPronto={() => {
             setCorrigindo(null);
@@ -731,11 +827,17 @@ function ChipDaFatura({
  * "Parcela 3 de 10" diz que a compra já vinha sendo paga: as parcelas 1 e 2
  * ficaram em faturas anteriores, fora daqui, e as de 4 a 10 aparecem sozinhas
  * nas próximas.
+ *
+ * Assinatura é o outro tipo: o ChatGPT, o domínio, o software — o mesmo valor
+ * em toda fatura, sem número de parcelas, até alguém encerrar. Lançada como
+ * "12 vezes", ela sumiria no décimo terceiro mês sem ninguém ter cancelado.
  */
 function FormularioDaCompra({
   cartaoId,
   competencia,
   corrigindo,
+  categorias,
+  carregandoCategorias,
   onCancelar,
   onPronto,
   onErro,
@@ -743,10 +845,13 @@ function FormularioDaCompra({
   cartaoId: string;
   competencia: string;
   corrigindo: ItemDaFatura | null;
+  categorias: CategoriaDespesa[];
+  carregandoCategorias: boolean;
   onCancelar: () => void;
   onPronto: () => void;
   onErro: (mensagem: string) => void;
 }) {
+  const [assinatura, setAssinatura] = useState(corrigindo?.assinatura ?? false);
   const [descricao, setDescricao] = useState(corrigindo?.descricao ?? '');
   // Na correção o valor volta como total: é o que está gravado, e o que não
   // perde centavo ao reabrir uma compra de R$ 100 em três.
@@ -761,10 +866,11 @@ function FormularioDaCompra({
   );
   const [parcela, setParcela] = useState(String(corrigindo?.parcela ?? 1));
   const [parcelas, setParcelas] = useState(String(corrigindo?.parcelas ?? 1));
+  const [categoriaId, setCategoriaId] = useState(corrigindo?.categoriaId ?? '');
   const campoDescricao = useRef<HTMLInputElement>(null);
 
-  const n = Number(parcelas);
-  const p = Number(parcela);
+  const n = assinatura ? 1 : Number(parcelas);
+  const p = assinatura ? 1 : Number(parcela);
   const v = Number(valor);
   const parcelado = n > 1;
 
@@ -778,10 +884,24 @@ function FormularioDaCompra({
     p >= 1 &&
     p <= n;
 
+  /** Mudou o preço de uma assinatura: o novo vale desta fatura em diante. */
+  const mudouPreco =
+    !!corrigindo?.assinatura &&
+    Math.round(v * 100) !== Math.round(corrigindo.valorTotal * 100);
+
   const salvar = useMutation({
     mutationFn: async () => {
-      const assinado = estorno ? -v : v;
-      if (corrigindo) {
+      const categoria = categoriaId || null;
+      if (corrigindo?.assinatura) {
+        // O preço novo não reescreve as faturas de trás: vale a partir desta.
+        await api.patch(`/cartoes-credito/compras/${corrigindo.compraId}`, {
+          descricao: descricao.trim(),
+          valor: v,
+          valorDe: 'TOTAL',
+          aPartirDe: competencia,
+          categoriaId: categoria,
+        });
+      } else if (corrigindo) {
         /*
          * A âncora da compra não se move à toa. O que se vê é a parcela deste
          * mês; o que se grava é em que fatura cai a primeira parcela
@@ -791,25 +911,30 @@ function FormularioDaCompra({
         const inicial = Math.min(corrigindo.parcelaInicial, p);
         await api.patch(`/cartoes-credito/compras/${corrigindo.compraId}`, {
           descricao: descricao.trim(),
-          valor: assinado,
+          valor: estorno ? -v : v,
           valorDe: parcelado ? valorDe : 'TOTAL',
           parcelas: n,
           parcelaInicial: inicial,
           primeiraFatura: somarMeses(competencia, -(p - inicial)),
+          categoriaId: categoria,
         });
       } else {
         await api.post(`/cartoes-credito/${cartaoId}/compras`, {
           descricao: descricao.trim(),
-          valor: assinado,
+          valor: assinatura ? v : estorno ? -v : v,
           valorDe: parcelado ? valorDe : 'TOTAL',
           parcelas: n,
           parcelaInicial: p,
           primeiraFatura: competencia,
+          assinatura,
+          categoriaId: categoria,
         });
       }
     },
     onSuccess: () => {
       if (!corrigindo) {
+        // O tipo e a categoria ficam: quem lança três assinaturas seguidas,
+        // ou cinco compras da mesma obra, não escolhe de novo a cada linha.
         setDescricao('');
         setValor('');
         setEstorno(false);
@@ -842,19 +967,63 @@ function FormularioDaCompra({
           : 'border-tinta-100'
       }`}
       onKeyDown={(e) => {
-        if (e.key === 'Enter' && (e.target as HTMLElement).tagName !== 'BUTTON') {
+        const alvo = e.target as HTMLElement;
+        /*
+         * Enter lança a linha — menos dentro do seletor de categoria, onde ele
+         * escolhe a opção. A lista dele pode abrir fora deste bloco, e o
+         * evento chega aqui mesmo assim: por isso a conferência do `contains`.
+         */
+        if (
+          e.key === 'Enter' &&
+          alvo.tagName !== 'BUTTON' &&
+          e.currentTarget.contains(alvo) &&
+          !alvo.closest('[data-seletor-categoria]')
+        ) {
           e.preventDefault();
           enviar();
         }
       }}
     >
-      <p className="eyebrow mb-2">
-        {corrigindo ? `Corrigindo "${corrigindo.descricao}"` : 'Lançar compra'}
-      </p>
+      <div className="mb-2 flex flex-wrap items-center gap-3">
+        <p className="eyebrow">
+          {corrigindo ? `Corrigindo "${corrigindo.descricao}"` : 'Lançar compra'}
+        </p>
+        {/* O tipo não muda na correção: compra e assinatura contam faturas de
+            jeitos diferentes, e trocar uma pela outra é apagar e lançar. */}
+        <div
+          role="radiogroup"
+          aria-label="Tipo de lançamento"
+          className="inline-flex rounded-lg border border-tinta-200 p-0.5 text-xs"
+        >
+          {(
+            [
+              [false, 'Compra'],
+              [true, 'Assinatura (todo mês)'],
+            ] as const
+          ).map(([ehAssinatura, rotulo]) => (
+            <button
+              key={rotulo}
+              type="button"
+              role="radio"
+              aria-checked={assinatura === ehAssinatura}
+              disabled={!!corrigindo}
+              onClick={() => setAssinatura(ehAssinatura)}
+              className={`rounded-md px-2.5 py-1 font-semibold transition disabled:cursor-not-allowed ${
+                assinatura === ehAssinatura
+                  ? 'bg-brand-500/15 text-brand-700 dark:text-brand-300'
+                  : 'text-tinta-500 hover:text-tinta-700 disabled:opacity-50'
+              }`}
+            >
+              {rotulo}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="flex flex-wrap items-end gap-2">
         <div className="min-w-[200px] flex-1">
           <label className="rotulo" htmlFor={`desc-${cartaoId}`}>
-            O que veio na fatura
+            {assinatura ? 'Assinatura' : 'O que veio na fatura'}
           </label>
           <input
             id={`desc-${cartaoId}`}
@@ -862,48 +1031,77 @@ function FormularioDaCompra({
             value={descricao}
             onChange={(e) => setDescricao(e.target.value)}
             className="campo py-1.5"
-            placeholder="Posto Ipiranga, Amazon, anuidade…"
+            placeholder={
+              assinatura
+                ? 'ChatGPT, domínio, Google Workspace…'
+                : 'Posto Ipiranga, Amazon, anuidade…'
+            }
             autoComplete="off"
           />
         </div>
 
-        <div className="w-[88px]">
-          <label className="rotulo" htmlFor={`parc-${cartaoId}`}>
-            Parcela
+        <div className="w-[190px]" data-seletor-categoria>
+          <label className="rotulo" htmlFor={`cat-${cartaoId}`}>
+            Categoria
           </label>
-          <div className="flex items-center gap-1">
-            <input
-              id={`parc-${cartaoId}`}
-              type="number"
-              min={1}
-              max={99}
-              value={parcela}
-              onChange={(e) => setParcela(e.target.value)}
-              className="campo num w-10 px-1.5 py-1.5 text-center"
-              title="Que parcela vem nesta fatura"
-            />
-            <span className="text-xs text-tinta-400">de</span>
-          </div>
-        </div>
-        <div className="w-[64px]">
-          <label className="rotulo" htmlFor={`qtd-${cartaoId}`}>
-            Vezes
-          </label>
-          <input
-            id={`qtd-${cartaoId}`}
-            type="number"
-            min={1}
-            max={99}
-            value={parcelas}
-            onChange={(e) => setParcelas(e.target.value)}
-            className="campo num px-1.5 py-1.5 text-center"
-            title="Em quantas vezes a compra foi dividida (1 = à vista)"
+          <SeletorDeCategoria
+            id={`cat-${cartaoId}`}
+            categorias={categorias}
+            value={categoriaId}
+            onChange={setCategoriaId}
+            vazio="Sem categoria"
+            carregando={carregandoCategorias}
+            className="campo py-1.5"
           />
         </div>
 
+        {!assinatura && (
+          <>
+            <div className="w-[88px]">
+              <label className="rotulo" htmlFor={`parc-${cartaoId}`}>
+                Parcela
+              </label>
+              <div className="flex items-center gap-1">
+                <input
+                  id={`parc-${cartaoId}`}
+                  type="number"
+                  min={1}
+                  max={99}
+                  value={parcela}
+                  onChange={(e) => setParcela(e.target.value)}
+                  className="campo num w-10 px-1.5 py-1.5 text-center"
+                  title="Que parcela vem nesta fatura"
+                />
+                <span className="text-xs text-tinta-400">de</span>
+              </div>
+            </div>
+            <div className="w-[64px]">
+              <label className="rotulo" htmlFor={`qtd-${cartaoId}`}>
+                Vezes
+              </label>
+              <input
+                id={`qtd-${cartaoId}`}
+                type="number"
+                min={1}
+                max={99}
+                value={parcelas}
+                onChange={(e) => setParcelas(e.target.value)}
+                className="campo num px-1.5 py-1.5 text-center"
+                title="Em quantas vezes a compra foi dividida (1 = à vista)"
+              />
+            </div>
+          </>
+        )}
+
         <div className="w-[140px]">
           <label className="rotulo" htmlFor={`valor-${cartaoId}`}>
-            {parcelado ? (valorDe === 'PARCELA' ? 'Valor da parcela' : 'Valor total') : 'Valor'}
+            {assinatura
+              ? 'Valor por mês'
+              : parcelado
+                ? valorDe === 'PARCELA'
+                  ? 'Valor da parcela'
+                  : 'Valor total'
+                : 'Valor'}
           </label>
           <CampoDinheiro
             id={`valor-${cartaoId}`}
@@ -930,18 +1128,22 @@ function FormularioDaCompra({
           </div>
         )}
 
-        <label
-          className="mb-2 flex items-center gap-1.5 text-xs text-tinta-500"
-          title="Crédito na fatura: abate da soma"
-        >
-          <input
-            type="checkbox"
-            className="h-3.5 w-3.5 accent-brand-600"
-            checked={estorno}
-            onChange={(e) => setEstorno(e.target.checked)}
-          />
-          estorno
-        </label>
+        {/* Estorno que se repete todo mês não existe: o crédito entra como
+            compra, na fatura em que veio. */}
+        {!assinatura && (
+          <label
+            className="mb-2 flex items-center gap-1.5 text-xs text-tinta-500"
+            title="Crédito na fatura: abate da soma"
+          >
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5 accent-brand-600"
+              checked={estorno}
+              onChange={(e) => setEstorno(e.target.checked)}
+            />
+            estorno
+          </label>
+        )}
 
         <div className="flex gap-1.5">
           {corrigindo && (
@@ -958,6 +1160,16 @@ function FormularioDaCompra({
           </button>
         </div>
       </div>
+
+      {assinatura && (
+        <p className="mt-2 text-[11px] text-tinta-400">
+          {corrigindo
+            ? mudouPreco
+              ? `O valor novo vale a partir de ${mesPorExtenso(competencia)}; as faturas anteriores ficam com o de antes.`
+              : 'Para parar de cobrar, use "Encerrar" na linha da assinatura.'
+            : `Entra nesta fatura e em todas as seguintes, até ser encerrada.`}
+        </p>
+      )}
 
       {/* A conta dita em voz alta: é aqui que se pega a parcela digitada no
           campo do total, antes de ela virar dez faturas erradas. */}
@@ -1010,8 +1222,6 @@ function CadastroDoCartao({
   const [tipoPagamento, setTipoPagamento] = useState(
     cartao?.tipoPagamentoIxc ?? 'Boleto',
   );
-  const [categoriaId, setCategoriaId] = useState(cartao?.categoriaId ?? '');
-
   const [fornecedor, setFornecedor] = useState<{
     id: number;
     nome: string;
@@ -1032,12 +1242,6 @@ function CadastroDoCartao({
       ).data,
     enabled: buscaEfetiva.length >= 2 && !fornecedor,
     retry: 0,
-  });
-
-  const categorias = useQuery({
-    queryKey: ['categorias-despesa'],
-    queryFn: async () =>
-      (await api.get<CategoriaDespesa[]>('/categorias-despesa')).data,
   });
 
   const config = useQuery({
@@ -1075,7 +1279,6 @@ function CadastroDoCartao({
         contaContabil: contaContabil ? Number(contaContabil) : undefined,
         contaPagamento: contaPagamento ? Number(contaPagamento) : undefined,
         tipoPagamentoIxc: tipoPagamento.trim() || undefined,
-        categoriaId: categoriaId || null,
         ...extra,
       };
       if (cartao) await api.patch(`/cartoes-credito/${cartao.id}`, dados);
@@ -1289,19 +1492,8 @@ function CadastroDoCartao({
           </select>
         </div>
 
-        <div className="sm:col-span-2">
-          <label className="rotulo" htmlFor="cartao-categoria">
-            Categoria
-          </label>
-          <SeletorDeCategoria
-            id="cartao-categoria"
-            categorias={categorias.data ?? []}
-            value={categoriaId}
-            onChange={setCategoriaId}
-            vazio="Sem categoria"
-            carregando={categorias.isLoading}
-          />
-        </div>
+        {/* Sem categoria aqui: ela é de cada compra, e não do cartão — na
+            mesma fatura vêm a moto, a anuidade e o ChatGPT. */}
       </div>
 
       {salvar.isError && <Aviso tom="erro">{mensagemErro(salvar.error)}</Aviso>}
