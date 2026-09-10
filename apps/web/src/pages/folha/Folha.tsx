@@ -310,8 +310,10 @@ function Regua({ c, reparto }: { c: ComposicaoSalario; reparto: RepartoDia25 }) 
   if (termos.length === 1) return null;
 
   return (
-    <div className="mb-4 overflow-x-auto rolagem-fina">
-      <div className="flex min-w-max items-stretch gap-1">
+    <div className="rolagem-fina mb-4 md:overflow-x-auto">
+      {/* No celular a conta quebra linha em vez de rolar para o lado: o "a
+          pagar", no fim dela, é justamente o que não pode ficar escondido. */}
+      <div className="flex flex-wrap items-stretch gap-1 md:min-w-max md:flex-nowrap">
         {termos.map((t, i) => (
           <div key={t.rotulo} className="flex items-stretch gap-1">
             {i > 0 && (

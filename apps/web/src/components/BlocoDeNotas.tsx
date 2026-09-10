@@ -300,7 +300,7 @@ function NoCanto() {
         title="Bloco de notas"
         aria-label="Abrir o bloco de notas"
         aria-expanded={aberto}
-        className="fixed right-0 top-0 z-40 flex h-9 w-9 items-center justify-center rounded-bl-xl bg-amber-400 text-amber-900 shadow-lg transition hover:bg-amber-300"
+        className="fixed right-0 top-0 z-40 flex h-11 w-11 items-center justify-center rounded-bl-xl bg-amber-400 text-amber-900 shadow-lg transition hover:bg-amber-300 md:h-9 md:w-9"
       >
         <IconeBloco
           className={`h-[17px] w-[17px] ${temRecado ? 'text-amber-950' : 'text-amber-900/55'}`}
@@ -340,17 +340,30 @@ function NoCanto() {
             aria-label="Bloco de notas"
             className="surgir fixed right-2 top-2 z-40 flex h-[min(30rem,calc(100vh-1rem))] w-[min(23rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-2xl border-2 border-amber-400 bg-white shadow-2xl"
           >
-            <div className="flex items-center justify-between gap-3 bg-amber-400 px-4 py-2.5">
+            <div className="flex items-center justify-between gap-3 bg-amber-400 py-1.5 pl-4 pr-1.5">
               <h2 className="font-display text-sm font-bold uppercase tracking-[0.12em] text-amber-950">
                 Bloco de notas
               </h2>
+              {/* 44px no celular, como o X das janelas: o "×" de texto de
+                  antes era um alvo de 20px na quina da tela. */}
               <button
                 type="button"
                 onClick={fechar}
                 aria-label="Fechar"
-                className="-mr-1 rounded-lg px-2 py-0.5 text-lg font-bold leading-none text-amber-900 transition hover:bg-amber-500/40 hover:text-amber-950"
+                title="Fechar"
+                className="flex h-11 w-11 items-center justify-center rounded-xl text-amber-950 transition hover:bg-amber-500/50 active:bg-amber-500/50 md:h-9 md:w-9"
               >
-                ×
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-5 w-5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  aria-hidden
+                >
+                  <path d="M6 6l12 12M18 6L6 18" />
+                </svg>
               </button>
             </div>
 

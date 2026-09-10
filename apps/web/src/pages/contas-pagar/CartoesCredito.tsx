@@ -453,7 +453,9 @@ function FaturaDoCartao({
         qualquer uma — quanto já está comprometido nas próximas? — e o caminho
         mais curto até elas: um clique no mês.
       */}
-      <div className="flex gap-2 overflow-x-auto rolagem-fina border-b border-tinta-100 px-3.5 py-3 md:px-5">
+      {/* No celular os meses quebram em três colunas, e não numa fita que rola
+          para o lado: fita escondida é mês que ninguém vê. */}
+      <div className="grid grid-cols-3 gap-2 border-b border-tinta-100 px-3.5 py-3 rolagem-fina md:flex md:overflow-x-auto md:px-5">
         {faturas.map((f) => (
           <ChipDaFatura
             key={f.competencia}
@@ -799,7 +801,7 @@ function ChipDaFatura({
       onClick={onClick}
       aria-pressed={escolhida}
       aria-label={`Fatura de ${mesPorExtenso(competencia)}: ${texto}`}
-      className={`min-w-[104px] shrink-0 rounded-xl border px-3 py-2 text-left transition ${
+      className={`min-w-0 shrink-0 rounded-xl border px-3 py-2 text-left transition md:min-w-[104px] ${
         escolhida
           ? 'border-brand-400 bg-brand-500/10 ring-1 ring-brand-300'
           : 'border-tinta-200 hover:border-brand-300 hover:bg-brand-500/5'

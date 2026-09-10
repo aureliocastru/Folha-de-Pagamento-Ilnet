@@ -2293,8 +2293,9 @@ function AcertarConta({
                   <button
                     type="button"
                     onClick={() => setFotos((atual) => atual.filter((_, j) => j !== i))}
-                    className="absolute -right-1 -top-1 rounded-full bg-tinta-800 px-1 text-xs text-papel"
+                    className="alvo-livre absolute -right-2.5 -top-2.5 flex h-8 w-8 items-center justify-center rounded-full bg-tinta-800 text-sm font-bold text-papel shadow ring-2 ring-papel"
                     title="Tirar esta foto"
+                    aria-label="Tirar esta foto"
                   >
                     ×
                   </button>

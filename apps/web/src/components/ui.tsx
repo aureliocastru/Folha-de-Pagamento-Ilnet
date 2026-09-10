@@ -255,8 +255,10 @@ export function Bloco({
     return (
     <section className={`card ${esticado ? 'flex h-full flex-col' : ''} ${className}`}>
       {titulo && (
-        <div className="faixa-titulo flex items-center justify-between gap-2 px-3.5 py-2.5 md:gap-3 md:px-5 md:py-3">
-          <h2 className="titulo-bloco">{titulo}</h2>
+        <div className="faixa-titulo flex flex-wrap items-center justify-between gap-2 px-3.5 py-2.5 md:flex-nowrap md:gap-3 md:px-5 md:py-3">
+          {/* Quebra linha no celular: título comprido e dois botões ao lado
+              empurravam o último para fora do cartão. */}
+          <h2 className="titulo-bloco min-w-0">{titulo}</h2>
           {acao}
         </div>
       )}
@@ -338,15 +340,9 @@ export function Janela({
           aria-label={titulo}
           className="surgir flex max-h-[92vh] flex-col rounded-t-2xl border-t border-tinta-100 bg-papel shadow-2xl"
         >
-          <div className="faixa-titulo flex shrink-0 items-center justify-between gap-3 rounded-t-2xl px-4 py-3">
-            <h2 className="titulo-bloco truncate">{titulo}</h2>
-            <button
-              onClick={onFechar}
-              aria-label="Fechar"
-              className="-mr-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-xl leading-none text-tinta-400 transition hover:bg-tinta-100 hover:text-tinta-700"
-            >
-              ×
-            </button>
+          <div className="faixa-titulo flex shrink-0 items-center justify-between gap-3 rounded-t-2xl py-2 pl-4 pr-2">
+            <h2 className="titulo-bloco min-w-0 truncate">{titulo}</h2>
+            <BotaoFechar onFechar={onFechar} />
           </div>
           {/* A folga de baixo respeita a faixa do gesto do sistema: sem ela o
               último botão do formulário fica debaixo da barrinha do iPhone. */}
@@ -366,19 +362,45 @@ export function Janela({
         aria-label={titulo}
         className="surgir my-auto h-fit w-full max-w-5xl rounded-2xl border border-tinta-100 bg-papel shadow-2xl"
       >
-        <div className="faixa-titulo flex items-start justify-between gap-3 px-5 py-4 sm:px-6">
+        <div className="faixa-titulo flex items-center justify-between gap-3 py-2.5 pl-5 pr-3 sm:pl-6">
           <h2 className="titulo-bloco">{titulo}</h2>
-          <button
-            onClick={onFechar}
-            aria-label="Fechar"
-            className="-mr-1 -mt-1 rounded-lg px-2 py-1 text-lg leading-none text-tinta-400 transition hover:bg-tinta-100 hover:text-tinta-700"
-          >
-            ×
-          </button>
+          <BotaoFechar onFechar={onFechar} />
         </div>
         <div className="px-5 py-5 sm:px-6">{children}</div>
       </div>
     </div>
+  );
+}
+
+/**
+ * O X da janela.
+ *
+ * Era um "×" de texto num quadrado de 36px sem fundo: no celular ele se lia
+ * como enfeite, e não como botão, e o dedo errava a quina. Agora é um botão
+ * de 44px com fundo e borda — o mínimo que um dedo acerta —, com o X desenhado
+ * no meio, e continua sendo a única saída além do Esc.
+ */
+function BotaoFechar({ onFechar }: { onFechar: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onFechar}
+      aria-label="Fechar"
+      title="Fechar"
+      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-tinta-200 bg-papel text-tinta-600 transition hover:border-tinta-300 hover:bg-tinta-100 hover:text-tinta-900 active:bg-tinta-100 md:h-10 md:w-10"
+    >
+      <svg
+        viewBox="0 0 24 24"
+        className="h-5 w-5"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        aria-hidden
+      >
+        <path d="M6 6l12 12M18 6L6 18" />
+      </svg>
+    </button>
   );
 }
 
@@ -464,14 +486,14 @@ export function FotoAmpliada({
           <button
             type="button"
             onClick={() => setInteira((v) => !v)}
-            className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-white/80 transition hover:bg-white/10"
+            className="min-h-[44px] rounded-xl border border-white/20 px-3.5 text-sm font-semibold text-white/80 transition hover:bg-white/10 md:min-h-[36px] md:rounded-lg md:text-xs"
           >
             {inteira ? 'Caber na tela' : 'Tamanho real'}
           </button>
           <button
             type="button"
             onClick={onFechar}
-            className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-white/80 transition hover:bg-white/10"
+            className="min-h-[44px] rounded-xl border border-white/30 bg-white/10 px-4 text-sm font-semibold text-white transition hover:bg-white/20 md:min-h-[36px] md:rounded-lg md:text-xs"
           >
             Fechar
           </button>

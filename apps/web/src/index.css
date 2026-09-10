@@ -534,6 +534,15 @@
   .marcador {
     @apply h-5 w-5;
   }
+  /*
+   * Toda caixa de marcar, e não só a `.marcador`: a de selecionar a conta na
+   * lista (e a de "marcar todas") nascia com os 13px do navegador, e é ela que
+   * decide o que o "Aprovar (3)" vai aprovar.
+   */
+  input[type='checkbox'],
+  input[type='radio'] {
+    @apply h-[22px] w-[22px] shrink-0;
+  }
   .opcao {
     @apply gap-2.5 py-1 text-[15px];
   }
@@ -547,12 +556,27 @@
     @apply min-h-[44px] gap-2 px-4 text-[15px];
   }
   /*
-   * O botão pequeno continua pequeno — ele mora dentro de linha de tabela, e
-   * inflá-lo até 44px dobraria a altura de uma lista de quinhentos títulos.
-   * Mas ganha os 36px que o tornam acertável.
+   * O resto do que se toca — o botão que não é `.btn`: o filtro em pílula, o
+   * link "Digitar à mão" no alto do cartão, a aba, o mês anterior. Muitos
+   * tinham 20px de altura, a altura da letra. 36px não mexe no desenho de
+   * nenhum e já é um alvo que o dedo acerta; o conteúdo continua centrado,
+   * que é o que o botão do navegador já faz sozinho.
+   *
+   * Quem precisa ficar pequeno de verdade (a célula de um calendário, a
+   * quina de uma miniatura) leva `alvo-livre`.
+   */
+  button:not(.btn):not(.alvo-livre) {
+    min-height: 36px;
+  }
+
+  /*
+   * O botão pequeno fica menor que o normal, mas não pequeno: 40px. Ele mora
+   * no pé do cartão de cada linha (ver "A tabela no celular", abaixo), e não
+   * mais espremido numa célula de tabela — ali 36px eram o teto; aqui eram
+   * só um alvo difícil entre "Aprovar" e "Excluir".
    */
   .btn-p {
-    @apply min-h-[36px] px-3 py-1.5 text-[13px];
+    @apply min-h-[40px] px-3.5 py-2 text-[14px];
   }
 
   /*
@@ -590,14 +614,7 @@
     @apply transition-none hover:translate-y-0 hover:shadow-none;
   }
 
-  /*
-   * A tabela aperta as colunas e desce um ponto de letra.
-   *
-   * Ela continua sendo tabela e continua rolando para o lado — é assim que uma
-   * conta com data, valor, categoria e situação continua conferível. O que
-   * muda é quanto dela cabe antes de precisar rolar: com `px-3` e 14px, uma
-   * lista de contas mostrava duas colunas; com isto, mostra quatro.
-   */
+  /* A tabela que continua tabela (`tabela-fixa`) aperta as colunas. */
   .th {
     @apply px-2.5 py-2 text-[10px] tracking-[0.08em];
   }
@@ -634,41 +651,173 @@
 }
 
 /*
- * --- A tabela em tela estreita ---
+ * --- A tabela no tablet ---
  *
  * A tabela passa a ter a largura do que tem dentro dela, em vez da largura
- * disponível. É o maior ganho de espaço desta folha, e a razão é o que a
- * tabela fazia sem isto: espremida, ela não deixava de mostrar as oito colunas
- * — ela quebrava cada uma em três linhas para caber. "Energia / Distribuidora
- * / S/A" no fornecedor, a observação em outras três, o selo da categoria em
- * duas. Uma conta ocupava 195px de altura, e uma lista de dezoito virava três
- * mil pixels de rolagem vertical.
+ * disponível. Espremida, ela não deixava de mostrar as oito colunas — ela
+ * quebrava cada uma em três linhas para caber ("Energia / Distribuidora /
+ * S/A"), e uma lista de dezoito contas virava três mil pixels de rolagem.
+ * Com `max-content` a linha volta a ser uma linha, e o que sobra rola para o
+ * lado.
  *
- * Com `max-content` cada coluna fica do tamanho do que ela escreve, a linha
- * volta a ser uma linha (87px na maior, 69px nas comuns) e a mesma lista cabe
- * em dois terços do que ocupava. O preço é rolar 135px a mais para o lado — e
- * esse gesto o `overflow-x-auto` do pai já oferecia desde sempre, porque
- * nenhuma destas tabelas jamais coube numa tela estreita.
- *
- * `min-width: 100%` impede o contrário: uma tabela de duas colunas curtas não
- * encolhe até o meio do cartão, deixando metade dele vazia.
- *
- * A faixa vai até 1023px, e não até a divisa do celular, porque o aperto não é
- * só do celular. Entre 768 e 1023 a barra lateral agora fica sempre aberta —
- * antes ela era uma gaveta escondida — e leva 248px do conteúdo consigo: um
- * notebook pequeno com a janela pela metade sofre a mesma quebra em três
- * linhas que a tela de bolso sofria.
+ * Só no tablet (768–1023px): entre essas larguras a barra lateral fica aberta
+ * e leva 248px do conteúdo, mas ainda há largura para rolar uma tabela. No
+ * celular a tabela deixa de ser tabela — ver o bloco seguinte.
  *
  * O alvo é `.overflow-x-auto`, e não a moldura `.rolagem-fina` que costuma vir
- * junto: só faz sentido alargar o que está dentro de algo que rola para o
- * lado. `.rolagem-fina` também veste caixas que rolam só na vertical — a folha
- * da `Janela` no celular, por exemplo —, e lá uma tabela larga sairia pela
- * borda sem ter como voltar.
+ * junto: `.rolagem-fina` também veste caixas que rolam só na vertical, e lá
+ * uma tabela larga sairia pela borda sem ter como voltar.
  */
-@media (max-width: 1023px) {
+@media (min-width: 768px) and (max-width: 1023px) {
   .overflow-x-auto table {
     width: max-content;
     min-width: 100%;
+  }
+}
+
+/*
+ * --- A tabela no celular ---
+ *
+ * No celular a tabela vira uma lista de cartões, um por linha, e nada rola
+ * para o lado.
+ *
+ * Ela já rolou. A ideia era que uma conta com data, valor, categoria e
+ * situação só se confere lado a lado; na mão, o que se via era a primeira
+ * coluna e metade da segunda — e os botões da linha ("Aprovar", "Pagar",
+ * "Excluir"), que moram na última coluna, ficavam fora da tela, a um arrasto
+ * de distância que ninguém adivinhava existir.
+ *
+ * O cartão tem, de cima para baixo: a caixa de marcar e o título (a primeira
+ * célula com nome), uma linha "Coluna — valor" para cada dado, e os botões no
+ * pé, inteiros e quebrando linha. Quem diz o papel e o nome da coluna de cada
+ * célula é o `useTabelasNoCelular` (`lib/tabela-no-celular.ts`), que lê o
+ * cabeçalho — o CSS sozinho não sabe o nome da coluna.
+ *
+ * A tabela que é pequena o bastante para caber, e que se lê melhor como grade,
+ * leva a classe `tabela-fixa` e continua tabela.
+ */
+@media (max-width: 767px) {
+  table:not(.tabela-fixa) {
+    display: block;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  table:not(.tabela-fixa) > tbody,
+  table:not(.tabela-fixa) > tfoot {
+    display: block;
+  }
+
+  /*
+   * O cabeçalho some — o nome de cada coluna vai dentro do cartão. Fica só o
+   * que se usa nele: a caixa de "marcar todas", os filtros, as ordenações.
+   */
+  table:not(.tabela-fixa) > thead {
+    display: block;
+    border-bottom: 1px solid rgb(var(--tinta-200));
+  }
+  table:not(.tabela-fixa) > thead:not(:has(input, select, button)) {
+    display: none;
+  }
+  table:not(.tabela-fixa) > thead > tr {
+    @apply flex flex-wrap items-center gap-x-4 gap-y-2 px-3.5 py-2.5;
+  }
+  table:not(.tabela-fixa) > thead > tr > th {
+    display: none;
+  }
+  table:not(.tabela-fixa) > thead > tr > th:has(input, select, button) {
+    @apply flex items-center gap-2 p-0 normal-case tracking-normal;
+  }
+  /* A caixa de marcar sozinha no cabeçalho não diz o que marca. */
+  table:not(.tabela-fixa) > thead > tr > th:has(input[type='checkbox']):not(:has(select, button))::after {
+    content: 'Marcar todas';
+    @apply text-[13px] font-medium text-tinta-600;
+  }
+
+  /* O cartão. */
+  table:not(.tabela-fixa) > tbody > tr,
+  table:not(.tabela-fixa) > tfoot > tr {
+    @apply flex flex-wrap items-center gap-x-3 gap-y-1 px-3.5 py-3;
+  }
+  table:not(.tabela-fixa) > tbody > tr + tr,
+  table:not(.tabela-fixa) > tfoot > tr {
+    border-top: 1px solid rgb(var(--tinta-200));
+  }
+
+  /* Uma linha por dado: o nome da coluna à esquerda, o valor à direita. */
+  table:not(.tabela-fixa) > tbody > tr > td,
+  table:not(.tabela-fixa) > tfoot > tr > td,
+  table:not(.tabela-fixa) > tfoot > tr > th {
+    @apply flex min-w-0 basis-full items-baseline justify-between gap-3 p-0 py-0.5 text-right text-[14px];
+    overflow-wrap: break-word;
+  }
+  table:not(.tabela-fixa) > tbody > tr > td::before,
+  table:not(.tabela-fixa) > tfoot > tr > td::before {
+    content: attr(data-rotulo);
+    @apply shrink-0 pt-px text-left text-[11px] font-semibold uppercase tracking-[0.06em] text-tinta-400;
+    overflow-wrap: normal;
+  }
+  table:not(.tabela-fixa) td[data-rotulo='']::before,
+  table:not(.tabela-fixa) td:not([data-rotulo])::before {
+    content: none;
+  }
+  /*
+   * A célula de várias partes (nome com observação e selo, texto comprido): o
+   * rótulo numa linha, o conteúdo na de baixo, na largura toda e alinhado à
+   * esquerda. As fileiras de dentro dela, desenhadas para a coluna larga do
+   * computador, quebram linha em vez de espremer — era assim que um selo
+   * "Energia" virava uma coluna de letras.
+   */
+  table:not(.tabela-fixa) td[data-forma='bloco'] {
+    @apply block text-left;
+  }
+  table:not(.tabela-fixa) td[data-forma='bloco']::before {
+    @apply mb-0.5 block;
+  }
+  table:not(.tabela-fixa) :is(td[data-forma='bloco'], td[data-papel='titulo']) .flex {
+    flex-wrap: wrap;
+  }
+  table:not(.tabela-fixa) :is(td[data-forma='bloco'], td[data-papel='titulo']) :is(.justify-end, .justify-between) {
+    justify-content: flex-start;
+  }
+  table:not(.tabela-fixa) :is(td[data-forma='bloco'], td[data-papel='titulo']) .text-right {
+    text-align: left;
+  }
+
+  /* Campo de digitar dentro do cartão: metade da linha, e não a linha toda. */
+  table:not(.tabela-fixa)
+    > tbody
+    > tr
+    > td
+    > :is(input:not([type='checkbox']):not([type='radio']), select, textarea, .campo) {
+    @apply w-auto min-w-0 max-w-[62%] flex-1;
+  }
+
+  /* A caixa de marcar e o título abrem o cartão, lado a lado. */
+  table:not(.tabela-fixa) td[data-papel='controle'] {
+    @apply order-[-2] shrink-0 basis-auto items-center py-0;
+  }
+  table:not(.tabela-fixa) td[data-papel='titulo'] {
+    @apply order-[-1] block flex-1 basis-0 pb-1 text-left text-[15px] text-tinta-900;
+  }
+
+  /* Os botões no pé, inteiros. */
+  table:not(.tabela-fixa) td[data-papel='acoes'] {
+    @apply order-last block pt-2 text-left;
+  }
+  table:not(.tabela-fixa) td[data-papel='acoes'] > div,
+  table:not(.tabela-fixa) td[data-papel='acoes'] > span {
+    @apply flex flex-wrap justify-start gap-2;
+  }
+  table:not(.tabela-fixa) td[data-papel='acoes'] .btn {
+    @apply min-h-[40px];
+  }
+
+  /* O "carregando", o grupo, o total que ocupa várias colunas. */
+  table:not(.tabela-fixa) td[data-papel='inteira'] {
+    @apply block text-left;
+  }
+  table:not(.tabela-fixa) td[data-papel='vazia'] {
+    display: none;
   }
 }
 

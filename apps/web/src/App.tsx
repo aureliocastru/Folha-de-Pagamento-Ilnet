@@ -10,6 +10,7 @@ import {
   MODULO_SEGURANCA,
   destinoDepoisDoLogin,
 } from './lib/modulos';
+import { useTabelasNoCelular } from './lib/tabela-no-celular';
 import { Aprs, AprAberta, AprNova } from './pages/apr/Aprs';
 import { Campo, CampoApr, CampoInicio, CampoNova } from './pages/apr/Campo';
 import { Formularios } from './pages/apr/Formularios';
@@ -91,6 +92,10 @@ function ParaOnde() {
 }
 
 export default function App() {
+  // No celular toda tabela vira lista de cartões; isto põe o nome da coluna em
+  // cada célula. Ver `lib/tabela-no-celular.ts`.
+  useTabelasNoCelular();
+
   return (
     <Routes>
       <Route path="/login" element={<Login />} />

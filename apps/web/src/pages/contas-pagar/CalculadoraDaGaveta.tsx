@@ -284,7 +284,7 @@ function Passo({
       disabled={disabled}
       aria-label={rotulo}
       title={rotulo}
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-tinta-200 text-base leading-none text-tinta-600 transition hover:border-tinta-300 hover:bg-tinta-100 hover:text-tinta-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-tinta-200 text-lg md:h-8 md:w-8 md:text-base leading-none text-tinta-600 transition hover:border-tinta-300 hover:bg-tinta-100 hover:text-tinta-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
     >
       {sinal}
     </button>
