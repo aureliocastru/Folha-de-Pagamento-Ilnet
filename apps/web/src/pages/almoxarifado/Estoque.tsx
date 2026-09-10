@@ -13,23 +13,15 @@ import {
 import { api, mensagemErro } from '../../lib/api';
 import { formatBRL } from '../../lib/format';
 import type { EstoqueNaTela, ItemDeEstoque } from '../../lib/types';
-
-/** Quantidade como o almoxarifado a lê: sem casa decimal quando é inteira. */
-function quantidade(n: number): string {
-  return n.toLocaleString('pt-BR', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 3,
-  });
-}
+import { JanelaDoProduto, NovoProduto, quantidade } from './ProdutoNoIxc';
 
 /**
- * O estoque de material — lido do IXC, e só lido.
+ * O estoque de material, do IXC.
  *
- * **A fonte da verdade é o IXC.** Ele já controla este estoque com entrada de
- * compra, ordem de serviço e transferência entre almoxarifados; um segundo
- * lugar que também escrevesse criaria dois saldos para a mesma prateleira e
- * nenhum jeito de saber qual dos dois está certo. Enquanto o módulo está sendo
- * implantado, aqui só se lê — e a tela diz de onde veio e a que horas.
+ * **A fonte da verdade é o IXC.** O que se muda aqui — o cadastro do produto,
+ * a transferência entre almoxarifados, a entrada de compra — é gravado lá (ver
+ * `ProdutoNoIxc`), e esta lista é o espelho, relido depois de cada escrita. A
+ * tela diz de onde veio e a que horas.
  *
  * O que ela faz é o que o IXC faz mal: responder de relance **o que está
  * acabando** e **onde tem**. Lá isso é uma consulta com filtros; aqui é a
@@ -41,6 +33,9 @@ export function Estoque() {
   const [almox, setAlmox] = useState('');
   const [soFaltando, setSoFaltando] = useState(false);
   const [aberto, setAberto] = useState<number | null>(null);
+  /** O produto aberto na janela de edição. */
+  const [editando, setEditando] = useState<number | null>(null);
+  const [cadastrando, setCadastrando] = useState(false);
 
   const lista = useQuery({
     queryKey: ['almoxarifado', 'estoque', almox, soFaltando],
@@ -77,11 +72,19 @@ export function Estoque() {
         descricao={
           <>
             O que a casa tem e onde. Vem do IXC, que é onde o estoque é
-            controlado — aqui é só leitura, e por isso o que se dá baixa lá
-            aparece aqui na atualização seguinte.
+            controlado — e o que se muda aqui (cadastro, transferência,
+            entrada de compra) é gravado lá.
           </>
         }
         acoes={
+          <>
+          <button
+            type="button"
+            onClick={() => setCadastrando(true)}
+            className="btn btn-acao"
+          >
+            Novo produto
+          </button>
           <button
             type="button"
             onClick={() => {
@@ -96,6 +99,7 @@ export function Estoque() {
           >
             {lista.isFetching ? 'Lendo o IXC…' : 'Atualizar'}
           </button>
+          </>
         }
       />
 
@@ -194,6 +198,7 @@ export function Estoque() {
                   <th className="th text-right">Tem</th>
                   <th className="th">Onde</th>
                   <th className="th">Situação</th>
+                  <th className="th text-right">Ação</th>
                 </tr>
               </thead>
               <tbody>
@@ -205,6 +210,7 @@ export function Estoque() {
                     onAbrir={() =>
                       setAberto((a) => (a === i.produtoId ? null : i.produtoId))
                     }
+                    onEditar={() => setEditando(i.produtoId)}
                   />
                 ))}
               </tbody>
@@ -212,6 +218,22 @@ export function Estoque() {
           </div>
         )}
       </Bloco>
+
+      {editando !== null && (
+        <JanelaDoProduto produtoId={editando} onFechar={() => setEditando(null)} />
+      )}
+      {cadastrando && (
+        <NovoProduto
+          produtos={dados?.itens ?? []}
+          onFechar={() => setCadastrando(false)}
+          onCriado={(id) => {
+            setCadastrando(false);
+            // O produto novo abre na hora: o passo seguinte quase sempre é dar
+            // entrada no primeiro lote dele.
+            setEditando(id);
+          }}
+        />
+      )}
     </Pagina>
   );
 }
@@ -227,10 +249,12 @@ function LinhaDoItem({
   item,
   aberto,
   onAbrir,
+  onEditar,
 }: {
   item: ItemDeEstoque;
   aberto: boolean;
   onAbrir: () => void;
+  onEditar: () => void;
 }) {
   const temMais = item.saldos.length > 2;
   const mostrados = aberto ? item.saldos : item.saldos.slice(0, 2);
@@ -297,6 +321,12 @@ function LinhaDoItem({
         ) : (
           <span className="text-xs text-tinta-400">—</span>
         )}
+      </td>
+
+      <td className="td text-right">
+        <button type="button" onClick={onEditar} className="btn btn-neutro btn-p">
+          Editar
+        </button>
       </td>
     </tr>
   );

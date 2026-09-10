@@ -40,17 +40,13 @@ export interface EstoqueNaTela {
 }
 
 /**
- * O estoque de material — lido do IXC, e só lido.
+ * O estoque de material, lido do IXC.
  *
- * **A fonte da verdade é o IXC**, e esta casa não escreve nele. É a decisão de
- * fundo do módulo enquanto ele está sendo implantado: o estoque já é
- * controlado lá, com entrada de compra, ordem de serviço e transferência entre
- * almoxarifados, e um segundo lugar que também escreve criaria dois saldos
- * para a mesma prateleira — e nenhum jeito de saber qual dos dois está certo.
- *
- * O que esta tela faz é o que o IXC faz mal: responder de relance "o que está
- * acabando?" e "onde tem?". Escrever aqui é passo seguinte, e o desenho já o
- * comporta — o que falta é a decisão de qual dos dois manda.
+ * **A fonte da verdade é o IXC.** O que se muda daqui (ver `ProdutosService`)
+ * é escrito lá, pelos caminhos que o próprio IXC documenta, e não guardado
+ * aqui: um segundo lugar com saldo próprio criaria dois saldos para a mesma
+ * prateleira e nenhum jeito de saber qual está certo. Esta leitura é o
+ * espelho, e é refeita depois de cada escrita.
  *
  * Uma consulta só resolve quase tudo: `estoque_produtos_almox_filial` devolve
  * produto, almoxarifado e saldo na mesma linha. O mínimo/máximo vem de outra, e
@@ -106,6 +102,35 @@ export class EstoqueService {
       lidoEm: new Date(this.guardado?.em ?? Date.now()).toISOString(),
       almoxarifados: almoxarifadosDe(todos),
     };
+  }
+
+  /**
+   * Joga fora a leitura guardada. Depois de uma escrita no IXC a tela tem de
+   * mostrar o que ficou lá, e não o que havia um minuto antes.
+   */
+  esquecer(): void {
+    this.guardado = null;
+  }
+
+  /**
+   * O saldo de um produto em cada almoxarifado, lido agora do IXC — sem a
+   * leitura guardada. É a conferência depois de mexer: a tela diz o que o IXC
+   * tem, e não o que este app acha que mandou.
+   */
+  async saldosDoProduto(produtoId: number): Promise<ItemDeEstoque | null> {
+    const linhas = await this.ixc.listAll<LinhaDeEstoqueIxc>(
+      'estoque_produtos_almox_filial',
+      {
+        qtype: 'estoque_produtos_almox_filial.id_produto',
+        query: String(produtoId),
+        oper: '=',
+        sortname: 'estoque_produtos_almox_filial.id',
+        sortorder: 'asc',
+      },
+      { pageSize: 200, maxPages: 5 },
+    );
+    const [item] = montarEstoque(linhas, [], await this.lerUnidades());
+    return item ?? null;
   }
 
   /** A leitura do IXC, guardada por um minuto. */

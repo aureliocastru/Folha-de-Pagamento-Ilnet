@@ -1,5 +1,6 @@
 import {
   IconeCaixa,
+  IconeComodato,
   IconeCalculo,
   IconeCalendarioVolta,
   IconeCapacete,
@@ -250,6 +251,10 @@ const almoxarifado: Modulo = {
   papeis: ['ADMIN', 'RH', 'VISUALIZADOR'],
   menu: [
     { to: 'estoque', label: 'Estoque', icone: IconeCaixa },
+    // O que está emprestado a cliente, e com quem. Aba própria: é outra
+    // pergunta — o estoque diz o que está na prateleira, o comodato diz o que
+    // saiu dela e ainda é da casa.
+    { to: 'comodato', label: 'Comodato', icone: IconeComodato },
     { to: 'ferramentas', label: 'Ferramentas', icone: IconeChaveInglesa },
     { to: 'precos', label: 'Cotações de Preços', icone: IconePrecos },
     { to: 'fornecedores', label: 'Fornecedores', icone: IconePredio },

@@ -3,6 +3,7 @@ import {
   IsBoolean,
   IsInt,
   IsISO8601,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
@@ -84,6 +85,67 @@ export class EmprestarDto {
 
   @IsOptional() @Transform(textoOuNulo) @IsString() @MaxLength(2000)
   observacao?: string | null;
+}
+
+const numero = ({ value }: { value: unknown }) =>
+  value === '' || value === null || value === undefined ? undefined : Number(value);
+
+// --- Produtos do estoque (escritos no IXC) ---
+
+export class EditarProdutoDto {
+  @IsOptional() @Transform(texto) @IsString() @MinLength(2) @MaxLength(100)
+  descricao?: string;
+
+  @IsOptional() @Transform(numero) @IsNumber({ maxDecimalPlaces: 2 }) @Min(0)
+  precoBase?: number;
+
+  @IsOptional() @IsBoolean() ativo?: boolean;
+
+  @IsOptional() @Transform(numero) @IsInt() @Min(1)
+  unidadeId?: number;
+}
+
+export class CriarProdutoDto {
+  @Transform(texto) @IsString() @MinLength(2) @MaxLength(100)
+  descricao!: string;
+
+  @Transform(numero) @IsNumber({ maxDecimalPlaces: 2 }) @Min(0)
+  precoBase!: number;
+
+  @Transform(numero) @IsInt() @Min(1)
+  unidadeId!: number;
+
+  /** O produto de onde saem subgrupo, NCM, classificação fiscal e contas. */
+  @Transform(numero) @IsInt() @Min(1)
+  modeloId!: number;
+}
+
+export class TransferirProdutoDto {
+  @Transform(numero) @IsInt() @Min(1) de!: number;
+  @Transform(numero) @IsInt() @Min(1) para!: number;
+
+  @Transform(numero) @IsNumber({ maxDecimalPlaces: 5 }) @Min(0.00001)
+  quantidade!: number;
+
+  @IsOptional() @Transform(texto) @IsString() @MaxLength(200)
+  observacao?: string;
+}
+
+export class EntradaDeCompraDto {
+  @Transform(numero) @IsInt() @Min(1) almoxId!: number;
+
+  @Transform(numero) @IsNumber({ maxDecimalPlaces: 5 }) @Min(0.00001)
+  quantidade!: number;
+
+  @Transform(numero) @IsNumber({ maxDecimalPlaces: 2 }) @Min(0)
+  valorUnitario!: number;
+
+  @Transform(numero) @IsInt() @Min(1) fornecedorId!: number;
+  @Transform(numero) @IsInt() @Min(1) tipoDocumentoId!: number;
+  @Transform(numero) @IsInt() @Min(1) condicaoPagamentoId!: number;
+
+  @IsOptional() @Transform(texto) @IsString() @MaxLength(40)
+  numeroNota?: string;
 }
 
 export class DevolverDto {

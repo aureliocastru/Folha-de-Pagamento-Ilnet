@@ -2137,6 +2137,59 @@ export interface EstoqueNaTela {
   almoxarifados: Array<{ id: number; nome: string }>;
 }
 
+/** Um produto do estoque, como a janela de edição o mostra — lido agora do IXC. */
+export interface ProdutoNoIxc {
+  id: number;
+  descricao: string;
+  precoBase: number;
+  ativo: boolean;
+  unidadeId: number;
+  unidade: string | null;
+  tipo: string;
+  saldos: ItemDeEstoque['saldos'];
+  total: number;
+}
+
+/** As escolhas dos formulários do estoque, lidas do IXC. */
+export interface OpcoesDoEstoque {
+  unidades: Array<{ id: number; sigla: string; descricao: string }>;
+  almoxarifados: Array<{ id: number; nome: string; filialId: number; ativo: boolean }>;
+  tiposDeDocumento: Array<{ id: number; nome: string }>;
+  condicoesDePagamento: Array<{ id: number; nome: string }>;
+}
+
+/** A conferência do saldo no IXC depois de mexer nele. */
+export interface ConferenciaDeSaldo {
+  confere: boolean;
+  antes: number;
+  depois: number;
+}
+
+/** Uma peça em comodato, e onde ela está. */
+export interface ItemEmComodato {
+  id: number;
+  produtoId: number;
+  produto: string;
+  quantidade: number;
+  numeroSerie: string | null;
+  mac: string | null;
+  patrimonio: string | null;
+  desde: string | null;
+  almoxarifado: string | null;
+  contratoId: number;
+  plano: string | null;
+  contratoStatus: string | null;
+  clienteId: number | null;
+  cliente: string;
+  endereco: string | null;
+}
+
+export interface ComodatoNaTela {
+  itens: ItemEmComodato[];
+  porProduto: Array<{ produtoId: number; produto: string; quantidade: number; contratos: number }>;
+  lidoEm: string;
+}
+
 /** Uma saída de ferramenta: quem levou, quando, e quando devolveu. */
 export interface EmprestimoDeFerramenta {
   id: string;

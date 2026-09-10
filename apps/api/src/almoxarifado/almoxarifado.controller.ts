@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   Param,
+  ParseIntPipe,
   ParseUUIDPipe,
   Patch,
   Post,
@@ -12,14 +13,20 @@ import {
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { ComodatoService } from './comodato.service';
 import {
   AtualizarFerramentaDto,
   CriarFerramentaDto,
+  CriarProdutoDto,
   DevolverDto,
+  EditarProdutoDto,
   EmprestarDto,
+  EntradaDeCompraDto,
+  TransferirProdutoDto,
 } from './dto/almoxarifado.dto';
 import { EstoqueService } from './estoque.service';
 import { FerramentasService } from './ferramentas.service';
+import { ProdutosService } from './produtos.service';
 
 /** `?x=1`, `?x=true` — tudo o que uma tela manda como "sim". */
 function ehSim(valor?: string): boolean {
@@ -30,17 +37,23 @@ function nomeDoLogado(req: Request): string | undefined {
   return (req.user as { nome?: string } | undefined)?.nome;
 }
 
+/** Quem está mexendo no IXC — vai para o log e para a observação da transferência. */
+function quem(req: Request): { nome: string } {
+  return { nome: nomeDoLogado(req) ?? 'alguém sem nome' };
+}
+
 /**
  * O almoxarifado: o estoque de material e o caderno de ferramentas.
  *
  * Duas metades com naturezas diferentes, e vale saber qual é qual antes de
  * mexer aqui:
  *
- * - **O estoque é do IXC, e só se lê.** Ele já é controlado lá, com entrada de
- *   compra, ordem de serviço e transferência entre almoxarifados. Um segundo
- *   lugar que também escrevesse criaria dois saldos para a mesma prateleira e
- *   nenhum jeito de saber qual está certo. O que esta tela faz é o que o IXC
- *   faz mal: responder de relance "o que está acabando?" e "onde tem?".
+ * - **O estoque é do IXC.** O que se muda aqui — cadastro de produto,
+ *   transferência entre almoxarifados, entrada de compra — é escrito lá, e só
+ *   lá, pelos caminhos que a API do IXC documenta (ver `ProdutosService`).
+ *   Nenhum saldo mora nesta casa: dois saldos para a mesma prateleira não
+ *   teriam como dizer qual está certo. O comodato também é de lá, e aqui só se
+ *   lê.
  * - **A ferramenta é daqui, e se escreve.** O IXC não tem onde guardar "quem
  *   está com a máquina de fusão": o que existe lá é comodato de cliente e
  *   produto consumido em OS, e nenhum dos dois é a chave de fenda que o técnico
@@ -51,6 +64,8 @@ export class AlmoxarifadoController {
   constructor(
     private readonly estoque: EstoqueService,
     private readonly ferramentas: FerramentasService,
+    private readonly produtos: ProdutosService,
+    private readonly comodato: ComodatoService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -71,6 +86,77 @@ export class AlmoxarifadoController {
       soFaltando: ehSim(faltando),
       recarregar: ehSim(recarregar),
     });
+  }
+
+  // -------------------------------------------------------------------------
+  // Produtos — escritos no IXC
+  // -------------------------------------------------------------------------
+
+  /** Unidades, almoxarifados, tipos de documento e condições de pagamento do IXC. */
+  @Get('produtos/opcoes')
+  opcoesDosProdutos() {
+    return this.produtos.opcoes();
+  }
+
+  /** Fornecedores do IXC para a entrada de compra. Só leitura. */
+  @Get('fornecedores')
+  fornecedores(@Query('busca') busca?: string) {
+    return this.produtos.buscarFornecedores(busca ?? '');
+  }
+
+  @Get('produtos/:id')
+  produto(@Param('id', ParseIntPipe) id: number) {
+    return this.produtos.detalhar(id);
+  }
+
+  @Post('produtos')
+  @HttpCode(201)
+  criarProduto(@Body() dto: CriarProdutoDto, @Req() req: Request) {
+    return this.produtos.criar(dto, quem(req));
+  }
+
+  @Patch('produtos/:id')
+  editarProduto(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: EditarProdutoDto,
+    @Req() req: Request,
+  ) {
+    return this.produtos.editar(id, dto, quem(req));
+  }
+
+  @Delete('produtos/:id')
+  @HttpCode(204)
+  async apagarProduto(@Param('id', ParseIntPipe) id: number, @Req() req: Request) {
+    await this.produtos.apagar(id, quem(req));
+  }
+
+  @Post('produtos/:id/transferir')
+  @HttpCode(200)
+  transferir(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: TransferirProdutoDto,
+    @Req() req: Request,
+  ) {
+    return this.produtos.transferir(id, dto, quem(req));
+  }
+
+  @Post('produtos/:id/entrada')
+  @HttpCode(200)
+  darEntrada(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: EntradaDeCompraDto,
+    @Req() req: Request,
+  ) {
+    return this.produtos.darEntrada(id, dto, quem(req));
+  }
+
+  // -------------------------------------------------------------------------
+  // Comodato — lido do IXC
+  // -------------------------------------------------------------------------
+
+  @Get('comodatos')
+  comodatos(@Query('recarregar') recarregar?: string) {
+    return this.comodato.listar(ehSim(recarregar));
   }
 
   // -------------------------------------------------------------------------

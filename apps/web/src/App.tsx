@@ -21,6 +21,7 @@ import { Inicio as ContasPagarInicio } from './pages/contas-pagar/Inicio';
 import { Estoque } from './pages/almoxarifado/Estoque';
 import { Ferramentas } from './pages/almoxarifado/Ferramentas';
 import { Fornecedores as FornecedoresDeCotacao } from './pages/almoxarifado/Fornecedores';
+import { Comodato } from './pages/almoxarifado/Comodato';
 import { Precos } from './pages/almoxarifado/Precos';
 import { Categorias as ContasPagarCategorias } from './pages/contas-pagar/Categorias';
 import { Dashboard as ContasPagarDashboard } from './pages/contas-pagar/Dashboard';
@@ -212,6 +213,7 @@ export default function App() {
         <Route index element={<Navigate to="estoque" replace />} />
         <Route path="estoque" element={<Estoque />} />
         <Route path="ferramentas" element={<Ferramentas />} />
+        <Route path="comodato" element={<Comodato />} />
         <Route path="precos" element={<Precos />} />
         <Route path="fornecedores" element={<FornecedoresDeCotacao />} />
         <Route path="minha-conta" element={<MinhaConta />} />

@@ -304,6 +304,18 @@ export function IconeCaixa({ className }: IconeProps) {
   );
 }
 
+/** Um roteador com antenas: o equipamento que fica na casa do cliente (comodato). */
+export function IconeComodato({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <rect x="3" y="13" width="18" height="6.5" rx="1.8" />
+      <path d="M7 16.2h.01M10.5 16.2h.01" />
+      <path d="M8 13 6.5 6.5M16 13l1.5-6.5" />
+      <path d="M13.5 4.2a3.5 3.5 0 0 1 4.6 0M14.9 5.9a1.5 1.5 0 0 1 1.9 0" />
+    </svg>
+  );
+}
+
 
 /**
  * Capacete de segurança: a Análise de Risco.
