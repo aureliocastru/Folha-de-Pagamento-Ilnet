@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Request } from 'express';
-import { GravarGuiaDto } from './dto/guia.dto';
+import { GravarGuiaDto, LerTextoDaGuiaDto } from './dto/guia.dto';
 import { ImpostosService } from './impostos.service';
 
 /** PDF de guia é pequeno; acima disso é arquivo errado. */
@@ -39,6 +39,16 @@ export class ImpostosController {
   )
   ler(@UploadedFile(new ParseFilePipe()) arquivo: Express.Multer.File) {
     return this.service.ler(arquivo);
+  }
+
+  /**
+   * O mesmo, para o PDF sem texto: o navegador leu a imagem e manda o que
+   * reconheceu. Também não grava nada.
+   */
+  @Post('guias/ler-texto')
+  @HttpCode(200)
+  lerTexto(@Body() dto: LerTextoDaGuiaDto) {
+    return this.service.lerDaImagem(dto);
   }
 
   @Post('guias')

@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   IsArray,
   IsIn,
   IsInt,
@@ -8,6 +9,7 @@ import {
   IsOptional,
   IsString,
   Matches,
+  MaxLength,
   Min,
   MinLength,
   ValidateNested,
@@ -28,6 +30,24 @@ export class ItemGuiaDto {
    * correção é o que vale — ela é que decide se aquilo é custo de pessoal.
    */
   @IsIn(CLASSES) classe!: string;
+}
+
+/**
+ * A guia lida da imagem pelo navegador: o texto do OCR e o que saiu do código
+ * de barras e do QR Code. Nada disto é confiado — a API confere os códigos e o
+ * leitor das guias confere o resto, como faz com o PDF de texto.
+ */
+export class LerTextoDaGuiaDto {
+  @IsString() @MinLength(20) @MaxLength(100_000) texto!: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(10)
+  @IsString({ each: true })
+  @MaxLength(1000, { each: true })
+  codigos?: string[];
+
+  @IsString() @MinLength(1) @MaxLength(255) arquivoNome!: string;
 }
 
 /** Uma guia conferida na tela, pronta para gravar. */

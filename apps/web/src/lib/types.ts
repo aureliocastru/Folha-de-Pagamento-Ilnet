@@ -1210,11 +1210,15 @@ export interface LeituraDaGuia {
     razaoSocial: string | null;
     trabalhadores: number | null;
     itens: ItemGuia[];
+    /** Como a guia se paga; null = o documento não trouxe (ou não se leu) o código. */
+    pagamento?: { forma: 'BOLETO' | 'PIX' } | null;
   };
   arquivoNome: string;
   textoOriginal: string;
   divergencia: string | null;
   jaExiste: { id: string; competencia: string; valorTotal: number } | null;
+  /** Lida da imagem do PDF (OCR): a tela pede para conferir cada número. */
+  lidoDaImagem?: boolean;
 }
 
 // ---------------------------------------------------------------------------

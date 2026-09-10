@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import axios from 'axios';
 import { useRef, useState } from 'react';
 import {
   Aviso,
@@ -44,6 +45,14 @@ const ORDEM_GUIA: TipoGuia[] = [...GUIAS_DO_MES, ...GUIAS_EVENTUAIS];
 function formatComp(comp: string): string {
   const m = /^(\d{4})-(\d{2})$/.exec(comp);
   return m ? `${m[2]}/${m[1]}` : comp;
+}
+
+/** A API respondeu que o PDF não tem texto — a vez da leitura da imagem. */
+function pdfSemTexto(err: unknown): boolean {
+  return (
+    axios.isAxiosError(err) &&
+    (err.response?.data as { codigo?: string } | undefined)?.codigo === 'PDF_SEM_TEXTO'
+  );
 }
 
 /** "A", "A e B", "A, B e C" — do jeito que se lê em voz alta. */
@@ -111,11 +120,31 @@ export function Impostos() {
     setErro(ruim);
   }
 
+  /** O que a leitura da imagem está fazendo — ela leva uns 20 segundos. */
+  const [etapa, setEtapa] = useState<string | null>(null);
+
   const ler = useMutation({
     mutationFn: async (arquivo: File) => {
+      avisar('');
       const form = new FormData();
       form.append('arquivo', arquivo);
-      const { data } = await api.post<LeituraDaGuia>('/impostos/guias/ler', form);
+      try {
+        const { data } = await api.post<LeituraDaGuia>('/impostos/guias/ler', form);
+        return data;
+      } catch (err) {
+        if (!pdfSemTexto(err)) throw err;
+      }
+
+      // O PDF veio como imagem — quase sempre a guia "impressa em PDF" em vez
+      // do arquivo salvo do site. O navegador lê a imagem e a API confere.
+      const { lerPdfPorImagem } = await import('../../lib/ocr-pdf');
+      const { texto, codigos } = await lerPdfPorImagem(arquivo, setEtapa);
+      setEtapa('Conferindo a leitura…');
+      const { data } = await api.post<LeituraDaGuia>('/impostos/guias/ler-texto', {
+        texto,
+        codigos,
+        arquivoNome: arquivo.name,
+      });
       return data;
     },
     onSuccess: (data) => {
@@ -127,6 +156,7 @@ export function Impostos() {
       setLeitura(null);
       avisar(mensagemErro(err), true);
     },
+    onSettled: () => setEtapa(null),
   });
 
   const gravar = useMutation({
@@ -282,14 +312,16 @@ export function Impostos() {
                 className="block w-full max-w-md text-sm text-tinta-500 file:mr-3 file:cursor-pointer file:rounded-lg file:border-0 file:bg-brand-600 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-brand-700"
               />
               {ler.isPending && (
-                <span className="text-sm text-tinta-400">Lendo o PDF…</span>
+                <span className="text-sm text-tinta-400">
+                  {etapa ?? 'Lendo o PDF…'}
+                </span>
               )}
             </div>
             <p className="mt-3 text-xs leading-relaxed text-tinta-500">
               Entende DARF previdenciário, guia do FGTS Digital, DAS do Simples
-              Nacional e DARE do ICMS. Precisa ser o PDF original da
-              contabilidade: quando o arquivo é digitalizado (uma foto dentro do
-              PDF), não há texto para ler — aí use “Digitar à mão”.
+              Nacional e DARE do ICMS. Quando o PDF vem como imagem (impresso em
+              PDF ou digitalizado), eu leio a imagem — demora uns 20 segundos, e
+              aí vale conferir cada número com o papel.
             </p>
           </>
         )}
@@ -317,6 +349,14 @@ export function Impostos() {
                     faltaDepoisDesta.map((t) => TIPO_GUIA_LABEL[t]),
                   )}.`}
               </span>
+            </Aviso>
+          )}
+          {leitura.lidoDaImagem && (
+            <Aviso tom="atencao">
+              Este PDF veio como imagem, e eu li os números da imagem. Confira
+              apuração, vencimento e cada valor com o papel antes de gravar.
+              {!leitura.guia.pagamento &&
+                ' Não consegui ler o código de barras nem o QR Code: a conta a pagar vai sair sem o código.'}
             </Aviso>
           )}
           {leitura.jaExiste && (

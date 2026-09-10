@@ -118,7 +118,14 @@ export function lerGuia(texto: string): GuiaLida {
 }
 
 function escolherLeitor(texto: string): Omit<GuiaLida, 'pagamento'> {
-  if (/GFD\s*-\s*Guia do FGTS Digital/i.test(texto)) return lerFgts(texto);
+  // O título do FGTS mora ao lado do logotipo, e o OCR às vezes o perde; o
+  // rótulo da composição é só dele e sai sempre.
+  if (
+    /GFD\s*-\s*Guia do FGTS Digital/i.test(texto) ||
+    /Informa\S* de recolhimentos do FGTS/i.test(texto)
+  ) {
+    return lerFgts(texto);
+  }
   if (/Composição do Documento de Arrecadação/i.test(texto)) return lerSenda(texto);
   if (/ARRECADAÇÃO DE RECEITAS ESTADUAIS/i.test(texto)) return lerDare(texto);
   throw new GuiaIlegivelError(
@@ -254,9 +261,17 @@ function lerFgts(texto: string): Omit<GuiaLida, 'pagamento'> {
     valorDepoisDe(texto, /Valor a recolher\s*/) ??
     somaDosItens(itens);
 
-  // A linha "Tag" resume a guia: CNPJ base, competência e modalidade.
+  // A linha "Tag" resume a guia: CNPJ base, competência e modalidade. Lida da
+  // imagem, a linha que sobra é a da composição — "08/2026 24 3.924,89 …",
+  // competência, trabalhadores e o FGTS do mês.
   const tag = /^\s*(\d{8})\s+(\d{2})\/(\d{4})\s+\w+/m.exec(texto);
-  if (!tag) {
+  const composicao = /^\s*(\d{2})\/(\d{4})\s+(\d+)\s+[\d.]+,\d{2}/m.exec(texto);
+  const competencia = tag
+    ? `${tag[3]}-${tag[2]}`
+    : composicao
+      ? `${composicao[2]}-${composicao[1]}`
+      : null;
+  if (!competencia) {
     throw new GuiaIlegivelError(
       'Guia do FGTS sem a linha de competência — o arquivo pode estar incompleto.',
     );
@@ -264,14 +279,16 @@ function lerFgts(texto: string): Omit<GuiaLida, 'pagamento'> {
 
   return {
     tipo: 'FGTS',
-    competencia: `${tag[3]}-${tag[2]}`,
+    competencia,
     vencimento: vencimento(texto),
     valorTotal,
     numeroDocumento: depoisDoRotulo(texto, 'Identificador'),
     cnpj: /(\d{2}\.\d{3}\.\d{3})/.exec(texto)?.[1] ?? null,
     razaoSocial: depoisDoRotulo(texto, 'Nome/Razão Social do Empregador'),
     // Na linha da composição, a quantidade vem logo depois da competência.
-    trabalhadores: numeroDepoisDe(texto, /\d{2}\/\d{4}\s+(\d+)\s*$/m),
+    trabalhadores:
+      numeroDepoisDe(texto, /\d{2}\/\d{4}\s+(\d+)\s*$/m) ??
+      (composicao ? Number(composicao[3]) : null),
     itens,
   };
 }
@@ -462,7 +479,10 @@ function competenciaPorExtenso(texto: string): string {
 function vencimento(texto: string): string {
   const m =
     /Pagar até:\s*(\d{2})\/(\d{2})\/(\d{4})/.exec(texto) ??
-    /Pagar este documento até\s*\n?\s*(\d{2})\/(\d{2})\/(\d{4})/.exec(texto);
+    /Pagar este documento até\s*\n?\s*(\d{2})\/(\d{2})\/(\d{4})/.exec(texto) ??
+    // Lida da imagem, a data do quadro vem na linha de baixo, depois dos
+    // rótulos dos quadros vizinhos ("CPF/CNPJ do Empregador … 18/09/2026").
+    /Pagar este documento até[^\n]*\n[^\n]*?(\d{2})\/(\d{2})\/(\d{4})/.exec(texto);
   if (!m) {
     throw new GuiaIlegivelError('Não achei a data de vencimento no documento.');
   }

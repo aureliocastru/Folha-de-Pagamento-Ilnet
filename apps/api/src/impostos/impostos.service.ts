@@ -19,6 +19,7 @@ import {
   type PagamentoDaGuia,
 } from './guias.parse';
 import { extrairTextoPdf } from '../pdf/pdf';
+import { textoDaImagem, valorDoCodigoDeBarras } from './guia-por-imagem';
 
 /** O que a tela mostra depois de ler o PDF, antes de alguém confirmar. */
 export interface LeituraDaGuia {
@@ -29,6 +30,8 @@ export interface LeituraDaGuia {
   divergencia: string | null;
   /** Guia igual já gravada; gravar de novo dobraria o valor no gráfico. */
   jaExiste: { id: string; competencia: string; valorTotal: number } | null;
+  /** Lida da imagem (OCR): a tela pede para conferir cada número com o papel. */
+  lidoDaImagem?: boolean;
 }
 
 /**
@@ -94,7 +97,45 @@ export class ImpostosService {
    */
   async ler(arquivo: Express.Multer.File): Promise<LeituraDaGuia> {
     const texto = await this.extrairTexto(arquivo);
+    return this.lerDoTexto(texto, arquivo.originalname);
+  }
 
+  /**
+   * A guia do PDF sem texto, lida da imagem pelo navegador.
+   *
+   * O texto passa por `textoDaImagem`, que joga fora todo código de pagamento
+   * que o OCR tenha "lido" e fica só com o que veio do código de barras ou do
+   * QR Code com os dígitos conferidos. O que sobra vai para o mesmo leitor do
+   * PDF de texto — e a tela avisa que a leitura foi da imagem.
+   */
+  async lerDaImagem(dto: {
+    texto: string;
+    codigos?: string[];
+    arquivoNome: string;
+  }): Promise<LeituraDaGuia> {
+    const texto = textoDaImagem(dto.texto, dto.codigos ?? []);
+    const leitura = await this.lerDoTexto(texto, dto.arquivoNome);
+
+    // O código de barras traz o valor dentro dele, lido por outro caminho que
+    // não o OCR. Os dois discordando, quem errou foi o OCR — e é o número que
+    // vai para a conta a pagar.
+    const pagamento = leitura.guia.pagamento;
+    const doCodigo =
+      pagamento?.forma === 'BOLETO' ? valorDoCodigoDeBarras(pagamento.codigoBarras) : null;
+    const contraOCodigo =
+      doCodigo !== null && Math.abs(doCodigo - leitura.guia.valorTotal) >= 0.01
+        ? `O total lido (${leitura.guia.valorTotal.toFixed(2)}) não bate com o valor do ` +
+          `código de barras (${doCodigo.toFixed(2)}).`
+        : null;
+
+    return {
+      ...leitura,
+      divergencia: [leitura.divergencia, contraOCodigo].filter(Boolean).join(' ') || null,
+      lidoDaImagem: true,
+    };
+  }
+
+  private async lerDoTexto(texto: string, arquivoNome: string): Promise<LeituraDaGuia> {
     let guia: GuiaLida;
     try {
       guia = lerGuia(texto);
@@ -109,14 +150,17 @@ export class ImpostosService {
       where: {
         tipo: guia.tipo as TipoGuia,
         competencia: guia.competencia,
-        numeroDocumento: guia.numeroDocumento,
+        // Sem o número (a leitura da imagem às vezes o perde), a guia do
+        // mesmo tipo e mês já é suspeita de repetida: melhor avisar à toa do
+        // que contar o mesmo imposto duas vezes.
+        ...(guia.numeroDocumento ? { numeroDocumento: guia.numeroDocumento } : {}),
       },
       select: { id: true, competencia: true, valorTotal: true },
     });
 
     return {
       guia,
-      arquivoNome: arquivo.originalname,
+      arquivoNome,
       textoOriginal: texto,
       divergencia: conferir(guia),
       jaExiste: existente
@@ -136,9 +180,14 @@ export class ImpostosService {
     try {
       const texto = await extrairTextoPdf(new Uint8Array(arquivo.buffer));
       if (!texto.trim()) {
-        throw new BadRequestException(
-          'O PDF não tem texto — parece ser digitalizado. Peça à contabilidade o arquivo original.',
-        );
+        // O `codigo` é o sinal para a tela ler a imagem (OCR) no navegador e
+        // voltar por `guias/ler-texto`. A mensagem fica para quem ainda está
+        // com a tela antiga aberta.
+        throw new BadRequestException({
+          message:
+            'O PDF não tem texto — veio como imagem (impresso em PDF ou digitalizado).',
+          codigo: 'PDF_SEM_TEXTO',
+        });
       }
       return texto;
     } catch (err) {
