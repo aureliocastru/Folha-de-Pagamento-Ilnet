@@ -1005,6 +1005,93 @@ model ContaContrato {
   @@map("contas_contrato")
 }
 
+// ---------------------------------------------------------------------------
+// Cartões de crédito da empresa.
+//
+// A fatura é uma conta só no IXC — um título para o banco, no dia em que ela
+// vence —, mas por dentro ela é um punhado de compras, e boa parte delas
+// parcelada. O que se guarda aqui é o que o IXC não tem como guardar: cada
+// compra, em quantas vezes, e em que fatura cada parcela cai. A soma de uma
+// fatura é o valor da conta a pagar que ela vira.
+// ---------------------------------------------------------------------------
+
+/// Um cartão: de que banco, que dia a fatura vence, e como a conta sai.
+model CartaoCredito {
+  id String @id @default(uuid())
+
+  /// Como a casa chama o cartão ("Sicoob Visa", "Nubank da loja")
+  apelido String
+  /// Os quatro últimos dígitos, para distinguir dois cartões do mesmo banco
+  final   String?
+
+  /// Quem recebe a fatura, no cadastro de fornecedores do IXC (o banco)
+  idFornecedorIxc Int    @map("id_fornecedor_ixc")
+  fornecedorNome  String @map("fornecedor_nome")
+
+  /// Dia do mês em que a fatura vence. A fatura de outubro vence neste dia de
+  /// outubro — é pelo mês do vencimento que as parcelas são contadas.
+  diaDeVencimento Int @map("dia_de_vencimento")
+
+  // --- Como a conta sai (o mesmo do lançamento avulso) ---
+  contaContabil    Int?    @map("conta_contabil")
+  contaPagamento   Int?    @map("conta_pagamento")
+  tipoPagamentoIxc String? @map("tipo_pagamento_ixc")
+
+  /// Etiqueta desta casa, aplicada a cada fatura gerada
+  categoria   CategoriaDespesa? @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
+  categoriaId String?           @map("categoria_id")
+
+  /// Desligado some da tela. O que ele já gerou continua de pé no IXC.
+  ativo Boolean @default(true)
+
+  compras CompraNoCartao[]
+  /// As faturas que já viraram conta a pagar
+  faturas ContaPagar[]
+
+  criadoPor String?  @map("criado_por")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([ativo])
+  @@map("cartoes_credito")
+}
+
+/// Uma linha da fatura: uma compra, à vista ou parcelada.
+///
+/// A compra é guardada inteira, e não parcela por parcela: as parcelas se
+/// calculam (valor dividido, uma por fatura a partir de `primeiraFatura`), e
+/// guardá-las soltas deixaria dez linhas para corrigir quando alguém errar o
+/// valor de uma compra em dez vezes.
+model CompraNoCartao {
+  id String @id @default(uuid())
+
+  cartao   CartaoCredito @relation(fields: [cartaoId], references: [id], onDelete: Cascade)
+  cartaoId String        @map("cartao_id")
+
+  /// O que veio escrito na fatura ("Posto Ipiranga", "Amazon")
+  descricao String
+
+  /// O valor da compra inteira, somadas todas as parcelas. Negativo é crédito
+  /// (estorno), que abate da fatura.
+  valorTotal Decimal @map("valor_total") @db.Decimal(14, 2)
+
+  /// Em quantas vezes a compra foi dividida (1 = à vista)
+  parcelas       Int @default(1)
+  /// Que parcela cai em `primeiraFatura`. É 1 para a compra nova; para a que
+  /// já vinha sendo paga antes deste cadastro existir, é a parcela que a
+  /// fatura mostra ("03/10") — as anteriores já foram pagas fora daqui.
+  parcelaInicial Int @default(1) @map("parcela_inicial")
+  /// A fatura (AAAA-MM do vencimento) em que `parcelaInicial` cai
+  primeiraFatura String @map("primeira_fatura")
+
+  criadoPor String?  @map("criado_por")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([cartaoId, primeiraFatura])
+  @@map("compras_no_cartao")
+}
+
 enum StatusContaPagar {
   RASCUNHO // criada localmente, ainda não enviada ao IXC
   AGUARDANDO_APROVACAO // salva no IXC (fn_apagar criado), pendente auditoria
@@ -1086,6 +1173,11 @@ model ContaPagar {
   contaContrato   ContaContrato? @relation(fields: [contaContratoId], references: [id], onDelete: SetNull)
   contaContratoId String?        @map("conta_contrato_id")
 
+  /// O cartão de crédito cuja fatura é esta conta. Com a `competencia` (o mês
+  /// do vencimento), responde "a fatura de outubro já foi lançada?".
+  cartaoCredito   CartaoCredito? @relation(fields: [cartaoCreditoId], references: [id], onDelete: SetNull)
+  cartaoCreditoId String?        @map("cartao_credito_id")
+
   status StatusContaPagar @default(RASCUNHO)
   erro   String?
 
@@ -1121,6 +1213,7 @@ model ContaPagar {
   @@index([idFnApagarIxc])
   @@index([origem])
   @@index([contaContratoId, competencia])
+  @@index([cartaoCreditoId, competencia])
   @@map("contas_pagar")
 }
 
@@ -1352,6 +1445,8 @@ model CategoriaDespesa {
   recorrentes               DespesaRecorrente[]
   /// As contas de energia por endereço que caem nesta categoria.
   contasContrato            ContaContrato[]
+  /// Os cartões de crédito cuja fatura cai nesta categoria.
+  cartoesCredito            CartaoCredito[]
   /// Quem recebe fora da folha e costuma entrar nesta categoria.
   beneficiarios             BeneficiarioAvulso[]
   /// Os diaristas cujo acerto costuma entrar nesta categoria.

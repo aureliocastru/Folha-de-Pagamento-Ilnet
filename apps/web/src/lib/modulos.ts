@@ -3,6 +3,7 @@ import {
   IconeCalculo,
   IconeCalendarioVolta,
   IconeCapacete,
+  IconeCartao,
   IconeChaveInglesa,
   IconeChave,
   IconeChecklist,
@@ -122,6 +123,9 @@ const contasPagar: Modulo = {
     // a mesma pergunta — o que se paga todo mês —, e separada porque o valor
     // desta só se sabe quando a fatura chega.
     { to: 'contas-contrato', label: 'Contas Contrato', icone: IconePredio },
+    // A fatura do cartão: cada compra dentro dela, parcelada ou não, e no mês
+    // do vencimento uma conta a pagar só, no valor da soma.
+    { to: 'cartao-credito', label: 'Cartão de Crédito', icone: IconeCartao },
     { to: 'categorias', label: 'Categorias', icone: IconeEtiqueta },
     // Bater o caixa do dinheiro em mãos: conferir as saídas do período,
     // fotografar a nota e declarar o que ainda está na rua com alguém.

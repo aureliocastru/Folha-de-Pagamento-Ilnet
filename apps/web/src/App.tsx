@@ -25,6 +25,7 @@ import { Dashboard as ContasPagarDashboard } from './pages/contas-pagar/Dashboar
 import { FechamentoCaixa } from './pages/contas-pagar/FechamentoCaixa';
 import { Transferencias } from './pages/contas-pagar/Transferencias';
 import { HistoricoDePagamentos } from './pages/contas-pagar/HistoricoDePagamentos';
+import { CartoesCredito } from './pages/contas-pagar/CartoesCredito';
 import { ContasContrato } from './pages/contas-pagar/ContasContrato';
 import { Recorrentes } from './pages/contas-pagar/Recorrentes';
 import { Avulsos } from './pages/folha/Avulsos';
@@ -164,6 +165,9 @@ export default function App() {
         {/* A conta de luz de cada endereço: o cadastro das contas contrato e
             o botão que faz a fatura do mês virar conta a pagar. */}
         <Route path="contas-contrato" element={<ContasContrato />} />
+        {/* A fatura de cada cartão: as compras dentro dela e o botão que a
+            faz virar uma conta a pagar só. */}
+        <Route path="cartao-credito" element={<CartoesCredito />} />
         <Route path="categorias" element={<ContasPagarCategorias />} />
         <Route path="fechamento-caixa" element={<FechamentoCaixa />} />
         {/* A mesma tela de sempre, com o caminho deste módulo. Ela morava só

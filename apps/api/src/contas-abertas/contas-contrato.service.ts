@@ -1215,12 +1215,12 @@ function media(valores: number[]): number | null {
 }
 
 /** "AAAA-MM" do mês corrente. */
-function mesAtual(): string {
+export function mesAtual(): string {
   const agora = new Date();
   return `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}`;
 }
 
-function validarCompetencia(competencia: string): string {
+export function validarCompetencia(competencia: string): string {
   const c = competencia.trim();
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(c)) {
     throw new BadRequestException(
@@ -1231,7 +1231,7 @@ function validarCompetencia(competencia: string): string {
 }
 
 /** "2026-08" → "agosto/2026", que é como a observação do título fica legível. */
-function mesPorExtenso(competencia: string): string {
+export function mesPorExtenso(competencia: string): string {
   const nomes = [
     'janeiro',
     'fevereiro',
@@ -1257,7 +1257,7 @@ function mesPorExtenso(competencia: string): string {
  * 31 de fevereiro daria 2 ou 3 de março, e a conta nasceria vencendo no mês
  * errado.
  */
-function diaDaCompetencia(competencia: string, dia: number): Date {
+export function diaDaCompetencia(competencia: string, dia: number): Date {
   const [ano, mes] = competencia.split('-').map(Number);
   const ultimoDia = new Date(Date.UTC(ano, mes, 0)).getUTCDate();
   return new Date(Date.UTC(ano, mes - 1, Math.min(dia, ultimoDia)));
@@ -1272,14 +1272,14 @@ function diaDoMes(dia: number, qual: string): number {
   return dia;
 }
 
-function hojeUtc(): Date {
+export function hojeUtc(): Date {
   const agora = new Date();
   return new Date(
     Date.UTC(agora.getFullYear(), agora.getMonth(), agora.getDate()),
   );
 }
 
-function dataUtc(iso: string): Date {
+export function dataUtc(iso: string): Date {
   const [ano, mes, dia] = iso.slice(0, 10).split('-').map(Number);
   return new Date(Date.UTC(ano, mes - 1, dia));
 }
@@ -1290,6 +1290,6 @@ function somenteDigitos(texto: string): string {
 }
 
 
-function moeda(valor: number): string {
+export function moeda(valor: number): string {
   return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }

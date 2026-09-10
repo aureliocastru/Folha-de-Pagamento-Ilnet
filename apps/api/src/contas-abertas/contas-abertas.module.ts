@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { FinanceiroModule } from '../financeiro/financeiro.module';
 import { IxcModule } from '../ixc/ixc.module';
 import { BaixasDoIxcService } from './baixas-do-ixc.service';
+import { CartoesCreditoController } from './cartoes-credito.controller';
+import { CartoesCreditoService } from './cartoes-credito.service';
 import { CategoriasController } from './categorias.controller';
 import { CategoriasService } from './categorias.service';
 import { ContasAbertasController } from './contas-abertas.controller';
@@ -31,6 +33,9 @@ import { RecorrentesService } from './recorrentes.service';
     // As contas de energia dos endereços: o cadastro e o botão que faz a
     // fatura do mês virar conta a pagar.
     ContasContratoController,
+    // Os cartões de crédito: as compras de cada fatura, e o botão que faz a
+    // fatura do mês virar uma conta a pagar só.
+    CartoesCreditoController,
     // As duas metades da mesma tabela do IXC: o que a empresa deve, e o
     // histórico do que ela já pagou.
     HistoricoPagamentosController,
@@ -55,6 +60,7 @@ import { RecorrentesService } from './recorrentes.service';
     // Parecida com a recorrente, e diferente no que importa: aqui o valor não
     // se sabe antes de a fatura chegar, então nada é gerado sozinho.
     ContasContratoService,
+    CartoesCreditoService,
   ],
   // O fechamento de caixa lanca a despesa do dinheiro que voltou da rua pelo
   // mesmo caminho desta tela: mesma auditoria, mesma baixa, mesmo titulo no

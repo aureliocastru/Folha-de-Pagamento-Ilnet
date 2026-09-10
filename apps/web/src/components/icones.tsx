@@ -163,6 +163,21 @@ export function IconeSaida({ className }: IconeProps) {
   );
 }
 
+/**
+ * Cartão de crédito: o chip e os números em relevo. Sem a tarja do
+ * `IconeSaida`, que já é o "Em aberto" no mesmo menu — dois cartões iguais,
+ * um embaixo do outro, não diriam qual é qual.
+ */
+export function IconeCartao({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <rect x="2.5" y="5" width="19" height="14" rx="2.5" />
+      <rect x="5.5" y="8.5" width="4.5" height="3.5" rx="0.8" />
+      <path d="M5.5 15.5h2.5M10 15.5h2.5M14.5 15.5h2.5" />
+    </svg>
+  );
+}
+
 export function IconeRecibo({ className }: IconeProps) {
   return (
     <svg {...base} className={className}>
