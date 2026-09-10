@@ -24,6 +24,7 @@ import {
   IconeSaida,
   IconeSol,
   IconeTransferencia,
+  IconeTrofeu,
   type Icone,
 } from '../components/icones';
 import type { PerfilUsuario } from './types';
@@ -255,6 +256,30 @@ const almoxarifado: Modulo = {
   ],
 };
 
+/**
+ * Pontuação — os coordenadores pontuam os funcionários.
+ *
+ * Por dentro do sistema, só o ADMIN entra, e sem login novo: é ele quem vê
+ * tudo e cadastra os coordenadores. Os coordenadores e os funcionários usam o
+ * portal (`/pontos`), com o CPF — eles não têm login no sistema, e a lista
+ * deles é à parte da de usuários.
+ */
+const pontuacao: Modulo = {
+  id: 'pontuacao',
+  nome: 'Pontuação',
+  descricao:
+    'Os pontos que os coordenadores dão a cada funcionário, e quem pode pontuar',
+  base: '/pontuacao',
+  inicio: 'pontuar',
+  icone: IconeTrofeu,
+  tom: 'bg-amber-400/15 text-amber-300',
+  papeis: ['ADMIN'],
+  menu: [
+    { to: 'pontuar', label: 'Pontuar', icone: IconeTrofeu },
+    { to: 'coordenadores', label: 'Coordenadores', icone: IconeChave },
+  ],
+};
+
 /** A ordem daqui é a ordem dos cartões na tela de módulos. */
 export const MODULOS: Modulo[] = [
   folha,
@@ -262,13 +287,26 @@ export const MODULOS: Modulo[] = [
   almoxarifado,
   rh,
   seguranca,
+  pontuacao,
 ];
+
+/**
+ * Os módulos que se distribuem por login na tela de Usuários.
+ *
+ * O que é só do ADMIN fica de fora: ele não se dá a ninguém — quem é ADMIN já
+ * abre, e quem não é não abriria nem marcado. Mandá-lo na lista também seria
+ * recusado pela API, que só conhece os módulos que se distribuem.
+ */
+export const MODULOS_DISTRIBUIVEIS: Modulo[] = MODULOS.filter(
+  (m) => !(m.papeis?.length === 1 && m.papeis[0] === 'ADMIN'),
+);
 
 export const MODULO_FOLHA = folha;
 export const MODULO_CONTAS_PAGAR = contasPagar;
 export const MODULO_ALMOXARIFADO = almoxarifado;
 export const MODULO_RH = rh;
 export const MODULO_SEGURANCA = seguranca;
+export const MODULO_PONTUACAO = pontuacao;
 
 /**
  * A tela única do técnico de campo.

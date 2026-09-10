@@ -147,6 +147,8 @@ model Funcionario {
   aprsAssinadas ExecutanteApr[]
   /// As ferramentas que esta pessoa pegou no almoxarifado.
   ferramentas   EmprestimoDeFerramenta[]
+  /// Os pontos que os coordenadores deram a esta pessoa.
+  pontos        LancamentoDePontos[]
 
   @@index([ativo])
   @@index([nome])
@@ -2583,4 +2585,75 @@ model EmprestimoDeFerramenta {
   @@index([ferramentaId, voltouEm])
   @@index([funcionarioId])
   @@map("emprestimos_de_ferramenta")
+}
+
+// ---------------------------------------------------------------------------
+// Pontuação dos funcionários.
+//
+// Os coordenadores dão pontos — a mais ou a menos, sempre com o motivo — e
+// cada funcionário vê os seus digitando o próprio CPF. É um mundo à parte dos
+// logins do sistema: coordenador não é `User`, e quem pontua não precisa
+// enxergar folha, contas ou RH. O ADMIN do sistema entra por dentro, sem
+// login novo, e é quem cadastra os coordenadores.
+// ---------------------------------------------------------------------------
+
+/// Quem pode pontuar. Entra com CPF e uma senha curta de números.
+model CoordenadorPontuacao {
+  id String @id @default(uuid())
+
+  nome String
+  /// Só dígitos. É o login.
+  cpf  String @unique
+
+  /// Senha de 4 a 6 números, com hash. Sem ela, qualquer um que soubesse o
+  /// CPF de um coordenador pontuaria no nome dele.
+  senhaHash String @map("senha_hash")
+
+  /// Desligado não entra. O que ele lançou continua valendo.
+  ativo Boolean @default(true)
+
+  /// Senhas erradas seguidas. Na quinta, o login fica travado por um tempo:
+  /// quatro números se adivinham em minutos sem esta trava.
+  tentativas     Int       @default(0)
+  bloqueadoAte   DateTime? @map("bloqueado_ate")
+  ultimoAcessoEm DateTime? @map("ultimo_acesso_em")
+
+  lancamentos LancamentoDePontos[]
+
+  criadoPor String?  @map("criado_por")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("coordenadores_pontuacao")
+}
+
+/// Pontos dados a um funcionário: quantos, por quê, e por quem.
+model LancamentoDePontos {
+  id String @id @default(uuid())
+
+  funcionario   Funcionario @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
+  funcionarioId String      @map("funcionario_id")
+
+  /// A mais (positivo) ou a menos (negativo). Nunca zero.
+  pontos Int
+  /// O que aconteceu. Obrigatório: ponto sem motivo não ensina nada a quem
+  /// recebe, e não se defende quando alguém pergunta depois.
+  motivo String
+
+  /// O dia do que aconteceu, e o mês em que ele conta ("AAAA-MM").
+  data        DateTime
+  competencia String
+
+  /// Quem lançou: o coordenador, ou o login do sistema (ADMIN) — um dos dois.
+  coordenador   CoordenadorPontuacao? @relation(fields: [coordenadorId], references: [id], onDelete: SetNull)
+  coordenadorId String?               @map("coordenador_id")
+  usuarioId     String?               @map("usuario_id")
+  /// O nome de quem lançou, escrito: sobrevive ao coordenador ser apagado.
+  lancadoPor    String                @map("lancado_por")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([competencia])
+  @@index([funcionarioId, competencia])
+  @@map("lancamentos_de_pontos")
 }

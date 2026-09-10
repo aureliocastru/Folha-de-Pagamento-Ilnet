@@ -178,6 +178,17 @@ export function IconeCartao({ className }: IconeProps) {
   );
 }
 
+/** Troféu: a pontuação dos funcionários. */
+export function IconeTrofeu({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M7.5 4h9v5a4.5 4.5 0 0 1-9 0z" />
+      <path d="M7.5 6H4.5v1.5A3 3 0 0 0 7.7 10.5M16.5 6h3v1.5a3 3 0 0 1-3.2 3" />
+      <path d="M12 13.5v3.5M8.5 20.5h7M9.5 20.5c0-2 1-3.5 2.5-3.5s2.5 1.5 2.5 3.5" />
+    </svg>
+  );
+}
+
 export function IconeRecibo({ className }: IconeProps) {
   return (
     <svg {...base} className={className}>

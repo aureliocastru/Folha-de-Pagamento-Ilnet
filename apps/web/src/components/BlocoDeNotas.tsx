@@ -6,6 +6,7 @@ import {
   useState,
   type KeyboardEvent as TeclaReact,
 } from 'react';
+import { useLocation } from 'react-router-dom';
 import { api, getToken } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import type { Agenda } from '../lib/types';
@@ -48,10 +49,15 @@ function inicioDaLinha(texto: string, cursor: number): number {
  *
  * Some no login e na assinatura do recibo pelo caminho mais simples: quem não
  * entrou não tem bloco, porque o bloco é de alguém.
+ *
+ * E some no portal de pontos mesmo com alguém logado: aquela tela é de quem
+ * digita um CPF, e o computador do escritório com o sistema aberto mostraria
+ * ao funcionário que consulta os pontos o bloco de quem deixou o login ali.
  */
 export function BlocoDeNotas() {
   const { usuario } = useAuth();
-  if (!usuario) return null;
+  const { pathname } = useLocation();
+  if (!usuario || pathname.startsWith('/pontos')) return null;
   return <NoCanto />;
 }
 

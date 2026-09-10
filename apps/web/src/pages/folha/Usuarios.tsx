@@ -12,7 +12,7 @@ import {
 import { api, mensagemErro } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { formatData } from '../../lib/format';
-import { MODULOS } from '../../lib/modulos';
+import { MODULOS_DISTRIBUIVEIS as MODULOS } from '../../lib/modulos';
 import { PERFIL_DESCRICAO, PERFIL_LABEL, PERFIL_TOM } from '../../lib/status';
 import type { PerfilUsuario, UsuarioAdmin } from '../../lib/types';
 

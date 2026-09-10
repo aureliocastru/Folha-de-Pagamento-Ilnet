@@ -5,6 +5,7 @@ import {
   MODULO_CONTAS_PAGAR,
   MODULO_ALMOXARIFADO,
   MODULO_FOLHA,
+  MODULO_PONTUACAO,
   MODULO_RH,
   MODULO_SEGURANCA,
   destinoDepoisDoLogin,
@@ -41,6 +42,9 @@ import { Impostos } from './pages/folha/Impostos';
 import { MinhaConta } from './pages/folha/MinhaConta';
 import { Usuarios } from './pages/folha/Usuarios';
 import { Vales } from './pages/folha/Vales';
+import { Portal as PortalDePontos } from './pages/pontos/Portal';
+import { Coordenadores } from './pages/pontuacao/Coordenadores';
+import { Pontuar } from './pages/pontuacao/Pontuar';
 import { PastaDaEmpresa, PastaRhAberta } from './pages/rh/Pasta';
 import { Licitacoes } from './pages/rh/Licitacoes';
 import { NotasFiscais } from './pages/rh/NotasFiscais';
@@ -93,6 +97,11 @@ export default function App() {
       {/* Quem recebeu o dinheiro assina aqui. Fora do login de propósito: o
           diarista não tem conta no sistema, e o link é a credencial dele. */}
       <Route path="/assinar/:token" element={<Assinar />} />
+
+      {/* O portal de pontos: fora do login do sistema de propósito. O
+          coordenador entra com CPF e senha, o funcionário só com o CPF — nenhum
+          dos dois tem conta aqui. */}
+      <Route path="/pontos" element={<PortalDePontos />} />
       <Route
         path="/modulos"
         element={
@@ -272,6 +281,23 @@ export default function App() {
         <Route path="nova" element={<CampoNova />} />
         <Route path="minha-conta" element={<MinhaConta />} />
         <Route path=":id" element={<CampoApr />} />
+      </Route>
+
+      {/* Pontuação por dentro — só ADMIN, e sem login novo. */}
+      <Route
+        path="/pontuacao"
+        element={
+          <Protegida>
+            <SomenteAdmin>
+              <Layout modulo={MODULO_PONTUACAO} />
+            </SomenteAdmin>
+          </Protegida>
+        }
+      >
+        <Route index element={<Navigate to="pontuar" replace />} />
+        <Route path="pontuar" element={<Pontuar />} />
+        <Route path="coordenadores" element={<Coordenadores />} />
+        <Route path="minha-conta" element={<MinhaConta />} />
       </Route>
 
       <Route path="*" element={<ParaOnde />} />
