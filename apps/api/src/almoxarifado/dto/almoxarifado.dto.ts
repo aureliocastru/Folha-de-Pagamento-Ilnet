@@ -3,6 +3,7 @@ import {
   ArrayMaxSize,
   IsArray,
   IsBoolean,
+  IsIn,
   IsInt,
   IsISO8601,
   IsNumber,
@@ -194,6 +195,19 @@ export class TransferirProdutoDto {
 
   @IsOptional() @Transform(texto) @IsString() @MaxLength(200)
   observacao?: string;
+}
+
+/** O acerto dos saldos negativos: a compra de acerto e o que vai nela. */
+export class AcertoDeNegativosDto {
+  @Transform(numero) @IsInt() @Min(1) fornecedorId!: number;
+  @Transform(numero) @IsInt() @Min(1) tipoDocumentoId!: number;
+  @Transform(numero) @IsInt() @Min(1) condicaoPagamentoId!: number;
+
+  @IsIn(['preco', 'centavo']) valor!: 'preco' | 'centavo';
+
+  /** "produtoId:almoxId" de cada negativo marcado. */
+  @IsArray() @ArrayMaxSize(5000) @IsString({ each: true }) @MaxLength(30, { each: true })
+  chaves!: string[];
 }
 
 export class EntradaDeCompraDto {

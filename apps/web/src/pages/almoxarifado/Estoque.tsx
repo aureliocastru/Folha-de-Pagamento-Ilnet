@@ -385,7 +385,11 @@ function LinhaDoItem({
       <td className="td">
         <div className="flex flex-wrap items-center gap-1.5">
           {!item.ativo && <Selo tom="neutro">inativo</Selo>}
-          {temNegativo(item) ? (
+          {item.servico ? (
+            <Selo tom="neutro" titulo="Serviço não é estoque: o IXC não soma entrada de serviço.">
+              serviço
+            </Selo>
+          ) : temNegativo(item) ? (
             <Selo
               tom="erro"
               titulo="Saiu mais do que entrou no IXC. Abra em Editar para acertar."
@@ -420,7 +424,8 @@ function LinhaDoItem({
  * que faltou, ou uma saída lançada no almoxarifado errado.
  */
 function temNegativo(item: ItemDeEstoque): boolean {
-  return item.saldos.some((s) => s.saldo < 0);
+  // Serviço não conta: o IXC não soma entrada dele, e o negativo não é falta de nada.
+  return !item.servico && item.saldos.some((s) => s.saldo < 0);
 }
 
 /** Ativar/inativar o produto no IXC, direto da lista — sem abrir a janela inteira. */

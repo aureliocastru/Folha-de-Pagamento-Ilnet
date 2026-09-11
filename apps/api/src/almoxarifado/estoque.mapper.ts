@@ -17,6 +17,8 @@ export interface LinhaDeEstoqueIxc {
   produto_ativo?: string;
   produto_controla_estoque?: string;
   produto_preco_base?: string;
+  /** C, O, F, M, P, S — S é serviço. */
+  produto_tipo?: string;
   id_almox?: string;
   almox_descricao?: string;
   almox_ativo?: string;
@@ -52,6 +54,11 @@ export interface ItemDeEstoque {
   unidade: string | null;
   precoBase: number | null;
   ativo: boolean;
+  /**
+   * Serviço (tipo S). O IXC mantém uma linha de saldo para ele, mas não soma
+   * entrada de serviço — o negativo dele não é falta de material.
+   */
+  servico?: boolean;
   /** Um por almoxarifado, do maior saldo para o menor. */
   saldos: SaldoNoAlmoxarifado[];
   /** A soma de todos os almoxarifados. É o "quanto a casa tem". */
@@ -130,6 +137,7 @@ export function montarEstoque(
         // "S" é o ativo do IXC. Ausente conta como ativo: o cadastro antigo de
         // lá tem linha sem a coluna, e escondê-las seria esconder estoque.
         ativo: (l.produto_ativo ?? 'S') !== 'N',
+        servico: (l.produto_tipo ?? '').trim().toUpperCase() === 'S',
         saldos: [],
         total: 0,
         abaixoDoMinimo: false,

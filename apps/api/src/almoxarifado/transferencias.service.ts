@@ -14,6 +14,7 @@ import {
   pecasForaDaPrateleira,
   pecasPresas,
   patrimoniosMoviveis,
+  semSaldoParaAPeca,
   separarMoviveis,
   SITUACOES_LIDAS,
   type ItemDeFora,
@@ -175,13 +176,19 @@ export class TransferenciasService {
         unidade: i.unidade,
       }))
       .filter((i) => i.saldo > 0);
-    const cadastros = await this.produtosPorId([
+    const cadastros = await this.produtos.cadastrosPorId([
       ...itens.map((i) => i.produtoId),
       ...linhasDePatrimonio.map((l) => numeroDoIxc(l.id_produto)),
     ]);
 
     this.registrarPecaSemFinalidade(linhasDePatrimonio);
-    const pecas = patrimoniosMoviveis(linhasDePatrimonio, cadastros, unidades);
+    const saldoPorProduto = new Map(lido.itens.map((i) => [i.produtoId, i.total]));
+    const lidas = patrimoniosMoviveis(linhasDePatrimonio, cadastros, unidades);
+    const comSaldo = semSaldoParaAPeca(lidas.patrimonios, saldoPorProduto);
+    const pecas = {
+      patrimonios: comSaldo.patrimonios,
+      deFora: [...lidas.deFora, ...comSaldo.deFora],
+    };
     const porPatrimonio = new Map<number, number>();
     for (const p of pecas.patrimonios) {
       porPatrimonio.set(p.produtoId, (porPatrimonio.get(p.produtoId) ?? 0) + 1);
@@ -587,39 +594,6 @@ export class TransferenciasService {
     }
   }
 
-  /**
-   * Os cadastros dos produtos pelos ids. Poucos, um a um; muitos, a tabela
-   * inteira de uma vez — centenas de consultas custam mais que ela.
-   */
-  private async produtosPorId(ids: number[]): Promise<Map<number, Record<string, unknown>>> {
-    const unicos = [...new Set(ids)].filter((id) => id > 0);
-    const mapa = new Map<number, Record<string, unknown>>();
-    if (unicos.length === 0) return mapa;
-    if (unicos.length <= 40) {
-      const achados = await Promise.all(
-        unicos.map((id) =>
-          this.ixc
-            .getById<Record<string, unknown>>('produtos', 'produtos.id', id)
-            .catch(() => null),
-        ),
-      );
-      achados.forEach((p, i) => {
-        if (p) mapa.set(unicos[i], p);
-      });
-      return mapa;
-    }
-    const procurados = new Set(unicos);
-    const todos = await this.ixc.listAll<Record<string, unknown>>(
-      'produtos',
-      { qtype: 'produtos.id', query: '0', oper: '>', sortname: 'produtos.id', sortorder: 'asc' },
-      { pageSize: 500 },
-    );
-    for (const p of todos) {
-      const id = numeroDoIxc(p.id);
-      if (procurados.has(id)) mapa.set(id, p);
-    }
-    return mapa;
-  }
 }
 
 function tudoDe(c: ConteudoDoAlmoxarifado, levarSemPeca: boolean): ItemDaTransferencia[] {

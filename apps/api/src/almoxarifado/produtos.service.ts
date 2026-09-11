@@ -478,6 +478,83 @@ export class ProdutosService {
     return Promise.all([this.unidades(), this.almoxarifados()]);
   }
 
+  /**
+   * Os movimentos de um produto num almoxarifado, crus como o IXC devolve —
+   * para achar **em qual saída** o saldo ficou negativo.
+   *
+   * Cru de propósito, por enquanto: a documentação não diz como a OS, o
+   * comodato e a transferência aparecem em `movimento_produtos` (nem se a
+   * transferência aparece lá ou só em `transf_almox_item`). O rastreio na
+   * tela vem depois de ver o formato de verdade.
+   */
+  async movimentosCrus(
+    produtoId: number,
+    almoxId: number,
+  ): Promise<{ movimentos: Array<Record<string, unknown>>; transferencias: Array<Record<string, unknown>> }> {
+    const [movimentos, transferencias] = await Promise.all([
+      this.ixc.listAll<Record<string, unknown>>(
+        'movimento_produtos',
+        {
+          qtype: 'movimento_produtos.id_produto',
+          query: String(produtoId),
+          oper: '=',
+          sortname: 'movimento_produtos.id',
+          sortorder: 'asc',
+          gridParam: [{ TB: 'movimento_produtos.id_almox', OP: '=', P: String(almoxId) }],
+        },
+        { pageSize: 500, maxPages: 10 },
+      ),
+      this.ixc
+        .listAll<Record<string, unknown>>(
+          'transf_almox_item',
+          {
+            qtype: 'transf_almox_item.id_produto',
+            query: String(produtoId),
+            oper: '=',
+            sortname: 'transf_almox_item.id',
+            sortorder: 'asc',
+          },
+          { pageSize: 500, maxPages: 10 },
+        )
+        .catch((e: unknown) => [{ erro: e instanceof Error ? e.message : String(e) }]),
+    ]);
+    return { movimentos, transferencias };
+  }
+
+  /**
+   * Os cadastros crus dos produtos pelos ids. Poucos, um a um; muitos, a
+   * tabela inteira de uma vez — centenas de consultas custam mais que ela.
+   */
+  async cadastrosPorId(ids: number[]): Promise<Map<number, Record<string, unknown>>> {
+    const unicos = [...new Set(ids)].filter((id) => id > 0);
+    const mapa = new Map<number, Record<string, unknown>>();
+    if (unicos.length === 0) return mapa;
+    if (unicos.length <= 40) {
+      const achados = await Promise.all(
+        unicos.map((id) =>
+          this.ixc
+            .getById<Record<string, unknown>>('produtos', 'produtos.id', id)
+            .catch(() => null),
+        ),
+      );
+      achados.forEach((p, i) => {
+        if (p) mapa.set(unicos[i], p);
+      });
+      return mapa;
+    }
+    const procurados = new Set(unicos);
+    const todos = await this.ixc.listAll<Record<string, unknown>>(
+      'produtos',
+      { qtype: 'produtos.id', query: '0', oper: '>', sortname: 'produtos.id', sortorder: 'asc' },
+      { pageSize: 500 },
+    );
+    for (const p of todos) {
+      const id = numeroDoIxc(p.id);
+      if (procurados.has(id)) mapa.set(id, p);
+    }
+    return mapa;
+  }
+
   private async unidades(): Promise<OpcoesDoEstoque['unidades']> {
     const linhas = await this.ixc.listAll<Record<string, unknown>>(
       'unidades',

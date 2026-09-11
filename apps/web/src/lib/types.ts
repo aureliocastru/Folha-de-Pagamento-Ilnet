@@ -2121,6 +2121,8 @@ export interface ItemDeEstoque {
   total: number;
   abaixoDoMinimo: boolean;
   semNenhum: boolean;
+  /** Serviço: o IXC não soma entrada dele, e o negativo não é falta de material. */
+  servico?: boolean;
 }
 
 export interface EstoqueNaTela {

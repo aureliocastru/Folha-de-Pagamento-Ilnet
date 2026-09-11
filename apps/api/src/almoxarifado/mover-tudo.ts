@@ -272,6 +272,40 @@ export function patrimoniosMoviveis(
 }
 
 /**
+ * Peça de produto que não tem saldo no almoxarifado não vai: mover a peça
+ * baixa o saldo, e de zero ele vai a negativo.
+ *
+ * Visto em produção (11/09/2026): a entrada de acerto de uma ONU (saldo -1 →
+ * 0) fez o IXC criar a peça dela, sem MAC; a tela a ofereceu, ela foi
+ * transferida, e o saldo voltou a -1. A peça que a entrada criou cobre o
+ * negativo — não é uma ONU a mais na prateleira.
+ */
+export function semSaldoParaAPeca(
+  patrimonios: PatrimonioDoAlmoxarifado[],
+  saldoPorProduto: Map<number, number>,
+): { patrimonios: PatrimonioDoAlmoxarifado[]; deFora: ItemDeFora[] } {
+  const vao: PatrimonioDoAlmoxarifado[] = [];
+  const deFora: ItemDeFora[] = [];
+  for (const p of patrimonios) {
+    const saldo = saldoPorProduto.get(p.produtoId) ?? 0;
+    if (saldo > 0) {
+      vao.push(p);
+      continue;
+    }
+    deFora.push({
+      produtoId: p.produtoId,
+      descricao: `${p.descricao} (${identificacao(p)})`,
+      saldo: 1,
+      unidade: p.unidadeSigla,
+      motivo:
+        `o saldo deste produto aqui é ${saldo} — mover a peça deixaria negativo. ` +
+        'Ela deve ser a que uma entrada de acerto criou para cobrir um negativo',
+    });
+  }
+  return { patrimonios: vao, deFora };
+}
+
+/**
  * Separa o saldo de produto em o que vai por quantidade e o que fica:
  *
  *  - saldo zero ou negativo não é "ter" nada — nem entra na conta;

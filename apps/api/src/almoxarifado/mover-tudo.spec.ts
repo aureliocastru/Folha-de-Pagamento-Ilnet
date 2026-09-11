@@ -5,6 +5,7 @@ import {
   patrimoniosMoviveis,
   pecasForaDaPrateleira,
   pecasPresas,
+  semSaldoParaAPeca,
   separarMoviveis,
 } from './mover-tudo';
 import { TransferenciasService, type AndamentoDaTransferencia } from './transferencias.service';
@@ -74,6 +75,19 @@ describe('patrimoniosMoviveis', () => {
       expect.stringContaining('nº PAT6'),
       expect.stringContaining('nº PAT7'),
     ]);
+  });
+});
+
+describe('semSaldoParaAPeca', () => {
+  it('peça de produto com saldo zero ou negativo aqui não vai — deixaria negativo', () => {
+    const { patrimonios } = patrimoniosMoviveis([peca(1, '1'), peca(2, '1')], CADASTROS, UNIDADES);
+    const semSaldo = semSaldoParaAPeca(patrimonios, new Map([[12, 0]]));
+    expect(semSaldo.patrimonios).toEqual([]);
+    expect(semSaldo.deFora).toEqual([
+      expect.objectContaining({ produtoId: 12, motivo: expect.stringMatching(/saldo .* é 0/) }),
+      expect.objectContaining({ produtoId: 12 }),
+    ]);
+    expect(semSaldoParaAPeca(patrimonios, new Map([[12, 2]])).patrimonios).toHaveLength(2);
   });
 });
 
@@ -302,6 +316,10 @@ describe('TransferenciasService', () => {
         UNIDADES.map((u) => ({ ...u, descricao: u.sigla })),
         ALMOXARIFADOS,
       ]),
+      cadastrosPorId: jest.fn(
+        async (ids: number[]) =>
+          new Map(ids.flatMap((id) => (CADASTROS.has(id) ? [[id, CADASTROS.get(id)!]] : []))),
+      ),
     };
     const service = new TransferenciasService(ixc as never, estoque as never, produtos as never);
     service.pausaAntesDeRepetirMs = 0;

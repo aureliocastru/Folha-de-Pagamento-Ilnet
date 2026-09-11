@@ -13,9 +13,11 @@ import {
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { AcertoDeNegativosService } from './acerto-negativos.service';
 import { AlmoxarifadosService } from './almoxarifados.service';
 import { ComodatoService } from './comodato.service';
 import {
+  AcertoDeNegativosDto,
   AtualizarFerramentaDto,
   CriarAlmoxarifadoDto,
   CriarFerramentaDto,
@@ -74,6 +76,7 @@ export class AlmoxarifadoController {
     private readonly comodato: ComodatoService,
     private readonly almoxarifados: AlmoxarifadosService,
     private readonly transferencias: TransferenciasService,
+    private readonly acerto: AcertoDeNegativosService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -148,6 +151,15 @@ export class AlmoxarifadoController {
     return this.produtos.transferir(id, dto, quem(req));
   }
 
+  /** Os movimentos do produto num almoxarifado, crus do IXC — o rastreio do negativo. */
+  @Get('produtos/:id/movimentos')
+  movimentosDoProduto(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('almox', ParseIntPipe) almox: number,
+  ) {
+    return this.produtos.movimentosCrus(id, almox);
+  }
+
   @Post('produtos/:id/entrada')
   @HttpCode(200)
   darEntrada(
@@ -156,6 +168,28 @@ export class AlmoxarifadoController {
     @Req() req: Request,
   ) {
     return this.produtos.darEntrada(id, dto, quem(req));
+  }
+
+  // -------------------------------------------------------------------------
+  // Acerto dos saldos negativos — compra de acerto no IXC
+  // -------------------------------------------------------------------------
+
+  /** Os negativos de agora: o que o acerto zera e o que fica, com o porquê. */
+  @Get('negativos')
+  negativos() {
+    return this.acerto.listar();
+  }
+
+  /** Lança a compra de acerto com os marcados. Volta na hora; roda em segundo plano. */
+  @Post('negativos/acertar')
+  @HttpCode(202)
+  acertarNegativos(@Body() dto: AcertoDeNegativosDto, @Req() req: Request) {
+    return this.acerto.iniciar(dto, quem(req));
+  }
+
+  @Get('negativos/acertos/:id')
+  andamentoDoAcerto(@Param('id', ParseUUIDPipe) id: string) {
+    return this.acerto.andamento(id);
   }
 
   // -------------------------------------------------------------------------

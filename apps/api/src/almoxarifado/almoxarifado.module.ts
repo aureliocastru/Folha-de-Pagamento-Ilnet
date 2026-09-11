@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { FinanceiroModule } from '../financeiro/financeiro.module';
 import { IxcModule } from '../ixc/ixc.module';
+import { AcertoDeNegativosService } from './acerto-negativos.service';
 import { AlmoxarifadoController } from './almoxarifado.controller';
 import { AlmoxarifadosService } from './almoxarifados.service';
 import { ComodatoService } from './comodato.service';
@@ -30,6 +31,7 @@ import { TransferenciasService } from './transferencias.service';
     ComodatoService,
     AlmoxarifadosService,
     TransferenciasService,
+    AcertoDeNegativosService,
   ],
 })
 export class AlmoxarifadoModule {}
