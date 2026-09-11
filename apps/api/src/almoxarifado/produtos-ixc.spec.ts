@@ -258,7 +258,10 @@ describe('entrada de compra', () => {
       data_entrada: '10/09/2026',
       numero_nf: '123',
       valor_total: '150.00',
-      gera_estoque: 'N',
+      // Como a compra que a tela do IXC grava (#3403): gera estoque, manual.
+      gera_estoque: 'S',
+      tipo_calculo_tributacao: 'MAN',
+      tipo_entrada_compra: 'MANUAL',
       status: 'A',
       nfe_emitida: 'N',
       tipo_frete: '9',
@@ -275,7 +278,7 @@ describe('entrada de compra', () => {
       numeroNota: '',
       valorTotal: 10,
     });
-    for (const coluna of ['arquivo_xml', 'modelo_nf', 'serie', 'tipo_entrada_compra', 'nfe_chave', 'voutro']) {
+    for (const coluna of ['arquivo_xml', 'modelo_nf', 'serie', 'nfe_chave', 'voutro']) {
       expect(compra).toHaveProperty(coluna, '');
     }
     const item = montarItemDaEntrada(9, {
@@ -288,10 +291,16 @@ describe('entrada de compra', () => {
       valorUnitario: 1,
       data: '11/09/2026',
     });
-    for (const coluna of ['tipo_preenchimento_tributacao', 'eh_importacao_xml', 'id_saida', 'valor_outros']) {
+    for (const coluna of ['eh_importacao_xml', 'id_saida', 'valor_outros']) {
       expect(item).toHaveProperty(coluna, '');
     }
-    expect(item).toMatchObject({ id_produto: '36', tipo: 'E', estoque: 'S', id_entrada: '9' });
+    expect(item).toMatchObject({
+      id_produto: '36',
+      tipo: 'E',
+      estoque: 'S',
+      id_entrada: '9',
+      tipo_preenchimento_tributacao: 'CA',
+    });
   });
 
   it('o item é uma entrada (tipo E) que conta no estoque (estoque S)', () => {

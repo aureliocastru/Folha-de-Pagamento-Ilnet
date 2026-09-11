@@ -388,7 +388,13 @@ export function montarEntrada(e: EntradaDeCompra): Record<string, unknown> {
     documento: e.numeroNota.slice(0, 40),
     numero_nf: e.numeroNota.slice(0, 40),
     valor_total: valorParaIxc(e.valorTotal),
-    gera_estoque: 'N',
+    // Como a compra que o IXC aceitou pela tela dele (#3403, 11/09/2026): gera
+    // estoque, cálculo manual, entrada manual. O "N" do exemplo da
+    // documentação não é o que a tela grava.
+    gera_estoque: 'S',
+    tipo_calculo_tributacao: 'MAN',
+    tipo_entrada_compra: 'MANUAL',
+    realizar_rateio_outras_despesas: 'S',
     status: 'A',
     nfe_emitida: 'N',
     tipo_frete: '9',
@@ -483,8 +489,10 @@ export function montarItemDaEntrada(
   const quantidade = quantidadeValida(item.quantidade);
   const unitario = precoValido(item.valorUnitario);
   return {
-    // A linha inteira do exemplo, como na compra (ver `montarEntrada`).
+    // A linha inteira do exemplo, como na compra (ver `montarEntrada`), e o
+    // preenchimento da tributação como no item que a tela do IXC grava (#3403).
     ...COLUNAS_DO_ITEM_DA_ENTRADA,
+    tipo_preenchimento_tributacao: 'CA',
     id_produto: String(idValido(item.produtoId, 'o produto')),
     id_unidade: String(idValido(item.unidadeId, 'a unidade')),
     id_almox: String(idValido(item.almoxId, 'o almoxarifado')),

@@ -66,20 +66,39 @@ export function AcertarNegativos({ onFechar }: { onFechar: () => void }) {
   const marcados = itens.filter((i) => !fora.has(i.chave));
   const fornecedor = avulso.data?.find((f) => f.nome.trim().toLowerCase() === FORNECEDOR_DO_ACERTO);
 
-  // O tipo de documento e a condição que não geram financeiro, se existirem.
+  /*
+   * O modelo: a última compra desse fornecedor, feita na tela do IXC. O tipo
+   * de documento que ela usa (203) nem aparece na lista de tipos que a API
+   * devolve — e com um tipo da lista o IXC recusou abrir a compra.
+   */
+  const modelo = useQuery({
+    queryKey: ['almoxarifado', 'entradas', 'ultima', fornecedor?.idFornecedor],
+    queryFn: async () =>
+      (
+        await api.get<{
+          entradaId: number;
+          tipoDocumentoId: number;
+          condicaoPagamentoId: number;
+        } | null>('/almoxarifado/entradas/ultima', {
+          params: { fornecedor: fornecedor!.idFornecedor },
+        })
+      ).data,
+    enabled: !!fornecedor,
+    staleTime: 5 * 60_000,
+  });
+
+  // O tipo de documento e a condição da última compra do fornecedor.
   useEffect(() => {
-    if (!opcoes.data) return;
-    if (!tipoDocumentoId) {
-      const t =
-        opcoes.data.tiposDeDocumento.find((x) => /n[ãa]o gera financeiro/i.test(x.nome)) ??
-        opcoes.data.tiposDeDocumento.find((x) => /acerto no estoque/i.test(x.nome));
-      if (t) setTipoDocumentoId(String(t.id));
+    const m = modelo.data;
+    if (!m) return;
+    if (!tipoDocumentoId && m.tipoDocumentoId > 0) setTipoDocumentoId(String(m.tipoDocumentoId));
+    if (!condicaoPagamentoId && m.condicaoPagamentoId > 0) {
+      setCondicaoPagamentoId(String(m.condicaoPagamentoId));
     }
-    if (!condicaoPagamentoId) {
-      const c = opcoes.data.condicoesDePagamento.find((x) => /acerto no estoque/i.test(x.nome));
-      if (c) setCondicaoPagamentoId(String(c.id));
-    }
-  }, [opcoes.data, tipoDocumentoId, condicaoPagamentoId]);
+  }, [modelo.data, tipoDocumentoId, condicaoPagamentoId]);
+  const tipoDoModeloForaDaLista =
+    !!modelo.data &&
+    !opcoes.data?.tiposDeDocumento.some((t) => t.id === modelo.data!.tipoDocumentoId);
 
   const porAlmox = useMemo(() => {
     const m = new Map<string, NegativoParaAcertar[]>();
@@ -269,12 +288,23 @@ export function AcertarNegativos({ onFechar }: { onFechar: () => void }) {
                     className="campo"
                   >
                     <option value="">Escolha…</option>
+                    {modelo.data && tipoDoModeloForaDaLista && (
+                      <option value={modelo.data.tipoDocumentoId}>
+                        {modelo.data.tipoDocumentoId} — o da compra #{modelo.data.entradaId}
+                      </option>
+                    )}
                     {opcoes.data?.tiposDeDocumento.map((t) => (
                       <option key={t.id} value={t.id}>
                         {t.id} — {t.nome}
                       </option>
                     ))}
                   </select>
+                  {modelo.data && (
+                    <p className="ajuda">
+                      Tipo e condição copiados da última compra do {fornecedor?.nome} no IXC
+                      (#{modelo.data.entradaId}), que o IXC aceitou.
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="rotulo" htmlFor="acerto-condicao">

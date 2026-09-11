@@ -160,6 +160,12 @@ export class AlmoxarifadoController {
     return this.produtos.movimentosCrus(id, almox);
   }
 
+  /** A última compra do fornecedor — o modelo (tipo de documento, condição) da compra de acerto. */
+  @Get('entradas/ultima')
+  ultimaEntrada(@Query('fornecedor', ParseIntPipe) fornecedor: number) {
+    return this.produtos.ultimaEntradaDoFornecedor(fornecedor);
+  }
+
   /** Uma compra do IXC, crua (cabeçalho e itens) — para comparar com a que o sistema monta. */
   @Get('entradas/:id')
   entradaCrua(@Param('id', ParseIntPipe) id: number) {

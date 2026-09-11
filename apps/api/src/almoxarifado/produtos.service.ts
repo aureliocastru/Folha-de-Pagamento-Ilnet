@@ -578,6 +578,34 @@ export class ProdutosService {
     return { entrada, itens };
   }
 
+  /**
+   * A última compra do fornecedor — o modelo da compra de acerto. O tipo de
+   * documento que a tela do IXC usa (203, na #3403) nem aparece na tabela de
+   * tipos que a API lista; copiar de uma compra que o IXC aceitou é o jeito
+   * de acertar o tipo e a condição sem adivinhar.
+   */
+  async ultimaEntradaDoFornecedor(fornecedorId: number): Promise<{
+    entradaId: number;
+    tipoDocumentoId: number;
+    condicaoPagamentoId: number;
+  } | null> {
+    const res = await this.ixc.list<Record<string, unknown>>('entrada', {
+      qtype: 'entrada.id_fornecedor',
+      query: String(fornecedorId),
+      oper: '=',
+      rp: 1,
+      sortname: 'entrada.id',
+      sortorder: 'desc',
+    });
+    const e = res.registros[0];
+    if (!e) return null;
+    return {
+      entradaId: numeroDoIxc(e.id),
+      tipoDocumentoId: numeroDoIxc(e.tipo_documento),
+      condicaoPagamentoId: numeroDoIxc(e.condicoes_pagamento),
+    };
+  }
+
   /** Em qual movimento o saldo do produto ficou negativo neste almoxarifado. */
   async rastreio(produtoId: number, almoxId: number): Promise<RastreioDoNegativo> {
     const { movimentos, transferencias } = await this.movimentosCrus(produtoId, almoxId);
