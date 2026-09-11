@@ -143,6 +143,8 @@ export class TransferenciasService {
   private readonly recusados = new Map<string, ItemDaTransferencia[]>();
   /** Almoxarifados numa transferência rodando — nem origem nem destino de outra. */
   private readonly ocupados = new Set<number>();
+  /** Peças indisponíveis sem finalidade já descritas no log (ver `registrarPecaSemFinalidade`). */
+  private readonly jaRegistradas = new Set<number>();
   /** Fica aqui, e não só na constante, para o teste não ter de esperar. */
   pausaAntesDeRepetirMs = PAUSA_ANTES_DE_REPETIR_MS;
 
@@ -186,6 +188,7 @@ export class TransferenciasService {
       ...linhasDePatrimonio.map((l) => numeroDoIxc(l.id_produto)),
     ]);
 
+    this.registrarPecaSemFinalidade(linhasDePatrimonio);
     const pecas = patrimoniosMoviveis(linhasDePatrimonio, cadastros, unidades);
     const porPatrimonio = new Map<number, number>();
     for (const p of pecas.patrimonios) {
@@ -457,6 +460,28 @@ export class TransferenciasService {
         `Transferência #${a.transferenciaId} (${a.de.nome} → ${a.para.nome}): ` +
           `${a.movidos.length} movidos, ${a.falharam.length} recusados pelo IXC, ` +
           `${a.restouNaOrigem ?? '?'} ainda na origem.`,
+      );
+    }
+  }
+
+  /**
+   * A tela do IXC diz onde a peça indisponível está presa ("Detalhes da
+   * indisponibilidade"), mas a listagem da API veio sem isso em produção. Até
+   * se saber onde o IXC põe essa informação na API, o log mostra as colunas
+   * que vieram — uma vez por peça, e só as que falam de movimento.
+   */
+  private registrarPecaSemFinalidade(linhas: Array<Record<string, unknown>>): void {
+    for (const l of linhas) {
+      const id = numeroDoIxc(l.id);
+      if (String(l.situacao ?? '').trim() !== '8' || l.finalidade_indisponivel) continue;
+      if (this.jaRegistradas.has(id)) continue;
+      this.jaRegistradas.add(id);
+      const pistas = Object.entries(l)
+        .filter(([k]) => /indispon|finalidade|moviment|entrada/i.test(k))
+        .map(([k, v]) => `${k}=${JSON.stringify(v)}`);
+      this.logger.warn(
+        `Patrimônio #${id} indisponível sem finalidade na listagem. Colunas: ` +
+          `${Object.keys(l).join(', ')}. Pistas: ${pistas.join(', ') || 'nenhuma'}.`,
       );
     }
   }

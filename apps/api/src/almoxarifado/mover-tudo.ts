@@ -183,10 +183,13 @@ export function pecasPresas(linhas: Array<Record<string, unknown>>): Map<number,
         (desde ? ` desde ${desde}` : '') +
         ', ' +
         (PRESA_EM[finalidade]?.(numero) ??
-          // Visto em produção (11/09/2026): peça antiga indisponível sem
-          // finalidade nenhuma — nada a encerrar, só a situação a acertar.
-          'sem movimento nenhum que a prenda — se ela está mesmo aí, no IXC edite o ' +
-            'patrimônio e mude a situação para Disponível') +
+          // Visto em produção (11/09/2026): a listagem da API veio sem a
+          // finalidade, mas a peça estava presa numa entrada (compra) aberta
+          // — e o IXC não deixa mudar a situação à mão. Quem diz onde é a
+          // aba do próprio patrimônio.
+          'presa num movimento que o IXC não informou aqui — no IXC, abra o patrimônio, ' +
+            'aba "Detalhes da indisponibilidade", e encerre o movimento que aparece lá ' +
+            '(numa entrada, é finalizar a compra)') +
         (porque ? ` ("${porque}")` : '');
     }
     const lista = porProduto.get(numeroDoIxc(l.id_produto)) ?? [];
