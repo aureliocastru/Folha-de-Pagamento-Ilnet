@@ -4,6 +4,7 @@ import {
   identificacao,
   patrimoniosMoviveis,
   pecasForaDaPrateleira,
+  pecasPresas,
   separarMoviveis,
 } from './mover-tudo';
 import { TransferenciasService, type AndamentoDaTransferencia } from './transferencias.service';
@@ -132,6 +133,21 @@ describe('separarMoviveis', () => {
     expect(r.deFora).toEqual([
       expect.objectContaining({ produtoId: 12, motivo: expect.stringMatching(/1 indisponível/) }),
     ]);
+
+    // Com o que o IXC grava na peça, o motivo aponta onde ela está presa.
+    const presas = pecasPresas([
+      peca(1, '8', {
+        finalidade_indisponivel: 'TM',
+        id_finalidade: '2871',
+        data_movimentacao_indisponivel: '2026-08-30 10:12:00',
+      }),
+      peca(2, '4'),
+    ]);
+    const apontado = separarMoviveis([item(12, 1)], CADASTROS, UNIDADES, new Map(), fora, presas);
+    expect(apontado.deFora[0].motivo).toMatch(
+      /peça nº PAT1 · MAC .* está indisponível desde 30\/08\/2026, na transferência com confirmação #2871 — falta confirmar/,
+    );
+    expect(pecasPresas([peca(5, '8')]).get(12)?.[0]).toMatch(/sem dizer onde/);
 
     // Comodato não prende: a peça já saiu do saldo. Só explica.
     const soComodato = separarMoviveis(

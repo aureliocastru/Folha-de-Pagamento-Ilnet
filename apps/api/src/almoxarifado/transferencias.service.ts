@@ -12,6 +12,7 @@ import {
   emParalelo,
   identificacao,
   pecasForaDaPrateleira,
+  pecasPresas,
   patrimoniosMoviveis,
   separarMoviveis,
   type ItemDeFora,
@@ -196,6 +197,7 @@ export class TransferenciasService {
       unidades,
       porPatrimonio,
       pecasForaDaPrateleira(linhasDePatrimonio),
+      pecasPresas(linhasDePatrimonio),
     );
 
     return {

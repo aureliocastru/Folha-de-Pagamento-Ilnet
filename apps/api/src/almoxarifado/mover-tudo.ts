@@ -131,6 +131,69 @@ export function identificacao(p: {
 }
 
 /**
+ * Onde a peça indisponível está presa e o que fazer no IXC — pela
+ * `finalidade_indisponivel` e o `id_finalidade` que o próprio IXC grava nela.
+ */
+const PRESA_EM: Record<string, (n: string) => string> = {
+  E: (n) => `na entrada (compra) ${n} ainda aberta — finalize a compra no IXC`,
+  V: (n) => `na venda ${n} — finalize ou cancele a venda no IXC`,
+  OS: (n) => `no pedido da OS ${n} — finalize a OS ou tire a peça dela no IXC`,
+  TA: (n) => `na transferência entre almoxarifados ${n} — abra essa transferência no IXC`,
+  TM: (n) =>
+    `na transferência com confirmação ${n} — falta confirmar o recebimento no IXC ` +
+    '(ou cancelar a transferência)',
+  RE: (n) => `na requisição de material ${n} — atenda ou cancele a requisição no IXC`,
+};
+
+/** "2026-09-10" ou "2026-09-10 14:00:00" → "10/09/2026"; o resto passa como veio. */
+function dataDoIxc(v: unknown): string | null {
+  const t = texto(v);
+  if (!t || t.startsWith('0000')) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(t);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : t;
+}
+
+/**
+ * As peças presas no almoxarifado (alocada, indisponível), cada uma dita por
+ * inteiro: qual peça, desde quando e onde está presa — é o que quem vai
+ * resolver no IXC precisa saber para achar.
+ */
+export function pecasPresas(linhas: Array<Record<string, unknown>>): Map<number, string[]> {
+  const porProduto = new Map<number, string[]>();
+  for (const l of linhas) {
+    const situacao = String(l.situacao ?? '').trim();
+    const patrimonioId = numeroDoIxc(l.id);
+    if (patrimonioId <= 0 || !PRESA_AQUI.has(situacao)) continue;
+    const peca = identificacao({
+      patrimonioId,
+      numeroPatrimonial: texto(l.serial) ?? texto(l.nro_patrimonio) ?? texto(l.cod_patrimonio),
+      mac: texto(l.id_mac) ?? texto(l.mac),
+      numeroSerie: texto(l.serial_fornecedor),
+    });
+    let onde: string;
+    if (situacao === '6') {
+      onde = 'alocada (numa estrutura ou com alguém) — devolva ao almoxarifado no IXC';
+    } else {
+      const finalidade = String(l.finalidade_indisponivel ?? '').trim().toUpperCase();
+      const numero = texto(l.id_finalidade) ? `#${texto(l.id_finalidade)}` : '(sem número)';
+      const desde = dataDoIxc(l.data_movimentacao_indisponivel);
+      const porque = texto(l.descricao_indisponivel);
+      onde =
+        'indisponível' +
+        (desde ? ` desde ${desde}` : '') +
+        ', ' +
+        (PRESA_EM[finalidade]?.(numero) ??
+          'sem dizer onde — no IXC, abra o patrimônio dela e veja a movimentação') +
+        (porque ? ` ("${porque}")` : '');
+    }
+    const lista = porProduto.get(numeroDoIxc(l.id_produto)) ?? [];
+    lista.push(`a peça ${peca} está ${onde}`);
+    porProduto.set(numeroDoIxc(l.id_produto), lista);
+  }
+  return porProduto;
+}
+
+/**
  * Os patrimônios do almoxarifado que podem ir: os que estão nele e na
  * prateleira, com produto e unidade no cadastro (o item da transferência pede
  * os dois).
@@ -212,6 +275,8 @@ export function separarMoviveis(
   unidades: Array<{ id: number; sigla: string }>,
   porPatrimonio: Map<number, number> = new Map(),
   foraDaPrateleira: Map<number, Map<string, number>> = new Map(),
+  /** De `pecasPresas`: o que dizer da peça presa, para o motivo apontar onde. */
+  presas: Map<number, string[]> = new Map(),
 ): { moviveis: ItemMovivel[]; semPeca: ItemSemPeca[]; deFora: ItemDeFora[] } {
   const moviveis: ItemMovivel[] = [];
   const semPeca: ItemSemPeca[] = [];
@@ -240,8 +305,10 @@ export function separarMoviveis(
           ...item,
           saldo: sobra,
           motivo: presa
-            ? `patrimônio: o saldo pode ser a peça que está aqui ${descreverFora(fora)} — ` +
-              'resolva a peça no IXC antes'
+            ? `patrimônio: ${
+                presas.get(item.produtoId)?.join('; ') ??
+                `o saldo pode ser a peça que está aqui ${descreverFora(fora)}`
+              }. Resolvida lá, ela volta a ir por transferência`
             : 'patrimônio sem peça e sem unidade no cadastro — acerte na edição do produto',
         });
         continue;
