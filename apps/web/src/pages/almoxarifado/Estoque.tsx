@@ -229,16 +229,15 @@ export function Estoque() {
               Só negativos ({negativos})
             </label>
           )}
-          {negativos > 0 && (
-            <button
-              type="button"
-              onClick={() => setAcertando(true)}
-              className="btn btn-p btn-neutro"
-              title="Ver de onde veio cada negativo e zerar com uma compra de acerto"
-            >
-              Acertar negativos
-            </button>
-          )}
+          {/* Sempre à vista: é também onde se desfaz uma compra de acerto aberta. */}
+          <button
+            type="button"
+            onClick={() => setAcertando(true)}
+            className="btn btn-p btn-neutro"
+            title="Ver de onde veio cada negativo, zerar com uma compra de acerto, ou desfazer uma aberta"
+          >
+            Acertar negativos
+          </button>
           {(mostrarInativos || inativos > 0) && (
             <label className="opcao text-[12px]">
               <input

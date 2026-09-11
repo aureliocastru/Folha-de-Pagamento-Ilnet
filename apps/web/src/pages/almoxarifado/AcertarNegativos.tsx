@@ -163,6 +163,8 @@ export function AcertarNegativos({ onFechar }: { onFechar: () => void }) {
             linha.
           </p>
 
+          {fornecedor && <ComprasAbertas fornecedorId={fornecedor.idFornecedor} />}
+
           {negativos.isLoading && <Carregando texto="Lendo os negativos no IXC…" />}
           {negativos.isError && <Aviso tom="erro">{mensagemErro(negativos.error)}</Aviso>}
           {negativos.data && itens.length === 0 && (
@@ -373,6 +375,110 @@ export function AcertarNegativos({ onFechar }: { onFechar: () => void }) {
 
       {acertoId && a && <Resultado a={a} erro={andamento.error} onFechar={onFechar} />}
     </Janela>
+  );
+}
+
+interface CompraAberta {
+  entradaId: number;
+  data: string;
+  itens: number;
+  valorTotal: number;
+}
+
+interface Desfazimento {
+  id: string;
+  entradaId: number;
+  status: 'rodando' | 'terminou' | 'falhou';
+  total: number;
+  feitos: number;
+  falharam: Array<{ descricao: string; motivo: string }>;
+  erro: string | null;
+}
+
+/**
+ * As compras de acerto ainda abertas no IXC, com o botão de desfazer. Aberta,
+ * a compra não gerou custo nem financeiro: apagar e refazer é o jeito limpo de
+ * consertar uma que saiu errada (as de 11/09/2026 foram com o valor unitário
+ * cem vezes maior).
+ */
+function ComprasAbertas({ fornecedorId }: { fornecedorId: number }) {
+  const qc = useQueryClient();
+  const abertas = useQuery({
+    queryKey: ['almoxarifado', 'entradas', 'abertas', fornecedorId],
+    queryFn: async () =>
+      (
+        await api.get<CompraAberta[]>('/almoxarifado/entradas/abertas', {
+          params: { fornecedor: fornecedorId },
+        })
+      ).data,
+  });
+  const [desfazendo, setDesfazendo] = useState<string | null>(null);
+  const iniciar = useMutation({
+    mutationFn: async (entradaId: number) =>
+      (await api.post<Desfazimento>(`/almoxarifado/negativos/desfazer/${entradaId}`)).data,
+    onSuccess: (d) => setDesfazendo(d.id),
+  });
+  const andamento = useQuery({
+    queryKey: ['almoxarifado', 'desfazimento', desfazendo],
+    queryFn: async () =>
+      (await api.get<Desfazimento>(`/almoxarifado/negativos/desfazimentos/${desfazendo}`)).data,
+    enabled: !!desfazendo,
+    refetchInterval: (q) => (!q.state.data || q.state.data.status === 'rodando' ? 1500 : false),
+  });
+  const d = andamento.data ?? iniciar.data;
+  const terminou = d && d.status !== 'rodando';
+  useEffect(() => {
+    if (!terminou) return;
+    void qc.invalidateQueries({ queryKey: ['almoxarifado', 'entradas', 'abertas'] });
+    void qc.invalidateQueries({ queryKey: ['almoxarifado', 'negativos'] });
+    void qc.invalidateQueries({ queryKey: ['almoxarifado', 'estoque'] });
+  }, [terminou, qc]);
+
+  if (!abertas.data || abertas.data.length === 0) return null;
+  return (
+    <div className="mb-3 rounded-xl border border-tinta-200 p-3">
+      <p className="mb-2 text-[13px] text-tinta-600">
+        <strong>Compras de acerto abertas no IXC.</strong> O saldo já conta com elas. Se uma
+        saiu errada, desfaça — os negativos voltam, e o acerto se refaz abaixo.
+      </p>
+      {abertas.data.map((c) => (
+        <div key={c.entradaId} className="flex items-center justify-between gap-2 py-1 text-[13px]">
+          <span className="text-tinta-800">
+            #{c.entradaId} · {c.itens} {c.itens === 1 ? 'item' : 'itens'} ·{' '}
+            {formatBRL(c.valorTotal)}
+          </span>
+          <button
+            type="button"
+            className="btn btn-p btn-neutro"
+            disabled={!!d && d.status === 'rodando'}
+            onClick={() => {
+              if (
+                confirm(
+                  `Desfazer a compra de acerto #${c.entradaId} no IXC? Os ${c.itens} itens e a ` +
+                    'compra são apagados, e os saldos voltam ao que eram antes dela.',
+                )
+              ) {
+                iniciar.mutate(c.entradaId);
+              }
+            }}
+          >
+            {d?.entradaId === c.entradaId && d.status === 'rodando'
+              ? `Desfazendo… ${d.feitos}/${d.total}`
+              : 'Desfazer'}
+          </button>
+        </div>
+      ))}
+      {iniciar.isError && <Aviso tom="erro">{mensagemErro(iniciar.error)}</Aviso>}
+      {d && d.status !== 'rodando' && (
+        <Aviso tom={d.falharam.length === 0 && !d.erro ? 'pago' : 'atencao'}>
+          Compra #{d.entradaId}:{' '}
+          {d.falharam.length === 0 && !d.erro
+            ? 'desfeita. Os negativos dela voltaram para a lista.'
+            : `${d.feitos - d.falharam.length} de ${d.total} itens apagados — o IXC recusou ` +
+              `${d.falharam.length}${d.erro ? ` (${d.erro})` : ''}. A compra ficou; confira no IXC.`}
+        </Aviso>
+      )}
+    </div>
   );
 }
 

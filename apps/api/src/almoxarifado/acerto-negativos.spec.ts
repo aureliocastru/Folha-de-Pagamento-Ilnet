@@ -323,6 +323,33 @@ describe('AcertoDeNegativosService', () => {
     expect((await service.listar()).itens.map((i) => i.chave)).toContain('307:1');
   });
 
+  it('desfaz compra aberta — itens um a um, depois a compra; finalizada não', async () => {
+    const remove = jest.fn(async () => ({}));
+    const entradaCrua = jest.fn(async (id: number) => ({
+      entrada: { id: String(id), status: id === 3405 ? 'F' : 'A' },
+      itens: [
+        { id: '1012089', id_produto: '134', descricao: 'RADIO' },
+        { id: '1012090', id_produto: '133', descricao: 'RADIO 2' },
+      ],
+    }));
+    const service = new AcertoDeNegativosService(
+      { remove } as never,
+      { esquecer: jest.fn() } as never,
+      { entradaCrua } as never,
+    );
+    await expect(service.desfazer(3405, eu)).rejects.toThrow(/finalizada/);
+    const d = await service.desfazer(3409, eu);
+    for (let i = 0; i < 100 && service.desfazimento(d.id).status === 'rodando'; i++) {
+      await new Promise((r) => setTimeout(r, 1));
+    }
+    expect(service.desfazimento(d.id)).toMatchObject({ status: 'terminou', feitos: 2, falharam: [] });
+    expect(remove.mock.calls).toEqual([
+      ['movimento_produtos', 1012089],
+      ['movimento_produtos', 1012090],
+      ['entrada', 3409],
+    ]);
+  });
+
   it('não roda dois acertos ao mesmo tempo', async () => {
     const { service } = montar();
     const primeiro = await service.iniciar(pedido(['307:1']), eu);

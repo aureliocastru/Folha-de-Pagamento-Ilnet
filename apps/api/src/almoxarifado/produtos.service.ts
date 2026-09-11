@@ -578,6 +578,43 @@ export class ProdutosService {
     return { entrada, itens };
   }
 
+  /** As compras abertas do fornecedor, da mais nova para a mais velha, com quantos itens têm. */
+  async entradasAbertasDoFornecedor(
+    fornecedorId: number,
+  ): Promise<Array<{ entradaId: number; data: string; itens: number; valorTotal: number }>> {
+    const abertas = await this.ixc.listAll<Record<string, unknown>>(
+      'entrada',
+      {
+        qtype: 'entrada.id_fornecedor',
+        query: String(fornecedorId),
+        oper: '=',
+        sortname: 'entrada.id',
+        sortorder: 'desc',
+        gridParam: [{ TB: 'entrada.status', OP: '=', P: 'A' }],
+      },
+      { pageSize: 50, maxPages: 2 },
+    );
+    return Promise.all(
+      abertas
+        .filter((e) => String(e.status ?? '').toUpperCase() === 'A')
+        .map(async (e) => {
+          const entradaId = numeroDoIxc(e.id);
+          const itens = await this.ixc.list('movimento_produtos', {
+            qtype: 'movimento_produtos.id_entrada',
+            query: String(entradaId),
+            oper: '=',
+            rp: 1,
+          });
+          return {
+            entradaId,
+            data: String(e.data_entrada ?? ''),
+            itens: itens.total,
+            valorTotal: numeroDoIxc(e.valor_total),
+          };
+        }),
+    );
+  }
+
   /**
    * A última compra do fornecedor — o modelo da compra de acerto. O tipo de
    * documento que a tela do IXC usa (203, na #3403) nem aparece na tabela de

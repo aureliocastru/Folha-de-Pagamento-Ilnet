@@ -167,7 +167,7 @@ describe('ProdutosService.darEntrada', () => {
     expect(ixc.create).toHaveBeenNthCalledWith(
       1,
       'entrada',
-      expect.objectContaining({ status: 'A', id_fornecedor: '7', valor_total: '10.00' }),
+      expect.objectContaining({ status: 'A', id_fornecedor: '7', valor_total: '10,00' }),
     );
     expect(ixc.create).toHaveBeenNthCalledWith(
       2,

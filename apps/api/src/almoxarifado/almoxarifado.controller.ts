@@ -160,6 +160,12 @@ export class AlmoxarifadoController {
     return this.produtos.movimentosCrus(id, almox);
   }
 
+  /** As compras abertas do fornecedor — as de acerto que ainda se podem desfazer. */
+  @Get('entradas/abertas')
+  entradasAbertas(@Query('fornecedor', ParseIntPipe) fornecedor: number) {
+    return this.produtos.entradasAbertasDoFornecedor(fornecedor);
+  }
+
   /** A última compra do fornecedor — o modelo (tipo de documento, condição) da compra de acerto. */
   @Get('entradas/ultima')
   ultimaEntrada(@Query('fornecedor', ParseIntPipe) fornecedor: number) {
@@ -211,6 +217,18 @@ export class AlmoxarifadoController {
   @Get('negativos/acertos/:id')
   andamentoDoAcerto(@Param('id', ParseUUIDPipe) id: string) {
     return this.acerto.andamento(id);
+  }
+
+  /** Desfaz uma compra de acerto aberta: apaga os itens e a compra. Roda em segundo plano. */
+  @Post('negativos/desfazer/:entradaId')
+  @HttpCode(202)
+  desfazerAcerto(@Param('entradaId', ParseIntPipe) entradaId: number, @Req() req: Request) {
+    return this.acerto.desfazer(entradaId, quem(req));
+  }
+
+  @Get('negativos/desfazimentos/:id')
+  andamentoDoDesfazimento(@Param('id', ParseUUIDPipe) id: string) {
+    return this.acerto.desfazimento(id);
   }
 
   // -------------------------------------------------------------------------

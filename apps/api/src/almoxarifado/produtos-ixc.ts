@@ -26,6 +26,16 @@ export function valorParaIxc(n: number): string {
 }
 
 /**
+ * "376,52" — o dinheiro da **compra** (`entrada` e `movimento_produtos`),
+ * com vírgula. Nesses campos o IXC trata o ponto como separador de milhar e
+ * o descarta: "376.52" virou R$ 37.652 e "0.01" virou R$ 1,00 nas compras
+ * de acerto de 11/09/2026. A quantidade não passa por isso ("7.00000" = 7).
+ */
+export function dinheiroDaCompra(n: number): string {
+  return n.toFixed(2).replace('.', ',');
+}
+
+/**
  * Hoje, "DD/MM/AAAA", no fuso de Brasília — é o formato de data que o IXC
  * aceita na escrita, e é a data do dia de quem está na tela. O servidor roda
  * em UTC: às 22h daqui ele já está no dia seguinte.
@@ -387,7 +397,7 @@ export function montarEntrada(e: EntradaDeCompra): Record<string, unknown> {
     data_entrada: e.data,
     documento: e.numeroNota.slice(0, 40),
     numero_nf: e.numeroNota.slice(0, 40),
-    valor_total: valorParaIxc(e.valorTotal),
+    valor_total: dinheiroDaCompra(e.valorTotal),
     // Como a compra que o IXC aceitou pela tela dele (#3403, 11/09/2026): gera
     // estoque, cálculo manual, entrada manual. O "N" do exemplo da
     // documentação não é o que a tela grava.
@@ -497,8 +507,8 @@ export function montarItemDaEntrada(
     id_unidade: String(idValido(item.unidadeId, 'a unidade')),
     id_almox: String(idValido(item.almoxId, 'o almoxarifado')),
     quantidade: qtdeParaIxc(quantidade),
-    valor_unitario: valorParaIxc(unitario),
-    valor_total: valorParaIxc(Math.round(quantidade * unitario * 100) / 100),
+    valor_unitario: dinheiroDaCompra(unitario),
+    valor_total: dinheiroDaCompra(Math.round(quantidade * unitario * 100) / 100),
     estoque: 'S',
     id_entrada: String(idValido(entradaId, 'a compra')),
     tipo: 'E',

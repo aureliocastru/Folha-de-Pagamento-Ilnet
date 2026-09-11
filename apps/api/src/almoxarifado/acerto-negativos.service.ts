@@ -9,6 +9,7 @@ import {
   type NegativoParaAcertar,
   type ValorDoAcerto,
 } from './acerto-negativos';
+import { numeroDoIxc } from './estoque.mapper';
 import { EstoqueService } from './estoque.service';
 import { ProdutosService } from './produtos.service';
 import { hojeParaIxc, montarEntrada, montarItemDaEntrada } from './produtos-ixc';
@@ -59,6 +60,17 @@ export interface AndamentoDoAcerto {
   terminadoEm: string | null;
 }
 
+/** Uma compra de acerto aberta sendo desfeita: os itens apagados um por um, e a compra. */
+export interface DesfazimentoDaCompra {
+  id: string;
+  entradaId: number;
+  status: 'rodando' | 'terminou' | 'falhou';
+  total: number;
+  feitos: number;
+  falharam: Array<{ descricao: string; motivo: string }>;
+  erro: string | null;
+}
+
 interface Quem {
   nome: string;
 }
@@ -87,6 +99,7 @@ export class AcertoDeNegativosService {
   private readonly andamentos = new Map<string, AndamentoDoAcerto>();
   /** chave → a compra em que ela já entrou. */
   private readonly lancados = new Map<string, number>();
+  private readonly desfazimentos = new Map<string, DesfazimentoDaCompra>();
   private rodando = false;
 
   constructor(
@@ -169,6 +182,77 @@ export class AcertoDeNegativosService {
       this.rodando = false;
       throw err;
     }
+  }
+
+  /**
+   * Desfaz uma compra de acerto **aberta**: apaga os itens, um por vez, e a
+   * compra. O saldo volta ao que era — os negativos reaparecem, e o acerto
+   * pode ser refeito. Existe por causa das compras de 11/09/2026, gravadas com
+   * o valor unitário cem vezes maior (ver `dinheiroDaCompra`); aberta, a
+   * compra ainda não gerou custo nem financeiro, e apagar é o jeito limpo.
+   * Compra finalizada não se desfaz aqui.
+   */
+  async desfazer(entradaId: number, quem: Quem): Promise<DesfazimentoDaCompra> {
+    if (this.rodando) {
+      throw new BadRequestException('Já tem um acerto rodando. Espere ele terminar.');
+    }
+    const { entrada, itens } = await this.produtos.entradaCrua(entradaId);
+    if (!entrada) throw new NotFoundException(`A compra #${entradaId} não existe no IXC.`);
+    if (String(entrada.status ?? '').toUpperCase() !== 'A') {
+      throw new BadRequestException(
+        `A compra #${entradaId} já foi finalizada no IXC — daqui só se desfaz compra aberta.`,
+      );
+    }
+    this.rodando = true;
+    const d: DesfazimentoDaCompra = {
+      id: randomUUID(),
+      entradaId,
+      status: 'rodando',
+      total: itens.length,
+      feitos: 0,
+      falharam: [],
+      erro: null,
+    };
+    this.desfazimentos.set(d.id, d);
+    this.logger.log(`${quem.nome} começou a desfazer a compra de acerto #${entradaId} (${itens.length} itens).`);
+    void (async () => {
+      try {
+        for (const i of itens) {
+          try {
+            await this.ixc.remove('movimento_produtos', numeroDoIxc(i.id));
+          } catch (err) {
+            d.falharam.push({
+              descricao: String(i.descricao ?? `produto #${numeroDoIxc(i.id_produto)}`),
+              motivo: err instanceof Error ? err.message : String(err),
+            });
+          } finally {
+            d.feitos += 1;
+          }
+        }
+        if (d.falharam.length === 0) await this.ixc.remove('entrada', entradaId);
+        for (const [chave, compra] of this.lancados) {
+          if (compra === entradaId) this.lancados.delete(chave);
+        }
+        d.status = 'terminou';
+      } catch (err) {
+        d.status = 'falhou';
+        d.erro = err instanceof Error ? err.message : String(err);
+      } finally {
+        this.estoque.esquecer();
+        this.rodando = false;
+        this.logger.log(
+          `Compra de acerto #${entradaId}: ${d.feitos - d.falharam.length} itens apagados, ` +
+            `${d.falharam.length} recusados${d.erro ? ` (${d.erro})` : ''}.`,
+        );
+      }
+    })();
+    return d;
+  }
+
+  desfazimento(id: string): DesfazimentoDaCompra {
+    const d = this.desfazimentos.get(id);
+    if (!d) throw new NotFoundException('Esse desfazimento não está mais aqui — confira a compra no IXC.');
+    return d;
   }
 
   andamento(id: string): AndamentoDoAcerto {
