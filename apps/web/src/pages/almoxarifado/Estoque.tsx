@@ -36,6 +36,8 @@ export function Estoque() {
   /** Só o que tem saldo negativo em algum almoxarifado — o que precisa de acerto. */
   const [soNegativos, setSoNegativos] = useState(false);
   const [acertando, setAcertando] = useState(false);
+  /** Zerado some da lista por padrão — este botão pequeno traz de volta. */
+  const [mostrarZerados, setMostrarZerados] = useState(false);
   /** Inativo no IXC some da lista por padrão — este botão pequeno traz de volta. */
   const [mostrarInativos, setMostrarInativos] = useState(false);
   const [aberto, setAberto] = useState<number | null>(null);
@@ -94,9 +96,18 @@ export function Estoque() {
     () => (dados?.itens ?? []).filter(temNegativo).length,
     [dados],
   );
+  /* O zerado some por padrão, como o inativo: quem abre o estoque quer ver o
+     que tem na prateleira. "Só o que está faltando" e "Só negativos" são
+     justamente para ver o que não tem, e aí ele volta. */
+  const esconderZerados = !mostrarZerados && !soFaltando && !soNegativos;
+  const zerados = useMemo(
+    () => (dados?.itens ?? []).filter((i) => (mostrarInativos || i.ativo) && !temSaldo(i)).length,
+    [dados, mostrarInativos],
+  );
   const itens = (dados?.itens ?? []).filter((i) => {
     if (!mostrarInativos && !i.ativo) return false;
     if (soNegativos && !temNegativo(i)) return false;
+    if (esconderZerados && !temSaldo(i)) return false;
     return termo
       ? i.descricao.toLowerCase().includes(termo) || String(i.produtoId) === termo
       : true;
@@ -238,6 +249,17 @@ export function Estoque() {
           >
             Acertar negativos
           </button>
+          {(mostrarZerados || zerados > 0) && (
+            <label className="opcao text-[12px]" title="O que não tem saldo em lugar nenhum aqui">
+              <input
+                type="checkbox"
+                className="marcador"
+                checked={mostrarZerados}
+                onChange={(e) => setMostrarZerados(e.target.checked)}
+              />
+              Mostrar zerados{zerados > 0 ? ` (${zerados})` : ''}
+            </label>
+          )}
           {(mostrarInativos || inativos > 0) && (
             <label className="opcao text-[12px]">
               <input
@@ -281,6 +303,7 @@ export function Estoque() {
                     key={i.produtoId}
                     item={i}
                     aberto={aberto === i.produtoId}
+                    esconderZeros={esconderZerados}
                     onAbrir={() =>
                       setAberto((a) => (a === i.produtoId ? null : i.produtoId))
                     }
@@ -328,16 +351,20 @@ export function Estoque() {
 function LinhaDoItem({
   item,
   aberto,
+  esconderZeros,
   onAbrir,
   onEditar,
 }: {
   item: ItemDeEstoque;
   aberto: boolean;
+  /** O almoxarifado com saldo 0 não aparece em "Onde" — o negativo aparece, em vermelho. */
+  esconderZeros: boolean;
   onAbrir: () => void;
   onEditar: () => void;
 }) {
-  const temMais = item.saldos.length > 2;
-  const mostrados = aberto ? item.saldos : item.saldos.slice(0, 2);
+  const saldos = esconderZeros ? item.saldos.filter((s) => s.saldo !== 0) : item.saldos;
+  const temMais = saldos.length > 2;
+  const mostrados = aberto ? saldos : saldos.slice(0, 2);
 
   return (
     <tr className="linha">
@@ -389,7 +416,7 @@ function LinhaDoItem({
               onClick={onAbrir}
               className="text-[11px] font-semibold text-brand-700 hover:underline dark:text-brand-300"
             >
-              {aberto ? 'menos' : `+${item.saldos.length - 2}`}
+              {aberto ? 'menos' : `+${saldos.length - 2}`}
             </button>
           )}
         </div>
@@ -436,6 +463,15 @@ function LinhaDoItem({
  * negativo é o IXC registrando saída do que nunca entrou ali — uma entrada
  * que faltou, ou uma saída lançada no almoxarifado errado.
  */
+/**
+ * Tem alguma coisa na prateleira: saldo acima de zero em algum almoxarifado
+ * (no filtro de um almoxarifado, o servidor já recorta os saldos a ele). Não
+ * é o total: 5 no ILNET e -5 no Principal somam zero, e os 5 existem.
+ */
+function temSaldo(item: ItemDeEstoque): boolean {
+  return item.saldos.some((s) => s.saldo > 0);
+}
+
 function temNegativo(item: ItemDeEstoque): boolean {
   // Serviço não conta: o IXC não soma entrada dele, e o negativo não é falta de nada.
   return !item.servico && item.saldos.some((s) => s.saldo < 0);

@@ -210,7 +210,7 @@ export function Transferir() {
       />
 
       <Bloco titulo="De onde e para onde">
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <label className="rotulo" htmlFor="transf-de">
               Sai de
@@ -260,7 +260,9 @@ export function Transferir() {
       </Bloco>
 
       {de && (
-        <div className="grid gap-4 lg:grid-cols-2">
+        // grid-cols-1 é minmax(0, 1fr): sem ele a coluna cresce até o
+        // conteúdo mais largo, e no celular passava da tela.
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <Bloco titulo={nomeDe ? `O que tem em ${nomeDe}` : 'O que tem'}>
             {conteudo.isLoading && <Carregando texto="Lendo no IXC o que tem nele…" />}
             {conteudo.isError && <Aviso tom="erro">{mensagemErro(conteudo.error)}</Aviso>}
@@ -278,7 +280,9 @@ export function Transferir() {
                         aoBipar();
                       }
                     }}
-                    className="campo"
+                    // min-w-0: sem ele o campo não encolhe ao lado do "Pôr
+                    // tudo", e no celular empurrava a tela para o lado.
+                    className="campo min-w-0 flex-1"
                     placeholder="Bipe ou digite MAC, nº patrimonial, série — ou o nome"
                     autoComplete="off"
                     autoFocus
