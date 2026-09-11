@@ -151,6 +151,17 @@
 }
 
 @layer base {
+  /*
+   * A página não rola para o lado, nunca — a pedido. O que é largo de verdade
+   * (as tabelas) rola dentro da própria moldura (`.overflow-x-auto`).
+   * `clip`, e não `hidden`: `hidden` faria do body um contêiner de rolagem, e
+   * o cabeçalho `sticky` do celular deixaria de grudar no topo.
+   */
+  html,
+  body {
+    overflow-x: clip;
+  }
+
   body {
     @apply bg-tinta-50 font-sans text-tinta-800 antialiased;
     /*

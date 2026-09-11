@@ -8,13 +8,13 @@
       da barrinha do gesto no iPhone. Sem ele o valor é sempre zero, e a barra
       de navegação do celular ficaria por baixo dela.
 
-      O zoom de pinça vai dito às claras (`user-scalable=yes`, até 5x): quem
-      lê um MAC ou um número de série miúdo no celular precisa ampliar, e o
-      app instalado na tela de início não deve depender do padrão do iOS.
+      Sem zoom (`maximum-scale=1, user-scalable=no`), a pedido: o app é usado
+      como aplicativo, e o iPhone ampliava a tela sozinho ao tocar num campo
+      de texto — e ela ficava ampliada e deslocada, sem voltar.
     -->
     <meta
       name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=5, user-scalable=yes, viewport-fit=cover"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     />
     <meta name="theme-color" content="#0A1020" />
     <link rel="icon" type="image/png" href="/favicon.png" />
