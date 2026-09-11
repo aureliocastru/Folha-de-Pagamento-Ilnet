@@ -108,6 +108,9 @@ export class EditarProdutoDto {
   @IsOptional() @Transform(numero) @IsInt() @Min(1)
   unidadeId?: number;
 
+  /** "Controla estoque" no IXC — desligado, transferência e entrada não mexem no saldo. */
+  @IsOptional() @IsBoolean() controlaEstoque?: boolean;
+
   /** Produto parecido de onde sai o fiscal que falta (NCM, subgrupo…). */
   @IsOptional() @Transform(numero) @IsInt() @Min(1)
   modeloId?: number;

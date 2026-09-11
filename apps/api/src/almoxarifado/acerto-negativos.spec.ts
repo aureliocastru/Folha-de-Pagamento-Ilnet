@@ -1,4 +1,9 @@
-import { negativosParaAcertar, valorUnitarioDoAcerto } from './acerto-negativos';
+import {
+  naoControlaEstoque,
+  negativosParaAcertar,
+  rastrearNegativo,
+  valorUnitarioDoAcerto,
+} from './acerto-negativos';
 import { AcertoDeNegativosService, type AndamentoDoAcerto } from './acerto-negativos.service';
 import type { ItemDeEstoque } from './estoque.mapper';
 
@@ -98,6 +103,83 @@ describe('negativosParaAcertar', () => {
       ALMOX,
     );
     expect(itens).toEqual([expect.objectContaining({ almoxId: 3, almoxAtivo: false })]);
+  });
+});
+
+describe('rastrearNegativo', () => {
+  const mov = (id: number, data: string, entra: number, sai: number, extra: Record<string, string> = {}) => ({
+    id: String(id),
+    data,
+    estoque: 'S',
+    quantidade: String(entra),
+    qtde_saida: String(sai),
+    id_entrada: '0',
+    id_saida: '0',
+    id_transf_almox_item: '0',
+    id_inventario: '0',
+    ...extra,
+  });
+
+  it('acha o movimento que levou o saldo abaixo de zero — e as saídas desde então', () => {
+    const r = rastrearNegativo(
+      [
+        mov(1, '2021-01-10', 100, 0, { id_entrada: '55' }),
+        mov(2, '2021-02-01', 0, 60, { id_saida: '7001' }),
+        mov(3, '2022-09-12', 0, 80, { id_transf_almox_item: '900' }),
+        mov(4, '2023-01-05', 0, 10),
+        mov(5, '2023-02-01', 0, 5, { estoque: 'N', id_saida: '7002' }), // não vale
+      ],
+      [{ id: '900', id_transf_almox: '2887' }],
+    );
+    expect(r).toMatchObject({ saldoPelosMovimentos: -50, movimentos: 4, semEfeito: 1 });
+    expect(r.ficouNegativoEm).toEqual({
+      id: 3,
+      data: '12/09/2022',
+      referencia: 'transferência #2887',
+      quantidade: -80,
+      saldoDepois: -40,
+    });
+    expect(r.saidasDesde.map((s) => s.referencia)).toEqual([
+      'transferência #2887',
+      'OS ou comodato (movimento #4 no IXC)',
+    ]);
+  });
+
+  it('o negativo de agora é o da última vez que cruzou o zero', () => {
+    const r = rastrearNegativo(
+      [
+        mov(1, '2020-01-01', 0, 2, { id_saida: '1' }),
+        mov(2, '2020-02-01', 5, 0, { id_entrada: '2' }),
+        mov(3, '2021-03-01', 0, 4, { id_saida: '3' }),
+      ],
+      [],
+    );
+    expect(r.saldoPelosMovimentos).toBe(-1);
+    expect(r.ficouNegativoEm?.referencia).toBe('saída #3');
+  });
+
+  it('sem negativo, sem culpado', () => {
+    const r = rastrearNegativo([mov(1, '2020-01-01', 3, 0), mov(2, '2020-02-01', 0, 3)], []);
+    expect(r).toMatchObject({ saldoPelosMovimentos: 0, ficouNegativoEm: null, saidasDesde: [] });
+  });
+});
+
+describe('naoControlaEstoque', () => {
+  it('só o "N" do cadastro desliga — ausente conta como controlado', () => {
+    expect(naoControlaEstoque({ controla_estoque: 'N' })).toBe(true);
+    expect(naoControlaEstoque({ controla_estoque: 'S' })).toBe(false);
+    expect(naoControlaEstoque({})).toBe(false);
+  });
+
+  it('produto que não controla estoque fica fora do acerto — a entrada não mudaria nada', () => {
+    const { itens, deFora } = negativosParaAcertar(
+      [item(25, 'SWITCH', [saldo(1, 'Almoxarifado Principal', -1)])],
+      new Map([[25, { tipo: 'C', unidade: '1', controla_estoque: 'N' }]]),
+      UNIDADES,
+      ALMOX,
+    );
+    expect(itens).toEqual([]);
+    expect(deFora[0].motivo).toMatch(/Controla estoque: Não/);
   });
 });
 

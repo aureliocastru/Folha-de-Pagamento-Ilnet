@@ -178,6 +178,16 @@ describe('separarMoviveis', () => {
     ]);
   });
 
+  it('produto com "Controla estoque: Não" fica — a transferência não mexeria no saldo', () => {
+    const { moviveis, deFora } = separarMoviveis(
+      [item(25, 9)],
+      new Map([[25, { id: '25', tipo: 'C', unidade: '1', controla_estoque: 'N' }]]),
+      UNIDADES,
+    );
+    expect(moviveis).toEqual([]);
+    expect(deFora[0].motivo).toMatch(/Controla estoque: Não/);
+  });
+
   it('saldo zero não conta; serviço, sem unidade e sem cadastro ficam', () => {
     const { moviveis, deFora } = separarMoviveis(
       [item(10, 0), item(13, 1), item(14, 1), item(99, 1)],
@@ -249,6 +259,8 @@ describe('TransferenciasService', () => {
       gravaMasDizQueFalhou?: string[];
       /** Saldo de ONU além das 2 peças — patrimônio sem peça. */
       onusSemPeca?: number;
+      /** O que a soma dos movimentos confirma do saldo sem peça. */
+      movimentosConfirmam?: number;
     } = {},
   ) {
     const saidas = new Map<string, number>();
@@ -316,6 +328,7 @@ describe('TransferenciasService', () => {
         UNIDADES.map((u) => ({ ...u, descricao: u.sigla })),
         ALMOXARIFADOS,
       ]),
+      saldoPelosMovimentos: jest.fn(async () => opts.movimentosConfirmam ?? 999),
       cadastrosPorId: jest.fn(
         async (ids: number[]) =>
           new Map(ids.flatMap((id) => (CADASTROS.has(id) ? [[id, CADASTROS.get(id)!]] : []))),
@@ -485,6 +498,16 @@ describe('TransferenciasService', () => {
     await expect(service.iniciar({ de: 29, para: 29, tudo: true }, eu)).rejects.toThrow(/mesmo/);
     await expect(service.iniciar({ de: 29, para: 55, tudo: true }, eu)).rejects.toThrow(/Libere/);
     await expect(service.iniciar({ de: 29, para: 1 }, eu)).rejects.toThrow(/vazia/);
+  });
+
+  it('saldo sem peça só vai o que os movimentos confirmam', async () => {
+    const nada = await montar({ onusSemPeca: 1, movimentosConfirmam: 0 }).service.conteudo(29);
+    expect(nada.semPeca).toEqual([]);
+    expect(nada.deFora).toEqual([
+      expect.objectContaining({ produtoId: 12, motivo: expect.stringMatching(/movimentos .* somam 0/) }),
+    ]);
+    const parte = await montar({ onusSemPeca: 3, movimentosConfirmam: 2 }).service.conteudo(29);
+    expect(parte.semPeca).toEqual([expect.objectContaining({ produtoId: 12, saldo: 2 })]);
   });
 
   it('não roda duas transferências com o mesmo almoxarifado ao mesmo tempo', async () => {

@@ -2148,10 +2148,81 @@ export interface ProdutoNoIxc {
   unidadeId: number;
   unidade: string | null;
   tipo: string;
+  /** "Controla estoque" no IXC — desligado, transferência e entrada não mexem no saldo. */
+  controlaEstoque: boolean;
   /** O fiscal obrigatório que falta no cadastro ("o NCM"…) — sem ele o IXC não grava. */
   faltaFiscal: string[];
   saldos: ItemDeEstoque['saldos'];
   total: number;
+}
+
+/** Um movimento do IXC no rastreio, com o saldo que ficou depois dele. */
+export interface MovimentoNoRastreio {
+  id: number;
+  data: string | null;
+  /** "saída #159097", "transferência #2887", "OS ou comodato (…)". */
+  referencia: string;
+  quantidade: number;
+  saldoDepois: number;
+}
+
+/** Em qual movimento o saldo de um produto ficou negativo num almoxarifado. */
+export interface RastreioDoNegativo {
+  saldoPelosMovimentos: number;
+  movimentos: number;
+  semEfeito: number;
+  ficouNegativoEm: MovimentoNoRastreio | null;
+  saidasDesde: MovimentoNoRastreio[];
+  incompleto: boolean;
+}
+
+/** Um saldo negativo que o acerto zera. */
+export interface NegativoParaAcertar {
+  chave: string;
+  produtoId: number;
+  descricao: string;
+  tipoProduto: string;
+  almoxId: number;
+  almoxarifado: string;
+  almoxAtivo: boolean;
+  saldo: number;
+  quantidade: number;
+  unidadeSigla: string;
+  precoBase: number;
+}
+
+export interface NegativosNaTela {
+  itens: NegativoParaAcertar[];
+  deFora: Array<{
+    chave: string;
+    produtoId: number;
+    descricao: string;
+    almoxarifado: string;
+    saldo: number;
+    motivo: string;
+  }>;
+}
+
+interface LinhaDoAcerto {
+  chave: string;
+  descricao: string;
+  almoxarifado: string;
+  quantidade: number;
+  unidadeSigla: string;
+}
+
+/** O acerto dos negativos, rodando no servidor. */
+export interface AndamentoDoAcerto {
+  id: string;
+  status: 'rodando' | 'terminou' | 'falhou';
+  total: number;
+  feitos: number;
+  compras: number[];
+  lancados: LinhaDoAcerto[];
+  falharam: Array<LinhaDoAcerto & { motivo: string }>;
+  zerados: number | null;
+  aindaNegativos: LinhaDoAcerto[] | null;
+  erro: string | null;
 }
 
 /** O cadastro de um almoxarifado — a tabela `almox` do IXC, e não o saldo. */

@@ -151,13 +151,22 @@ export class AlmoxarifadoController {
     return this.produtos.transferir(id, dto, quem(req));
   }
 
-  /** Os movimentos do produto num almoxarifado, crus do IXC — o rastreio do negativo. */
+  /** Os movimentos do produto num almoxarifado, crus do IXC — a matéria do rastreio. */
   @Get('produtos/:id/movimentos')
   movimentosDoProduto(
     @Param('id', ParseIntPipe) id: number,
     @Query('almox', ParseIntPipe) almox: number,
   ) {
     return this.produtos.movimentosCrus(id, almox);
+  }
+
+  /** Em qual movimento o saldo ficou negativo — a saída, a transferência, a OS. */
+  @Get('produtos/:id/rastreio')
+  rastreioDoNegativo(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('almox', ParseIntPipe) almox: number,
+  ) {
+    return this.produtos.rastreio(id, almox);
   }
 
   @Post('produtos/:id/entrada')

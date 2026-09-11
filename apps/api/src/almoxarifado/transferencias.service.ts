@@ -201,6 +201,7 @@ export class TransferenciasService {
       pecasForaDaPrateleira(linhasDePatrimonio),
       pecasPresas(linhasDePatrimonio),
     );
+    const semPeca = await this.conferirSemPeca(almoxId, saldo.semPeca);
     this.logger.log(
       `Conteúdo do almoxarifado #${almoxId} lido em ${Date.now() - inicio} ms ` +
         `(${itens.length} produtos com saldo, ${linhasDePatrimonio.length} peças).`,
@@ -211,9 +212,46 @@ export class TransferenciasService {
       nome: lido.almoxarifados.find((a) => a.id === almoxId)?.nome ?? `Almoxarifado ${almoxId}`,
       moviveis: saldo.moviveis,
       patrimonios: pecas.patrimonios,
-      semPeca: saldo.semPeca,
-      deFora: [...saldo.deFora, ...pecas.deFora],
+      semPeca: semPeca.itens,
+      deFora: [...saldo.deFora, ...pecas.deFora, ...semPeca.deFora],
     };
+  }
+
+  /**
+   * O saldo de patrimônio sem peça só vai pelo que os movimentos confirmam.
+   * Visto em produção (11/09/2026): a tabela de saldos dizia 1 notebook no
+   * RABELO, os movimentos diziam 0 — mandado por quantidade, ele ficou -1.
+   * Sem peça não há registro nenhum que confirme a quantidade, então se
+   * confere pela soma dos movimentos, e vai o menor dos dois.
+   */
+  private async conferirSemPeca(
+    almoxId: number,
+    itens: ItemSemPeca[],
+  ): Promise<{ itens: ItemSemPeca[]; deFora: ItemDeFora[] }> {
+    const vao: ItemSemPeca[] = [];
+    const deFora: ItemDeFora[] = [];
+    await emParalelo(itens, 3, async (i) => {
+      let confirmado: number;
+      try {
+        confirmado = await this.produtos.saldoPelosMovimentos(i.produtoId, almoxId);
+      } catch {
+        deFora.push({ ...i, motivo: 'não deu para conferir o saldo nos movimentos do IXC agora' });
+        return;
+      }
+      const vai = Math.min(i.saldo, Math.round(confirmado * 1000) / 1000);
+      if (!(vai > 0)) {
+        deFora.push({
+          ...i,
+          motivo:
+            `o IXC mostra saldo ${i.saldo}, mas os movimentos dele aqui somam ${confirmado} — ` +
+            'não há o que levar (a leitura de saldo dele está desatualizada)',
+        });
+        return;
+      }
+      vao.push({ ...i, saldo: vai });
+    });
+    const porNome = (a: ItemSemPeca, b: ItemSemPeca) => a.descricao.localeCompare(b.descricao, 'pt-BR');
+    return { itens: vao.sort(porNome), deFora };
   }
 
   async iniciar(pedido: PedidoDeTransferencia, quem: Quem): Promise<AndamentoDaTransferencia> {

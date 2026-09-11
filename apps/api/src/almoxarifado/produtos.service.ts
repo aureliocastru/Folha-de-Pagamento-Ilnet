@@ -6,6 +6,11 @@ import {
 } from '@nestjs/common';
 import { FornecedorService } from '../financeiro/fornecedor.service';
 import { IxcClient } from '../ixc/ixc.client';
+import {
+  naoControlaEstoque,
+  rastrearNegativo,
+  type RastreioDoNegativo,
+} from './acerto-negativos';
 import { numeroDoIxc, type ItemDeEstoque } from './estoque.mapper';
 import { EstoqueService } from './estoque.service';
 import {
@@ -20,6 +25,9 @@ import {
   type EdicaoDoProduto,
 } from './produtos-ixc';
 
+/** Teto de movimentos lidos por produto × almoxarifado no rastreio. */
+const MOVIMENTOS_LIDOS = 10_000;
+
 /** O produto como a janela de edição o mostra. */
 export interface ProdutoNaTela {
   id: number;
@@ -30,6 +38,11 @@ export interface ProdutoNaTela {
   unidade: string | null;
   /** `produtos.tipo`: C comércio, O consumo, M matéria-prima… */
   tipo: string;
+  /**
+   * "Controla estoque" do cadastro. Desligado, o IXC grava transferência e
+   * entrada sem mexer no saldo — a tela avisa e oferece ligar.
+   */
+  controlaEstoque: boolean;
   /**
    * O fiscal obrigatório que o cadastro não tem ("o NCM"…). Com algum aqui, o
    * IXC recusa qualquer gravação no produto até alguém completar.
@@ -95,6 +108,7 @@ export class ProdutosService {
       unidadeId,
       unidade: unidades.find((u) => u.id === unidadeId)?.sigla ?? null,
       tipo: String(bruto.tipo ?? ''),
+      controlaEstoque: !naoControlaEstoque(bruto),
       faltaFiscal: fiscalQueFalta(bruto),
       saldos: saldos?.saldos ?? [],
       total: saldos?.total ?? 0,
@@ -480,12 +494,9 @@ export class ProdutosService {
 
   /**
    * Os movimentos de um produto num almoxarifado, crus como o IXC devolve —
-   * para achar **em qual saída** o saldo ficou negativo.
-   *
-   * Cru de propósito, por enquanto: a documentação não diz como a OS, o
-   * comodato e a transferência aparecem em `movimento_produtos` (nem se a
-   * transferência aparece lá ou só em `transf_almox_item`). O rastreio na
-   * tela vem depois de ver o formato de verdade.
+   * a matéria do rastreio (`rastrearNegativo`). Visto em produção: a
+   * transferência aparece em `movimento_produtos` com `id_transf_almox_item`,
+   * e o número dela vem de `transf_almox_item`; OS e comodato vêm sem número.
    */
   async movimentosCrus(
     produtoId: number,
@@ -502,7 +513,7 @@ export class ProdutosService {
           sortorder: 'asc',
           gridParam: [{ TB: 'movimento_produtos.id_almox', OP: '=', P: String(almoxId) }],
         },
-        { pageSize: 500, maxPages: 10 },
+        { pageSize: 500, maxPages: MOVIMENTOS_LIDOS / 500 },
       ),
       this.ixc
         .listAll<Record<string, unknown>>(
@@ -519,6 +530,33 @@ export class ProdutosService {
         .catch((e: unknown) => [{ erro: e instanceof Error ? e.message : String(e) }]),
     ]);
     return { movimentos, transferencias };
+  }
+
+  /**
+   * O saldo do produto no almoxarifado somando os movimentos que valem
+   * (`estoque = S`) — a conferência da tabela de saldos, que já mostrou saldo
+   * que os movimentos não tinham (o notebook do RABELO, 11/09/2026).
+   */
+  async saldoPelosMovimentos(produtoId: number, almoxId: number): Promise<number> {
+    const movimentos = await this.ixc.listAll<Record<string, unknown>>(
+      'movimento_produtos',
+      {
+        qtype: 'movimento_produtos.id_produto',
+        query: String(produtoId),
+        oper: '=',
+        sortname: 'movimento_produtos.id',
+        sortorder: 'asc',
+        gridParam: [{ TB: 'movimento_produtos.id_almox', OP: '=', P: String(almoxId) }],
+      },
+      { pageSize: 500, maxPages: MOVIMENTOS_LIDOS / 500 },
+    );
+    return rastrearNegativo(movimentos, []).saldoPelosMovimentos;
+  }
+
+  /** Em qual movimento o saldo do produto ficou negativo neste almoxarifado. */
+  async rastreio(produtoId: number, almoxId: number): Promise<RastreioDoNegativo> {
+    const { movimentos, transferencias } = await this.movimentosCrus(produtoId, almoxId);
+    return rastrearNegativo(movimentos, transferencias, MOVIMENTOS_LIDOS);
   }
 
   /**

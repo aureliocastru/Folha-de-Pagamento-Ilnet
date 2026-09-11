@@ -13,6 +13,7 @@ import {
 import { api, mensagemErro } from '../../lib/api';
 import { formatBRL } from '../../lib/format';
 import type { AlmoxarifadoCadastro, EstoqueNaTela, ItemDeEstoque } from '../../lib/types';
+import { AcertarNegativos } from './AcertarNegativos';
 import { JanelaDoProduto, NovoProduto, quantidade } from './ProdutoNoIxc';
 
 /**
@@ -34,6 +35,7 @@ export function Estoque() {
   const [soFaltando, setSoFaltando] = useState(false);
   /** Só o que tem saldo negativo em algum almoxarifado — o que precisa de acerto. */
   const [soNegativos, setSoNegativos] = useState(false);
+  const [acertando, setAcertando] = useState(false);
   /** Inativo no IXC some da lista por padrão — este botão pequeno traz de volta. */
   const [mostrarInativos, setMostrarInativos] = useState(false);
   const [aberto, setAberto] = useState<number | null>(null);
@@ -227,6 +229,16 @@ export function Estoque() {
               Só negativos ({negativos})
             </label>
           )}
+          {negativos > 0 && (
+            <button
+              type="button"
+              onClick={() => setAcertando(true)}
+              className="btn btn-p btn-neutro"
+              title="Ver de onde veio cada negativo e zerar com uma compra de acerto"
+            >
+              Acertar negativos
+            </button>
+          )}
           {(mostrarInativos || inativos > 0) && (
             <label className="opcao text-[12px]">
               <input
@@ -281,6 +293,8 @@ export function Estoque() {
           </div>
         )}
       </Bloco>
+
+      {acertando && <AcertarNegativos onFechar={() => setAcertando(false)} />}
 
       {editando !== null && (
         <JanelaDoProduto

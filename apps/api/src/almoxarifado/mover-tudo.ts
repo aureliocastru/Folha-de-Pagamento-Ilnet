@@ -13,6 +13,7 @@
  *    transferência").
  */
 
+import { naoControlaEstoque } from './acerto-negativos';
 import { numeroDoIxc } from './estoque.mapper';
 
 /** Um produto com saldo no almoxarifado de origem. */
@@ -341,6 +342,15 @@ export function separarMoviveis(
     const tipo = String(bruto.tipo ?? '').trim().toUpperCase();
     if (tipo === 'S') {
       deFora.push({ ...item, motivo: 'serviço não tem estoque' });
+      continue;
+    }
+    if (naoControlaEstoque(bruto)) {
+      deFora.push({
+        ...item,
+        motivo:
+          'o produto está com "Controla estoque: Não" no IXC — a transferência seria gravada ' +
+          'sem mexer no saldo. Ligue o controle no produto (Estoque › Editar) e mova de novo',
+      });
       continue;
     }
     const unidade = unidades.find((u) => u.id === numeroDoIxc(bruto.unidade));

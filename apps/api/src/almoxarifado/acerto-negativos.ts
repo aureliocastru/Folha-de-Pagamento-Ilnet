@@ -95,6 +95,13 @@ export function negativosParaAcertar(
         fica('serviço — o IXC não soma entrada de serviço, e esse negativo não é falta de material');
         continue;
       }
+      if (naoControlaEstoque(bruto)) {
+        fica(
+          'o produto está com "Controla estoque: Não" no IXC — a entrada seria gravada sem ' +
+            'mudar o saldo. Ligue o controle no produto (Estoque › Editar) antes',
+        );
+        continue;
+      }
       const unidade = unidades.find((u) => u.id === numeroDoIxc(bruto.unidade));
       if (!unidade) {
         fica('produto sem unidade no cadastro — acerte na edição do produto');
@@ -124,6 +131,131 @@ export function negativosParaAcertar(
     a.almoxarifado.localeCompare(b.almoxarifado, 'pt-BR') ||
     a.descricao.localeCompare(b.descricao, 'pt-BR');
   return { itens: acertar.sort(ordem), deFora: deFora.sort(ordem) };
+}
+
+/**
+ * "Controla estoque: Não" no cadastro. Visto em produção (11/09/2026): o
+ * switch do Principal "não transferia" — o IXC gravava cada transferência,
+ * mas com `estoque = N` no movimento, sem mexer no saldo, que ficou parado
+ * desde 2018.
+ */
+export function naoControlaEstoque(bruto: Record<string, unknown>): boolean {
+  return String(bruto.controla_estoque ?? 'S').trim().toUpperCase() === 'N';
+}
+
+// ---------------------------------------------------------------------------
+// Rastreio: em qual movimento o saldo ficou negativo
+// ---------------------------------------------------------------------------
+
+/** Um movimento, dito para gente ler, com o saldo que ficou depois dele. */
+export interface MovimentoNoRastreio {
+  id: number;
+  data: string | null;
+  /** "saída #159097", "transferência #2887", "compra #3403"… */
+  referencia: string;
+  /** Positivo entrou, negativo saiu. */
+  quantidade: number;
+  saldoDepois: number;
+}
+
+export interface RastreioDoNegativo {
+  /** A soma dos movimentos que valem para o saldo — confere com o saldo do IXC. */
+  saldoPelosMovimentos: number;
+  /** Quantos movimentos valem para o saldo (`estoque = S`). */
+  movimentos: number;
+  /** Quantos foram gravados sem efeito no saldo (`estoque = N`). */
+  semEfeito: number;
+  /**
+   * O movimento que levou o saldo de zero ou mais para negativo — a última
+   * vez que isso aconteceu, que é a que começou o negativo de agora. Null se
+   * o saldo pelos movimentos não está negativo.
+   */
+  ficouNegativoEm: MovimentoNoRastreio | null;
+  /** As saídas desde então, as mais recentes por último (até dez). */
+  saidasDesde: MovimentoNoRastreio[];
+  /** A leitura bateu no teto de linhas — o começo pode não ter vindo. */
+  incompleto: boolean;
+}
+
+function dataDoMovimento(v: unknown): string | null {
+  const t = String(v ?? '').trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(t);
+  if (!m || m[1] === '0000') return null;
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
+/**
+ * Percorre os movimentos do produto no almoxarifado (os de `movimento_produtos`,
+ * com os itens de `transf_almox_item` para dar o número da transferência) e
+ * diz onde o saldo ficou negativo.
+ *
+ * Só conta o movimento com `estoque = S` — é o que o IXC soma no saldo, e a
+ * soma confere com a tabela de saldos (conferido em produção em 114 de 115
+ * negativos; o que não bateu tinha mais linhas que a leitura traz).
+ */
+export function rastrearNegativo(
+  movimentos: Array<Record<string, unknown>>,
+  transferencias: Array<Record<string, unknown>>,
+  teto = Infinity,
+): RastreioDoNegativo {
+  const transferenciaDoItem = new Map(
+    transferencias.map((t) => [numeroDoIxc(t.id), numeroDoIxc(t.id_transf_almox)]),
+  );
+  const valem = movimentos
+    .filter((m) => String(m.estoque ?? '').toUpperCase() === 'S')
+    .sort(
+      (a, b) =>
+        String(a.data ?? '').localeCompare(String(b.data ?? '')) ||
+        numeroDoIxc(a.id) - numeroDoIxc(b.id),
+    );
+
+  let saldo = 0;
+  let ficouNegativoEm: MovimentoNoRastreio | null = null;
+  let saidasDesde: MovimentoNoRastreio[] = [];
+  for (const m of valem) {
+    const quantidade = arredondar(numeroDoIxc(m.quantidade) - numeroDoIxc(m.qtde_saida), 3);
+    const antes = saldo;
+    saldo = arredondar(saldo + quantidade, 3);
+    const mov: MovimentoNoRastreio = {
+      id: numeroDoIxc(m.id),
+      data: dataDoMovimento(m.data),
+      referencia: referenciaDoMovimento(m, transferenciaDoItem),
+      quantidade,
+      saldoDepois: saldo,
+    };
+    if (antes >= 0 && saldo < 0) {
+      ficouNegativoEm = mov;
+      saidasDesde = [mov];
+    } else if (saldo < 0 && quantidade < 0 && ficouNegativoEm) {
+      saidasDesde.push(mov);
+    }
+  }
+
+  return {
+    saldoPelosMovimentos: saldo,
+    movimentos: valem.length,
+    semEfeito: movimentos.length - valem.length,
+    ficouNegativoEm: saldo < 0 ? ficouNegativoEm : null,
+    saidasDesde: saldo < 0 ? saidasDesde.slice(-10) : [],
+    incompleto: movimentos.length >= teto,
+  };
+}
+
+function referenciaDoMovimento(
+  m: Record<string, unknown>,
+  transferenciaDoItem: Map<number, number>,
+): string {
+  if (numeroDoIxc(m.id_entrada) > 0) return `compra #${numeroDoIxc(m.id_entrada)}`;
+  if (numeroDoIxc(m.id_saida) > 0) return `saída #${numeroDoIxc(m.id_saida)}`;
+  const item = numeroDoIxc(m.id_transf_almox_item);
+  if (item > 0) {
+    const transferencia = transferenciaDoItem.get(item);
+    return transferencia ? `transferência #${transferencia}` : `transferência (item ${item})`;
+  }
+  if (numeroDoIxc(m.id_inventario) > 0) return `inventário #${numeroDoIxc(m.id_inventario)}`;
+  // A API não traz a coluna da OS nem a do contrato neste recurso: sem
+  // número de compra, venda ou transferência, é OS ou comodato.
+  return `OS ou comodato (movimento #${numeroDoIxc(m.id)} no IXC)`;
 }
 
 /**

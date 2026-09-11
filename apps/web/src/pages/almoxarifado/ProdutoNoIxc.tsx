@@ -4,6 +4,7 @@ import { Aviso, CampoDinheiro, Carregando, Janela } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { semAcento, useTermoAdiado } from '../../lib/busca';
 import { formatBRL } from '../../lib/format';
+import { OndeFicouNegativo } from './rastreio';
 import type {
   ConferenciaDeSaldo,
   ItemDeEstoque,
@@ -108,8 +109,16 @@ export function JanelaDoProduto({
   const p = produto.data;
   /** O acerto escolhido no aviso de negativo — a aba abre com ele preenchido. */
   const [acerto, setAcerto] = useState<{ almoxId: number; quantidade: number } | null>(null);
-  const negativos = p?.saldos.filter((s) => s.saldo < 0) ?? [];
+  // Serviço não conta: o IXC não soma entrada dele (ver `temNegativo` no Estoque).
+  const negativos = p && p.tipo !== 'S' ? p.saldos.filter((s) => s.saldo < 0) : [];
   const positivos = p?.saldos.filter((s) => s.saldo > 0) ?? [];
+  const ligarControle = useMutation({
+    mutationFn: async () => {
+      await api.patch(`/almoxarifado/produtos/${produtoId}`, { controlaEstoque: true });
+    },
+    onSuccess: () =>
+      mudou('Controle de estoque ligado no IXC. Agora a transferência e a entrada mexem no saldo.'),
+  });
 
   return (
     <Janela titulo={p ? p.descricao : 'Produto'} onFechar={onFechar}>
@@ -150,15 +159,45 @@ export function JanelaDoProduto({
             peça sobrando, a saída foi lançada no lugar errado e mover acerta
             os dois; se ninguém tem, faltou a entrada.
           */}
+          {!p.controlaEstoque && !aviso && (
+            <Aviso
+              tom="atencao"
+              acao={
+                <button
+                  type="button"
+                  onClick={() => ligarControle.mutate()}
+                  disabled={ligarControle.isPending}
+                  className="btn btn-p btn-primario"
+                >
+                  {ligarControle.isPending ? 'Gravando…' : 'Ligar controle de estoque'}
+                </button>
+              }
+            >
+              <strong>Este produto não controla estoque no IXC.</strong> Transferência e entrada
+              são gravadas, mas não mexem no saldo — ele fica parado. Ligue o controle antes de
+              mover. O saldo continua o de agora; o que saiu enquanto estava desligado não é
+              descontado.
+              {ligarControle.isError && (
+                <span className="mt-1 block text-rose-600">{mensagemErro(ligarControle.error)}</span>
+              )}
+            </Aviso>
+          )}
+
           {negativos.length > 0 && !aviso && (
             <Aviso tom="atencao">
               <p>
-                <strong>Saldo negativo</strong> em{' '}
-                {negativos
-                  .map((s) => `${s.almoxarifado} (${quantidade(s.saldo)})`)
-                  .join(', ')}
-                : o IXC registrou saída do que nunca entrou ali.
+                <strong>Saldo negativo</strong> — o IXC registrou saída do que nunca entrou ali:
               </p>
+              <ul className="mt-1 space-y-0.5">
+                {negativos.map((s) => (
+                  <li key={s.almoxId}>
+                    <strong>
+                      {s.almoxarifado} ({quantidade(s.saldo)})
+                    </strong>
+                    : <OndeFicouNegativo produtoId={p.id} almoxId={s.almoxId} />
+                  </li>
+                ))}
+              </ul>
               <p className="mt-1">
                 {positivos.length > 0
                   ? `Se o que saiu estava na verdade em ${positivos

@@ -61,6 +61,8 @@ export interface EdicaoDoProduto {
   ativo?: boolean;
   /** `unidades.id` — a unidade padrão do produto. */
   unidadeId?: number;
+  /** "Controla estoque": sem ele, transferência e entrada não mexem no saldo. */
+  controlaEstoque?: boolean;
 }
 
 /**
@@ -116,6 +118,9 @@ export function montarEdicaoProduto(
   }
   if (mudancas.unidadeId !== undefined) {
     corpo.unidade = String(idValido(mudancas.unidadeId, 'a unidade'));
+  }
+  if (mudancas.controlaEstoque !== undefined) {
+    corpo.controla_estoque = mudancas.controlaEstoque ? 'S' : 'N';
   }
   return corpo;
 }
