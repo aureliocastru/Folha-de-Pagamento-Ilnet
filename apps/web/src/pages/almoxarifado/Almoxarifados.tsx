@@ -12,6 +12,7 @@ import {
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import type { AlmoxarifadoCadastro, OpcoesDoAlmoxarifado } from '../../lib/types';
+import { MoverTudo } from './MoverTudo';
 
 interface DadosDoFormulario {
   descricao: string;
@@ -35,6 +36,8 @@ export function Almoxarifados() {
   const qc = useQueryClient();
   const [editando, setEditando] = useState<AlmoxarifadoCadastro | null>(null);
   const [criando, setCriando] = useState(false);
+  /** A origem aberta na janela "Mover tudo". */
+  const [movendo, setMovendo] = useState<AlmoxarifadoCadastro | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [erro, setErro] = useState(false);
   /** Inativo some da lista por padrão — este botão pequeno traz de volta. */
@@ -251,6 +254,19 @@ export function Almoxarifados() {
                       <div className="flex justify-end gap-1.5">
                         <button
                           type="button"
+                          onClick={() => setMovendo(a)}
+                          disabled={!a.liberado}
+                          title={
+                            a.liberado
+                              ? 'Levar tudo o que ele tem para outro almoxarifado'
+                              : 'Libere para o sistema antes'
+                          }
+                          className="btn btn-p btn-sutil"
+                        >
+                          Mover tudo
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => {
                             if (
                               a.ativo &&
@@ -281,6 +297,15 @@ export function Almoxarifados() {
           </div>
         )}
       </Bloco>
+
+      {movendo && (
+        <MoverTudo
+          origem={movendo}
+          almoxarifados={todos}
+          onFechar={() => setMovendo(null)}
+          onMudou={invalidar}
+        />
+      )}
 
       {(criando || editando) && (
         <FormularioAlmoxarifado

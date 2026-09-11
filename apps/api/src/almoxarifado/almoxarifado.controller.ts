@@ -25,6 +25,7 @@ import {
   EditarProdutoDto,
   EmprestarDto,
   EntradaDeCompraDto,
+  MoverTudoDto,
   TransferirProdutoDto,
 } from './dto/almoxarifado.dto';
 import { EstoqueService } from './estoque.service';
@@ -192,6 +193,31 @@ export class AlmoxarifadoController {
   @HttpCode(200)
   liberarAlmoxarifados(@Req() req: Request) {
     return this.almoxarifados.liberar(quem(req));
+  }
+
+  /** O que o almoxarifado tem agora, lido do IXC — o que "mover tudo" levaria. */
+  @Get('almoxarifados/:id/conteudo')
+  conteudoDoAlmoxarifado(@Param('id', ParseIntPipe) id: number) {
+    return this.produtos.conteudoDoAlmoxarifado(id);
+  }
+
+  /**
+   * Leva tudo do almoxarifado para outro, numa transferência do IXC. Volta na
+   * hora com o andamento; o resto roda em segundo plano.
+   */
+  @Post('almoxarifados/:id/mover-tudo')
+  @HttpCode(202)
+  moverTudo(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: MoverTudoDto,
+    @Req() req: Request,
+  ) {
+    return this.produtos.iniciarMoverTudo(id, dto, quem(req));
+  }
+
+  @Get('almoxarifados/mudancas/:mudancaId')
+  andamentoDaMudanca(@Param('mudancaId', ParseUUIDPipe) mudancaId: string) {
+    return this.produtos.andamentoDaMudanca(mudancaId);
   }
 
   @Patch('almoxarifados/:id')

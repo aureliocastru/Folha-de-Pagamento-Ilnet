@@ -2169,6 +2169,41 @@ export interface AlmoxarifadoCadastro {
   usuarios: Array<{ id: number; nome: string; padrao: boolean }>;
 }
 
+/** Um produto com saldo num almoxarifado — o que "mover tudo" levaria. */
+export interface ItemDoAlmoxarifado {
+  produtoId: number;
+  descricao: string;
+  saldo: number;
+  unidade: string | null;
+}
+
+/** O que um almoxarifado tem agora, separado entre o que vai e o que fica. */
+export interface ConteudoDoAlmoxarifado {
+  almoxId: number;
+  nome: string;
+  moviveis: Array<ItemDoAlmoxarifado & { unidadeSigla: string }>;
+  /** Patrimônio, serviço, produto sem unidade — com o motivo. */
+  deFora: Array<ItemDoAlmoxarifado & { motivo: string }>;
+}
+
+/** Uma mudança de tudo de um almoxarifado para outro, rodando no servidor. */
+export interface AndamentoDaMudanca {
+  id: string;
+  de: { id: number; nome: string };
+  para: { id: number; nome: string };
+  transferenciaId: number;
+  status: 'rodando' | 'terminou' | 'falhou';
+  total: number;
+  feitos: number;
+  movidos: Array<{ produtoId: number; descricao: string; quantidade: number; unidade: string }>;
+  falharam: Array<{ produtoId: number; descricao: string; quantidade: number; motivo: string }>;
+  deFora: Array<ItemDoAlmoxarifado & { motivo: string }>;
+  restouNaOrigem: number | null;
+  erro: string | null;
+  iniciadoEm: string;
+  terminadoEm: string | null;
+}
+
 /** As opções do formulário de almoxarifado. */
 export interface OpcoesDoAlmoxarifado {
   filiais: Array<{ id: number; nome: string }>;

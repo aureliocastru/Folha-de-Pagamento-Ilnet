@@ -148,6 +148,14 @@ export class EditarAlmoxarifadoDto {
   @IsOptional() @IsBoolean() ativo?: boolean;
 }
 
+/** Mover tudo o que um almoxarifado tem para outro. */
+export class MoverTudoDto {
+  @Transform(numero) @IsInt() @Min(1) para!: number;
+
+  @IsOptional() @Transform(texto) @IsString() @MaxLength(200)
+  observacao?: string;
+}
+
 export class TransferirProdutoDto {
   @Transform(numero) @IsInt() @Min(1) de!: number;
   @Transform(numero) @IsInt() @Min(1) para!: number;
