@@ -312,6 +312,17 @@ describe('AcertoDeNegativosService', () => {
     await expect(service.iniciar(pedido(['307:1']), eu)).rejects.toThrow(/Nada para acertar/);
   });
 
+  it('compra que não abre: nada lançado, dito uma vez — e dá para tentar de novo', async () => {
+    const { service, ixc } = montar();
+    ixc.create.mockImplementationOnce(async () => {
+      throw new Error('IXC (/entrada): Ocorreu um erro ao processar.');
+    });
+    const fim = await terminar(service, await service.iniciar(pedido(['307:1', '603:1']), eu));
+    expect(fim).toMatchObject({ status: 'falhou', compras: [], lancados: [], falharam: [] });
+    expect(fim.erro).toMatch(/não abriu .* Nada foi lançado/);
+    expect((await service.listar()).itens.map((i) => i.chave)).toContain('307:1');
+  });
+
   it('não roda dois acertos ao mesmo tempo', async () => {
     const { service } = montar();
     const primeiro = await service.iniciar(pedido(['307:1']), eu);

@@ -189,6 +189,7 @@ export class AcertoDeNegativosService {
   ): Promise<void> {
     try {
       const data = hojeParaIxc();
+      const naoAbriu: string[] = [];
       const porFilial = new Map<number, NegativoParaAcertar[]>();
       for (const i of itens) {
         porFilial.set(i.filialId, [...(porFilial.get(i.filialId) ?? []), i]);
@@ -216,6 +217,8 @@ export class AcertoDeNegativosService {
           ));
         } catch (err) {
           const motivo = err instanceof Error ? err.message : String(err);
+          this.logger.warn(`Acerto: o IXC não abriu a compra de acerto da filial ${filialId}: ${motivo}`);
+          naoAbriu.push(motivo);
           for (const i of daFilial) {
             a.falharam.push({ ...linhaDe(i), motivo: `a compra de acerto não abriu (${motivo})` });
             a.feitos += 1;
@@ -263,6 +266,16 @@ export class AcertoDeNegativosService {
             a.feitos += 1;
           }
         }
+      }
+
+      // Nenhuma compra abriu: nada foi lançado, e é isso que se diz — uma vez.
+      if (a.compras.length === 0) {
+        a.falharam = [];
+        a.status = 'falhou';
+        a.erro =
+          `o IXC não abriu a compra de acerto (${naoAbriu[0] ?? 'sem resposta'}). ` +
+          'Nada foi lançado — o saldo está como antes';
+        return;
       }
 
       // A conferência: o que o IXC tem agora, e não o que foi mandado.

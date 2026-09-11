@@ -553,6 +553,31 @@ export class ProdutosService {
     return rastrearNegativo(movimentos, []).saldoPelosMovimentos;
   }
 
+  /**
+   * Uma compra (entrada) do IXC, crua — o cabeçalho e os itens. Para comparar
+   * a compra que o sistema monta com uma feita na tela do IXC, que o IXC aceita.
+   */
+  async entradaCrua(entradaId: number): Promise<{
+    entrada: Record<string, unknown> | null;
+    itens: Array<Record<string, unknown>>;
+  }> {
+    const [entrada, itens] = await Promise.all([
+      this.ixc.getById<Record<string, unknown>>('entrada', 'entrada.id', entradaId),
+      this.ixc.listAll<Record<string, unknown>>(
+        'movimento_produtos',
+        {
+          qtype: 'movimento_produtos.id_entrada',
+          query: String(entradaId),
+          oper: '=',
+          sortname: 'movimento_produtos.id',
+          sortorder: 'asc',
+        },
+        { pageSize: 200, maxPages: 1 },
+      ),
+    ]);
+    return { entrada, itens };
+  }
+
   /** Em qual movimento o saldo do produto ficou negativo neste almoxarifado. */
   async rastreio(produtoId: number, almoxId: number): Promise<RastreioDoNegativo> {
     const { movimentos, transferencias } = await this.movimentosCrus(produtoId, almoxId);

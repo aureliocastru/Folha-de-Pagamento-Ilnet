@@ -375,6 +375,10 @@ export interface EntradaDeCompra {
  */
 export function montarEntrada(e: EntradaDeCompra): Record<string, unknown> {
   return {
+    // Todas as colunas do exemplo, as opcionais vazias. Mandando só as
+    // obrigatórias, o IXC respondeu "Ocorreu um erro ao processar" (acerto de
+    // negativos, 11/09/2026) — o webservice espera receber a linha inteira.
+    ...COLUNAS_DA_ENTRADA,
     tipo_documento: String(idValido(e.tipoDocumentoId, 'o tipo de documento')),
     id_fornecedor: String(idValido(e.fornecedorId, 'o fornecedor')),
     condicoes_pagamento: String(idValido(e.condicaoPagamentoId, 'a condição de pagamento')),
@@ -390,6 +394,73 @@ export function montarEntrada(e: EntradaDeCompra): Record<string, unknown> {
     tipo_frete: '9',
   };
 }
+
+/** As colunas opcionais de "Produtos (inserir)" da compra, vazias como no exemplo. */
+const COLUNAS_DO_ITEM_DA_ENTRADA: Record<string, string> = Object.fromEntries(
+  [
+    'tipo_preenchimento_tributacao',
+    'codigo_fornecedor',
+    'descricao_fornecedor',
+    'descricao',
+    'pdesconto',
+    'valor_frete',
+    'vdesconto',
+    'id_itens_pedido',
+    'id_pedido_compra',
+    'id_pedido_compra_itens',
+    'qtde_saida',
+    'id_inventario',
+    'id_negociacao',
+    'tipo_produto',
+    'id_transf_almox_item',
+    'id_moeda',
+    'id_estrutura',
+    'imobilizado',
+    'eh_importacao_xml',
+    'ultima_atualizacao',
+    'id_saida',
+    'id_class_fiscal',
+    'cfop',
+    'ncm',
+    'valor_icm',
+    'valor_ipi',
+    'iss_valor',
+    'valor_icms_st',
+    'valor_fcp_st',
+    'valor_outros',
+  ].map((c) => [c, '']),
+);
+
+/** As colunas opcionais de "Compra (inserir)", vazias como no exemplo da documentação. */
+const COLUNAS_DA_ENTRADA: Record<string, string> = Object.fromEntries(
+  [
+    'arquivo_xml',
+    'modelo_nf',
+    'serie',
+    'id_almox_padrao_tipo_doc',
+    'tipo_calculo_tributacao',
+    'tipo_entrada_compra',
+    'transportadora',
+    'vipi_frete',
+    'frete_volumes',
+    'frete_especie',
+    'frete_peso_bruto',
+    'frete_peso_liquido',
+    'vfrete',
+    'icms_bc',
+    'icms_valor',
+    'icms_bc_st',
+    'icms_valor_st',
+    'fcp_bc_st',
+    'fcp_valor_st',
+    'ipi_valor',
+    'vpis',
+    'vcofins',
+    'realizar_rateio_outras_despesas',
+    'voutro',
+    'nfe_chave',
+  ].map((c) => [c, '']),
+);
 
 export interface ItemDaEntrada extends Omit<ItemMovimentado, 'tipoProduto'> {
   almoxId: number;
@@ -412,6 +483,8 @@ export function montarItemDaEntrada(
   const quantidade = quantidadeValida(item.quantidade);
   const unitario = precoValido(item.valorUnitario);
   return {
+    // A linha inteira do exemplo, como na compra (ver `montarEntrada`).
+    ...COLUNAS_DO_ITEM_DA_ENTRADA,
     id_produto: String(idValido(item.produtoId, 'o produto')),
     id_unidade: String(idValido(item.unidadeId, 'a unidade')),
     id_almox: String(idValido(item.almoxId, 'o almoxarifado')),

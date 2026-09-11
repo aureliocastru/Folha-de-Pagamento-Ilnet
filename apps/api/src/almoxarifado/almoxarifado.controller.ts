@@ -160,6 +160,12 @@ export class AlmoxarifadoController {
     return this.produtos.movimentosCrus(id, almox);
   }
 
+  /** Uma compra do IXC, crua (cabeçalho e itens) — para comparar com a que o sistema monta. */
+  @Get('entradas/:id')
+  entradaCrua(@Param('id', ParseIntPipe) id: number) {
+    return this.produtos.entradaCrua(id);
+  }
+
   /** Em qual movimento o saldo ficou negativo — a saída, a transferência, a OS. */
   @Get('produtos/:id/rastreio')
   rastreioDoNegativo(

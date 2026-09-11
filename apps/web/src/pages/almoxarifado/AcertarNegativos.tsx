@@ -359,7 +359,11 @@ function Resultado({
   return (
     <div>
       <p className="mb-2 text-sm text-tinta-600">
-        Compra de acerto {a.compras.map((c) => `#${c}`).join(', ') || '(abrindo…)'} no IXC
+        {a.compras.length > 0
+          ? `Compra de acerto ${a.compras.map((c) => `#${c}`).join(', ')} no IXC`
+          : a.status === 'rodando'
+            ? 'Abrindo a compra de acerto no IXC…'
+            : 'A compra de acerto não abriu no IXC'}
       </p>
       <div className="mb-1 h-2 overflow-hidden rounded-full bg-tinta-100">
         <div
@@ -374,7 +378,11 @@ function Resultado({
       </p>
 
       {erro ? <Aviso tom="erro">{mensagemErro(erro)}</Aviso> : null}
-      {a.status === 'falhou' && <Aviso tom="erro">O acerto parou no meio ({a.erro}).</Aviso>}
+      {a.status === 'falhou' && (
+        <Aviso tom="erro">
+          {a.compras.length === 0 ? `${a.erro}.` : `O acerto parou no meio (${a.erro}).`}
+        </Aviso>
+      )}
 
       {a.status === 'terminou' && (
         <Aviso tom={a.falharam.length === 0 && !a.aindaNegativos?.length ? 'pago' : 'atencao'}>

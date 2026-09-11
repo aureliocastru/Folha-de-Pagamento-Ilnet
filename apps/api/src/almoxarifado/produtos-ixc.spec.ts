@@ -265,6 +265,35 @@ describe('entrada de compra', () => {
     });
   });
 
+  it('a compra e o item levam a linha inteira do exemplo — o IXC recusou só os obrigatórios', () => {
+    const compra = montarEntrada({
+      tipoDocumentoId: 35,
+      fornecedorId: 221,
+      condicaoPagamentoId: 27,
+      filialId: 1,
+      data: '11/09/2026',
+      numeroNota: '',
+      valorTotal: 10,
+    });
+    for (const coluna of ['arquivo_xml', 'modelo_nf', 'serie', 'tipo_entrada_compra', 'nfe_chave', 'voutro']) {
+      expect(compra).toHaveProperty(coluna, '');
+    }
+    const item = montarItemDaEntrada(9, {
+      produtoId: 36,
+      unidadeId: 2,
+      unidadeSigla: 'MC',
+      almoxId: 1,
+      filialId: 1,
+      quantidade: 1,
+      valorUnitario: 1,
+      data: '11/09/2026',
+    });
+    for (const coluna of ['tipo_preenchimento_tributacao', 'eh_importacao_xml', 'id_saida', 'valor_outros']) {
+      expect(item).toHaveProperty(coluna, '');
+    }
+    expect(item).toMatchObject({ id_produto: '36', tipo: 'E', estoque: 'S', id_entrada: '9' });
+  });
+
   it('o item é uma entrada (tipo E) que conta no estoque (estoque S)', () => {
     expect(
       montarItemDaEntrada(9, {
