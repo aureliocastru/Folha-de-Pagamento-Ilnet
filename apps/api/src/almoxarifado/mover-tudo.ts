@@ -35,6 +35,16 @@ export interface ItemDeFora extends ItemDoAlmoxarifado {
   motivo: string;
 }
 
+/**
+ * Saldo de patrimônio que não tem peça cadastrada no almoxarifado — o IXC tem
+ * a quantidade, mas não o registro com MAC e número (ferramenta cadastrada
+ * como patrimônio e que nunca ganhou peça, por exemplo). Pode ir pela
+ * quantidade, se quem transfere pedir.
+ */
+export interface ItemSemPeca extends ItemMovivel {
+  motivo: string;
+}
+
 /** Uma peça de patrimônio disponível no almoxarifado. */
 export interface PatrimonioDoAlmoxarifado {
   patrimonioId: number;
@@ -56,6 +66,49 @@ export interface PatrimonioDoAlmoxarifado {
  * transferência) não estão ali para mover.
  */
 const NO_ESTOQUE = new Set(['1', '7']);
+
+/**
+ * Situações de peça que ainda contam no saldo do almoxarifado sem estar na
+ * prateleira: 6 Alocado e 8 Indisponível (presa numa transferência, OS ou
+ * requisição). Havendo uma dessas, o saldo sem peça pode ser ela — e mover a
+ * quantidade seria levar duas vezes a mesma coisa.
+ */
+const PRESA_AQUI = new Set(['6', '8']);
+
+const NOME_DA_SITUACAO: Record<string, string> = {
+  '3': 'vendida',
+  '4': 'em comodato',
+  '5': 'inutilizada',
+  '6': 'alocada',
+  '8': 'indisponível (presa em transferência, OS ou requisição)',
+};
+
+/**
+ * As peças de cada produto que estão no almoxarifado mas **fora da
+ * prateleira**, por situação — é o que explica um saldo de patrimônio sem
+ * peça disponível: "1 indisponível", "2 em comodato".
+ */
+export function pecasForaDaPrateleira(
+  linhas: Array<Record<string, unknown>>,
+): Map<number, Map<string, number>> {
+  const porProduto = new Map<number, Map<string, number>>();
+  for (const l of linhas) {
+    const situacao = String(l.situacao ?? '').trim();
+    if (numeroDoIxc(l.id) <= 0 || NO_ESTOQUE.has(situacao)) continue;
+    const produtoId = numeroDoIxc(l.id_produto);
+    const contas = porProduto.get(produtoId) ?? new Map<string, number>();
+    contas.set(situacao, (contas.get(situacao) ?? 0) + 1);
+    porProduto.set(produtoId, contas);
+  }
+  return porProduto;
+}
+
+function descreverFora(contas: Map<string, number> | undefined): string {
+  if (!contas) return '';
+  return [...contas.entries()]
+    .map(([s, n]) => `${n} ${NOME_DA_SITUACAO[s] ?? `na situação ${s}`}`)
+    .join(', ');
+}
 
 function texto(v: unknown): string | null {
   const t = v === null || v === undefined ? '' : String(v).trim();
@@ -146,7 +199,9 @@ export function patrimoniosMoviveis(
  *  - saldo zero ou negativo não é "ter" nada — nem entra na conta;
  *  - produto de patrimônio não vai por quantidade: vai peça por peça, pelos
  *    registros de `patrimonio` (`porPatrimonio` diz quantas peças disponíveis
- *    foram achadas). Saldo sem peça que o explique fica, com o aviso;
+ *    foram achadas). Saldo sem peça que o explique é `semPeca` — pode ir pela
+ *    quantidade, se pedirem —, a não ser que haja peça dele presa aqui
+ *    (alocada, indisponível): aí o saldo pode ser ela, e fica;
  *  - serviço fica: não tem estoque;
  *  - produto sem unidade no cadastro fica: o item da transferência exige a
  *    unidade, e mandar uma inventada moveria a quantidade errada.
@@ -156,8 +211,10 @@ export function separarMoviveis(
   produtos: Map<number, Record<string, unknown>>,
   unidades: Array<{ id: number; sigla: string }>,
   porPatrimonio: Map<number, number> = new Map(),
-): { moviveis: ItemMovivel[]; deFora: ItemDeFora[] } {
+  foraDaPrateleira: Map<number, Map<string, number>> = new Map(),
+): { moviveis: ItemMovivel[]; semPeca: ItemSemPeca[]; deFora: ItemDeFora[] } {
   const moviveis: ItemMovivel[] = [];
+  const semPeca: ItemSemPeca[] = [];
   const deFora: ItemDeFora[] = [];
 
   for (const item of itens) {
@@ -168,24 +225,40 @@ export function separarMoviveis(
       continue;
     }
     const tipo = String(bruto.tipo ?? '').trim().toUpperCase();
-    if (tipo === 'P') {
-      const sobra = Math.round((item.saldo - (porPatrimonio.get(item.produtoId) ?? 0)) * 1000) / 1000;
-      if (sobra > 0) {
-        deFora.push({
-          ...item,
-          saldo: sobra,
-          motivo:
-            'patrimônio: este saldo não tem peça disponível cadastrada neste almoxarifado — ' +
-            'confira os patrimônios dele no IXC',
-        });
-      }
-      continue;
-    }
     if (tipo === 'S') {
       deFora.push({ ...item, motivo: 'serviço não tem estoque' });
       continue;
     }
     const unidade = unidades.find((u) => u.id === numeroDoIxc(bruto.unidade));
+    if (tipo === 'P') {
+      const sobra = Math.round((item.saldo - (porPatrimonio.get(item.produtoId) ?? 0)) * 1000) / 1000;
+      if (!(sobra > 0)) continue;
+      const fora = foraDaPrateleira.get(item.produtoId);
+      const presa = [...(fora?.keys() ?? [])].some((s) => PRESA_AQUI.has(s));
+      if (presa || !unidade) {
+        deFora.push({
+          ...item,
+          saldo: sobra,
+          motivo: presa
+            ? `patrimônio: o saldo pode ser a peça que está aqui ${descreverFora(fora)} — ` +
+              'resolva a peça no IXC antes'
+            : 'patrimônio sem peça e sem unidade no cadastro — acerte na edição do produto',
+        });
+        continue;
+      }
+      const onde = descreverFora(fora);
+      semPeca.push({
+        ...item,
+        saldo: sobra,
+        unidadeId: unidade.id,
+        unidadeSigla: unidade.sigla,
+        tipoProduto: 'P',
+        motivo:
+          'patrimônio sem peça cadastrada aqui (sem MAC nem número)' +
+          (onde ? ` — das peças dele, ${onde}` : ''),
+      });
+      continue;
+    }
     if (!unidade) {
       deFora.push({ ...item, motivo: 'sem unidade no cadastro — acerte na edição do produto' });
       continue;
@@ -200,7 +273,11 @@ export function separarMoviveis(
 
   const porNome = (a: ItemDoAlmoxarifado, b: ItemDoAlmoxarifado) =>
     a.descricao.localeCompare(b.descricao, 'pt-BR');
-  return { moviveis: moviveis.sort(porNome), deFora: deFora.sort(porNome) };
+  return {
+    moviveis: moviveis.sort(porNome),
+    semPeca: semPeca.sort(porNome),
+    deFora: deFora.sort(porNome),
+  };
 }
 
 /**

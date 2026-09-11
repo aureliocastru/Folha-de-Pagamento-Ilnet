@@ -11,10 +11,12 @@ import { EstoqueService } from './estoque.service';
 import {
   emParalelo,
   identificacao,
+  pecasForaDaPrateleira,
   patrimoniosMoviveis,
   separarMoviveis,
   type ItemDeFora,
   type ItemMovivel,
+  type ItemSemPeca,
   type PatrimonioDoAlmoxarifado,
 } from './mover-tudo';
 import { ProdutosService } from './produtos.service';
@@ -33,6 +35,8 @@ export interface ConteudoDoAlmoxarifado {
   moviveis: ItemMovivel[];
   /** Peças de patrimônio na prateleira (ONU, roteador…), cada uma com MAC e número. */
   patrimonios: PatrimonioDoAlmoxarifado[];
+  /** Saldo de patrimônio sem peça cadastrada — vai pela quantidade, se pedirem. */
+  semPeca: ItemSemPeca[];
   deFora: ItemDeFora[];
 }
 
@@ -54,8 +58,17 @@ export interface AndamentoDaTransferencia {
   status: 'rodando' | 'terminou' | 'falhou';
   total: number;
   feitos: number;
+  /**
+   * Quantos o IXC recusou na primeira passada e estão sendo tentados de novo,
+   * um por vez. Zero fora dessa hora.
+   */
+  tentandoDeNovo: number;
   movidos: LinhaDoResultado[];
-  falharam: Array<LinhaDoResultado & { motivo: string }>;
+  /**
+   * O que o IXC recusou. `jaSaiu`: deu erro, mas relida a origem já não tem —
+   * o IXC pode ter gravado; não se oferece de novo.
+   */
+  falharam: Array<LinhaDoResultado & { motivo: string; jaSaiu: boolean }>;
   /** O que ficou de fora de propósito (só no "mover tudo"). */
   deFora: ItemDeFora[];
   /**
@@ -78,6 +91,8 @@ export interface PedidoDeTransferencia {
   patrimonios?: number[];
   /** Tudo o que dá para levar — o "mover tudo". */
   tudo?: boolean;
+  /** No "mover tudo": leva também o saldo de patrimônio sem peça, pela quantidade. */
+  levarSemPeca?: boolean;
 }
 
 type ItemDaTransferencia =
@@ -90,6 +105,17 @@ interface Quem {
 
 /** Quantos itens entram na transferência ao mesmo tempo. */
 const ITENS_EM_PARALELO = 3;
+
+/**
+ * Quanto esperar antes de tentar de novo o que o IXC recusou.
+ *
+ * A recusa vista em produção (11/09/2026, "Ocorreu um erro ao processar.
+ * Contate o suporte IXC Soft.") pegou exatamente os três itens que chegaram
+ * juntos na transferência recém-aberta; os seis seguintes passaram. Por isso
+ * o primeiro item vai sozinho, e o que for recusado ganha uma segunda chance,
+ * um por vez.
+ */
+const PAUSA_ANTES_DE_REPETIR_MS = 2_000;
 
 /** Quanto tempo uma transferência terminada fica guardada para a tela ler o resultado. */
 const GUARDA_MS = 60 * 60_000;
@@ -112,8 +138,12 @@ const GUARDA_MS = 60 * 60_000;
 export class TransferenciasService {
   private readonly logger = new Logger(TransferenciasService.name);
   private readonly andamentos = new Map<string, AndamentoDaTransferencia>();
+  /** O que cada transferência terminada não conseguiu levar — o "tentar de novo". */
+  private readonly recusados = new Map<string, ItemDaTransferencia[]>();
   /** Almoxarifados numa transferência rodando — nem origem nem destino de outra. */
   private readonly ocupados = new Set<number>();
+  /** Fica aqui, e não só na constante, para o teste não ter de esperar. */
+  pausaAntesDeRepetirMs = PAUSA_ANTES_DE_REPETIR_MS;
 
   constructor(
     private readonly ixc: IxcClient,
@@ -160,13 +190,20 @@ export class TransferenciasService {
     for (const p of pecas.patrimonios) {
       porPatrimonio.set(p.produtoId, (porPatrimonio.get(p.produtoId) ?? 0) + 1);
     }
-    const saldo = separarMoviveis(itens, cadastros, unidades, porPatrimonio);
+    const saldo = separarMoviveis(
+      itens,
+      cadastros,
+      unidades,
+      porPatrimonio,
+      pecasForaDaPrateleira(linhasDePatrimonio),
+    );
 
     return {
       almoxId,
       nome: lido.almoxarifados.find((a) => a.id === almoxId)?.nome ?? `Almoxarifado ${almoxId}`,
       moviveis: saldo.moviveis,
       patrimonios: pecas.patrimonios,
+      semPeca: saldo.semPeca,
       deFora: [...saldo.deFora, ...pecas.deFora],
     };
   }
@@ -199,13 +236,17 @@ export class TransferenciasService {
       }
 
       const conteudo = await this.conteudo(de);
-      const itens = pedido.tudo ? tudoDe(conteudo) : this.conferirPedido(pedido, conteudo);
+      const levarSemPeca = !!pedido.tudo && !!pedido.levarSemPeca;
+      const itens = pedido.tudo
+        ? tudoDe(conteudo, levarSemPeca)
+        : this.conferirPedido(pedido, conteudo);
+      const ficam = [...conteudo.deFora, ...(levarSemPeca ? [] : conteudo.semPeca)];
       if (itens.length === 0) {
         throw new BadRequestException(
           pedido.tudo
             ? `"${origem.nome}" não tem nada para mover` +
-                (conteudo.deFora.length > 0
-                  ? ` — só ${conteudo.deFora.length} item(ns) que não vão por transferência.`
+                (ficam.length > 0
+                  ? ` — só ${ficam.length} item(ns) que não vão por transferência.`
                   : '.')
             : 'A lista está vazia — escolha o que vai.',
         );
@@ -239,9 +280,10 @@ export class TransferenciasService {
         status: 'rodando',
         total: itens.length,
         feitos: 0,
+        tentandoDeNovo: 0,
         movidos: [],
         falharam: [],
-        deFora: pedido.tudo ? conteudo.deFora : [],
+        deFora: pedido.tudo ? ficam : [],
         restouNaOrigem: null,
         erro: null,
         iniciadoEm: new Date().toISOString(),
@@ -253,7 +295,7 @@ export class TransferenciasService {
         `${quem.nome} começou a transferir ${itens.length} item(ns) de ${origem.nome} para ` +
           `${destino.nome} (transferência #${transferenciaId} no IXC${pedido.tudo ? ', tudo' : ''}).`,
       );
-      void this.executar(andamento, itens, !!pedido.tudo);
+      void this.executar(andamento, itens, pedido.tudo ? { levarSemPeca } : null);
       return andamento;
     } catch (err) {
       this.ocupados.delete(de);
@@ -274,6 +316,34 @@ export class TransferenciasService {
   }
 
   /**
+   * Abre uma transferência nova com o que a terminada não conseguiu levar —
+   * o botão "Tentar de novo". A lista passa pela mesma conferência contra o
+   * que a origem tem agora: o que já saiu de lá não vai duas vezes.
+   */
+  async repetir(id: string, quem: Quem): Promise<AndamentoDaTransferencia> {
+    const a = this.andamento(id);
+    if (a.status === 'rodando') {
+      throw new BadRequestException('Essa transferência ainda está rodando. Espere ela terminar.');
+    }
+    const itens = this.recusados.get(id) ?? [];
+    if (itens.length === 0) {
+      throw new BadRequestException('Não sobrou nada dessa transferência para tentar de novo.');
+    }
+    return this.iniciar(
+      {
+        de: a.de.id,
+        para: a.para.id,
+        observacao: `de novo o que a #${a.transferenciaId} não levou`,
+        produtos: itens.flatMap((i) =>
+          i.tipo === 'produto' ? [{ produtoId: i.item.produtoId, quantidade: i.quantidade }] : [],
+        ),
+        patrimonios: itens.flatMap((i) => (i.tipo === 'patrimonio' ? [i.peca.patrimonioId] : [])),
+      },
+      quem,
+    );
+  }
+
+  /**
    * Confere a lista escolhida contra o que a origem tem **agora**: produto
    * que não está lá, quantidade maior que o saldo, peça que já saiu — recusa
    * tudo antes de abrir a transferência, dizendo o quê.
@@ -286,7 +356,10 @@ export class TransferenciasService {
     const problemas: string[] = [];
 
     for (const p of pedido.produtos ?? []) {
-      const item = conteudo.moviveis.find((m) => m.produtoId === p.produtoId);
+      // O saldo de patrimônio sem peça também vai pela quantidade, quando pedido.
+      const item =
+        conteudo.moviveis.find((m) => m.produtoId === p.produtoId) ??
+        conteudo.semPeca.find((m) => m.produtoId === p.produtoId);
       if (!item) {
         problemas.push(`o produto #${p.produtoId} não tem saldo que vá por quantidade aqui`);
       } else if (!(p.quantidade > 0)) {
@@ -315,40 +388,57 @@ export class TransferenciasService {
     return itens;
   }
 
+  /**
+   * Grava os itens na transferência: o primeiro sozinho, o resto alguns por
+   * vez, e o que o IXC recusar ganha uma segunda chance, um por vez (ver
+   * `PAUSA_ANTES_DE_REPETIR_MS`).
+   */
   private async executar(
     a: AndamentoDaTransferencia,
     itens: ItemDaTransferencia[],
-    tudo: boolean,
+    tudo: { levarSemPeca: boolean } | null,
   ): Promise<void> {
     try {
-      await emParalelo(itens, ITENS_EM_PARALELO, async (i) => {
-        const linha = linhaDe(i);
+      const recusados: Array<{ item: ItemDaTransferencia; motivo: string }> = [];
+      const incluir = async (i: ItemDaTransferencia) => {
         try {
-          await this.ixc.create(
-            'transf_almox_item',
-            i.tipo === 'produto'
-              ? montarItemDaTransferencia(a.transferenciaId, {
-                  produtoId: i.item.produtoId,
-                  unidadeId: i.item.unidadeId,
-                  unidadeSigla: i.item.unidadeSigla,
-                  quantidade: i.quantidade,
-                  tipoProduto: i.item.tipoProduto,
-                })
-              : montarPatrimonioDaTransferencia(a.transferenciaId, i.peca),
-          );
-          a.movidos.push(linha);
+          await this.gravarItem(a.transferenciaId, i);
+          a.movidos.push(linhaDe(i));
         } catch (err) {
-          a.falharam.push({ ...linha, motivo: err instanceof Error ? err.message : String(err) });
+          const motivo = err instanceof Error ? err.message : String(err);
+          this.logger.warn(
+            `Transferência #${a.transferenciaId}: o IXC recusou ${descreverParaLog(i)} (${motivo}).`,
+          );
+          recusados.push({ item: i, motivo });
         } finally {
           a.feitos += 1;
         }
-      });
+      };
+
+      const [primeiro, ...resto] = itens;
+      await incluir(primeiro);
+      await emParalelo(resto, ITENS_EM_PARALELO, incluir);
+
+      const falharam = recusados.length > 0 ? await this.segundaChance(a, recusados) : [];
+      a.falharam.push(
+        ...falharam.map(({ item, motivo, jaSaiu }) => ({
+          ...linhaDe(item),
+          motivo,
+          jaSaiu: !!jaSaiu,
+        })),
+      );
+      this.recusados.set(
+        a.id,
+        falharam.filter((f) => !f.jaSaiu).map((f) => f.item),
+      );
 
       this.estoque.esquecer();
       try {
         const depois = await this.conteudo(a.de.id);
         a.restouNaOrigem = tudo
-          ? depois.moviveis.length + depois.patrimonios.length
+          ? depois.moviveis.length +
+            depois.patrimonios.length +
+            (tudo.levarSemPeca ? depois.semPeca.length : 0)
           : contarQueFicaram(itens, depois);
       } catch {
         a.restouNaOrigem = null;
@@ -369,10 +459,78 @@ export class TransferenciasService {
     }
   }
 
+  private gravarItem(transferenciaId: number, i: ItemDaTransferencia) {
+    return this.ixc.create(
+      'transf_almox_item',
+      i.tipo === 'produto'
+        ? montarItemDaTransferencia(transferenciaId, {
+            produtoId: i.item.produtoId,
+            unidadeId: i.item.unidadeId,
+            unidadeSigla: i.item.unidadeSigla,
+            quantidade: i.quantidade,
+            tipoProduto: i.item.tipoProduto,
+          })
+        : montarPatrimonioDaTransferencia(transferenciaId, i.peca),
+    );
+  }
+
+  /**
+   * A segunda chance do que o IXC recusou: relê a origem e, do que ainda
+   * está lá, tenta de novo um por vez. O que já não está não é repetido —
+   * o IXC pode ter gravado mesmo dizendo que deu erro, e mandar de novo
+   * levaria duas vezes. Devolve o que continuou de fora.
+   */
+  private async segundaChance(
+    a: AndamentoDaTransferencia,
+    recusados: Array<{ item: ItemDaTransferencia; motivo: string }>,
+  ): Promise<Array<{ item: ItemDaTransferencia; motivo: string; jaSaiu?: boolean }>> {
+    a.tentandoDeNovo = recusados.length;
+    try {
+      await pausa(this.pausaAntesDeRepetirMs);
+      this.estoque.esquecer();
+      let agora: ConteudoDoAlmoxarifado;
+      try {
+        agora = await this.conteudo(a.de.id);
+      } catch {
+        return recusados; // sem saber o que a origem tem, não se arrisca repetir
+      }
+
+      const ficaram: Array<{ item: ItemDaTransferencia; motivo: string; jaSaiu?: boolean }> = [];
+      for (const r of recusados) {
+        if (!aindaNaOrigem(r.item, agora)) {
+          ficaram.push({
+            ...r,
+            jaSaiu: true,
+            motivo:
+              `${r.motivo} — mas, relida agora, a origem já não tem: confira a ` +
+              `transferência #${a.transferenciaId} no IXC antes de mandar de novo`,
+          });
+        } else {
+          try {
+            await this.gravarItem(a.transferenciaId, r.item);
+            a.movidos.push(linhaDe(r.item));
+            this.logger.log(
+              `Transferência #${a.transferenciaId}: ${descreverParaLog(r.item)} entrou na segunda tentativa.`,
+            );
+          } catch (err) {
+            ficaram.push({ ...r, motivo: err instanceof Error ? err.message : String(err) });
+          }
+        }
+        a.tentandoDeNovo -= 1;
+      }
+      return ficaram;
+    } finally {
+      a.tentandoDeNovo = 0;
+    }
+  }
+
   private esquecerVelhas(): void {
     const limite = Date.now() - GUARDA_MS;
     for (const [id, a] of this.andamentos) {
-      if (a.terminadoEm && Date.parse(a.terminadoEm) < limite) this.andamentos.delete(id);
+      if (a.terminadoEm && Date.parse(a.terminadoEm) < limite) {
+        this.andamentos.delete(id);
+        this.recusados.delete(id);
+      }
     }
   }
 
@@ -411,11 +569,41 @@ export class TransferenciasService {
   }
 }
 
-function tudoDe(c: ConteudoDoAlmoxarifado): ItemDaTransferencia[] {
+function tudoDe(c: ConteudoDoAlmoxarifado, levarSemPeca: boolean): ItemDaTransferencia[] {
   return [
     ...c.moviveis.map((item) => ({ tipo: 'produto' as const, item, quantidade: item.saldo })),
     ...c.patrimonios.map((peca) => ({ tipo: 'patrimonio' as const, peca })),
+    ...(levarSemPeca
+      ? c.semPeca.map((item) => ({ tipo: 'produto' as const, item, quantidade: item.saldo }))
+      : []),
   ];
+}
+
+function pausa(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** "produto #36 (tipo C, 2 UND)" / "patrimônio #9 (produto #34)" — o que o log precisa. */
+function descreverParaLog(i: ItemDaTransferencia): string {
+  return i.tipo === 'produto'
+    ? `produto #${i.item.produtoId} "${i.item.descricao}" (tipo ${i.item.tipoProduto || '?'}, ` +
+        `${i.quantidade} ${i.item.unidadeSigla})`
+    : `patrimônio #${i.peca.patrimonioId} (produto #${i.peca.produtoId})`;
+}
+
+/**
+ * O item ainda está na origem como estava — produto com o saldo inteiro de
+ * antes (não baixou nada), peça ainda na prateleira. Na dúvida, não: repetir
+ * o que já foi levaria duas vezes.
+ */
+function aindaNaOrigem(i: ItemDaTransferencia, agora: ConteudoDoAlmoxarifado): boolean {
+  if (i.tipo === 'patrimonio') {
+    return agora.patrimonios.some((p) => p.patrimonioId === i.peca.patrimonioId);
+  }
+  const atual =
+    agora.moviveis.find((m) => m.produtoId === i.item.produtoId) ??
+    agora.semPeca.find((m) => m.produtoId === i.item.produtoId);
+  return !!atual && atual.saldo >= i.quantidade - 1e-9 && atual.saldo > i.item.saldo - i.quantidade + 1e-6;
 }
 
 function linhaDe(i: ItemDaTransferencia): LinhaDoResultado {
@@ -438,7 +626,10 @@ function contarQueFicaram(itens: ItemDaTransferencia[], depois: ConteudoDoAlmoxa
     i.tipo === 'patrimonio'
       ? depois.patrimonios.some((p) => p.patrimonioId === i.peca.patrimonioId)
       : // Produto: só conta se sobrou mais do que havia antes menos o que foi.
-        (depois.moviveis.find((m) => m.produtoId === i.item.produtoId)?.saldo ?? 0) >
+        ((
+          depois.moviveis.find((m) => m.produtoId === i.item.produtoId) ??
+          depois.semPeca.find((m) => m.produtoId === i.item.produtoId)
+        )?.saldo ?? 0) >
         i.item.saldo - i.quantidade + 1e-6,
   ).length;
 }

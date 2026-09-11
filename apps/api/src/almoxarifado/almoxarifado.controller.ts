@@ -237,6 +237,13 @@ export class AlmoxarifadoController {
     return this.transferencias.andamento(id);
   }
 
+  /** Uma transferência nova com o que a terminada não conseguiu levar. */
+  @Post('transferencias/:id/repetir')
+  @HttpCode(202)
+  repetirTransferencia(@Param('id', ParseUUIDPipe) id: string, @Req() req: Request) {
+    return this.transferencias.repetir(id, quem(req));
+  }
+
   @Patch('almoxarifados/:id')
   editarAlmoxarifado(
     @Param('id', ParseIntPipe) id: number,

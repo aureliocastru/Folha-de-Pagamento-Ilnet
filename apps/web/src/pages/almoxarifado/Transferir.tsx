@@ -31,6 +31,9 @@ import {
 /** Quantas linhas a lista da origem mostra de uma vez — a busca estreita o resto. */
 const MOSTRAR_ATE = 150;
 
+/** Produto que vai pela quantidade; o `motivo` só vem no patrimônio sem peça. */
+type ProdutoDaOrigem = ConteudoDoAlmoxarifado['moviveis'][number] & { motivo?: string };
+
 /** "2,5", "2.5" e "1.250,5" → número. Vazio ou inválido → NaN. */
 function numeroDigitado(texto: string): number {
   const t = texto.trim();
@@ -58,7 +61,9 @@ export function Transferir() {
   const [produtos, setProdutos] = useState<Record<number, string>>({});
   const [pecas, setPecas] = useState<Set<number>>(new Set());
   const [observacao, setObservacao] = useState('');
-  const [transferenciaId, setTransferenciaId] = useState<string | null>(null);
+  /** A transferência acompanhada — a gravada agora, ou a do "tentar de novo". */
+  const [aberta, setAberta] = useState<AndamentoDaTransferencia | null>(null);
+  const transferenciaId = aberta?.id ?? null;
   const campoDeBusca = useRef<HTMLInputElement>(null);
 
   const almoxarifados = useQuery({
@@ -71,6 +76,11 @@ export function Transferir() {
 
   const conteudo = useConteudo(de ? Number(de) : null);
   const c = conteudo.data;
+  /** Produto que vai pela quantidade — o comum e o patrimônio sem peça cadastrada. */
+  const produtosDaOrigem: ProdutoDaOrigem[] = useMemo(
+    () => (c ? [...c.moviveis, ...c.semPeca] : []),
+    [c],
+  );
 
   const terminou = useCallback(() => {
     void qc.invalidateQueries({ queryKey: ['almoxarifado', 'estoque'] });
@@ -102,7 +112,7 @@ export function Transferir() {
   function porTudo(conteudoDaOrigem: ConteudoDoAlmoxarifado) {
     setProdutos(
       Object.fromEntries(
-        conteudoDaOrigem.moviveis.map((m) => [m.produtoId, String(m.saldo).replace('.', ',')]),
+        produtosDaOrigem.map((m) => [m.produtoId, String(m.saldo).replace('.', ',')]),
       ),
     );
     setPecas(new Set(conteudoDaOrigem.patrimonios.map((p) => p.patrimonioId)));
@@ -139,9 +149,9 @@ export function Transferir() {
     if (!c) return { produtos: [], pecas: [] };
     const t = semAcento(busca.trim());
     const cod = normalizarCodigo(busca);
-    if (!t) return { produtos: c.moviveis, pecas: c.patrimonios };
+    if (!t) return { produtos: produtosDaOrigem, pecas: c.patrimonios };
     return {
-      produtos: c.moviveis.filter(
+      produtos: produtosDaOrigem.filter(
         (m) => semAcento(m.descricao).includes(t) || String(m.produtoId) === busca.trim(),
       ),
       pecas: c.patrimonios.filter(
@@ -153,13 +163,13 @@ export function Transferir() {
             )),
       ),
     };
-  }, [c, busca]);
+  }, [c, produtosDaOrigem, busca]);
 
   // A lista, conferida contra o que a origem tem.
   const naLista = useMemo(() => {
     if (!c) return { produtos: [], pecas: [], problemas: 0 };
     const linhas = Object.entries(produtos).flatMap(([id, qtd]) => {
-      const m = c.moviveis.find((x) => x.produtoId === Number(id));
+      const m = produtosDaOrigem.find((x) => x.produtoId === Number(id));
       if (!m) return [];
       const n = numeroDigitado(qtd);
       const problema = !(n > 0) ? 'quantidade inválida' : n > m.saldo + 1e-9 ? `só tem ${quantidade(m.saldo)}` : null;
@@ -171,7 +181,7 @@ export function Transferir() {
       pecas: escolhidas,
       problemas: linhas.filter((l) => l.problema).length,
     };
-  }, [c, produtos, pecas]);
+  }, [c, produtosDaOrigem, produtos, pecas]);
   const itensNaLista = naLista.produtos.length + naLista.pecas.length;
   const nomeDe = liberados.find((a) => String(a.id) === de)?.descricao ?? '';
   const nomePara = destinos.find((a) => String(a.id) === para)?.descricao ?? '';
@@ -187,8 +197,9 @@ export function Transferir() {
           patrimonios: naLista.pecas.map((p) => p.patrimonioId),
         })
       ).data,
-    onSuccess: (a) => setTransferenciaId(a.id),
+    onSuccess: setAberta,
   });
+  const acompanhada = andamento.data?.id === transferenciaId ? andamento.data : aberta;
 
   return (
     <Pagina>
@@ -275,7 +286,7 @@ export function Transferir() {
                   <button
                     type="button"
                     onClick={() => porTudo(c)}
-                    disabled={c.moviveis.length + c.patrimonios.length === 0}
+                    disabled={produtosDaOrigem.length + c.patrimonios.length === 0}
                     className="btn btn-neutro shrink-0"
                   >
                     Pôr tudo
@@ -291,7 +302,7 @@ export function Transferir() {
                   </p>
                 )}
 
-                {c.moviveis.length + c.patrimonios.length === 0 ? (
+                {produtosDaOrigem.length + c.patrimonios.length === 0 ? (
                   <Vazio titulo="Nada para transferir">
                     {c.deFora.length > 0
                       ? 'Só tem o que não vai por transferência (abaixo).'
@@ -436,12 +447,12 @@ export function Transferir() {
         </div>
       )}
 
-      {transferenciaId && (andamento.data ?? transferir.data) && (
+      {acompanhada && (
         <Janela
           titulo="Transferência"
           onFechar={() => {
-            if (andamento.data?.status === 'rodando') return;
-            setTransferenciaId(null);
+            if (acompanhada.status === 'rodando') return;
+            setAberta(null);
             transferir.reset();
             limparLista();
             setObservacao('');
@@ -450,10 +461,11 @@ export function Transferir() {
           }}
         >
           <Andamento
-            a={(andamento.data ?? transferir.data)!}
+            a={acompanhada}
             erro={andamento.error}
+            onNova={setAberta}
             onFechar={() => {
-              setTransferenciaId(null);
+              setAberta(null);
               transferir.reset();
               limparLista();
               setObservacao('');
@@ -473,10 +485,10 @@ function ListaDaOrigem({
   onPorProduto,
   onPorPeca,
 }: {
-  produtos: ConteudoDoAlmoxarifado['moviveis'];
+  produtos: ProdutoDaOrigem[];
   pecas: PatrimonioDoAlmoxarifado[];
   naLista: (k: { tipo: 'produto' | 'peca'; id: number }) => boolean;
-  onPorProduto: (m: ConteudoDoAlmoxarifado['moviveis'][number]) => void;
+  onPorProduto: (m: ProdutoDaOrigem) => void;
   onPorPeca: (p: PatrimonioDoAlmoxarifado) => void;
 }) {
   const total = produtos.length + pecas.length;
@@ -490,7 +502,10 @@ function ListaDaOrigem({
         <LinhaDaOrigem
           key={`m${m.produtoId}`}
           nome={m.descricao}
-          detalhe={`${quantidade(m.saldo)} ${m.unidadeSigla}`}
+          detalhe={
+            `${quantidade(m.saldo)} ${m.unidadeSigla}` +
+            (m.motivo ? ' · patrimônio sem peça cadastrada, vai pela quantidade' : '')
+          }
           jaNaLista={naLista({ tipo: 'produto', id: m.produtoId })}
           onPor={() => onPorProduto(m)}
         />

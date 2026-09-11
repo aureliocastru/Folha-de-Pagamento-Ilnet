@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { Aviso } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
@@ -43,14 +43,16 @@ export function useAndamento(id: string | null, onTerminou: () => void) {
     // resultado pronto — e o aviso de "terminou" (que relê o estoque) já dado.
     refetchIntervalInBackground: true,
   });
-  const avisado = useRef(false);
+  // Por transferência: o "tentar de novo" abre outra, e ela também avisa.
+  const avisadoPara = useRef<string | null>(null);
   const status = q.data?.status;
+  const deQual = q.data?.id;
   useEffect(() => {
-    if (status && status !== 'rodando' && !avisado.current) {
-      avisado.current = true;
+    if (status && status !== 'rodando' && deQual && avisadoPara.current !== deQual) {
+      avisadoPara.current = deQual;
       onTerminou();
     }
-  }, [status, onTerminou]);
+  }, [status, deQual, onTerminou]);
   return q;
 }
 
@@ -93,12 +95,23 @@ export function Andamento({
   a,
   erro,
   onFechar,
+  onNova,
 }: {
   a: AndamentoDaTransferencia;
   erro: unknown;
   onFechar: () => void;
+  /** "Tentar de novo" abriu outra transferência — quem mostra passa a acompanhar ela. */
+  onNova: (nova: AndamentoDaTransferencia) => void;
 }) {
   const pct = a.total > 0 ? Math.round((a.feitos / a.total) * 100) : 100;
+  const repetir = useMutation({
+    mutationFn: async () =>
+      (await api.post<AndamentoDaTransferencia>(`/almoxarifado/transferencias/${a.id}/repetir`))
+        .data,
+    onSuccess: onNova,
+  });
+  // O que já saiu da origem (o IXC gravou apesar do erro) não é oferecido de novo.
+  const repetiveis = a.falharam.filter((f) => !f.jaSaiu).length;
 
   return (
     <div>
@@ -116,9 +129,12 @@ export function Andamento({
         />
       </div>
       <p className="mb-4 text-[12px] text-tinta-400">
-        {a.status === 'rodando'
-          ? `${a.feitos} de ${a.total} — pode fechar, a transferência continua no servidor.`
-          : `${a.feitos} de ${a.total}`}
+        {a.status !== 'rodando'
+          ? `${a.feitos} de ${a.total}`
+          : a.tentandoDeNovo > 0
+            ? `O IXC recusou ${a.tentandoDeNovo === 1 ? '1 item' : `${a.tentandoDeNovo} itens`} ` +
+              'na primeira passada — tentando de novo, um por vez…'
+            : `${a.feitos} de ${a.total} — pode fechar, a transferência continua no servidor.`}
       </p>
 
       {erro ? <Aviso tom="erro">{mensagemErro(erro)}</Aviso> : null}
@@ -170,8 +186,23 @@ export function Andamento({
 
       {a.status !== 'rodando' && a.deFora.length > 0 && <FicamDeFora itens={a.deFora} />}
 
+      {repetir.isError && <Aviso tom="erro">{mensagemErro(repetir.error)}</Aviso>}
+
       {a.status !== 'rodando' && (
-        <div className="mt-4 flex justify-end">
+        <div className="mt-4 flex justify-end gap-2">
+          {repetiveis > 0 && (
+            <button
+              type="button"
+              onClick={() => repetir.mutate()}
+              disabled={repetir.isPending}
+              className="btn btn-neutro"
+              title="Abre outra transferência no IXC só com o que ficou"
+            >
+              {repetir.isPending
+                ? 'Abrindo…'
+                : `Tentar de novo ${repetiveis === 1 ? 'o recusado' : `os ${repetiveis} recusados`}`}
+            </button>
+          )}
           <button type="button" onClick={onFechar} className="btn btn-primario">
             Fechar
           </button>

@@ -2194,7 +2194,12 @@ export interface ConteudoDoAlmoxarifado {
   nome: string;
   moviveis: Array<ItemDoAlmoxarifado & { unidadeSigla: string }>;
   patrimonios: PatrimonioDoAlmoxarifado[];
-  /** Serviço, produto sem unidade, saldo de patrimônio sem peça — com o motivo. */
+  /**
+   * Saldo de patrimônio sem peça cadastrada (sem MAC nem número) — pode ir
+   * pela quantidade, se pedirem. O motivo diz onde estão as peças dele.
+   */
+  semPeca: Array<ItemDoAlmoxarifado & { unidadeSigla: string; motivo: string }>;
+  /** Serviço, produto sem unidade, patrimônio com peça presa — com o motivo. */
   deFora: Array<ItemDoAlmoxarifado & { motivo: string }>;
 }
 
@@ -2214,8 +2219,11 @@ export interface AndamentoDaTransferencia {
   status: 'rodando' | 'terminou' | 'falhou';
   total: number;
   feitos: number;
+  /** Recusados na primeira passada que estão sendo tentados de novo, um por vez. */
+  tentandoDeNovo: number;
   movidos: LinhaDaTransferencia[];
-  falharam: Array<LinhaDaTransferencia & { motivo: string }>;
+  /** `jaSaiu`: o IXC deu erro, mas a origem relida já não tem — não se oferece de novo. */
+  falharam: Array<LinhaDaTransferencia & { motivo: string; jaSaiu: boolean }>;
   deFora: Array<ItemDoAlmoxarifado & { motivo: string }>;
   restouNaOrigem: number | null;
   erro: string | null;

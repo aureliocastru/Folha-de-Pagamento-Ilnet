@@ -3,6 +3,7 @@ import {
   emParalelo,
   identificacao,
   patrimoniosMoviveis,
+  pecasForaDaPrateleira,
   separarMoviveis,
 } from './mover-tudo';
 import { TransferenciasService, type AndamentoDaTransferencia } from './transferencias.service';
@@ -102,13 +103,46 @@ describe('separarMoviveis', () => {
     ]);
   });
 
-  it('patrimônio não vai por quantidade — e saldo sem peça fica, avisado', () => {
+  it('patrimônio não vai por quantidade — saldo sem peça é separado, com a unidade', () => {
     const tudoCoberto = separarMoviveis([item(12, 3)], CADASTROS, UNIDADES, new Map([[12, 3]]));
-    expect(tudoCoberto).toEqual({ moviveis: [], deFora: [] });
+    expect(tudoCoberto).toEqual({ moviveis: [], semPeca: [], deFora: [] });
 
     const falta = separarMoviveis([item(12, 5)], CADASTROS, UNIDADES, new Map([[12, 3]]));
-    expect(falta.deFora).toEqual([
-      expect.objectContaining({ produtoId: 12, saldo: 2, motivo: expect.stringMatching(/peça/) }),
+    expect(falta.moviveis).toEqual([]);
+    expect(falta.deFora).toEqual([]);
+    expect(falta.semPeca).toEqual([
+      expect.objectContaining({
+        produtoId: 12,
+        saldo: 2,
+        unidadeSigla: 'UND',
+        tipoProduto: 'P',
+        motivo: expect.stringMatching(/sem peça/),
+      }),
+    ]);
+  });
+
+  it('saldo sem peça fica quando há peça dele presa aqui — o saldo pode ser ela', () => {
+    const fora = pecasForaDaPrateleira([peca(1, '8'), peca(2, '4'), peca(3, '1')]);
+    expect([...(fora.get(12)?.entries() ?? [])]).toEqual([
+      ['8', 1],
+      ['4', 1],
+    ]);
+    const r = separarMoviveis([item(12, 1)], CADASTROS, UNIDADES, new Map(), fora);
+    expect(r.semPeca).toEqual([]);
+    expect(r.deFora).toEqual([
+      expect.objectContaining({ produtoId: 12, motivo: expect.stringMatching(/1 indisponível/) }),
+    ]);
+
+    // Comodato não prende: a peça já saiu do saldo. Só explica.
+    const soComodato = separarMoviveis(
+      [item(12, 1)],
+      CADASTROS,
+      UNIDADES,
+      new Map(),
+      pecasForaDaPrateleira([peca(2, '4')]),
+    );
+    expect(soComodato.semPeca).toEqual([
+      expect.objectContaining({ motivo: expect.stringMatching(/1 em comodato/) }),
     ]);
   });
 
@@ -168,30 +202,75 @@ describe('TransferenciasService', () => {
     { id: 29, nome: 'CLEYSON', filialId: 1, ativo: true },
   ];
 
-  function montar(opts: { recusar?: string[] } = {}) {
-    let moveu = false;
+  /**
+   * O IXC de mentira: lembra o que já saiu da origem (o saldo baixa, a peça
+   * some da prateleira), para a releitura depois de mover dizer a verdade.
+   *
+   *  - `recusar`: sempre recusa;
+   *  - `recusarUmaVez`: recusa a primeira tentativa e aceita a segunda;
+   *  - `gravaMasDizQueFalhou`: move e mesmo assim responde erro.
+   */
+  function montar(
+    opts: {
+      recusar?: string[];
+      recusarUmaVez?: string[];
+      gravaMasDizQueFalhou?: string[];
+      /** Saldo de ONU além das 2 peças — patrimônio sem peça. */
+      onusSemPeca?: number;
+    } = {},
+  ) {
+    const saidas = new Map<string, number>();
+    const jaRecusou = new Set<string>();
     const saldo = [
       { produtoId: 10, descricao: 'Conector APC', total: 40, unidade: 'UND' },
       { produtoId: 11, descricao: 'Cabo drop', total: 120.5, unidade: 'MT' },
-      { produtoId: 12, descricao: 'ONU Huawei', total: 2, unidade: 'UND' },
+      { produtoId: 12, descricao: 'ONU Huawei', total: 2 + (opts.onusSemPeca ?? 0), unidade: 'UND' },
     ];
+    let emVoo = 0;
+    /** Quantos itens já estavam sendo gravados quando cada um começou. */
+    const concorrencia: number[] = [];
     const ixc = {
       listAll: jest.fn(async (tabela: string) =>
-        tabela === 'patrimonio' ? (moveu ? [] : [peca(1, '1'), peca(2, '7'), peca(3, '4')]) : [],
+        tabela === 'patrimonio'
+          ? [peca(1, '1'), peca(2, '7'), peca(3, '4')].filter((p) => !saidas.has(`p${p.id}`))
+          : [],
       ),
       getById: jest.fn(async (_t: string, _c: string, id: number) => CADASTROS.get(id) ?? null),
       create: jest.fn(async (tabela: string, corpo: Record<string, string>) => {
         if (tabela === 'transf_almox_top') return { id: 77, raw: {} };
-        const chave = corpo.id_patrimonio ? `p${corpo.id_patrimonio}` : `m${corpo.id_produto}`;
-        if (opts.recusar?.includes(chave)) throw new Error('IXC: saldo insuficiente');
-        moveu = true;
-        return { id: 1, raw: {} };
+        concorrencia.push(emVoo);
+        emVoo += 1;
+        try {
+          await new Promise((r) => setTimeout(r, 1));
+          const chave = corpo.id_patrimonio ? `p${corpo.id_patrimonio}` : `m${corpo.id_produto}`;
+          if (opts.recusar?.includes(chave)) throw new Error('IXC: saldo insuficiente');
+          if (opts.recusarUmaVez?.includes(chave) && !jaRecusou.has(chave)) {
+            jaRecusou.add(chave);
+            throw new Error('IXC: Ocorreu um erro ao processar.');
+          }
+          saidas.set(chave, (saidas.get(chave) ?? 0) + Number(corpo.qtde));
+          if (opts.gravaMasDizQueFalhou?.includes(chave)) {
+            throw new Error('IXC: Ocorreu um erro ao processar.');
+          }
+          return { id: 1, raw: {} };
+        } finally {
+          emVoo -= 1;
+        }
       }),
     };
     const estoque = {
       esquecer: jest.fn(),
       listar: jest.fn(async () => ({
-        itens: (moveu ? [] : saldo).map((s) => ({ ...s, saldos: [] })),
+        itens: saldo
+          .map((s) => ({
+            ...s,
+            total:
+              s.total -
+              (saidas.get(`m${s.produtoId}`) ?? 0) -
+              (s.produtoId === 12 ? ['p1', 'p2'].filter((p) => saidas.has(p)).length : 0),
+            saldos: [],
+          }))
+          .filter((s) => s.total > 0),
         almoxarifados: [{ id: 29, nome: 'CLEYSON' }],
       })),
     };
@@ -202,13 +281,14 @@ describe('TransferenciasService', () => {
       ]),
     };
     const service = new TransferenciasService(ixc as never, estoque as never, produtos as never);
-    return { service, ixc };
+    service.pausaAntesDeRepetirMs = 0;
+    return { service, ixc, concorrencia };
   }
 
-  /** A transferência roda em segundo plano; os mocks respondem na hora. */
+  /** A transferência roda em segundo plano; os mocks respondem quase na hora. */
   async function terminar(service: TransferenciasService, a: AndamentoDaTransferencia) {
-    for (let i = 0; i < 50 && service.andamento(a.id).status === 'rodando'; i++) {
-      await new Promise((r) => setTimeout(r, 0));
+    for (let i = 0; i < 500 && service.andamento(a.id).status === 'rodando'; i++) {
+      await new Promise((r) => setTimeout(r, 1));
     }
     return service.andamento(a.id);
   }
@@ -279,6 +359,74 @@ describe('TransferenciasService', () => {
     expect(fim.falharam).toEqual([
       expect.objectContaining({ chave: 'patrimonio-1', motivo: expect.stringMatching(/insuficiente/) }),
     ]);
+  });
+
+  it('o primeiro item vai sozinho — os outros só depois que ele entrou', async () => {
+    const { service, concorrencia } = montar();
+    await terminar(service, await service.iniciar({ de: 29, para: 1, tudo: true }, eu));
+    expect(concorrencia[0]).toBe(0);
+    expect(concorrencia[1]).toBe(0); // o segundo não começou com o primeiro no ar
+    expect(Math.max(...concorrencia)).toBeLessThanOrEqual(2); // e depois, até 3 juntos
+  });
+
+  it('o que o IXC recusa ganha uma segunda chance, e entra', async () => {
+    const { service, ixc } = montar({ recusarUmaVez: ['m10', 'm11'] });
+    const fim = await terminar(service, await service.iniciar({ de: 29, para: 1, tudo: true }, eu));
+    expect(fim).toMatchObject({ status: 'terminou', falharam: [], restouNaOrigem: 0, tentandoDeNovo: 0 });
+    expect(fim.movidos).toHaveLength(4);
+    const doConector = ixc.create.mock.calls.filter(([, c]) => c.id_produto === '10');
+    expect(doConector).toHaveLength(2);
+  });
+
+  it('não repete o que o IXC gravou dizendo que deu erro — e não oferece de novo', async () => {
+    const { service, ixc } = montar({ gravaMasDizQueFalhou: ['m10'] });
+    const fim = await terminar(service, await service.iniciar({ de: 29, para: 1, tudo: true }, eu));
+    expect(ixc.create.mock.calls.filter(([, c]) => c.id_produto === '10')).toHaveLength(1);
+    expect(fim.falharam).toEqual([
+      expect.objectContaining({ chave: 'produto-10', motivo: expect.stringMatching(/já não tem/) }),
+    ]);
+    await expect(service.repetir(fim.id, eu)).rejects.toThrow(/Não sobrou/);
+  });
+
+  it('"tentar de novo" abre outra transferência só com o que ficou', async () => {
+    const recusar = ['p1'];
+    const { service, ixc } = montar({ recusar });
+    const fim = await terminar(service, await service.iniciar({ de: 29, para: 1, tudo: true }, eu));
+    expect(fim.falharam.map((f) => f.chave)).toEqual(['patrimonio-1']);
+
+    recusar.length = 0; // o IXC voltou a aceitar
+    ixc.create.mockClear();
+    const denovo = await terminar(service, await service.repetir(fim.id, eu));
+    expect(denovo).toMatchObject({ status: 'terminou', total: 1, falharam: [] });
+    expect(denovo.movidos.map((m) => m.chave)).toEqual(['patrimonio-1']);
+    expect(ixc.create).toHaveBeenCalledWith(
+      'transf_almox_top',
+      expect.objectContaining({ obs: expect.stringMatching(/de novo o que a #77/) }),
+    );
+  });
+
+  it('saldo de patrimônio sem peça: fica, a não ser que peçam para levar', async () => {
+    const { service, ixc } = montar({ onusSemPeca: 3 });
+    const c = await service.conteudo(29);
+    expect(c.semPeca).toEqual([expect.objectContaining({ produtoId: 12, saldo: 3 })]);
+
+    const sem = await terminar(service, await service.iniciar({ de: 29, para: 1, tudo: true }, eu));
+    expect(sem.deFora).toEqual([expect.objectContaining({ produtoId: 12, saldo: 3 })]);
+    expect(ixc.create).not.toHaveBeenCalledWith(
+      'transf_almox_item',
+      expect.objectContaining({ id_produto: '12', id_patrimonio: '' }),
+    );
+
+    const { service: s2, ixc: ixc2 } = montar({ onusSemPeca: 3 });
+    const com = await terminar(
+      s2,
+      await s2.iniciar({ de: 29, para: 1, tudo: true, levarSemPeca: true }, eu),
+    );
+    expect(com).toMatchObject({ total: 5, deFora: [], restouNaOrigem: 0 });
+    expect(ixc2.create).toHaveBeenCalledWith(
+      'transf_almox_item',
+      expect.objectContaining({ id_produto: '12', id_patrimonio: '', qtde: '3.00000', tipo_produto: 'P' }),
+    );
   });
 
   it('recusa origem igual ao destino, destino que o sistema não enxerga e lista vazia', async () => {

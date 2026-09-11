@@ -157,6 +157,9 @@ export class MoverTudoDto {
 
   @IsOptional() @Transform(texto) @IsString() @MaxLength(200)
   observacao?: string;
+
+  /** Leva também o saldo de patrimônio que não tem peça cadastrada, pela quantidade. */
+  @IsOptional() @IsBoolean() levarSemPeca?: boolean;
 }
 
 export class ProdutoDaTransferenciaDto {

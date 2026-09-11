@@ -11,6 +11,7 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { combina, semAcento } from '../../lib/busca';
 import type { AlmoxarifadoCadastro, OpcoesDoAlmoxarifado } from '../../lib/types';
 import { MoverTudo } from './MoverTudo';
 
@@ -42,6 +43,7 @@ export function Almoxarifados() {
   const [erro, setErro] = useState(false);
   /** Inativo some da lista por padrão — este botão pequeno traz de volta. */
   const [mostrarInativos, setMostrarInativos] = useState(false);
+  const [busca, setBusca] = useState('');
 
   const lista = useQuery({
     queryKey: ['almoxarifado', 'almoxarifados'],
@@ -137,7 +139,16 @@ export function Almoxarifados() {
   const todos = lista.data ?? [];
   const inativos = todos.filter((a) => !a.ativo).length;
   const naoLiberados = todos.filter((a) => !a.liberado).length;
-  const itens = mostrarInativos ? todos : todos.filter((a) => a.ativo);
+  const visiveis = mostrarInativos ? todos : todos.filter((a) => a.ativo);
+  // Pelo nome, pelo código ou por quem está ligado a ele — "anderson" acha a van dele.
+  const termo = semAcento(busca.trim());
+  const itens = termo
+    ? visiveis.filter(
+        (a) =>
+          String(a.id) === termo ||
+          combina([a.descricao, a.filial, ...a.usuarios.map((u) => u.nome)], termo),
+      )
+    : visiveis;
 
   return (
     <Pagina>
@@ -194,17 +205,42 @@ export function Almoxarifados() {
           )
         }
       >
+        {todos.length > 0 && (
+          <div className="px-3.5 py-3 md:px-5">
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por nome, código ou técnico…"
+              className="campo"
+              autoComplete="off"
+              aria-label="Buscar almoxarifado"
+            />
+          </div>
+        )}
+
         {lista.isLoading && <Carregando texto="Lendo do IXC…" />}
         {lista.isError && (
           <Vazio titulo="Não deu para ler a lista">{mensagemErro(lista.error)}</Vazio>
         )}
 
         {!lista.isLoading && itens.length === 0 && !lista.isError && (
-          <Vazio titulo={todos.length > 0 ? 'Só tem inativo' : 'Nenhum almoxarifado cadastrado'}>
-            {todos.length > 0
-              ? 'Todos os almoxarifados estão inativos. Marque "Mostrar inativos" para vê-los.'
-              : 'Cadastre onde a casa guarda material — é lá que o saldo e as ' +
-                'transferências entre eles vão morar.'}
+          <Vazio
+            titulo={
+              termo
+                ? 'Nenhum almoxarifado com esse nome'
+                : todos.length > 0
+                  ? 'Só tem inativo'
+                  : 'Nenhum almoxarifado cadastrado'
+            }
+          >
+            {termo
+              ? mostrarInativos || inativos === 0
+                ? 'Confira o que foi digitado — a busca olha o nome, o código e quem está ligado a ele.'
+                : 'Pode estar entre os inativos: marque "Mostrar inativos".'
+              : todos.length > 0
+                ? 'Todos os almoxarifados estão inativos. Marque "Mostrar inativos" para vê-los.'
+                : 'Cadastre onde a casa guarda material — é lá que o saldo e as ' +
+                  'transferências entre eles vão morar.'}
           </Vazio>
         )}
 

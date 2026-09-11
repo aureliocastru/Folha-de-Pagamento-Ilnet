@@ -12,7 +12,7 @@ import {
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { formatBRL } from '../../lib/format';
-import type { EstoqueNaTela, ItemDeEstoque } from '../../lib/types';
+import type { AlmoxarifadoCadastro, EstoqueNaTela, ItemDeEstoque } from '../../lib/types';
 import { JanelaDoProduto, NovoProduto, quantidade } from './ProdutoNoIxc';
 
 /**
@@ -55,7 +55,28 @@ export function Estoque() {
     staleTime: 60_000,
   });
 
+  /*
+   * O filtro de almoxarifado junta dois lados: o que aparece no saldo e o
+   * cadastro. Só o saldo deixava de fora quem nunca teve produto lançado (o
+   * de equipamentos perdidos, por exemplo) — e quem o procura aqui quer ver
+   * justamente que ele está vazio.
+   */
+  const cadastro = useQuery({
+    queryKey: ['almoxarifado', 'almoxarifados'],
+    queryFn: async () =>
+      (await api.get<AlmoxarifadoCadastro[]>('/almoxarifado/almoxarifados')).data,
+    staleTime: 5 * 60_000,
+  });
+
   const dados = lista.data;
+  const almoxarifadosDoFiltro = useMemo(() => {
+    const porId = new Map<number, string>();
+    for (const a of cadastro.data ?? []) if (a.ativo) porId.set(a.id, a.descricao);
+    for (const a of dados?.almoxarifados ?? []) porId.set(a.id, a.nome);
+    return [...porId.entries()]
+      .map(([id, nome]) => ({ id, nome }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  }, [cadastro.data, dados]);
   const termo = busca.trim().toLowerCase();
   const inativos = useMemo(
     () => (dados?.itens ?? []).filter((i) => !i.ativo).length,
@@ -170,7 +191,7 @@ export function Estoque() {
             title="Ver o saldo de um almoxarifado só"
           >
             <option value="">Todos os almoxarifados</option>
-            {dados?.almoxarifados.map((a) => (
+            {almoxarifadosDoFiltro.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.nome}
               </option>
@@ -204,7 +225,9 @@ export function Estoque() {
           <Vazio titulo="Nada por aqui">
             {soFaltando
               ? 'Nenhum item abaixo do mínimo ou zerado — o estoque está em dia.'
-              : 'O IXC não devolveu saldo nenhum para este filtro.'}
+              : almox && !termo
+                ? 'Este almoxarifado não tem produto lançado no IXC — está vazio.'
+                : 'O IXC não devolveu saldo nenhum para este filtro.'}
           </Vazio>
         )}
 
