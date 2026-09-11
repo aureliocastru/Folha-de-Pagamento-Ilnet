@@ -1,11 +1,16 @@
 /**
- * Mover tudo o que um almoxarifado tem para outro — a parte que decide, sem
- * cliente HTTP nenhum, para poder ser conferida.
+ * O que um almoxarifado tem, separado em como cada coisa anda numa
+ * transferência — sem cliente HTTP nenhum, para poder ser conferido.
  *
- * O caminho no IXC é o mesmo da transferência de um produto só
- * (`transf_almox_top` e um `transf_almox_item` por produto, ver
- * `produtos-ixc.ts`). O que muda é a triagem: nem tudo que tem saldo pode ir
- * numa transferência de produto.
+ * O caminho no IXC é a "Transferência entre Almoxarifados" da documentação:
+ * `transf_almox_top` e, dentro dela, um `transf_almox_item` por coisa que vai
+ * (ver `produtos-ixc.ts`). Duas espécies de item:
+ *
+ *  - **produto comum** — vai por quantidade ("2. Inserir produto na
+ *    transferência");
+ *  - **patrimônio** (ONU, roteador…) — vai peça por peça, cada uma com o seu
+ *    registro em `patrimonio`, MAC e número ("3. Inserir patrimônio na
+ *    transferência").
  */
 
 import { numeroDoIxc } from './estoque.mapper';
@@ -18,7 +23,7 @@ export interface ItemDoAlmoxarifado {
   unidade: string | null;
 }
 
-/** Vai na transferência — com o que o item dela pede. */
+/** Produto comum que pode ir — com o que o item da transferência pede. */
 export interface ItemMovivel extends ItemDoAlmoxarifado {
   unidadeId: number;
   unidadeSigla: string;
@@ -30,12 +35,118 @@ export interface ItemDeFora extends ItemDoAlmoxarifado {
   motivo: string;
 }
 
+/** Uma peça de patrimônio disponível no almoxarifado. */
+export interface PatrimonioDoAlmoxarifado {
+  patrimonioId: number;
+  produtoId: number;
+  descricao: string;
+  /** `patrimonio.serial` — o "Número do patrimônio" da tela do IXC. */
+  numeroPatrimonial: string | null;
+  mac: string | null;
+  /** `patrimonio.serial_fornecedor` — o número de série de fábrica. */
+  numeroSerie: string | null;
+  unidadeId: number;
+  unidadeSigla: string;
+}
+
 /**
- * Separa o que vai do que fica:
+ * As situações de patrimônio que estão **na prateleira** do almoxarifado:
+ * 1 Disponível e 7 Disponível Técnico. As outras (comodato, vendido,
+ * inutilizado, alocado, indisponível — esta, a de quem já está numa
+ * transferência) não estão ali para mover.
+ */
+const NO_ESTOQUE = new Set(['1', '7']);
+
+function texto(v: unknown): string | null {
+  const t = v === null || v === undefined ? '' : String(v).trim();
+  return t === '' || t === '0' ? null : t;
+}
+
+/** "nº 00123 · MAC AA:BB:CC:DD:EE:FF · série ZTEG1234" — o que identifica a peça. */
+export function identificacao(p: {
+  numeroPatrimonial: string | null;
+  mac: string | null;
+  numeroSerie: string | null;
+  patrimonioId: number;
+}): string {
+  const partes = [
+    p.numeroPatrimonial && `nº ${p.numeroPatrimonial}`,
+    p.mac && `MAC ${p.mac}`,
+    p.numeroSerie && `série ${p.numeroSerie}`,
+  ].filter(Boolean);
+  return partes.length > 0 ? partes.join(' · ') : `patrimônio #${p.patrimonioId}`;
+}
+
+/**
+ * Os patrimônios do almoxarifado que podem ir: os que estão nele e na
+ * prateleira, com produto e unidade no cadastro (o item da transferência pede
+ * os dois).
+ */
+export function patrimoniosMoviveis(
+  linhas: Array<Record<string, unknown>>,
+  produtos: Map<number, Record<string, unknown>>,
+  unidades: Array<{ id: number; sigla: string }>,
+): { patrimonios: PatrimonioDoAlmoxarifado[]; deFora: ItemDeFora[] } {
+  const patrimonios: PatrimonioDoAlmoxarifado[] = [];
+  const deFora: ItemDeFora[] = [];
+
+  for (const l of linhas) {
+    const patrimonioId = numeroDoIxc(l.id);
+    if (patrimonioId <= 0 || !NO_ESTOQUE.has(String(l.situacao ?? '').trim())) continue;
+    const produtoId = numeroDoIxc(l.id_produto);
+    const bruto = produtos.get(produtoId);
+    const descricao =
+      texto(bruto?.descricao) ?? texto(l.descricao) ?? `Produto ${produtoId || '?'}`;
+    const peca = {
+      patrimonioId,
+      numeroPatrimonial: texto(l.serial) ?? texto(l.nro_patrimonio) ?? texto(l.cod_patrimonio),
+      mac: texto(l.id_mac) ?? texto(l.mac),
+      numeroSerie: texto(l.serial_fornecedor),
+    };
+    const fica = (motivo: string) =>
+      deFora.push({
+        produtoId,
+        descricao: `${descricao} (${identificacao(peca)})`,
+        saldo: 1,
+        unidade: null,
+        motivo,
+      });
+
+    if (!bruto) {
+      fica('o cadastro do produto deste patrimônio não foi achado no IXC');
+      continue;
+    }
+    const unidade = unidades.find((u) => u.id === numeroDoIxc(bruto.unidade));
+    if (!unidade) {
+      fica('o produto está sem unidade no cadastro — acerte na edição do produto');
+      continue;
+    }
+    patrimonios.push({
+      ...peca,
+      produtoId,
+      descricao,
+      unidadeId: unidade.id,
+      unidadeSigla: unidade.sigla,
+    });
+  }
+
+  return {
+    patrimonios: patrimonios.sort(
+      (a, b) =>
+        a.descricao.localeCompare(b.descricao, 'pt-BR') ||
+        (a.numeroPatrimonial ?? '').localeCompare(b.numeroPatrimonial ?? '', 'pt-BR'),
+    ),
+    deFora,
+  };
+}
+
+/**
+ * Separa o saldo de produto em o que vai por quantidade e o que fica:
  *
  *  - saldo zero ou negativo não é "ter" nada — nem entra na conta;
- *  - patrimônio fica: anda com número de série, e a transferência de produto
- *    manda `id_patrimonio` vazio — é peça a peça, pelo IXC;
+ *  - produto de patrimônio não vai por quantidade: vai peça por peça, pelos
+ *    registros de `patrimonio` (`porPatrimonio` diz quantas peças disponíveis
+ *    foram achadas). Saldo sem peça que o explique fica, com o aviso;
  *  - serviço fica: não tem estoque;
  *  - produto sem unidade no cadastro fica: o item da transferência exige a
  *    unidade, e mandar uma inventada moveria a quantidade errada.
@@ -44,6 +155,7 @@ export function separarMoviveis(
   itens: ItemDoAlmoxarifado[],
   produtos: Map<number, Record<string, unknown>>,
   unidades: Array<{ id: number; sigla: string }>,
+  porPatrimonio: Map<number, number> = new Map(),
 ): { moviveis: ItemMovivel[]; deFora: ItemDeFora[] } {
   const moviveis: ItemMovivel[] = [];
   const deFora: ItemDeFora[] = [];
@@ -57,7 +169,16 @@ export function separarMoviveis(
     }
     const tipo = String(bruto.tipo ?? '').trim().toUpperCase();
     if (tipo === 'P') {
-      deFora.push({ ...item, motivo: 'patrimônio — vai com número de série, mova pelo IXC' });
+      const sobra = Math.round((item.saldo - (porPatrimonio.get(item.produtoId) ?? 0)) * 1000) / 1000;
+      if (sobra > 0) {
+        deFora.push({
+          ...item,
+          saldo: sobra,
+          motivo:
+            'patrimônio: este saldo não tem peça disponível cadastrada neste almoxarifado — ' +
+            'confira os patrimônios dele no IXC',
+        });
+      }
       continue;
     }
     if (tipo === 'S') {

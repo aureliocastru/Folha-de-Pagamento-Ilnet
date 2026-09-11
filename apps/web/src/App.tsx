@@ -20,6 +20,7 @@ import { Modulos } from './pages/Modulos';
 import { Inicio as ContasPagarInicio } from './pages/contas-pagar/Inicio';
 import { Estoque } from './pages/almoxarifado/Estoque';
 import { Almoxarifados } from './pages/almoxarifado/Almoxarifados';
+import { Transferir } from './pages/almoxarifado/Transferir';
 import { Ferramentas } from './pages/almoxarifado/Ferramentas';
 import { Fornecedores as FornecedoresDeCotacao } from './pages/almoxarifado/Fornecedores';
 import { Comodato } from './pages/almoxarifado/Comodato';
@@ -214,6 +215,7 @@ export default function App() {
         <Route index element={<Navigate to="estoque" replace />} />
         <Route path="estoque" element={<Estoque />} />
         <Route path="almoxarifados" element={<Almoxarifados />} />
+        <Route path="transferir" element={<Transferir />} />
         <Route path="ferramentas" element={<Ferramentas />} />
         <Route path="comodato" element={<Comodato />} />
         <Route path="precos" element={<Precos />} />

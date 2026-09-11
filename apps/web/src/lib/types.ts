@@ -2177,17 +2177,36 @@ export interface ItemDoAlmoxarifado {
   unidade: string | null;
 }
 
-/** O que um almoxarifado tem agora, separado entre o que vai e o que fica. */
+/** Uma peça de patrimônio (ONU, roteador…) na prateleira de um almoxarifado. */
+export interface PatrimonioDoAlmoxarifado {
+  patrimonioId: number;
+  produtoId: number;
+  descricao: string;
+  numeroPatrimonial: string | null;
+  mac: string | null;
+  numeroSerie: string | null;
+  unidadeSigla: string;
+}
+
+/** O que um almoxarifado tem agora: o que vai por quantidade, peça a peça, e o que fica. */
 export interface ConteudoDoAlmoxarifado {
   almoxId: number;
   nome: string;
   moviveis: Array<ItemDoAlmoxarifado & { unidadeSigla: string }>;
-  /** Patrimônio, serviço, produto sem unidade — com o motivo. */
+  patrimonios: PatrimonioDoAlmoxarifado[];
+  /** Serviço, produto sem unidade, saldo de patrimônio sem peça — com o motivo. */
   deFora: Array<ItemDoAlmoxarifado & { motivo: string }>;
 }
 
-/** Uma mudança de tudo de um almoxarifado para outro, rodando no servidor. */
-export interface AndamentoDaMudanca {
+/** Uma linha do resultado de uma transferência: "40 UND" ou "nº 00123 · MAC …". */
+export interface LinhaDaTransferencia {
+  chave: string;
+  descricao: string;
+  detalhe: string;
+}
+
+/** Uma transferência de vários itens, rodando no servidor. */
+export interface AndamentoDaTransferencia {
   id: string;
   de: { id: number; nome: string };
   para: { id: number; nome: string };
@@ -2195,8 +2214,8 @@ export interface AndamentoDaMudanca {
   status: 'rodando' | 'terminou' | 'falhou';
   total: number;
   feitos: number;
-  movidos: Array<{ produtoId: number; descricao: string; quantidade: number; unidade: string }>;
-  falharam: Array<{ produtoId: number; descricao: string; quantidade: number; motivo: string }>;
+  movidos: LinhaDaTransferencia[];
+  falharam: Array<LinhaDaTransferencia & { motivo: string }>;
   deFora: Array<ItemDoAlmoxarifado & { motivo: string }>;
   restouNaOrigem: number | null;
   erro: string | null;

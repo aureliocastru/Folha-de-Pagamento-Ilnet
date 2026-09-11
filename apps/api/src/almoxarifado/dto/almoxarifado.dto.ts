@@ -1,5 +1,7 @@
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
   IsInt,
   IsISO8601,
@@ -10,6 +12,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateNested,
 } from 'class-validator';
 
 const textoOuNulo = ({ value }: { value: unknown }) => {
@@ -154,6 +157,29 @@ export class MoverTudoDto {
 
   @IsOptional() @Transform(texto) @IsString() @MaxLength(200)
   observacao?: string;
+}
+
+export class ProdutoDaTransferenciaDto {
+  @Transform(numero) @IsInt() @Min(1) produtoId!: number;
+
+  @Transform(numero) @IsNumber({ maxDecimalPlaces: 5 }) @Min(0.00001)
+  quantidade!: number;
+}
+
+/** Transferência de vários itens: produtos com quantidade e patrimônios pelo id. */
+export class TransferenciaDto {
+  @Transform(numero) @IsInt() @Min(1) de!: number;
+  @Transform(numero) @IsInt() @Min(1) para!: number;
+
+  @IsOptional() @Transform(texto) @IsString() @MaxLength(200)
+  observacao?: string;
+
+  @IsOptional() @IsArray() @ArrayMaxSize(2000)
+  @ValidateNested({ each: true }) @Type(() => ProdutoDaTransferenciaDto)
+  produtos?: ProdutoDaTransferenciaDto[];
+
+  @IsOptional() @IsArray() @ArrayMaxSize(5000) @IsInt({ each: true }) @Min(1, { each: true })
+  patrimonios?: number[];
 }
 
 export class TransferirProdutoDto {

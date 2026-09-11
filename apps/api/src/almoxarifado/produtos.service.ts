@@ -4,17 +4,10 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { randomUUID } from 'node:crypto';
 import { FornecedorService } from '../financeiro/fornecedor.service';
 import { IxcClient } from '../ixc/ixc.client';
 import { numeroDoIxc, type ItemDeEstoque } from './estoque.mapper';
 import { EstoqueService } from './estoque.service';
-import {
-  emParalelo,
-  separarMoviveis,
-  type ItemDeFora,
-  type ItemMovivel,
-} from './mover-tudo';
 import {
   fiscalQueFalta,
   hojeParaIxc,
@@ -67,40 +60,6 @@ interface Quem {
   nome: string;
 }
 
-/** O que um almoxarifado tem agora, para a tela conferir antes de mover tudo. */
-export interface ConteudoDoAlmoxarifado {
-  almoxId: number;
-  nome: string;
-  moviveis: ItemMovivel[];
-  deFora: ItemDeFora[];
-}
-
-/** Uma mudança de tudo de um almoxarifado para outro, rodando ou terminada. */
-export interface AndamentoDaMudanca {
-  id: string;
-  de: { id: number; nome: string };
-  para: { id: number; nome: string };
-  /** A transferência que o IXC abriu — todos os itens vão nela. */
-  transferenciaId: number;
-  status: 'rodando' | 'terminou' | 'falhou';
-  total: number;
-  feitos: number;
-  movidos: Array<{ produtoId: number; descricao: string; quantidade: number; unidade: string }>;
-  falharam: Array<{ produtoId: number; descricao: string; quantidade: number; motivo: string }>;
-  deFora: ItemDeFora[];
-  /** Produtos movíveis que a origem ainda tem, relida no IXC no fim. Null se a releitura falhou. */
-  restouNaOrigem: number | null;
-  erro: string | null;
-  iniciadoEm: string;
-  terminadoEm: string | null;
-}
-
-/** Quantos itens entram na transferência ao mesmo tempo. */
-const ITENS_EM_PARALELO = 3;
-
-/** Quanto tempo uma mudança terminada fica guardada para a tela ler o resultado. */
-const GUARDA_DA_MUDANCA_MS = 60 * 60_000;
-
 /**
  * Mexer nos produtos do estoque — no IXC.
  *
@@ -116,10 +75,6 @@ const GUARDA_DA_MUDANCA_MS = 60 * 60_000;
 @Injectable()
 export class ProdutosService {
   private readonly logger = new Logger(ProdutosService.name);
-  /** As mudanças de "mover tudo" desta execução do servidor, pelo id. */
-  private readonly mudancas = new Map<string, AndamentoDaMudanca>();
-  /** Almoxarifados numa mudança rodando — nem origem nem destino de outra. */
-  private readonly ocupados = new Set<number>();
 
   constructor(
     private readonly ixc: IxcClient,
@@ -354,243 +309,6 @@ export class ProdutosService {
     };
   }
 
-  // --- Mover tudo de um almoxarifado para outro ---
-
-  /**
-   * O que o almoxarifado tem agora — lido de novo do IXC, sem a leitura
-   * guardada: é a lista que a tela mostra antes de o usuário confirmar, e
-   * tem de ser a de agora.
-   */
-  async conteudoDoAlmoxarifado(almoxId: number): Promise<ConteudoDoAlmoxarifado> {
-    const [lido, unidades] = await Promise.all([
-      this.estoque.listar({ almoxId, recarregar: true }),
-      this.unidades(),
-    ]);
-    const itens = lido.itens
-      .map((i) => ({
-        produtoId: i.produtoId,
-        descricao: i.descricao,
-        saldo: i.total,
-        unidade: i.unidade,
-      }))
-      .filter((i) => i.saldo > 0);
-    const produtos = await this.produtosPorId(itens.map((i) => i.produtoId));
-    const { moviveis, deFora } = separarMoviveis(itens, produtos, unidades);
-    return {
-      almoxId,
-      nome: lido.almoxarifados.find((a) => a.id === almoxId)?.nome ?? `Almoxarifado ${almoxId}`,
-      moviveis,
-      deFora,
-    };
-  }
-
-  /**
-   * Leva tudo o que dá para levar de um almoxarifado para outro: **uma**
-   * transferência no IXC, com um item por produto e a quantidade inteira dele.
-   *
-   * Roda em segundo plano: um almoxarifado grande são centenas de itens, e o
-   * nginx corta a requisição em um minuto. Esta chamada valida, abre a
-   * transferência e volta na hora; a tela acompanha por `andamentoDaMudanca`.
-   *
-   * Um item que o IXC recusa não para os outros — cada um anda sozinho, e o
-   * resultado diz quem foi, quem não foi e por quê.
-   */
-  async iniciarMoverTudo(
-    de: number,
-    dados: { para: number; observacao?: string },
-    quem: Quem,
-  ): Promise<AndamentoDaMudanca> {
-    if (de === dados.para) {
-      throw new BadRequestException('A origem e o destino são o mesmo almoxarifado.');
-    }
-    if (this.ocupados.has(de) || this.ocupados.has(dados.para)) {
-      throw new BadRequestException(
-        'Já tem uma mudança rodando com um desses almoxarifados. Espere ela terminar.',
-      );
-    }
-    this.ocupados.add(de);
-    this.ocupados.add(dados.para);
-
-    try {
-      const almoxarifados = await this.almoxarifados();
-      const origem = almoxarifados.find((a) => a.id === de);
-      const destino = almoxarifados.find((a) => a.id === dados.para);
-      if (!origem || !destino) {
-        throw new BadRequestException(
-          `O sistema não enxerga o almoxarifado de ${!origem ? 'origem' : 'destino'} no IXC — ` +
-            'é de técnico e não está liberado. Libere na aba Almoxarifados e tente de novo.',
-        );
-      }
-      if (!destino.ativo) {
-        throw new BadRequestException(`O almoxarifado "${destino.nome}" está desativado no IXC.`);
-      }
-
-      const conteudo = await this.conteudoDoAlmoxarifado(de);
-      if (conteudo.moviveis.length === 0) {
-        throw new BadRequestException(
-          `"${origem.nome}" não tem nada para mover` +
-            (conteudo.deFora.length > 0
-              ? ` — só ${conteudo.deFora.length} item(ns) que não vão numa transferência de produto.`
-              : '.'),
-        );
-      }
-
-      const { id: transferenciaId } = await this.ixc.create(
-        'transf_almox_top',
-        montarTransferencia({
-          almoxSaida: origem.id,
-          filialSaida: origem.filialId,
-          almoxEntrada: destino.id,
-          filialEntrada: destino.filialId,
-          data: hojeParaIxc(),
-          observacao:
-            (dados.observacao?.trim() ? `${dados.observacao.trim()} — ` : '') +
-            `tudo de ${origem.nome} para ${destino.nome}, pelo ILNET FINANCE, ${quem.nome}`,
-        }),
-      );
-      if (!transferenciaId) {
-        throw new BadRequestException(
-          'O IXC não devolveu o número da transferência — nada foi movido. Tente de novo.',
-        );
-      }
-
-      const andamento: AndamentoDaMudanca = {
-        id: randomUUID(),
-        de: { id: origem.id, nome: origem.nome },
-        para: { id: destino.id, nome: destino.nome },
-        transferenciaId,
-        status: 'rodando',
-        total: conteudo.moviveis.length,
-        feitos: 0,
-        movidos: [],
-        falharam: [],
-        deFora: conteudo.deFora,
-        restouNaOrigem: null,
-        erro: null,
-        iniciadoEm: new Date().toISOString(),
-        terminadoEm: null,
-      };
-      this.esquecerMudancasVelhas();
-      this.mudancas.set(andamento.id, andamento);
-      this.logger.log(
-        `${quem.nome} começou a mover tudo de ${origem.nome} para ${destino.nome}: ` +
-          `${andamento.total} produtos na transferência #${transferenciaId} do IXC.`,
-      );
-      void this.executarMudanca(andamento, conteudo.moviveis);
-      return andamento;
-    } catch (err) {
-      this.ocupados.delete(de);
-      this.ocupados.delete(dados.para);
-      throw err;
-    }
-  }
-
-  andamentoDaMudanca(id: string): AndamentoDaMudanca {
-    const andamento = this.mudancas.get(id);
-    if (!andamento) {
-      throw new NotFoundException(
-        'Essa mudança não está mais aqui (o servidor pode ter reiniciado). O que foi movido ' +
-          'está no IXC — confira a transferência lá.',
-      );
-    }
-    return andamento;
-  }
-
-  private async executarMudanca(a: AndamentoDaMudanca, moviveis: ItemMovivel[]): Promise<void> {
-    try {
-      await emParalelo(moviveis, ITENS_EM_PARALELO, async (item) => {
-        try {
-          await this.ixc.create(
-            'transf_almox_item',
-            montarItemDaTransferencia(a.transferenciaId, {
-              produtoId: item.produtoId,
-              unidadeId: item.unidadeId,
-              unidadeSigla: item.unidadeSigla,
-              quantidade: item.saldo,
-              tipoProduto: item.tipoProduto,
-            }),
-          );
-          a.movidos.push({
-            produtoId: item.produtoId,
-            descricao: item.descricao,
-            quantidade: item.saldo,
-            unidade: item.unidadeSigla,
-          });
-        } catch (err) {
-          a.falharam.push({
-            produtoId: item.produtoId,
-            descricao: item.descricao,
-            quantidade: item.saldo,
-            motivo: err instanceof Error ? err.message : String(err),
-          });
-        } finally {
-          a.feitos += 1;
-        }
-      });
-
-      this.estoque.esquecer();
-      try {
-        a.restouNaOrigem = (await this.conteudoDoAlmoxarifado(a.de.id)).moviveis.length;
-      } catch {
-        a.restouNaOrigem = null;
-      }
-      a.status = 'terminou';
-    } catch (err) {
-      a.status = 'falhou';
-      a.erro = err instanceof Error ? err.message : String(err);
-    } finally {
-      a.terminadoEm = new Date().toISOString();
-      this.ocupados.delete(a.de.id);
-      this.ocupados.delete(a.para.id);
-      this.logger.log(
-        `Mudança de ${a.de.nome} para ${a.para.nome} (transferência #${a.transferenciaId}): ` +
-          `${a.movidos.length} movidos, ${a.falharam.length} recusados pelo IXC, ` +
-          `${a.deFora.length} de fora, ${a.restouNaOrigem ?? '?'} restaram na origem.`,
-      );
-    }
-  }
-
-  private esquecerMudancasVelhas(): void {
-    const limite = Date.now() - GUARDA_DA_MUDANCA_MS;
-    for (const [id, m] of this.mudancas) {
-      if (m.terminadoEm && Date.parse(m.terminadoEm) < limite) this.mudancas.delete(id);
-    }
-  }
-
-  /**
-   * Os cadastros dos produtos pelos ids. Poucos, um a um; muitos, a tabela
-   * inteira de uma vez — centenas de consultas custam mais que ela.
-   */
-  private async produtosPorId(ids: number[]): Promise<Map<number, Record<string, unknown>>> {
-    const unicos = [...new Set(ids)].filter((id) => id > 0);
-    const mapa = new Map<number, Record<string, unknown>>();
-    if (unicos.length === 0) return mapa;
-    if (unicos.length <= 40) {
-      const achados = await Promise.all(
-        unicos.map((id) =>
-          this.ixc
-            .getById<Record<string, unknown>>('produtos', 'produtos.id', id)
-            .catch(() => null),
-        ),
-      );
-      achados.forEach((p, i) => {
-        if (p) mapa.set(unicos[i], p);
-      });
-      return mapa;
-    }
-    const procurados = new Set(unicos);
-    const todos = await this.ixc.listAll<Record<string, unknown>>(
-      'produtos',
-      { qtype: 'produtos.id', query: '0', oper: '>', sortname: 'produtos.id', sortorder: 'asc' },
-      { pageSize: 500 },
-    );
-    for (const p of todos) {
-      const id = numeroDoIxc(p.id);
-      if (procurados.has(id)) mapa.set(id, p);
-    }
-    return mapa;
-  }
-
   /**
    * Põe quantidade no estoque pela entrada de compra do IXC — o caminho que a
    * documentação tem para o saldo subir. A compra nasce aberta (é assim no
@@ -748,6 +466,16 @@ export class ProdutosService {
       );
     }
     return { id: unidade.id, sigla: unidade.sigla };
+  }
+
+  /**
+   * O que a transferência de vários itens (`TransferenciasService`) precisa
+   * daqui: as unidades e os almoxarifados que o sistema enxerga, com a filial.
+   */
+  paraMovimentar(): Promise<
+    [OpcoesDoEstoque['unidades'], OpcoesDoEstoque['almoxarifados']]
+  > {
+    return Promise.all([this.unidades(), this.almoxarifados()]);
   }
 
   private async unidades(): Promise<OpcoesDoEstoque['unidades']> {

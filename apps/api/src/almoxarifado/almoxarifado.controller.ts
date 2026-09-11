@@ -26,11 +26,13 @@ import {
   EmprestarDto,
   EntradaDeCompraDto,
   MoverTudoDto,
+  TransferenciaDto,
   TransferirProdutoDto,
 } from './dto/almoxarifado.dto';
 import { EstoqueService } from './estoque.service';
 import { FerramentasService } from './ferramentas.service';
 import { ProdutosService } from './produtos.service';
+import { TransferenciasService } from './transferencias.service';
 
 /** `?x=1`, `?x=true` — tudo o que uma tela manda como "sim". */
 function ehSim(valor?: string): boolean {
@@ -71,6 +73,7 @@ export class AlmoxarifadoController {
     private readonly produtos: ProdutosService,
     private readonly comodato: ComodatoService,
     private readonly almoxarifados: AlmoxarifadosService,
+    private readonly transferencias: TransferenciasService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -195,15 +198,18 @@ export class AlmoxarifadoController {
     return this.almoxarifados.liberar(quem(req));
   }
 
-  /** O que o almoxarifado tem agora, lido do IXC — o que "mover tudo" levaria. */
+  /**
+   * O que o almoxarifado tem agora, lido do IXC: produtos por quantidade e
+   * patrimônios peça por peça (com MAC e número) — o que dá para transferir.
+   */
   @Get('almoxarifados/:id/conteudo')
   conteudoDoAlmoxarifado(@Param('id', ParseIntPipe) id: number) {
-    return this.produtos.conteudoDoAlmoxarifado(id);
+    return this.transferencias.conteudo(id);
   }
 
   /**
-   * Leva tudo do almoxarifado para outro, numa transferência do IXC. Volta na
-   * hora com o andamento; o resto roda em segundo plano.
+   * Leva tudo do almoxarifado para outro, numa transferência do IXC —
+   * patrimônio incluso, peça por peça. Volta na hora com o andamento.
    */
   @Post('almoxarifados/:id/mover-tudo')
   @HttpCode(202)
@@ -212,12 +218,23 @@ export class AlmoxarifadoController {
     @Body() dto: MoverTudoDto,
     @Req() req: Request,
   ) {
-    return this.produtos.iniciarMoverTudo(id, dto, quem(req));
+    return this.transferencias.iniciar({ de: id, ...dto, tudo: true }, quem(req));
   }
 
-  @Get('almoxarifados/mudancas/:mudancaId')
-  andamentoDaMudanca(@Param('mudancaId', ParseUUIDPipe) mudancaId: string) {
-    return this.produtos.andamentoDaMudanca(mudancaId);
+  // -------------------------------------------------------------------------
+  // Transferência de vários itens — produto e patrimônio, escrita no IXC
+  // -------------------------------------------------------------------------
+
+  /** Abre a transferência com a lista escolhida. Volta na hora; roda em segundo plano. */
+  @Post('transferencias')
+  @HttpCode(202)
+  transferirVarios(@Body() dto: TransferenciaDto, @Req() req: Request) {
+    return this.transferencias.iniciar(dto, quem(req));
+  }
+
+  @Get('transferencias/:id')
+  andamentoDaTransferencia(@Param('id', ParseUUIDPipe) id: string) {
+    return this.transferencias.andamento(id);
   }
 
   @Patch('almoxarifados/:id')

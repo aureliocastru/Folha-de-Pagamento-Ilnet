@@ -7,6 +7,7 @@ import { ComodatoService } from './comodato.service';
 import { EstoqueService } from './estoque.service';
 import { FerramentasService } from './ferramentas.service';
 import { ProdutosService } from './produtos.service';
+import { TransferenciasService } from './transferencias.service';
 
 /**
  * O almoxarifado: o estoque de material e o caderno de ferramentas.
@@ -28,6 +29,7 @@ import { ProdutosService } from './produtos.service';
     ProdutosService,
     ComodatoService,
     AlmoxarifadosService,
+    TransferenciasService,
   ],
 })
 export class AlmoxarifadoModule {}

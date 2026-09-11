@@ -1,21 +1,27 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import { useState } from 'react';
 import { Aviso, Carregando, Janela } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
-import type {
-  AlmoxarifadoCadastro,
-  AndamentoDaMudanca,
-  ConteudoDoAlmoxarifado,
-} from '../../lib/types';
+import type { AlmoxarifadoCadastro, AndamentoDaTransferencia } from '../../lib/types';
 import { quantidade } from './ProdutoNoIxc';
+import {
+  Andamento,
+  FicamDeFora,
+  identificacao,
+  ListaDeItens,
+  useAndamento,
+  useConteudo,
+} from './transferencia-comum';
 
 /**
  * Mover tudo o que um almoxarifado tem para outro — para arrumar o estoque de
- * uma vez, e não produto a produto.
+ * uma vez. Vai o produto comum (a quantidade inteira) e cada peça de
+ * patrimônio que está na prateleira (ONU, roteador, com MAC e número), numa
+ * transferência só no IXC.
  *
  * Três momentos na mesma janela: **conferir** (o que vai e o que fica, lido
- * agora do IXC), **acompanhar** (a mudança roda no servidor, item a item) e o
- * **resultado** (o que foi, o que o IXC recusou e o que ainda sobrou lá).
+ * agora do IXC), **acompanhar** (roda no servidor, item a item) e o
+ * **resultado**.
  */
 export function MoverTudo({
   origem,
@@ -32,76 +38,49 @@ export function MoverTudo({
 }) {
   const [para, setPara] = useState('');
   const [observacao, setObservacao] = useState('');
-  const [mudancaId, setMudancaId] = useState<string | null>(null);
+  const [transferenciaId, setTransferenciaId] = useState<string | null>(null);
 
-  const conteudo = useQuery({
-    queryKey: ['almoxarifado', 'conteudo', origem.id],
-    queryFn: async () =>
-      (
-        await api.get<ConteudoDoAlmoxarifado>(
-          `/almoxarifado/almoxarifados/${origem.id}/conteudo`,
-        )
-      ).data,
-    staleTime: 0,
-    enabled: !mudancaId,
-  });
+  const conteudo = useConteudo(transferenciaId ? null : origem.id);
+  const andamento = useAndamento(transferenciaId, onMudou);
 
   const iniciar = useMutation({
     mutationFn: async () =>
       (
-        await api.post<AndamentoDaMudanca>(
+        await api.post<AndamentoDaTransferencia>(
           `/almoxarifado/almoxarifados/${origem.id}/mover-tudo`,
           { para: Number(para), observacao: observacao.trim() || undefined },
         )
       ).data,
-    onSuccess: (a) => setMudancaId(a.id),
+    onSuccess: (a) => setTransferenciaId(a.id),
   });
-
-  const andamento = useQuery({
-    queryKey: ['almoxarifado', 'mudanca', mudancaId],
-    queryFn: async () =>
-      (await api.get<AndamentoDaMudanca>(`/almoxarifado/almoxarifados/mudancas/${mudancaId}`))
-        .data,
-    enabled: !!mudancaId,
-    refetchInterval: (q) => (q.state.data?.status === 'rodando' || !q.state.data ? 1500 : false),
-  });
-
-  // Terminou (bem ou mal): o saldo mudou no IXC, uma vez só.
-  const avisado = useRef(false);
-  const status = andamento.data?.status;
-  useEffect(() => {
-    if (status && status !== 'rodando' && !avisado.current) {
-      avisado.current = true;
-      onMudou();
-    }
-  }, [status, onMudou]);
 
   const destinos = almoxarifados.filter((a) => a.liberado && a.ativo && a.id !== origem.id);
   const nomeDoDestino = destinos.find((a) => String(a.id) === para)?.descricao ?? '';
   const c = conteudo.data;
+  const total = c ? c.moviveis.length + c.patrimonios.length : 0;
   const a = andamento.data ?? iniciar.data;
 
   return (
     <Janela titulo={`Mover tudo de ${origem.descricao}`} onFechar={onFechar}>
-      {!mudancaId && (
+      {!transferenciaId && (
         <>
           {conteudo.isLoading && <Carregando texto="Lendo no IXC o que tem nele…" />}
           {conteudo.isError && <Aviso tom="erro">{mensagemErro(conteudo.error)}</Aviso>}
 
-          {c && c.moviveis.length === 0 && (
+          {c && total === 0 && (
             <Aviso tom="info">
               {c.deFora.length > 0
-                ? `Não tem nada que vá numa transferência de produto — só ${c.deFora.length} item(ns) que ficam de fora (abaixo).`
+                ? `Não tem nada que vá por transferência — só ${c.deFora.length} item(ns) que ficam (abaixo).`
                 : 'Este almoxarifado está vazio no IXC.'}
             </Aviso>
           )}
 
           {c && c.moviveis.length > 0 && (
-            <>
-              <p className="mb-2 text-sm text-tinta-600">
-                Vão <strong>{c.moviveis.length}</strong>{' '}
+            <div className="mb-3">
+              <p className="mb-1 text-sm text-tinta-600">
+                <strong>{c.moviveis.length}</strong>{' '}
                 {c.moviveis.length === 1 ? 'produto' : 'produtos'}, cada um com tudo o que tem
-                aqui, numa transferência só no IXC.
+                aqui
               </p>
               <ListaDeItens
                 itens={c.moviveis.map((i) => ({
@@ -110,12 +89,29 @@ export function MoverTudo({
                   detalhe: `${quantidade(i.saldo)} ${i.unidadeSigla}`,
                 }))}
               />
-            </>
+            </div>
+          )}
+
+          {c && c.patrimonios.length > 0 && (
+            <div className="mb-3">
+              <p className="mb-1 text-sm text-tinta-600">
+                <strong>{c.patrimonios.length}</strong>{' '}
+                {c.patrimonios.length === 1 ? 'peça' : 'peças'} de patrimônio, cada uma com o
+                seu MAC e número
+              </p>
+              <ListaDeItens
+                itens={c.patrimonios.map((p) => ({
+                  chave: `p${p.patrimonioId}`,
+                  nome: p.descricao,
+                  detalhe: identificacao(p),
+                }))}
+              />
+            </div>
           )}
 
           {c && c.deFora.length > 0 && <FicamDeFora itens={c.deFora} />}
 
-          {c && c.moviveis.length > 0 && (
+          {c && total > 0 && (
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <div>
                 <label className="rotulo" htmlFor="mover-tudo-para">
@@ -134,9 +130,7 @@ export function MoverTudo({
                     </option>
                   ))}
                 </select>
-                <p className="ajuda">
-                  Só aparecem os ativos e liberados para o sistema.
-                </p>
+                <p className="ajuda">Só aparecem os ativos e liberados para o sistema.</p>
               </div>
               <div>
                 <label className="rotulo" htmlFor="mover-tudo-obs">
@@ -160,16 +154,16 @@ export function MoverTudo({
             <button type="button" onClick={onFechar} className="btn btn-neutro">
               Cancelar
             </button>
-            {c && c.moviveis.length > 0 && (
+            {c && total > 0 && (
               <button
                 type="button"
                 disabled={!para || iniciar.isPending}
                 onClick={() => {
                   if (
                     confirm(
-                      `Mover ${c.moviveis.length} produtos de "${origem.descricao}" para ` +
-                        `"${nomeDoDestino}" no IXC?\n\nCada um vai com a quantidade inteira. ` +
-                        'Para desfazer, só movendo de volta.',
+                      `Mover ${total} ${total === 1 ? 'item' : 'itens'} de "${origem.descricao}" ` +
+                        `para "${nomeDoDestino}" no IXC?\n\nProduto vai com a quantidade inteira; ` +
+                        'patrimônio, peça por peça. Para desfazer, só movendo de volta.',
                     )
                   ) {
                     iniciar.mutate();
@@ -179,133 +173,14 @@ export function MoverTudo({
               >
                 {iniciar.isPending
                   ? 'Abrindo a transferência…'
-                  : `Mover ${c.moviveis.length} ${c.moviveis.length === 1 ? 'produto' : 'produtos'}`}
+                  : `Mover ${total} ${total === 1 ? 'item' : 'itens'}`}
               </button>
             )}
           </div>
         </>
       )}
 
-      {mudancaId && a && <Andamento a={a} erro={andamento.error} onFechar={onFechar} />}
+      {transferenciaId && a && <Andamento a={a} erro={andamento.error} onFechar={onFechar} />}
     </Janela>
-  );
-}
-
-function Andamento({
-  a,
-  erro,
-  onFechar,
-}: {
-  a: AndamentoDaMudanca;
-  erro: unknown;
-  onFechar: () => void;
-}) {
-  const pct = a.total > 0 ? Math.round((a.feitos / a.total) * 100) : 100;
-
-  return (
-    <div>
-      <p className="mb-2 text-sm text-tinta-600">
-        {a.de.nome} → <strong>{a.para.nome}</strong> · transferência{' '}
-        <span className="num">#{a.transferenciaId}</span> no IXC
-      </p>
-
-      <div className="mb-1 h-2 overflow-hidden rounded-full bg-tinta-100">
-        <div
-          className={`h-full transition-all ${
-            a.status === 'falhou' ? 'bg-rose-500' : 'bg-brand-600'
-          }`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      <p className="mb-4 text-[12px] text-tinta-400">
-        {a.status === 'rodando'
-          ? `${a.feitos} de ${a.total} — pode fechar a janela, a mudança continua no servidor.`
-          : `${a.feitos} de ${a.total}`}
-      </p>
-
-      {erro ? <Aviso tom="erro">{mensagemErro(erro)}</Aviso> : null}
-      {a.status === 'falhou' && (
-        <Aviso tom="erro">
-          A mudança parou no meio ({a.erro}). O que foi movido está na transferência #
-          {a.transferenciaId} do IXC.
-        </Aviso>
-      )}
-
-      {a.status === 'terminou' && (
-        <Aviso tom={a.falharam.length === 0 ? 'pago' : 'atencao'}>
-          {a.movidos.length} {a.movidos.length === 1 ? 'produto movido' : 'produtos movidos'}{' '}
-          para {a.para.nome}.
-          {a.falharam.length > 0 && ` O IXC recusou ${a.falharam.length} (abaixo).`}
-          {a.restouNaOrigem !== null &&
-            a.restouNaOrigem > 0 &&
-            ` Relido agora, ${a.de.nome} ainda tem ${a.restouNaOrigem} produto(s) — confira a transferência no IXC.`}
-          {a.restouNaOrigem === 0 && ` ${a.de.nome} ficou vazio (fora o que não vai por aqui).`}
-        </Aviso>
-      )}
-
-      {a.falharam.length > 0 && (
-        <div className="mb-3">
-          <p className="mb-1 text-sm font-semibold text-rose-700 dark:text-rose-300">
-            Recusados pelo IXC
-          </p>
-          <ListaDeItens
-            itens={a.falharam.map((f) => ({
-              chave: f.produtoId,
-              nome: f.descricao,
-              detalhe: f.motivo,
-            }))}
-          />
-        </div>
-      )}
-
-      {a.status !== 'rodando' && a.deFora.length > 0 && <FicamDeFora itens={a.deFora} />}
-
-      {a.status !== 'rodando' && (
-        <div className="mt-4 flex justify-end">
-          <button type="button" onClick={onFechar} className="btn btn-primario">
-            Fechar
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function FicamDeFora({ itens }: { itens: ConteudoDoAlmoxarifado['deFora'] }) {
-  return (
-    <div className="mt-3">
-      <p className="mb-1 text-sm font-semibold text-amber-700 dark:text-amber-300">
-        Ficam aqui ({itens.length}) — mova pelo IXC
-      </p>
-      <ListaDeItens
-        itens={itens.map((i) => ({
-          chave: i.produtoId,
-          nome: i.descricao,
-          detalhe: `${quantidade(i.saldo)} ${i.unidade ?? ''} · ${i.motivo}`,
-        }))}
-      />
-    </div>
-  );
-}
-
-function ListaDeItens({
-  itens,
-}: {
-  itens: Array<{ chave: number; nome: string; detalhe: string }>;
-}) {
-  return (
-    <div className="max-h-60 overflow-y-auto rolagem-fina rounded-xl border border-tinta-100">
-      {itens.map((i) => (
-        <div
-          key={i.chave}
-          className="flex items-baseline justify-between gap-3 border-b border-tinta-100 px-3 py-1.5 text-[13px] last:border-b-0"
-        >
-          <span className="min-w-0 truncate text-tinta-800" title={i.nome}>
-            {i.nome}
-          </span>
-          <span className="max-w-[55%] text-right text-[12px] text-tinta-500">{i.detalhe}</span>
-        </div>
-      ))}
-    </div>
   );
 }

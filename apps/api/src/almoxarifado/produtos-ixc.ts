@@ -319,6 +319,28 @@ export function montarItemDaTransferencia(
   };
 }
 
+/**
+ * `POST /transf_almox_item` ("3. Inserir patrimônio na transferência"): uma
+ * peça de patrimônio — a ONU, o roteador — pelo `id_patrimonio` dela.
+ * Quantidade 1 e `tipo_produto: "P"`, como no exemplo: patrimônio anda peça
+ * por peça, e é o registro dele (com MAC e número) que muda de almoxarifado.
+ */
+export function montarPatrimonioDaTransferencia(
+  transferenciaId: number,
+  peca: { patrimonioId: number; produtoId: number; unidadeId: number; unidadeSigla: string },
+): Record<string, unknown> {
+  return {
+    id_patrimonio: String(idValido(peca.patrimonioId, 'o patrimônio')),
+    id_produto: String(idValido(peca.produtoId, 'o produto')),
+    id_unidade: String(idValido(peca.unidadeId, 'a unidade')),
+    unidade_sigla: peca.unidadeSigla,
+    qtde: qtdeParaIxc(1),
+    fator_conversao: '1.000000000',
+    id_transf_almox: String(idValido(transferenciaId, 'a transferência')),
+    tipo_produto: 'P',
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Entrada de compra — o jeito documentado de o saldo subir
 // ---------------------------------------------------------------------------

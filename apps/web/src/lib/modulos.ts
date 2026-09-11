@@ -254,6 +254,9 @@ const almoxarifado: Modulo = {
     // O cadastro de onde a casa guarda material — não o saldo (isso é a aba
     // Estoque). Nome, filial, ativo: a tabela `almox` do IXC.
     { to: 'almoxarifados', label: 'Almoxarifados', icone: IconePrateleira },
+    // A transferência entre almoxarifados do IXC, feita aqui: bipa o MAC ou o
+    // número da ONU, põe a quantidade do cabo, e grava — lá fica o registro.
+    { to: 'transferir', label: 'Transferir', icone: IconeTransferencia },
     // O que está emprestado a cliente, e com quem. Aba própria: é outra
     // pergunta — o estoque diz o que está na prateleira, o comodato diz o que
     // saiu dela e ainda é da casa.
