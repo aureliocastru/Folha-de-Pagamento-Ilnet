@@ -2152,6 +2152,21 @@ export interface ProdutoNoIxc {
   total: number;
 }
 
+/** O cadastro de um almoxarifado — a tabela `almox` do IXC, e não o saldo. */
+export interface AlmoxarifadoCadastro {
+  id: number;
+  descricao: string;
+  filialId: number;
+  /** Nulo se a filial do cadastro não existir mais no IXC. */
+  filial: string | null;
+  ativo: boolean;
+}
+
+/** As opções do formulário de almoxarifado — hoje, só as filiais do IXC. */
+export interface OpcoesDoAlmoxarifado {
+  filiais: Array<{ id: number; nome: string }>;
+}
+
 /** As escolhas dos formulários do estoque, lidas do IXC. */
 export interface OpcoesDoEstoque {
   unidades: Array<{ id: number; sigla: string; descricao: string }>;

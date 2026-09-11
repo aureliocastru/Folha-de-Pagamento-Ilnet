@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { FinanceiroModule } from '../financeiro/financeiro.module';
 import { IxcModule } from '../ixc/ixc.module';
 import { AlmoxarifadoController } from './almoxarifado.controller';
+import { AlmoxarifadosService } from './almoxarifados.service';
 import { ComodatoService } from './comodato.service';
 import { EstoqueService } from './estoque.service';
 import { FerramentasService } from './ferramentas.service';
@@ -21,6 +22,12 @@ import { ProdutosService } from './produtos.service';
 @Module({
   imports: [IxcModule, FinanceiroModule],
   controllers: [AlmoxarifadoController],
-  providers: [EstoqueService, FerramentasService, ProdutosService, ComodatoService],
+  providers: [
+    EstoqueService,
+    FerramentasService,
+    ProdutosService,
+    ComodatoService,
+    AlmoxarifadosService,
+  ],
 })
 export class AlmoxarifadoModule {}

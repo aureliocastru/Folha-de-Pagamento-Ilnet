@@ -13,12 +13,15 @@ import {
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { AlmoxarifadosService } from './almoxarifados.service';
 import { ComodatoService } from './comodato.service';
 import {
   AtualizarFerramentaDto,
+  CriarAlmoxarifadoDto,
   CriarFerramentaDto,
   CriarProdutoDto,
   DevolverDto,
+  EditarAlmoxarifadoDto,
   EditarProdutoDto,
   EmprestarDto,
   EntradaDeCompraDto,
@@ -66,6 +69,7 @@ export class AlmoxarifadoController {
     private readonly ferramentas: FerramentasService,
     private readonly produtos: ProdutosService,
     private readonly comodato: ComodatoService,
+    private readonly almoxarifados: AlmoxarifadosService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -157,6 +161,42 @@ export class AlmoxarifadoController {
   @Get('comodatos')
   comodatos(@Query('recarregar') recarregar?: string) {
     return this.comodato.listar(ehSim(recarregar));
+  }
+
+  // -------------------------------------------------------------------------
+  // Almoxarifados — cadastro (a tabela `almox`), escrito no IXC
+  // -------------------------------------------------------------------------
+
+  @Get('almoxarifados')
+  listarAlmoxarifados() {
+    return this.almoxarifados.listar();
+  }
+
+  /** As filiais do IXC, para o formulário de cadastro. */
+  @Get('almoxarifados/opcoes')
+  opcoesDosAlmoxarifados() {
+    return this.almoxarifados.opcoes();
+  }
+
+  @Post('almoxarifados')
+  @HttpCode(201)
+  criarAlmoxarifado(@Body() dto: CriarAlmoxarifadoDto, @Req() req: Request) {
+    return this.almoxarifados.criar(dto, quem(req));
+  }
+
+  @Patch('almoxarifados/:id')
+  editarAlmoxarifado(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: EditarAlmoxarifadoDto,
+    @Req() req: Request,
+  ) {
+    return this.almoxarifados.editar(id, dto, quem(req));
+  }
+
+  @Delete('almoxarifados/:id')
+  @HttpCode(204)
+  async apagarAlmoxarifado(@Param('id', ParseIntPipe) id: number, @Req() req: Request) {
+    await this.almoxarifados.apagar(id, quem(req));
   }
 
   // -------------------------------------------------------------------------

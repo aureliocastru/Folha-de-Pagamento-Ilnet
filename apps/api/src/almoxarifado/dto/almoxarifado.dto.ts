@@ -124,6 +124,26 @@ export class CriarProdutoDto {
   modeloId!: number;
 }
 
+// --- Almoxarifados (cadastro, escrito no IXC) ---
+
+export class CriarAlmoxarifadoDto {
+  @Transform(texto) @IsString() @MinLength(2) @MaxLength(100)
+  descricao!: string;
+
+  @Transform(numero) @IsInt() @Min(1)
+  filialId!: number;
+}
+
+export class EditarAlmoxarifadoDto {
+  @IsOptional() @Transform(texto) @IsString() @MinLength(2) @MaxLength(100)
+  descricao?: string;
+
+  @IsOptional() @Transform(numero) @IsInt() @Min(1)
+  filialId?: number;
+
+  @IsOptional() @IsBoolean() ativo?: boolean;
+}
+
 export class TransferirProdutoDto {
   @Transform(numero) @IsInt() @Min(1) de!: number;
   @Transform(numero) @IsInt() @Min(1) para!: number;

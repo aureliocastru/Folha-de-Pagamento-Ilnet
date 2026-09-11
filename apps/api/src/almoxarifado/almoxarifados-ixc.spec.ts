@@ -1,0 +1,61 @@
+import { montarEdicaoAlmoxarifado, montarNovoAlmoxarifado } from './almoxarifados-ixc';
+
+/**
+ * Os corpos que vão ao IXC para a tabela `almox`, conferidos contra os
+ * exemplos da documentação oficial ("Almoxarifados", coleção Postman "API -
+ * IXC Provedor"). O que este arquivo protege:
+ *
+ *  - o cadastro novo leva todo obrigatório, inclusive o oculto
+ *    `requisitar_preferencialmente_de` (vazio, como o exemplo da doc);
+ *  - a edição devolve o registro **inteiro** — o `PUT` reescreve a linha.
+ */
+
+const ALMOX_NO_IXC = {
+  id: '3',
+  descricao: 'Van do Anderson',
+  id_filial: '1',
+  ativo: 'S',
+  requisitar_preferencialmente_de: '1',
+};
+
+describe('montarNovoAlmoxarifado', () => {
+  it('leva os obrigatórios, com o oculto vazio', () => {
+    expect(montarNovoAlmoxarifado({ descricao: 'Van do Cleyson', filialId: 1 })).toEqual({
+      descricao: 'Van do Cleyson',
+      id_filial: '1',
+      ativo: 'S',
+      requisitar_preferencialmente_de: '',
+    });
+  });
+
+  it('recusa nome curto e filial faltando', () => {
+    expect(() => montarNovoAlmoxarifado({ descricao: 'a', filialId: 1 })).toThrow(/curto/);
+    expect(() => montarNovoAlmoxarifado({ descricao: 'Van nova', filialId: 0 })).toThrow(
+      /filial/,
+    );
+  });
+});
+
+describe('montarEdicaoAlmoxarifado', () => {
+  it('devolve o cadastro inteiro, com a mudança por cima', () => {
+    const corpo = montarEdicaoAlmoxarifado(ALMOX_NO_IXC, { descricao: '  Van do Anderson 2 ' });
+    expect(corpo).toEqual({
+      id: '3',
+      descricao: 'Van do Anderson 2',
+      id_filial: '1',
+      ativo: 'S',
+      // Preservado — esta tela nunca mexe nele.
+      requisitar_preferencialmente_de: '1',
+    });
+  });
+
+  it('ativo é S/N, e a filial vai como texto', () => {
+    expect(montarEdicaoAlmoxarifado(ALMOX_NO_IXC, { ativo: false }).ativo).toBe('N');
+    expect(montarEdicaoAlmoxarifado(ALMOX_NO_IXC, { ativo: true }).ativo).toBe('S');
+    expect(montarEdicaoAlmoxarifado(ALMOX_NO_IXC, { filialId: 2 }).id_filial).toBe('2');
+  });
+
+  it('recusa nome curto', () => {
+    expect(() => montarEdicaoAlmoxarifado(ALMOX_NO_IXC, { descricao: 'a' })).toThrow(/curto/);
+  });
+});

@@ -251,6 +251,9 @@ const almoxarifado: Modulo = {
   papeis: ['ADMIN', 'RH', 'VISUALIZADOR'],
   menu: [
     { to: 'estoque', label: 'Estoque', icone: IconeCaixa },
+    // O cadastro de onde a casa guarda material — não o saldo (isso é a aba
+    // Estoque). Nome, filial, ativo: a tabela `almox` do IXC.
+    { to: 'almoxarifados', label: 'Almoxarifados', icone: IconePrateleira },
     // O que está emprestado a cliente, e com quem. Aba própria: é outra
     // pergunta — o estoque diz o que está na prateleira, o comodato diz o que
     // saiu dela e ainda é da casa.
