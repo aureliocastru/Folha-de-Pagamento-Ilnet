@@ -370,7 +370,16 @@ export interface EntradaDeCompra {
   /** O número da nota, quando há uma. */
   numeroNota: string;
   valorTotal: number;
+  /** O campo "Documento" da compra, quando não é o número da nota — a marca do acerto. */
+  documento?: string;
 }
+
+/**
+ * A marca das compras que o acerto de negativos cria, no campo "Documento".
+ * É por ela que a tela as acha para desfazer: o Fornecedor Avulso tem compras
+ * abertas de 2020 a 2023, feitas na tela do IXC, que ninguém deve apagar.
+ */
+export const DOCUMENTO_DO_ACERTO = 'ACERTO DE NEGATIVOS (sistema)';
 
 /**
  * `POST /entrada` ("Compras / Compra (inserir)"). Os obrigatórios do exemplo:
@@ -395,7 +404,7 @@ export function montarEntrada(e: EntradaDeCompra): Record<string, unknown> {
     filial_id: String(idValido(e.filialId, 'a filial')),
     data_emissao: e.data,
     data_entrada: e.data,
-    documento: e.numeroNota.slice(0, 40),
+    documento: (e.documento ?? e.numeroNota).slice(0, 40),
     numero_nf: e.numeroNota.slice(0, 40),
     valor_total: dinheiroDaCompra(e.valorTotal),
     // Como a compra que o IXC aceitou pela tela dele (#3403, 11/09/2026): gera

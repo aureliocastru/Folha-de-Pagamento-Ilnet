@@ -12,7 +12,12 @@ import {
 import { numeroDoIxc } from './estoque.mapper';
 import { EstoqueService } from './estoque.service';
 import { ProdutosService } from './produtos.service';
-import { hojeParaIxc, montarEntrada, montarItemDaEntrada } from './produtos-ixc';
+import {
+  DOCUMENTO_DO_ACERTO,
+  hojeParaIxc,
+  montarEntrada,
+  montarItemDaEntrada,
+} from './produtos-ixc';
 
 /** Os negativos de agora: o que o acerto zera e o que fica. */
 export interface NegativosNaTela {
@@ -198,6 +203,12 @@ export class AcertoDeNegativosService {
     }
     const { entrada, itens } = await this.produtos.entradaCrua(entradaId);
     if (!entrada) throw new NotFoundException(`A compra #${entradaId} não existe no IXC.`);
+    if (String(entrada.documento ?? '').trim() !== DOCUMENTO_DO_ACERTO) {
+      throw new BadRequestException(
+        `A compra #${entradaId} não foi feita pelo acerto de negativos do sistema — ` +
+          'daqui só se desfaz compra de acerto. As outras são do IXC, e fazem parte do saldo.',
+      );
+    }
     if (String(entrada.status ?? '').toUpperCase() !== 'A') {
       throw new BadRequestException(
         `A compra #${entradaId} já foi finalizada no IXC — daqui só se desfaz compra aberta.`,
@@ -296,6 +307,7 @@ export class AcertoDeNegativosService {
               filialId,
               data,
               numeroNota: '',
+              documento: DOCUMENTO_DO_ACERTO,
               valorTotal,
             }),
           ));

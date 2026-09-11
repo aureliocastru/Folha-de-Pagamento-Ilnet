@@ -275,6 +275,7 @@ describe('AcertoDeNegativosService', () => {
     expect(ixc.create).toHaveBeenCalledWith(
       'entrada',
       expect.objectContaining({
+        documento: 'ACERTO DE NEGATIVOS (sistema)',
         id_fornecedor: '253',
         tipo_documento: '13',
         condicoes_pagamento: '27',
@@ -326,7 +327,12 @@ describe('AcertoDeNegativosService', () => {
   it('desfaz compra aberta — itens um a um, depois a compra; finalizada não', async () => {
     const remove = jest.fn(async () => ({}));
     const entradaCrua = jest.fn(async (id: number) => ({
-      entrada: { id: String(id), status: id === 3405 ? 'F' : 'A' },
+      entrada: {
+        id: String(id),
+        status: id === 3405 ? 'F' : 'A',
+        // A #401 é uma compra antiga do IXC, sem a marca do acerto.
+        documento: id === 401 ? '' : 'ACERTO DE NEGATIVOS (sistema)',
+      },
       itens: [
         { id: '1012089', id_produto: '134', descricao: 'RADIO' },
         { id: '1012090', id_produto: '133', descricao: 'RADIO 2' },
@@ -338,6 +344,7 @@ describe('AcertoDeNegativosService', () => {
       { entradaCrua } as never,
     );
     await expect(service.desfazer(3405, eu)).rejects.toThrow(/finalizada/);
+    await expect(service.desfazer(401, eu)).rejects.toThrow(/não foi feita pelo acerto/);
     const d = await service.desfazer(3409, eu);
     for (let i = 0; i < 100 && service.desfazimento(d.id).status === 'rodando'; i++) {
       await new Promise((r) => setTimeout(r, 1));

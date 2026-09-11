@@ -438,8 +438,9 @@ function ComprasAbertas({ fornecedorId }: { fornecedorId: number }) {
   return (
     <div className="mb-3 rounded-xl border border-tinta-200 p-3">
       <p className="mb-2 text-[13px] text-tinta-600">
-        <strong>Compras de acerto abertas no IXC.</strong> O saldo já conta com elas. Se uma
-        saiu errada, desfaça — os negativos voltam, e o acerto se refaz abaixo.
+        <strong>Compras de acerto feitas por aqui, ainda abertas no IXC.</strong> O saldo já
+        conta com elas. Se uma saiu errada, desfaça — os negativos voltam, e o acerto se refaz
+        abaixo. (As outras compras abertas do fornecedor são do IXC e não aparecem aqui.)
       </p>
       {abertas.data.map((c) => (
         <div key={c.entradaId} className="flex items-center justify-between gap-2 py-1 text-[13px]">

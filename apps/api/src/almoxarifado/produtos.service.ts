@@ -14,6 +14,7 @@ import {
 import { numeroDoIxc, type ItemDeEstoque } from './estoque.mapper';
 import { EstoqueService } from './estoque.service';
 import {
+  DOCUMENTO_DO_ACERTO,
   fiscalQueFalta,
   hojeParaIxc,
   montarEdicaoProduto,
@@ -578,7 +579,13 @@ export class ProdutosService {
     return { entrada, itens };
   }
 
-  /** As compras abertas do fornecedor, da mais nova para a mais velha, com quantos itens têm. */
+  /**
+   * As compras **de acerto** abertas do fornecedor — só as que o acerto de
+   * negativos criou (marcadas no campo "Documento"), da mais nova para a mais
+   * velha. As outras compras abertas dele são do IXC e fazem parte do saldo:
+   * o Fornecedor Avulso tem compras abertas de 2020 a 2023, e a primeira
+   * versão desta lista as mostrava com "Desfazer" (11/09/2026).
+   */
   async entradasAbertasDoFornecedor(
     fornecedorId: number,
   ): Promise<Array<{ entradaId: number; data: string; itens: number; valorTotal: number }>> {
@@ -597,6 +604,7 @@ export class ProdutosService {
     return Promise.all(
       abertas
         .filter((e) => String(e.status ?? '').toUpperCase() === 'A')
+        .filter((e) => String(e.documento ?? '').trim() === DOCUMENTO_DO_ACERTO)
         .map(async (e) => {
           const entradaId = numeroDoIxc(e.id);
           const itens = await this.ixc.list('movimento_produtos', {
