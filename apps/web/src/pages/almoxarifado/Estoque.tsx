@@ -32,6 +32,8 @@ export function Estoque() {
   const [busca, setBusca] = useState('');
   const [almox, setAlmox] = useState('');
   const [soFaltando, setSoFaltando] = useState(false);
+  /** Só o que tem saldo negativo em algum almoxarifado — o que precisa de acerto. */
+  const [soNegativos, setSoNegativos] = useState(false);
   /** Inativo no IXC some da lista por padrão — este botão pequeno traz de volta. */
   const [mostrarInativos, setMostrarInativos] = useState(false);
   const [aberto, setAberto] = useState<number | null>(null);
@@ -86,8 +88,13 @@ export function Estoque() {
      novo a cada letra seria uma ida ao IXC por tecla digitada. O inativo some
      por padrão: é o que não se compra nem se empresta mais, e só atrapalha
      quem está procurando o que a casa tem hoje. */
+  const negativos = useMemo(
+    () => (dados?.itens ?? []).filter(temNegativo).length,
+    [dados],
+  );
   const itens = (dados?.itens ?? []).filter((i) => {
     if (!mostrarInativos && !i.ativo) return false;
+    if (soNegativos && !temNegativo(i)) return false;
     return termo
       ? i.descricao.toLowerCase().includes(termo) || String(i.produtoId) === termo
       : true;
@@ -206,6 +213,20 @@ export function Estoque() {
             />
             Só o que está faltando
           </label>
+          {(soNegativos || negativos > 0) && (
+            <label
+              className="opcao text-[12px]"
+              title="Saiu mais do que entrou no IXC — precisa de acerto"
+            >
+              <input
+                type="checkbox"
+                className="marcador"
+                checked={soNegativos}
+                onChange={(e) => setSoNegativos(e.target.checked)}
+              />
+              Só negativos ({negativos})
+            </label>
+          )}
           {(mostrarInativos || inativos > 0) && (
             <label className="opcao text-[12px]">
               <input
@@ -339,9 +360,11 @@ function LinhaDoItem({
                   : 'sem mínimo cadastrado'
               }
               className={`selo-p ${
-                s.abaixoDoMinimo
-                  ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300'
-                  : 'bg-tinta-100 text-tinta-600'
+                s.saldo < 0
+                  ? 'bg-rose-50 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300'
+                  : s.abaixoDoMinimo
+                    ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300'
+                    : 'bg-tinta-100 text-tinta-600'
               }`}
             >
               {s.almoxarifado} · {quantidade(s.saldo)}
@@ -362,7 +385,14 @@ function LinhaDoItem({
       <td className="td">
         <div className="flex flex-wrap items-center gap-1.5">
           {!item.ativo && <Selo tom="neutro">inativo</Selo>}
-          {item.semNenhum ? (
+          {temNegativo(item) ? (
+            <Selo
+              tom="erro"
+              titulo="Saiu mais do que entrou no IXC. Abra em Editar para acertar."
+            >
+              negativo
+            </Selo>
+          ) : item.semNenhum ? (
             <Selo tom="erro">acabou</Selo>
           ) : item.abaixoDoMinimo ? (
             <Selo tom="atencao">abaixo do mínimo</Selo>
@@ -382,6 +412,15 @@ function LinhaDoItem({
       </td>
     </tr>
   );
+}
+
+/**
+ * Negativo em algum almoxarifado. Não é "acabou": zero é prateleira vazia;
+ * negativo é o IXC registrando saída do que nunca entrou ali — uma entrada
+ * que faltou, ou uma saída lançada no almoxarifado errado.
+ */
+function temNegativo(item: ItemDeEstoque): boolean {
+  return item.saldos.some((s) => s.saldo < 0);
 }
 
 /** Ativar/inativar o produto no IXC, direto da lista — sem abrir a janela inteira. */

@@ -106,6 +106,10 @@ export function JanelaDoProduto({
   }
 
   const p = produto.data;
+  /** O acerto escolhido no aviso de negativo — a aba abre com ele preenchido. */
+  const [acerto, setAcerto] = useState<{ almoxId: number; quantidade: number } | null>(null);
+  const negativos = p?.saldos.filter((s) => s.saldo < 0) ?? [];
+  const positivos = p?.saldos.filter((s) => s.saldo > 0) ?? [];
 
   return (
     <Janela titulo={p ? p.descricao : 'Produto'} onFechar={onFechar}>
@@ -139,6 +143,47 @@ export function JanelaDoProduto({
               </div>
             )}
           </div>
+
+          {/*
+            Negativo é o IXC registrando saída do que nunca entrou ali. Dois
+            jeitos de acertar, e a ordem importa: se outro almoxarifado tem a
+            peça sobrando, a saída foi lançada no lugar errado e mover acerta
+            os dois; se ninguém tem, faltou a entrada.
+          */}
+          {negativos.length > 0 && !aviso && (
+            <Aviso tom="atencao">
+              <p>
+                <strong>Saldo negativo</strong> em{' '}
+                {negativos
+                  .map((s) => `${s.almoxarifado} (${quantidade(s.saldo)})`)
+                  .join(', ')}
+                : o IXC registrou saída do que nunca entrou ali.
+              </p>
+              <p className="mt-1">
+                {positivos.length > 0
+                  ? `Se o que saiu estava na verdade em ${positivos
+                      .map((s) => s.almoxarifado)
+                      .join(' ou ')}, use "Mover" de lá para cá — acerta os dois. Se não, `
+                  : 'Nenhum outro almoxarifado tem este produto sobrando: '}
+                falta uma entrada.
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {negativos.map((s) => (
+                  <button
+                    key={s.almoxId}
+                    type="button"
+                    onClick={() => {
+                      setAcerto({ almoxId: s.almoxId, quantidade: -s.saldo });
+                      setAba('entrada');
+                    }}
+                    className="btn btn-p btn-neutro"
+                  >
+                    Dar entrada de {quantidade(-s.saldo)} em {s.almoxarifado}
+                  </button>
+                ))}
+              </div>
+            </Aviso>
+          )}
 
           {aviso && (
             <Aviso
@@ -194,7 +239,17 @@ export function JanelaDoProduto({
             <Mover produto={p} opcoes={opcoes.data} onMudou={mudou} />
           )}
           {opcoes.data && aba === 'entrada' && (
-            <DarEntrada produto={p} opcoes={opcoes.data} onMudou={mudou} />
+            <DarEntrada
+              // Um acerto novo recomeça o formulário com ele preenchido.
+              key={acerto ? `${acerto.almoxId}:${acerto.quantidade}` : 'livre'}
+              produto={p}
+              opcoes={opcoes.data}
+              inicial={acerto}
+              onMudou={(texto, tom) => {
+                setAcerto(null);
+                mudou(texto, tom);
+              }}
+            />
           )}
         </>
       )}
@@ -525,18 +580,21 @@ function Mover({
 function DarEntrada({
   produto,
   opcoes,
+  inicial,
   onMudou,
 }: {
   produto: ProdutoNoIxc;
   opcoes: OpcoesDoEstoque;
+  /** O acerto de um saldo negativo: onde e quanto, já preenchidos. */
+  inicial?: { almoxId: number; quantidade: number } | null;
   onMudou: (texto: string, tom?: 'pago' | 'atencao') => void;
 }) {
   const ultima = useMemo(lerUltimaEntrada, []);
   const ativos = opcoes.almoxarifados.filter((a) => a.ativo);
   const [almoxId, setAlmoxId] = useState(
-    String(produto.saldos[0]?.almoxId ?? ativos[0]?.id ?? ''),
+    String(inicial?.almoxId ?? produto.saldos[0]?.almoxId ?? ativos[0]?.id ?? ''),
   );
-  const [qtde, setQtde] = useState('');
+  const [qtde, setQtde] = useState(inicial ? quantidade(inicial.quantidade) : '');
   const [unitario, setUnitario] = useState(produto.precoBase.toFixed(2));
   const [tipoDocumentoId, setTipoDocumentoId] = useState(ultima.tipoDocumentoId ?? '');
   const [condicaoPagamentoId, setCondicaoPagamentoId] = useState(
