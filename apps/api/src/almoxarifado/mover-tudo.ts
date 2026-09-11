@@ -183,11 +183,15 @@ export function pecasPresas(linhas: Array<Record<string, unknown>>): Map<number,
         (desde ? ` desde ${desde}` : '') +
         ', ' +
         (PRESA_EM[finalidade]?.(numero) ??
-          'sem dizer onde — no IXC, abra o patrimônio dela e veja a movimentação') +
+          // Visto em produção (11/09/2026): peça antiga indisponível sem
+          // finalidade nenhuma — nada a encerrar, só a situação a acertar.
+          'sem movimento nenhum que a prenda — se ela está mesmo aí, no IXC edite o ' +
+            'patrimônio e mude a situação para Disponível') +
         (porque ? ` ("${porque}")` : '');
     }
     const lista = porProduto.get(numeroDoIxc(l.id_produto)) ?? [];
-    lista.push(`a peça ${peca} está ${onde}`);
+    // O código vai junto: é por ele que a tela de Patrimônios do IXC procura.
+    lista.push(`a peça ${peca} (código ${patrimonioId} no IXC) está ${onde}`);
     porProduto.set(numeroDoIxc(l.id_produto), lista);
   }
   return porProduto;

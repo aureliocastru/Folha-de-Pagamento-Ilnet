@@ -145,9 +145,11 @@ describe('separarMoviveis', () => {
     ]);
     const apontado = separarMoviveis([item(12, 1)], CADASTROS, UNIDADES, new Map(), fora, presas);
     expect(apontado.deFora[0].motivo).toMatch(
-      /peça nº PAT1 · MAC .* está indisponível desde 30\/08\/2026, na transferência com confirmação #2871 — falta confirmar/,
+      /peça nº PAT1 · MAC .* \(código 1 no IXC\) está indisponível desde 30\/08\/2026, na transferência com confirmação #2871 — falta confirmar/,
     );
-    expect(pecasPresas([peca(5, '8')]).get(12)?.[0]).toMatch(/sem dizer onde/);
+    expect(pecasPresas([peca(5, '8')]).get(12)?.[0]).toMatch(
+      /código 5 no IXC\) está indisponível, sem movimento nenhum .* situação para Disponível/,
+    );
 
     // Comodato não prende: a peça já saiu do saldo. Só explica.
     const soComodato = separarMoviveis(
