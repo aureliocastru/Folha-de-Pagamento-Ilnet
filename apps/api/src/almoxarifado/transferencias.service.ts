@@ -15,6 +15,7 @@ import {
   pecasPresas,
   patrimoniosMoviveis,
   separarMoviveis,
+  SITUACOES_LIDAS,
   type ItemDeFora,
   type ItemMovivel,
   type ItemSemPeca,
@@ -160,20 +161,11 @@ export class TransferenciasService {
    * agora.
    */
   async conteudo(almoxId: number): Promise<ConteudoDoAlmoxarifado> {
+    const inicio = Date.now();
     const [lido, [unidades], linhasDePatrimonio] = await Promise.all([
       this.estoque.listar({ almoxId, recarregar: true }),
       this.produtos.paraMovimentar(),
-      this.ixc.listAll<Record<string, unknown>>(
-        'patrimonio',
-        {
-          qtype: 'patrimonio.id_almoxarifado',
-          query: String(almoxId),
-          oper: '=',
-          sortname: 'patrimonio.id',
-          sortorder: 'asc',
-        },
-        { pageSize: 500, maxPages: 20 },
-      ),
+      this.pecasDoAlmoxarifado(almoxId),
     ]);
     const itens = lido.itens
       .map((i) => ({
@@ -201,6 +193,10 @@ export class TransferenciasService {
       porPatrimonio,
       pecasForaDaPrateleira(linhasDePatrimonio),
       pecasPresas(linhasDePatrimonio),
+    );
+    this.logger.log(
+      `Conteúdo do almoxarifado #${almoxId} lido em ${Date.now() - inicio} ms ` +
+        `(${itens.length} produtos com saldo, ${linhasDePatrimonio.length} peças).`,
     );
 
     return {
@@ -462,6 +458,36 @@ export class TransferenciasService {
           `${a.restouNaOrigem ?? '?'} ainda na origem.`,
       );
     }
+  }
+
+  /**
+   * As peças do almoxarifado que interessam a uma transferência — uma
+   * consulta por situação (ver `SITUACOES_LIDAS`), juntas. Pedir todas as
+   * peças do almoxarifado trazia o histórico inteiro de comodato: no
+   * Principal, milhares de linhas, página por página, antes de a tela ter
+   * resposta — e a de "Mover" desistia no minuto do nginx.
+   */
+  private async pecasDoAlmoxarifado(almoxId: number): Promise<Array<Record<string, unknown>>> {
+    const porSituacao = await Promise.all(
+      SITUACOES_LIDAS.map((situacao) =>
+        this.ixc.listAll<Record<string, unknown>>(
+          'patrimonio',
+          {
+            qtype: 'patrimonio.id_almoxarifado',
+            query: String(almoxId),
+            oper: '=',
+            sortname: 'patrimonio.id',
+            sortorder: 'asc',
+            gridParam: [{ TB: 'patrimonio.situacao', OP: '=', P: situacao }],
+          },
+          { pageSize: 500, maxPages: 20 },
+        ),
+      ),
+    );
+    // Uma peça, uma linha — mesmo que o IXC a devolva em mais de uma consulta.
+    const porId = new Map<number, Record<string, unknown>>();
+    for (const l of porSituacao.flat()) porId.set(numeroDoIxc(l.id), l);
+    return [...porId.values()];
   }
 
   /**

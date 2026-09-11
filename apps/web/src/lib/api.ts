@@ -41,6 +41,15 @@ export function mensagemErro(error: unknown): string {
     const m = data?.message;
     if (Array.isArray(m)) return m.join(', ');
     if (m) return m;
+    // 504/502 é o nginx desistindo de esperar — o servidor pode ter seguido
+    // adiante, e "Request failed with status code 504" não diz isso a ninguém.
+    const status = error.response?.status;
+    if (status === 504 || status === 502) {
+      return (
+        'O servidor demorou demais para responder (o IXC deve estar lento). O que foi ' +
+        'pedido pode ter continuado lá — confira antes de tentar de novo.'
+      );
+    }
     return error.message;
   }
   return String(error);

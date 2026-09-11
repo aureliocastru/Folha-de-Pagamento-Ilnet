@@ -248,10 +248,15 @@ describe('TransferenciasService', () => {
     /** Quantos itens já estavam sendo gravados quando cada um começou. */
     const concorrencia: number[] = [];
     const ixc = {
-      listAll: jest.fn(async (tabela: string) =>
-        tabela === 'patrimonio'
-          ? [peca(1, '1'), peca(2, '7'), peca(3, '4')].filter((p) => !saidas.has(`p${p.id}`))
-          : [],
+      listAll: jest.fn(
+        async (tabela: string, params: { gridParam?: Array<{ P: string }> }) =>
+          tabela === 'patrimonio'
+            ? [peca(1, '1'), peca(2, '7'), peca(3, '4')].filter(
+                (p) =>
+                  !saidas.has(`p${p.id}`) &&
+                  (!params.gridParam || p.situacao === params.gridParam[0].P),
+              )
+            : [],
       ),
       getById: jest.fn(async (_t: string, _c: string, id: number) => CADASTROS.get(id) ?? null),
       create: jest.fn(async (tabela: string, corpo: Record<string, string>) => {
@@ -319,6 +324,16 @@ describe('TransferenciasService', () => {
     expect(c.moviveis.map((m) => m.produtoId)).toEqual([11, 10]); // por nome
     expect(c.patrimonios.map((p) => p.patrimonioId)).toEqual([1, 2]);
     expect(c.deFora).toEqual([]); // as 2 ONUs do saldo têm as 2 peças
+  });
+
+  it('só pede ao IXC as peças da prateleira e as presas — o comodato não vem', async () => {
+    const { service, ixc } = montar();
+    await service.conteudo(29);
+    const pedidas = ixc.listAll.mock.calls
+      .filter(([t]) => t === 'patrimonio')
+      .map(([, p]) => (p as { gridParam: Array<{ TB: string; P: string }> }).gridParam[0]);
+    expect(pedidas.map((g) => g.TB)).toEqual(Array(4).fill('patrimonio.situacao'));
+    expect(pedidas.map((g) => g.P).sort()).toEqual(['1', '6', '7', '8']);
   });
 
   it('mover tudo: uma transferência, produtos inteiros e cada peça de patrimônio', async () => {

@@ -75,6 +75,14 @@ const NO_ESTOQUE = new Set(['1', '7']);
  */
 const PRESA_AQUI = new Set(['6', '8']);
 
+/**
+ * As situações que se pedem ao IXC ao ler um almoxarifado: as da prateleira
+ * e as que ainda contam no saldo. Vendida, em comodato e inutilizada ficam de
+ * fora de propósito — no Almoxarifado Principal elas são toda ONU que já saiu
+ * para cliente, milhares de linhas que só atrasavam a leitura.
+ */
+export const SITUACOES_LIDAS = [...NO_ESTOQUE, ...PRESA_AQUI];
+
 const NOME_DA_SITUACAO: Record<string, string> = {
   '3': 'vendida',
   '4': 'em comodato',
