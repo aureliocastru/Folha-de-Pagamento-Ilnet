@@ -1,5 +1,5 @@
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
 import {
   Aviso,
   Bloco,
@@ -32,6 +32,8 @@ export function Estoque() {
   const [busca, setBusca] = useState('');
   const [almox, setAlmox] = useState('');
   const [soFaltando, setSoFaltando] = useState(false);
+  /** Inativo no IXC some da lista por padrão — este botão pequeno traz de volta. */
+  const [mostrarInativos, setMostrarInativos] = useState(false);
   const [aberto, setAberto] = useState<number | null>(null);
   /** O produto aberto na janela de edição. */
   const [editando, setEditando] = useState<number | null>(null);
@@ -55,14 +57,20 @@ export function Estoque() {
 
   const dados = lista.data;
   const termo = busca.trim().toLowerCase();
-  /* A busca é aqui: a lista inteira já veio, e mandar o servidor procurar de
-     novo a cada letra seria uma ida ao IXC por tecla digitada. */
-  const itens = (dados?.itens ?? []).filter((i) =>
-    termo
-      ? i.descricao.toLowerCase().includes(termo) ||
-        String(i.produtoId) === termo
-      : true,
+  const inativos = useMemo(
+    () => (dados?.itens ?? []).filter((i) => !i.ativo).length,
+    [dados],
   );
+  /* A busca é aqui: a lista inteira já veio, e mandar o servidor procurar de
+     novo a cada letra seria uma ida ao IXC por tecla digitada. O inativo some
+     por padrão: é o que não se compra nem se empresta mais, e só atrapalha
+     quem está procurando o que a casa tem hoje. */
+  const itens = (dados?.itens ?? []).filter((i) => {
+    if (!mostrarInativos && !i.ativo) return false;
+    return termo
+      ? i.descricao.toLowerCase().includes(termo) || String(i.produtoId) === termo
+      : true;
+  });
 
   return (
     <Pagina>
@@ -177,6 +185,17 @@ export function Estoque() {
             />
             Só o que está faltando
           </label>
+          {(mostrarInativos || inativos > 0) && (
+            <label className="opcao text-[12px]">
+              <input
+                type="checkbox"
+                className="marcador"
+                checked={mostrarInativos}
+                onChange={(e) => setMostrarInativos(e.target.checked)}
+              />
+              Mostrar inativos{inativos > 0 ? ` (${inativos})` : ''}
+            </label>
+          )}
         </div>
 
         {lista.isLoading && <Carregando texto="Lendo o estoque do IXC…" />}
@@ -318,20 +337,63 @@ function LinhaDoItem({
       </td>
 
       <td className="td">
-        {item.semNenhum ? (
-          <Selo tom="erro">acabou</Selo>
-        ) : item.abaixoDoMinimo ? (
-          <Selo tom="atencao">abaixo do mínimo</Selo>
-        ) : (
-          <span className="text-xs text-tinta-400">—</span>
-        )}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {!item.ativo && <Selo tom="neutro">inativo</Selo>}
+          {item.semNenhum ? (
+            <Selo tom="erro">acabou</Selo>
+          ) : item.abaixoDoMinimo ? (
+            <Selo tom="atencao">abaixo do mínimo</Selo>
+          ) : item.ativo ? (
+            <span className="text-xs text-tinta-400">—</span>
+          ) : null}
+        </div>
       </td>
 
       <td className="td text-right">
-        <button type="button" onClick={onEditar} className="btn btn-neutro btn-p">
-          Editar
-        </button>
+        <div className="flex justify-end gap-1.5">
+          <AlternarAtivo item={item} />
+          <button type="button" onClick={onEditar} className="btn btn-neutro btn-p">
+            Editar
+          </button>
+        </div>
       </td>
     </tr>
+  );
+}
+
+/** Ativar/inativar o produto no IXC, direto da lista — sem abrir a janela inteira. */
+function AlternarAtivo({ item }: { item: ItemDeEstoque }) {
+  const qc = useQueryClient();
+  const alternar = useMutation({
+    mutationFn: async () => {
+      await api.patch(`/almoxarifado/produtos/${item.produtoId}`, { ativo: !item.ativo });
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['almoxarifado', 'estoque'] }),
+  });
+
+  return (
+    <div className="text-right">
+      <button
+        type="button"
+        onClick={() => {
+          if (
+            item.ativo &&
+            !confirm(`Inativar "${item.descricao}" (código ${item.produtoId}) no IXC?`)
+          ) {
+            return;
+          }
+          alternar.mutate();
+        }}
+        disabled={alternar.isPending}
+        className="btn btn-sutil btn-p"
+      >
+        {alternar.isPending ? '…' : item.ativo ? 'Inativar' : 'Ativar'}
+      </button>
+      {alternar.isError && (
+        <p className="mt-1 max-w-[14rem] text-[11px] text-rose-600">
+          {mensagemErro(alternar.error)}
+        </p>
+      )}
+    </div>
   );
 }
