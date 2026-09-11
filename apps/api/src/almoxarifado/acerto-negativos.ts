@@ -96,10 +96,7 @@ export function negativosParaAcertar(
         continue;
       }
       if (naoControlaEstoque(bruto)) {
-        fica(
-          'o produto está com "Controla estoque: Não" no IXC — a entrada seria gravada sem ' +
-            'mudar o saldo. Ligue o controle no produto (Estoque › Editar) antes',
-        );
+        fica(`${NAO_CONTROLA} — a entrada seria gravada sem mudar o saldo. ${SAIDA_DO_NAO_CONTROLA}`);
         continue;
       }
       const unidade = unidades.find((u) => u.id === numeroDoIxc(bruto.unidade));
@@ -142,6 +139,17 @@ export function negativosParaAcertar(
 export function naoControlaEstoque(bruto: Record<string, unknown>): boolean {
   return String(bruto.controla_estoque ?? 'S').trim().toUpperCase() === 'N';
 }
+
+export const NAO_CONTROLA = 'o produto está com "Controla estoque: Não" no IXC';
+
+/**
+ * O que fazer com ele. Religar não dá: o IXC recusa ("Não é possível alterar
+ * o controle de estoque do produto! Existem movimentações relacionadas a
+ * ele!", 11/09/2026) em qualquer produto que já teve movimento.
+ */
+export const SAIDA_DO_NAO_CONTROLA =
+  'O IXC não deixa religar o controle em produto que já teve movimento: cadastre um produto ' +
+  'novo (Estoque › Novo produto), dê entrada do que existe de verdade e desative este';
 
 // ---------------------------------------------------------------------------
 // Rastreio: em qual movimento o saldo ficou negativo

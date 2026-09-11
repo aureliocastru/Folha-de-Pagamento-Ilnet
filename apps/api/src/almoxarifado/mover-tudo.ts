@@ -13,7 +13,7 @@
  *    transferência").
  */
 
-import { naoControlaEstoque } from './acerto-negativos';
+import { NAO_CONTROLA, naoControlaEstoque, SAIDA_DO_NAO_CONTROLA } from './acerto-negativos';
 import { numeroDoIxc } from './estoque.mapper';
 
 /** Um produto com saldo no almoxarifado de origem. */
@@ -347,9 +347,7 @@ export function separarMoviveis(
     if (naoControlaEstoque(bruto)) {
       deFora.push({
         ...item,
-        motivo:
-          'o produto está com "Controla estoque: Não" no IXC — a transferência seria gravada ' +
-          'sem mexer no saldo. Ligue o controle no produto (Estoque › Editar) e mova de novo',
+        motivo: `${NAO_CONTROLA} — a transferência seria gravada sem mexer no saldo. ${SAIDA_DO_NAO_CONTROLA}`,
       });
       continue;
     }

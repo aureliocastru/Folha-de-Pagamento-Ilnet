@@ -112,13 +112,6 @@ export function JanelaDoProduto({
   // Serviço não conta: o IXC não soma entrada dele (ver `temNegativo` no Estoque).
   const negativos = p && p.tipo !== 'S' ? p.saldos.filter((s) => s.saldo < 0) : [];
   const positivos = p?.saldos.filter((s) => s.saldo > 0) ?? [];
-  const ligarControle = useMutation({
-    mutationFn: async () => {
-      await api.patch(`/almoxarifado/produtos/${produtoId}`, { controlaEstoque: true });
-    },
-    onSuccess: () =>
-      mudou('Controle de estoque ligado no IXC. Agora a transferência e a entrada mexem no saldo.'),
-  });
 
   return (
     <Janela titulo={p ? p.descricao : 'Produto'} onFechar={onFechar}>
@@ -159,27 +152,17 @@ export function JanelaDoProduto({
             peça sobrando, a saída foi lançada no lugar errado e mover acerta
             os dois; se ninguém tem, faltou a entrada.
           */}
+          {/*
+            Religar não dá: o IXC recusa mudar o "Controla estoque" de produto
+            que já teve movimento (visto em 11/09/2026 com o switch #25).
+          */}
           {!p.controlaEstoque && !aviso && (
-            <Aviso
-              tom="atencao"
-              acao={
-                <button
-                  type="button"
-                  onClick={() => ligarControle.mutate()}
-                  disabled={ligarControle.isPending}
-                  className="btn btn-p btn-primario"
-                >
-                  {ligarControle.isPending ? 'Gravando…' : 'Ligar controle de estoque'}
-                </button>
-              }
-            >
+            <Aviso tom="atencao">
               <strong>Este produto não controla estoque no IXC.</strong> Transferência e entrada
-              são gravadas, mas não mexem no saldo — ele fica parado. Ligue o controle antes de
-              mover. O saldo continua o de agora; o que saiu enquanto estava desligado não é
-              descontado.
-              {ligarControle.isError && (
-                <span className="mt-1 block text-rose-600">{mensagemErro(ligarControle.error)}</span>
-              )}
+              são gravadas, mas não mexem no saldo — o que aparece aqui está parado desde que o
+              controle foi desligado. E o IXC não deixa religar em produto que já teve movimento.
+              O caminho é <strong>cadastrar um produto novo</strong> (Novo produto, com este de
+              modelo), dar entrada do que existe de verdade e desativar este.
             </Aviso>
           )}
 
