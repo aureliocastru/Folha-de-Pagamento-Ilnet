@@ -49,10 +49,12 @@ export class AlmoxarifadosService {
    * sumir da tela por causa disso — e quem lê `estoque_produtos_almox_filial`
    * (a `EstoqueService`) já paginou por completo e viu todos.
    *
-   * O que só aparece pelo saldo entra sem filial e como ativo (é uma
-   * suposição razoável: ele está sendo usado agora) — editar ou apagar esse
-   * ainda funciona, porque a leitura de um só (`getById`) é outra consulta,
-   * não a listagem truncada.
+   * Quem ficou de fora da listagem é buscado **um a um** (`getById`, que é
+   * outra consulta — `oper: "=", rp: 1` — e não sofre do mesmo teto): quase
+   * sempre acha, e o cadastro real completa a linha, filial e tudo. Só quando
+   * nem assim aparece — de fato não está em `almox`, e o id ficou preso numa
+   * linha velha do saldo — é que a linha entra com o aviso "não achado no
+   * cadastro".
    */
   async listar(): Promise<AlmoxarifadoNaTela[]> {
     const [linhas, filiais, doSaldo] = await Promise.all([
@@ -66,30 +68,58 @@ export class AlmoxarifadosService {
         this.logger.warn(
           `Sem o saldo para completar os almoxarifados (${e instanceof Error ? e.message : e}).`,
         );
-        return [];
+        return [] as Array<{ id: number; nome: string }>;
       }),
     ]);
 
     const porId = new Map<number, AlmoxarifadoNaTela>();
     for (const a of linhas) {
-      const id = numeroDoIxc(a.id);
-      if (id <= 0) continue;
-      const filialId = numeroDoIxc(a.id_filial);
-      porId.set(id, {
-        id,
-        descricao: String(a.descricao ?? '').trim() || `Almoxarifado ${id}`,
-        filialId,
-        filial: filiais.find((f) => f.id === filialId)?.nome ?? null,
-        ativo: String(a.ativo ?? 'S').toUpperCase() !== 'N',
-      });
+      const linha = this.mapear(a, filiais);
+      if (linha) porId.set(linha.id, linha);
     }
-    for (const s of doSaldo) {
-      if (!porId.has(s.id)) {
-        porId.set(s.id, { id: s.id, descricao: s.nome, filialId: 0, filial: null, ativo: true });
-      }
+
+    const faltando = doSaldo.filter((s) => !porId.has(s.id));
+    if (faltando.length > 0) {
+      const achados = await Promise.all(
+        faltando.map(async (s) => {
+          try {
+            const atual = await this.ixc.getById<Record<string, unknown>>(
+              'almox',
+              'almox.id',
+              s.id,
+            );
+            return atual ? this.mapear(atual, filiais) : null;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      faltando.forEach((s, i) => {
+        const achado = achados[i];
+        porId.set(
+          s.id,
+          achado ?? { id: s.id, descricao: s.nome, filialId: 0, filial: null, ativo: true },
+        );
+      });
     }
 
     return [...porId.values()].sort((a, b) => a.descricao.localeCompare(b.descricao, 'pt-BR'));
+  }
+
+  private mapear(
+    a: Record<string, unknown>,
+    filiais: Array<{ id: number; nome: string }>,
+  ): AlmoxarifadoNaTela | null {
+    const id = numeroDoIxc(a.id);
+    if (id <= 0) return null;
+    const filialId = numeroDoIxc(a.id_filial);
+    return {
+      id,
+      descricao: String(a.descricao ?? '').trim() || `Almoxarifado ${id}`,
+      filialId,
+      filial: filiais.find((f) => f.id === filialId)?.nome ?? null,
+      ativo: String(a.ativo ?? 'S').toUpperCase() !== 'N',
+    };
   }
 
   /** As filiais do IXC, para o formulário de cadastro. */
@@ -137,12 +167,23 @@ export class AlmoxarifadosService {
     this.logger.log(`${quem.nome} apagou o almoxarifado #${id} ("${atual.descricao}") no IXC.`);
   }
 
+  /**
+   * O que ficou de um só, depois de criar ou editar — não a lista inteira de
+   * novo. Vai direto no `getById`: um recém-criado não tem saldo ainda (o
+   * `estoque_produtos_almox_filial` não vai ajudar) e pode nem caber na
+   * listagem truncada, dependendo de que id ganhou. É outra consulta, e ela
+   * acha.
+   */
   private async um(id: number): Promise<AlmoxarifadoNaTela> {
-    const achado = (await this.listar()).find((a) => a.id === id);
-    if (!achado) {
+    const [atual, filiais] = await Promise.all([
+      this.ixc.getById<Record<string, unknown>>('almox', 'almox.id', id),
+      this.filiais(),
+    ]);
+    const linha = atual ? this.mapear(atual, filiais) : null;
+    if (!linha) {
       throw new BadRequestException('O almoxarifado não apareceu no IXC depois de gravar.');
     }
-    return achado;
+    return linha;
   }
 
   private async ler(id: number): Promise<Record<string, unknown>> {
