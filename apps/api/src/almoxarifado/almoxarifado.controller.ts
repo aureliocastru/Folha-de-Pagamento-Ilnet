@@ -27,7 +27,9 @@ import {
   EditarProdutoDto,
   EmprestarDto,
   EntradaDeCompraDto,
+  LigarUsuarioDto,
   MoverTudoDto,
+  PadraoDoUsuarioDto,
   TransferenciaDto,
   TransferirProdutoDto,
 } from './dto/almoxarifado.dto';
@@ -87,14 +89,12 @@ export class AlmoxarifadoController {
   listarEstoque(
     @Query('busca') busca?: string,
     @Query('almox') almox?: string,
-    @Query('faltando') faltando?: string,
     @Query('recarregar') recarregar?: string,
   ) {
     const almoxId = Number(almox);
     return this.estoque.listar({
       busca,
       almoxId: Number.isFinite(almoxId) && almoxId > 0 ? almoxId : undefined,
-      soFaltando: ehSim(faltando),
       recarregar: ehSim(recarregar),
     });
   }
@@ -269,6 +269,41 @@ export class AlmoxarifadoController {
   @HttpCode(200)
   liberarAlmoxarifados(@Req() req: Request) {
     return this.almoxarifados.liberar(quem(req));
+  }
+
+  /**
+   * Liga um usuário do IXC a este almoxarifado — é o que o faz enxergá-lo, lá
+   * e na API. `padrao` marca este como o almoxarifado de onde a OS dele sai.
+   */
+  @Post('almoxarifados/:id/usuarios')
+  @HttpCode(201)
+  ligarUsuarioNoAlmoxarifado(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: LigarUsuarioDto,
+    @Req() req: Request,
+  ) {
+    return this.almoxarifados.ligarUsuario(id, dto.usuarioId, dto.padrao === true, quem(req));
+  }
+
+  /** Marca/desmarca este almoxarifado como o padrão do usuário (o padrão é um por pessoa). */
+  @Patch('almoxarifados/:id/usuarios/:usuarioId')
+  padraoDoUsuarioNoAlmoxarifado(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('usuarioId', ParseIntPipe) usuarioId: number,
+    @Body() dto: PadraoDoUsuarioDto,
+    @Req() req: Request,
+  ) {
+    return this.almoxarifados.definirPadrao(id, usuarioId, dto.padrao, quem(req));
+  }
+
+  /** Tira a ligação: a pessoa deixa de enxergar este almoxarifado no IXC. */
+  @Delete('almoxarifados/:id/usuarios/:usuarioId')
+  desligarUsuarioDoAlmoxarifado(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('usuarioId', ParseIntPipe) usuarioId: number,
+    @Req() req: Request,
+  ) {
+    return this.almoxarifados.desligarUsuario(id, usuarioId, quem(req));
   }
 
   /**

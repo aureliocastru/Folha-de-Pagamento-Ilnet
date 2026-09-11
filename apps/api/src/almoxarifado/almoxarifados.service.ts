@@ -6,6 +6,7 @@ import { numeroDoIxc } from './estoque.mapper';
 import { EstoqueService } from './estoque.service';
 import {
   montarEdicaoAlmoxarifado,
+  montarEdicaoDoVinculo,
   montarNovoAlmoxarifado,
   montarVinculo,
   type EdicaoDoAlmoxarifado,
@@ -123,13 +124,136 @@ export class AlmoxarifadosService {
     return [...porId.values()].sort((a, b) => a.descricao.localeCompare(b.descricao, 'pt-BR'));
   }
 
-  /** As filiais e os técnicos (usuários do IXC ligados a um colaborador), para o formulário. */
+  /**
+   * O que os formulários da tela precisam escolher: as filiais, os técnicos
+   * (usuários ligados a um colaborador, para a van) e todos os usuários ativos
+   * — estes para ligar alguém a um almoxarifado que já existe. O usuário do
+   * sistema fica de fora: a ligação dele é a do botão "Liberar", e a tela não
+   * o mostra entre os de quem o almoxarifado é.
+   */
   async opcoes(): Promise<{
     filiais: Array<{ id: number; nome: string }>;
     tecnicos: Array<{ id: number; nome: string }>;
+    usuarios: Array<{ id: number; nome: string }>;
   }> {
-    const [filiais, tecnicos] = await Promise.all([this.filiais(), this.tecnicos()]);
-    return { filiais, tecnicos };
+    const [filiais, doIxc] = await Promise.all([this.filiais(), this.usuariosDoIxc()]);
+    const sistema = this.usuarioDoSistema();
+    const usuarios = doIxc.filter((u) => u.id !== sistema);
+    return {
+      filiais,
+      tecnicos: usuarios.filter((u) => u.tecnico).map(({ id, nome }) => ({ id, nome })),
+      usuarios: usuarios.map(({ id, nome }) => ({ id, nome })),
+    };
+  }
+
+  /**
+   * Liga um usuário do IXC a este almoxarifado: é a ligação que o faz enxergá-lo
+   * (a aba "Almoxarifados" do usuário, no IXC). Sem ela o almoxarifado não
+   * aparece para a pessoa nem nas telas de lá.
+   */
+  async ligarUsuario(
+    almoxId: number,
+    usuarioId: number,
+    padrao: boolean,
+    quem: Quem,
+  ): Promise<void> {
+    const vinculos = await this.vinculos();
+    const ja = vinculos.find((v) => v.almoxId === almoxId && v.usuarioId === usuarioId);
+    if (ja) {
+      if (ja.padrao || !padrao) {
+        throw new BadRequestException('Esse usuário já está ligado a este almoxarifado.');
+      }
+      await this.definirPadrao(almoxId, usuarioId, true, quem);
+      return;
+    }
+    await this.ixc.create('almox_usuario', montarVinculo(usuarioId, almoxId, padrao));
+    if (padrao) await this.tirarPadraoDosOutros(usuarioId, almoxId, vinculos);
+    this.logger.log(
+      `${quem.nome} ligou o usuário ${usuarioId} ao almoxarifado #${almoxId} no IXC` +
+        (padrao ? ', como o padrão dele' : '') +
+        '.',
+    );
+  }
+
+  /**
+   * Tira a ligação — a pessoa deixa de enxergar o almoxarifado no IXC. O
+   * usuário do sistema não sai por aqui: sem ele, esta tela perde o cadastro
+   * de vista e não dá mais para editar nem transferir para ele.
+   */
+  async desligarUsuario(almoxId: number, usuarioId: number, quem: Quem): Promise<void> {
+    if (usuarioId === this.usuarioDoSistema()) {
+      throw new BadRequestException(
+        'Esse é o usuário que o sistema usa no IXC. Tirando-o, o almoxarifado sumiria desta ' +
+          'tela e não daria mais para editá-lo nem mandar material para ele.',
+      );
+    }
+    const vinculo = (await this.vinculos()).find(
+      (v) => v.almoxId === almoxId && v.usuarioId === usuarioId,
+    );
+    if (!vinculo) {
+      throw new BadRequestException('Esse usuário já não está ligado a este almoxarifado.');
+    }
+    await this.ixc.remove('almox_usuario', vinculo.id);
+    this.logger.log(
+      `${quem.nome} tirou o usuário ${usuarioId} do almoxarifado #${almoxId} no IXC` +
+        (vinculo.padrao ? ' (era o padrão dele)' : '') +
+        '.',
+    );
+  }
+
+  /**
+   * Marca (ou desmarca) este almoxarifado como o padrão do usuário — é de onde
+   * a OS dele tira material.
+   *
+   * **No IXC o padrão é do usuário, não do almoxarifado**: a marca vive na
+   * ligação, e cada pessoa tem uma só. Por isso marcar aqui tira a marca das
+   * outras ligações dela — senão ficariam dois padrões, e quem escolheria de
+   * qual sai o material seria o IXC.
+   */
+  async definirPadrao(
+    almoxId: number,
+    usuarioId: number,
+    padrao: boolean,
+    quem: Quem,
+  ): Promise<void> {
+    const vinculos = await this.vinculos();
+    const vinculo = vinculos.find((v) => v.almoxId === almoxId && v.usuarioId === usuarioId);
+    if (!vinculo) {
+      throw new BadRequestException(
+        'Ligue o usuário a este almoxarifado antes de marcá-lo como o padrão dele.',
+      );
+    }
+    if (vinculo.padrao !== padrao) await this.gravarPadrao(vinculo.id, padrao);
+    if (padrao) await this.tirarPadraoDosOutros(usuarioId, almoxId, vinculos);
+    this.logger.log(
+      `${quem.nome} ${padrao ? 'marcou' : 'desmarcou'} o almoxarifado #${almoxId} como o ` +
+        `padrão do usuário ${usuarioId} no IXC.`,
+    );
+  }
+
+  /** O padrão é um só por pessoa: marcando um, os outros dela deixam de ser. */
+  private async tirarPadraoDosOutros(
+    usuarioId: number,
+    almoxId: number,
+    vinculos: Vinculo[],
+  ): Promise<void> {
+    for (const v of vinculos) {
+      if (v.usuarioId === usuarioId && v.almoxId !== almoxId && v.padrao) {
+        await this.gravarPadrao(v.id, false);
+      }
+    }
+  }
+
+  private async gravarPadrao(vinculoId: number, padrao: boolean): Promise<void> {
+    const atual = await this.ixc.getById<Record<string, unknown>>(
+      'almox_usuario',
+      'almox_usuario.id',
+      vinculoId,
+    );
+    if (!atual) {
+      throw new BadRequestException('Essa ligação já não está no IXC — recarregue a tela.');
+    }
+    await this.ixc.update('almox_usuario', vinculoId, montarEdicaoDoVinculo(atual, padrao));
   }
 
   /**
@@ -343,12 +467,13 @@ export class AlmoxarifadosService {
   }
 
   /**
-   * Os usuários do IXC que são de um colaborador (`usuarios.funcionario`, o
-   * mesmo campo do fluxo "Produtos do técnico" da documentação) e estão
-   * ativos. Só id e nome saem daqui — o registro de usuário traz e-mail e
-   * dados de acesso.
+   * Os usuários ativos do IXC, com a marca de quem é de um colaborador
+   * (`usuarios.funcionario`, o mesmo campo do fluxo "Produtos do técnico" da
+   * documentação) — é esse que ganha a van. Só id e nome saem daqui: o
+   * registro de usuário traz e-mail e dados de acesso, e nada disso interessa
+   * à tela.
    */
-  private async tecnicos(): Promise<Array<{ id: number; nome: string }>> {
+  private async usuariosDoIxc(): Promise<Array<{ id: number; nome: string; tecnico: boolean }>> {
     try {
       const linhas = await this.ixc.listAll<Record<string, unknown>>(
         'usuarios',
@@ -357,8 +482,11 @@ export class AlmoxarifadosService {
       );
       return linhas
         .filter((u) => String(u.status ?? 'A').toUpperCase() === 'A')
-        .filter((u) => numeroDoIxc(u.funcionario) > 0)
-        .map((u) => ({ id: numeroDoIxc(u.id), nome: String(u.nome ?? '').trim() }))
+        .map((u) => ({
+          id: numeroDoIxc(u.id),
+          nome: String(u.nome ?? '').trim(),
+          tecnico: numeroDoIxc(u.funcionario) > 0,
+        }))
         .filter((u) => u.id > 0 && u.nome !== '')
         .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
     } catch (e) {

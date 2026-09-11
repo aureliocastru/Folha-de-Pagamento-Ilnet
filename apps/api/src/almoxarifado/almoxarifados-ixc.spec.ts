@@ -1,5 +1,6 @@
 import {
   montarEdicaoAlmoxarifado,
+  montarEdicaoDoVinculo,
   montarNovoAlmoxarifado,
   montarVinculo,
 } from './almoxarifados-ixc';
@@ -12,6 +13,29 @@ describe('montarVinculo', () => {
 
   it('recusa id faltando', () => {
     expect(() => montarVinculo(0, 4)).toThrow(/usuário/);
+  });
+});
+
+describe('montarEdicaoDoVinculo', () => {
+  const VINCULO_NO_IXC = {
+    id: '77',
+    id_usuario: '41',
+    id_almox: '4',
+    padrao_usuario: 'N',
+  };
+
+  it('devolve a ligação inteira, só com o padrão por cima', () => {
+    expect(montarEdicaoDoVinculo(VINCULO_NO_IXC, true)).toEqual({
+      id: '77',
+      id_usuario: '41',
+      id_almox: '4',
+      padrao_usuario: 'S',
+    });
+  });
+
+  it('desmarcar deixa o resto onde está', () => {
+    const marcado = { ...VINCULO_NO_IXC, padrao_usuario: 'S' };
+    expect(montarEdicaoDoVinculo(marcado, false)).toEqual({ ...VINCULO_NO_IXC });
   });
 });
 

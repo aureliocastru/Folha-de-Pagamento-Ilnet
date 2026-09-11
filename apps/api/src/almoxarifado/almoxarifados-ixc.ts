@@ -90,6 +90,18 @@ export function montarVinculo(
   };
 }
 
+/**
+ * O corpo do `PUT /almox_usuario/:id` ("Almoxarifados do Usuário / editar"):
+ * a ligação que está lá, inteira, só com o padrão por cima — o `PUT` do
+ * webservice reescreve a linha, como em `montarEdicaoAlmoxarifado`.
+ */
+export function montarEdicaoDoVinculo(
+  atual: Record<string, unknown>,
+  padrao: boolean,
+): Record<string, unknown> {
+  return { ...atual, padrao_usuario: padrao ? 'S' : 'N' };
+}
+
 function descricaoValida(descricao: string): string {
   const d = String(descricao ?? '').trim().replace(/\s+/g, ' ');
   if (d.length < 2) throw new BadRequestException('O nome do almoxarifado é curto demais.');

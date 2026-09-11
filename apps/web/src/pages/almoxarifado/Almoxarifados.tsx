@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import {
   Aviso,
   Bloco,
@@ -12,8 +12,13 @@ import {
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { combina, semAcento } from '../../lib/busca';
-import type { AlmoxarifadoCadastro, OpcoesDoAlmoxarifado } from '../../lib/types';
+import type {
+  AlmoxarifadoCadastro,
+  EstoqueNaTela,
+  OpcoesDoAlmoxarifado,
+} from '../../lib/types';
 import { MoverTudo } from './MoverTudo';
+import { quantidade } from './ProdutoNoIxc';
 
 interface DadosDoFormulario {
   descricao: string;
@@ -39,6 +44,8 @@ export function Almoxarifados() {
   const [criando, setCriando] = useState(false);
   /** A origem aberta na janela "Mover tudo". */
   const [movendo, setMovendo] = useState<AlmoxarifadoCadastro | null>(null);
+  /** A linha aberta, mostrando o que o almoxarifado tem dentro. */
+  const [aberto, setAberto] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [erro, setErro] = useState(false);
   /** Inativo some da lista por padrão — este botão pequeno traz de volta. */
@@ -258,10 +265,22 @@ export function Almoxarifados() {
               </thead>
               <tbody>
                 {itens.map((a) => (
-                  <tr key={a.id} className="linha">
+                  <Fragment key={a.id}>
+                  <tr className="linha">
                     <td className="td">
-                      <div className="font-medium text-tinta-800">{a.descricao}</div>
-                      <div className="num text-xs text-tinta-400">código {a.id}</div>
+                      {/* Clicar no nome abre o que ele tem dentro, na própria linha. */}
+                      <button
+                        type="button"
+                        onClick={() => setAberto((x) => (x === a.id ? null : a.id))}
+                        className="text-left"
+                        aria-expanded={aberto === a.id}
+                        title="Ver o que tem dentro deste almoxarifado"
+                      >
+                        <div className="font-medium text-tinta-800 hover:underline">
+                          {a.descricao}
+                        </div>
+                        <div className="num text-xs text-tinta-400">código {a.id}</div>
+                      </button>
                     </td>
                     <td className="td">
                       <Usuarios usuarios={a.usuarios} />
@@ -327,6 +346,14 @@ export function Almoxarifados() {
                       </div>
                     </td>
                   </tr>
+                  {aberto === a.id && (
+                    <tr>
+                      <td colSpan={5} className="bg-tinta-50/80 px-4 pb-4">
+                        <ConteudoDoAlmoxarifado id={a.id} />
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -345,13 +372,17 @@ export function Almoxarifados() {
 
       {(criando || editando) && (
         <FormularioAlmoxarifado
-          almoxarifado={editando}
+          /* Da lista, e não do clique: ligar ou tirar um usuário relê a lista,
+             e a janela tem de mostrar o que ficou. */
+          almoxarifado={editando ? (todos.find((a) => a.id === editando.id) ?? editando) : null}
           opcoes={opcoes.data}
           opcoesCarregando={opcoes.isLoading}
           salvando={salvar.isPending}
           apagando={apagar.isPending}
           onSalvar={(dados) => salvar.mutate({ id: editando?.id, dados })}
           onApagar={() => editando && apagar.mutate(editando)}
+          onMudouUsuarios={invalidar}
+          avisar={avisar}
           onFechar={() => {
             setCriando(false);
             setEditando(null);
@@ -359,6 +390,79 @@ export function Almoxarifados() {
         />
       )}
     </Pagina>
+  );
+}
+
+/**
+ * O que o almoxarifado tem dentro, aberto na própria linha.
+ *
+ * É o mesmo saldo da tela Estoque, recortado a este almoxarifado — de
+ * propósito na mesma chave de cache dela: quem vem de lá não faz o servidor
+ * ler o IXC de novo. Zero não aparece (o produto está no cadastro, não na
+ * prateleira); negativo aparece, porque é o que precisa de acerto.
+ */
+function ConteudoDoAlmoxarifado({ id }: { id: number }) {
+  const conteudo = useQuery({
+    queryKey: ['almoxarifado', 'estoque', String(id)],
+    queryFn: async () =>
+      (
+        await api.get<EstoqueNaTela>('/almoxarifado/estoque', { params: { almox: id } })
+      ).data,
+    staleTime: 60_000,
+  });
+
+  if (conteudo.isLoading) return <Carregando texto="Lendo o que tem dentro…" />;
+  if (conteudo.isError) {
+    return <p className="py-3 text-[13px] text-rose-700">{mensagemErro(conteudo.error)}</p>;
+  }
+
+  const itens = (conteudo.data?.itens ?? [])
+    .filter((i) => i.saldos.some((s) => s.saldo !== 0))
+    .sort((a, b) => a.descricao.localeCompare(b.descricao, 'pt-BR'));
+
+  if (itens.length === 0) {
+    return (
+      <p className="py-3 text-[13px] text-tinta-500">
+        Este almoxarifado está vazio — nenhum produto com saldo no IXC.
+      </p>
+    );
+  }
+
+  return (
+    <div className="pt-3">
+      <div className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-tinta-400">
+        {itens.length === 1 ? '1 produto dentro' : `${itens.length} produtos dentro`}
+      </div>
+      <div className="rolagem-fina max-h-72 overflow-y-auto rounded-xl border border-tinta-200">
+        <table className="w-full text-sm">
+          <tbody>
+            {itens.map((i) => {
+              const saldo = i.saldos.reduce((s, x) => s + x.saldo, 0);
+              return (
+                <tr key={i.produtoId} className="linha">
+                  <td className="td py-1.5">
+                    <div className="text-[13px] text-tinta-700">{i.descricao}</div>
+                    <div className="num text-[11px] text-tinta-400">código {i.produtoId}</div>
+                  </td>
+                  <td className="td whitespace-nowrap py-1.5 text-right">
+                    <span
+                      className={`valor text-[14px] ${
+                        saldo < 0 ? 'text-rose-600 dark:text-rose-300' : ''
+                      }`}
+                    >
+                      {quantidade(saldo)}
+                    </span>
+                    {i.unidade && (
+                      <span className="ml-1 text-[11px] text-tinta-400">{i.unidade}</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
@@ -389,6 +493,181 @@ function Usuarios({ usuarios }: { usuarios: AlmoxarifadoCadastro['usuarios'] }) 
   );
 }
 
+/**
+ * Quem enxerga este almoxarifado no IXC — e quem o tem como padrão.
+ *
+ * No IXC isso é a aba "Almoxarifados" de cada usuário (a tabela
+ * `almox_usuario`): sem estar ligado, a pessoa não vê o almoxarifado nem nas
+ * telas de lá. O padrão é do usuário, e um só por pessoa — é de onde a OS dele
+ * tira material —, por isso marcar aqui tira a marca dos outros almoxarifados
+ * dele.
+ *
+ * Cada botão é uma escrita no IXC na hora, e não algo que espera o "Salvar":
+ * ligar alguém é um ato, não um campo do cadastro.
+ */
+function UsuariosDoAlmoxarifado({
+  almoxarifado,
+  opcoes,
+  opcoesCarregando,
+  onMudou,
+  avisar,
+}: {
+  almoxarifado: AlmoxarifadoCadastro;
+  opcoes: OpcoesDoAlmoxarifado | undefined;
+  opcoesCarregando: boolean;
+  onMudou: () => void;
+  avisar: (texto: string, ruim?: boolean) => void;
+}) {
+  const [novo, setNovo] = useState('');
+  const [comoPadrao, setComoPadrao] = useState(false);
+  const rota = `/almoxarifado/almoxarifados/${almoxarifado.id}/usuarios`;
+
+  const ligar = useMutation({
+    mutationFn: async (args: { usuarioId: number; padrao: boolean }) => {
+      await api.post(rota, { usuarioId: args.usuarioId, padrao: args.padrao });
+      return args;
+    },
+    onSuccess: (args) => {
+      setNovo('');
+      setComoPadrao(false);
+      avisar(
+        `${nomeDoUsuario(opcoes, args.usuarioId)} agora enxerga "${almoxarifado.descricao}" no IXC` +
+          (args.padrao ? ', e é o almoxarifado padrão dele.' : '.'),
+      );
+      onMudou();
+    },
+    onError: (e) => avisar(mensagemErro(e), true),
+  });
+
+  const tirar = useMutation({
+    mutationFn: async (u: { id: number; nome: string }) => {
+      await api.delete(`${rota}/${u.id}`);
+      return u;
+    },
+    onSuccess: (u) => {
+      avisar(`${u.nome} não enxerga mais "${almoxarifado.descricao}" no IXC.`);
+      onMudou();
+    },
+    onError: (e) => avisar(mensagemErro(e), true),
+  });
+
+  const padrao = useMutation({
+    mutationFn: async (args: { u: { id: number; nome: string }; padrao: boolean }) => {
+      await api.patch(`${rota}/${args.u.id}`, { padrao: args.padrao });
+      return args;
+    },
+    onSuccess: (args) => {
+      avisar(
+        args.padrao
+          ? `"${almoxarifado.descricao}" é o almoxarifado padrão de ${args.u.nome} no IXC — é de lá que a OS dele tira material.`
+          : `${args.u.nome} fica sem almoxarifado padrão no IXC.`,
+      );
+      onMudou();
+    },
+    onError: (e) => avisar(mensagemErro(e), true),
+  });
+
+  const mexendo = ligar.isPending || tirar.isPending || padrao.isPending;
+  const ligados = new Set(almoxarifado.usuarios.map((u) => u.id));
+  const paraLigar = (opcoes?.usuarios ?? []).filter((u) => !ligados.has(u.id));
+
+  return (
+    <div className="border-t border-tinta-200 pt-4">
+      <div className="rotulo">Quem enxerga este almoxarifado no IXC</div>
+
+      {almoxarifado.usuarios.length === 0 ? (
+        <p className="ajuda mt-1">
+          Ninguém além do sistema. Ligue o técnico da van para ele ver o almoxarifado no IXC.
+        </p>
+      ) : (
+        <ul className="mt-2 divide-y divide-tinta-200 rounded-xl border border-tinta-200">
+          {almoxarifado.usuarios.map((u) => (
+            <li key={u.id} className="flex flex-wrap items-center gap-2 px-3 py-2">
+              <span className="min-w-0 flex-1 text-[13px] text-tinta-700">
+                {u.nome}
+                {u.padrao && (
+                  <span className="ml-1.5">
+                    <Selo tom="marca" pequeno titulo="É de onde a OS dele tira material">
+                      padrão
+                    </Selo>
+                  </span>
+                )}
+              </span>
+              <button
+                type="button"
+                disabled={mexendo}
+                onClick={() => padrao.mutate({ u, padrao: !u.padrao })}
+                title={
+                  u.padrao
+                    ? 'Deixa de ser o almoxarifado padrão dele'
+                    : 'Passa a ser o almoxarifado padrão dele — e deixa de ser o outro que for'
+                }
+                className="btn btn-p btn-sutil"
+              >
+                {u.padrao ? 'Tirar o padrão' : 'Marcar como padrão'}
+              </button>
+              <button
+                type="button"
+                disabled={mexendo}
+                onClick={() => {
+                  if (!confirm(`${u.nome} deixa de enxergar "${almoxarifado.descricao}" no IXC?`)) {
+                    return;
+                  }
+                  tirar.mutate(u);
+                }}
+                className="btn btn-p btn-sutil"
+              >
+                Tirar
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <select
+          value={novo}
+          onChange={(e) => setNovo(e.target.value)}
+          className="campo w-auto min-w-[14rem] flex-1"
+          disabled={opcoesCarregando || mexendo}
+          aria-label="Usuário do IXC para ligar a este almoxarifado"
+        >
+          <option value="">
+            {opcoesCarregando ? 'Lendo os usuários do IXC…' : 'Ligar alguém a este almoxarifado…'}
+          </option>
+          {paraLigar.map((u) => (
+            <option key={u.id} value={u.id}>
+              {u.nome}
+            </option>
+          ))}
+        </select>
+        <label className="opcao text-[12px]" title="É de onde a OS dele passa a tirar material">
+          <input
+            type="checkbox"
+            className="marcador"
+            checked={comoPadrao}
+            onChange={(e) => setComoPadrao(e.target.checked)}
+            disabled={mexendo}
+          />
+          e é o padrão dele
+        </label>
+        <button
+          type="button"
+          disabled={!novo || mexendo}
+          onClick={() => ligar.mutate({ usuarioId: Number(novo), padrao: comoPadrao })}
+          className="btn btn-p btn-neutro"
+        >
+          {ligar.isPending ? 'Ligando…' : 'Ligar'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function nomeDoUsuario(opcoes: OpcoesDoAlmoxarifado | undefined, id: number): string {
+  return opcoes?.usuarios.find((u) => u.id === id)?.nome ?? `Usuário ${id}`;
+}
+
 function FormularioAlmoxarifado({
   almoxarifado,
   opcoes,
@@ -397,6 +676,8 @@ function FormularioAlmoxarifado({
   apagando,
   onSalvar,
   onApagar,
+  onMudouUsuarios,
+  avisar,
   onFechar,
 }: {
   /** Null = está criando um novo. */
@@ -407,6 +688,9 @@ function FormularioAlmoxarifado({
   apagando: boolean;
   onSalvar: (dados: DadosDoFormulario) => void;
   onApagar: () => void;
+  /** Ligou, tirou ou mudou o padrão de alguém — a lista tem de ser relida. */
+  onMudouUsuarios: () => void;
+  avisar: (texto: string, ruim?: boolean) => void;
   onFechar: () => void;
 }) {
   // O não liberado vem sem filial (o sistema não enxerga o cadastro dele): o
@@ -528,6 +812,16 @@ function FormularioAlmoxarifado({
               ? 'É a van do técnico: ele fica ligado a este almoxarifado no IXC — como o padrão dele, se ainda não tiver um (é de onde a OS dele tira material).'
               : 'Fica visível para quem já vê o Almoxarifado Principal no IXC. Para a van de um técnico, escolha o técnico.'}
           </p>
+        )}
+
+        {almoxarifado && (
+          <UsuariosDoAlmoxarifado
+            almoxarifado={almoxarifado}
+            opcoes={opcoes}
+            opcoesCarregando={opcoesCarregando}
+            onMudou={onMudouUsuarios}
+            avisar={avisar}
+          />
         )}
 
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-tinta-200 pt-4">

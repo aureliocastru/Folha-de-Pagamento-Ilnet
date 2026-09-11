@@ -32,12 +32,11 @@ export function Estoque() {
   const qc = useQueryClient();
   const [busca, setBusca] = useState('');
   const [almox, setAlmox] = useState('');
+  /** Só o que não tem na prateleira, ou está abaixo do mínimo — ver `estaFaltando`. */
   const [soFaltando, setSoFaltando] = useState(false);
   /** Só o que tem saldo negativo em algum almoxarifado — o que precisa de acerto. */
   const [soNegativos, setSoNegativos] = useState(false);
   const [acertando, setAcertando] = useState(false);
-  /** Zerado some da lista por padrão — este botão pequeno traz de volta. */
-  const [mostrarZerados, setMostrarZerados] = useState(false);
   /** Inativo no IXC some da lista por padrão — este botão pequeno traz de volta. */
   const [mostrarInativos, setMostrarInativos] = useState(false);
   const [aberto, setAberto] = useState<number | null>(null);
@@ -46,14 +45,11 @@ export function Estoque() {
   const [cadastrando, setCadastrando] = useState(false);
 
   const lista = useQuery({
-    queryKey: ['almoxarifado', 'estoque', almox, soFaltando],
+    queryKey: ['almoxarifado', 'estoque', almox],
     queryFn: async () =>
       (
         await api.get<EstoqueNaTela>('/almoxarifado/estoque', {
-          params: {
-            ...(almox ? { almox } : {}),
-            ...(soFaltando ? { faltando: 1 } : {}),
-          },
+          params: { ...(almox ? { almox } : {}) },
         })
       ).data,
     // O servidor guarda a leitura do IXC por um minuto; insistir aqui só
@@ -97,16 +93,20 @@ export function Estoque() {
     [dados],
   );
   /* O zerado some por padrão, como o inativo: quem abre o estoque quer ver o
-     que tem na prateleira. "Só o que está faltando" e "Só negativos" são
-     justamente para ver o que não tem, e aí ele volta. */
-  const esconderZerados = !mostrarZerados && !soFaltando && !soNegativos;
-  const zerados = useMemo(
-    () => (dados?.itens ?? []).filter((i) => (mostrarInativos || i.ativo) && !temSaldo(i)).length,
+     que tem na prateleira. Ele volta quando se pede por ele: "Só o que está
+     faltando", "Só negativos", ou uma busca — quem digita o nome de um produto
+     quer aquele produto, tendo ou não tendo. */
+  const esconderZerados = !soFaltando && !soNegativos && !termo;
+  const faltando = useMemo(
+    () =>
+      (dados?.itens ?? []).filter((i) => (mostrarInativos || i.ativo) && estaFaltando(i))
+        .length,
     [dados, mostrarInativos],
   );
   const itens = (dados?.itens ?? []).filter((i) => {
     if (!mostrarInativos && !i.ativo) return false;
     if (soNegativos && !temNegativo(i)) return false;
+    if (soFaltando && !estaFaltando(i)) return false;
     if (esconderZerados && !temSaldo(i)) return false;
     return termo
       ? i.descricao.toLowerCase().includes(termo) || String(i.produtoId) === termo
@@ -217,14 +217,17 @@ export function Estoque() {
               </option>
             ))}
           </select>
-          <label className="opcao text-[12px]">
+          <label
+            className="opcao text-[12px]"
+            title="O que não tem em almoxarifado nenhum, ou está abaixo do mínimo cadastrado"
+          >
             <input
               type="checkbox"
               className="marcador"
               checked={soFaltando}
               onChange={(e) => setSoFaltando(e.target.checked)}
             />
-            Só o que está faltando
+            Só o que está faltando{faltando > 0 ? ` (${faltando})` : ''}
           </label>
           {(soNegativos || negativos > 0) && (
             <label
@@ -249,17 +252,6 @@ export function Estoque() {
           >
             Acertar negativos
           </button>
-          {(mostrarZerados || zerados > 0) && (
-            <label className="opcao text-[12px]" title="O que não tem saldo em lugar nenhum aqui">
-              <input
-                type="checkbox"
-                className="marcador"
-                checked={mostrarZerados}
-                onChange={(e) => setMostrarZerados(e.target.checked)}
-              />
-              Mostrar zerados{zerados > 0 ? ` (${zerados})` : ''}
-            </label>
-          )}
           {(mostrarInativos || inativos > 0) && (
             <label className="opcao text-[12px]">
               <input
@@ -470,6 +462,17 @@ function LinhaDoItem({
  */
 function temSaldo(item: ItemDeEstoque): boolean {
   return item.saldos.some((s) => s.saldo > 0);
+}
+
+/**
+ * Está faltando: não tem nada na prateleira em almoxarifado nenhum, ou o IXC
+ * diz que o saldo está abaixo do mínimo cadastrado. Era o que os dois botões
+ * antigos — "Só o que está faltando" e "Mostrar zerados" — respondiam, cada um
+ * do seu jeito: como o mínimo quase nunca está preenchido no IXC, um mostrava
+ * a mesma lista que o outro.
+ */
+function estaFaltando(item: ItemDeEstoque): boolean {
+  return item.abaixoDoMinimo || !temSaldo(item);
 }
 
 function temNegativo(item: ItemDeEstoque): boolean {

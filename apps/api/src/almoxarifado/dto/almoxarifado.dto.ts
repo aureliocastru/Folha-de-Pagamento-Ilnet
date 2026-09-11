@@ -155,6 +155,20 @@ export class EditarAlmoxarifadoDto {
   @IsOptional() @IsBoolean() ativo?: boolean;
 }
 
+/** Ligar um usuário do IXC a um almoxarifado (a aba "Almoxarifados" do usuário). */
+export class LigarUsuarioDto {
+  @Transform(numero) @IsInt() @Min(1)
+  usuarioId!: number;
+
+  /** Este almoxarifado passa a ser o padrão dele — de onde a OS dele tira material. */
+  @IsOptional() @IsBoolean() padrao?: boolean;
+}
+
+/** Marcar/desmarcar o almoxarifado como o padrão de um usuário. */
+export class PadraoDoUsuarioDto {
+  @IsBoolean() padrao!: boolean;
+}
+
 /** Mover tudo o que um almoxarifado tem para outro. */
 export class MoverTudoDto {
   @Transform(numero) @IsInt() @Min(1) para!: number;

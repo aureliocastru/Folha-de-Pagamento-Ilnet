@@ -2309,6 +2309,8 @@ export interface OpcoesDoAlmoxarifado {
   filiais: Array<{ id: number; nome: string }>;
   /** Usuários do IXC ativos que são de um colaborador. */
   tecnicos: Array<{ id: number; nome: string }>;
+  /** Todos os usuários ativos do IXC, para ligar alguém a um almoxarifado. */
+  usuarios: Array<{ id: number; nome: string }>;
 }
 
 /** As escolhas dos formulários do estoque, lidas do IXC. */

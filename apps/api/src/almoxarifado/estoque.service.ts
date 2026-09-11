@@ -62,8 +62,6 @@ export class EstoqueService {
   async listar(opcoes: {
     busca?: string;
     almoxId?: number;
-    /** Só o que está abaixo do mínimo ou zerado. */
-    soFaltando?: boolean;
     /** Ignora o que está guardado e vai ao IXC de novo. */
     recarregar?: boolean;
   }): Promise<EstoqueNaTela> {
@@ -90,10 +88,6 @@ export class EstoqueService {
           };
         })
         .filter((i) => i.saldos.length > 0);
-    }
-
-    if (opcoes.soFaltando) {
-      itens = itens.filter((i) => i.abaixoDoMinimo || i.semNenhum);
     }
 
     return {
