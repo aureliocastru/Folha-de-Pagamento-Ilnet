@@ -15,7 +15,7 @@ const ALMOX = [
 
 const FILIAIS = [{ id: '1', filial: 'Matriz' }];
 
-function montar() {
+function montar(doSaldo: Array<{ id: number; nome: string }> = []) {
   const ixc = {
     listAll: jest.fn(async (tabela: string) => {
       if (tabela === 'almox') return ALMOX;
@@ -27,8 +27,9 @@ function montar() {
     update: jest.fn(async () => ({ type: 'success' })),
     remove: jest.fn(async () => ({ type: 'success' })),
   };
-  const service = new AlmoxarifadosService(ixc as never);
-  return { service, ixc };
+  const estoque = { almoxarifadosConhecidos: jest.fn(async () => doSaldo) };
+  const service = new AlmoxarifadosService(ixc as never, estoque as never);
+  return { service, ixc, estoque };
 }
 
 const eu = { nome: 'Administrador' };
@@ -41,6 +42,29 @@ describe('AlmoxarifadosService.listar', () => {
       { id: 1, descricao: 'Estoque central', filialId: 1, filial: 'Matriz', ativo: true },
       { id: 2, descricao: 'Van do Anderson', filialId: 1, filial: 'Matriz', ativo: false },
     ]);
+  });
+
+  it('completa com quem só apareceu no saldo — o `almox` (listar) do IXC não devolve todos', async () => {
+    const { service } = montar([
+      { id: 2, nome: 'Van do Anderson' }, // já está no `almox`: não duplica.
+      { id: 7, nome: 'Van do Matheus' }, // só no saldo: entra sem filial, ativo.
+    ]);
+    const lista = await service.listar();
+    expect(lista).toHaveLength(3);
+    expect(lista).toContainEqual({
+      id: 7,
+      descricao: 'Van do Matheus',
+      filialId: 0,
+      filial: null,
+      ativo: true,
+    });
+  });
+
+  it('não quebra se o saldo falhar — mostra ao menos o que o `almox` devolveu', async () => {
+    const { service, estoque } = montar();
+    estoque.almoxarifadosConhecidos.mockRejectedValue(new Error('IXC fora do ar'));
+    const lista = await service.listar();
+    expect(lista).toHaveLength(2);
   });
 });
 

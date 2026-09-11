@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { IxcClient } from '../ixc/ixc.client';
 import { numeroDoIxc } from './estoque.mapper';
+import { EstoqueService } from './estoque.service';
 import {
   montarEdicaoAlmoxarifado,
   montarNovoAlmoxarifado,
@@ -34,30 +35,61 @@ interface Quem {
 export class AlmoxarifadosService {
   private readonly logger = new Logger(AlmoxarifadosService.name);
 
-  constructor(private readonly ixc: IxcClient) {}
+  constructor(
+    private readonly ixc: IxcClient,
+    private readonly estoque: EstoqueService,
+  ) {}
 
+  /**
+   * O `Almoxarifados (listar)` do IXC junto com o que a tela do Estoque já
+   * mostrou — porque aquele, sozinho, não é confiável: visto em produção,
+   * devolve só uma fatia dos almoxarifados que têm saldo de verdade (parece
+   * um teto de página que o IXC aplica por conta própria, nesta instalação,
+   * ignorando o `rp` pedido). Um almoxarifado com material dentro não pode
+   * sumir da tela por causa disso — e quem lê `estoque_produtos_almox_filial`
+   * (a `EstoqueService`) já paginou por completo e viu todos.
+   *
+   * O que só aparece pelo saldo entra sem filial e como ativo (é uma
+   * suposição razoável: ele está sendo usado agora) — editar ou apagar esse
+   * ainda funciona, porque a leitura de um só (`getById`) é outra consulta,
+   * não a listagem truncada.
+   */
   async listar(): Promise<AlmoxarifadoNaTela[]> {
-    const [linhas, filiais] = await Promise.all([
+    const [linhas, filiais, doSaldo] = await Promise.all([
       this.ixc.listAll<Record<string, unknown>>(
         'almox',
         { qtype: 'almox.id', query: '0', oper: '>', sortname: 'almox.id', sortorder: 'asc' },
         { pageSize: 200, maxPages: 5 },
       ),
       this.filiais(),
+      this.estoque.almoxarifadosConhecidos().catch((e: unknown) => {
+        this.logger.warn(
+          `Sem o saldo para completar os almoxarifados (${e instanceof Error ? e.message : e}).`,
+        );
+        return [];
+      }),
     ]);
-    return linhas
-      .map((a) => {
-        const filialId = numeroDoIxc(a.id_filial);
-        return {
-          id: numeroDoIxc(a.id),
-          descricao: String(a.descricao ?? '').trim() || `Almoxarifado ${numeroDoIxc(a.id)}`,
-          filialId,
-          filial: filiais.find((f) => f.id === filialId)?.nome ?? null,
-          ativo: String(a.ativo ?? 'S').toUpperCase() !== 'N',
-        };
-      })
-      .filter((a) => a.id > 0)
-      .sort((a, b) => a.descricao.localeCompare(b.descricao, 'pt-BR'));
+
+    const porId = new Map<number, AlmoxarifadoNaTela>();
+    for (const a of linhas) {
+      const id = numeroDoIxc(a.id);
+      if (id <= 0) continue;
+      const filialId = numeroDoIxc(a.id_filial);
+      porId.set(id, {
+        id,
+        descricao: String(a.descricao ?? '').trim() || `Almoxarifado ${id}`,
+        filialId,
+        filial: filiais.find((f) => f.id === filialId)?.nome ?? null,
+        ativo: String(a.ativo ?? 'S').toUpperCase() !== 'N',
+      });
+    }
+    for (const s of doSaldo) {
+      if (!porId.has(s.id)) {
+        porId.set(s.id, { id: s.id, descricao: s.nome, filialId: 0, filial: null, ativo: true });
+      }
+    }
+
+    return [...porId.values()].sort((a, b) => a.descricao.localeCompare(b.descricao, 'pt-BR'));
   }
 
   /** As filiais do IXC, para o formulário de cadastro. */

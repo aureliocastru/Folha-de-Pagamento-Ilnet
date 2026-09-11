@@ -98,6 +98,7 @@ export function Almoxarifados() {
 
   const todos = lista.data ?? [];
   const inativos = todos.filter((a) => !a.ativo).length;
+  const soNoSaldo = todos.filter((a) => a.filialId === 0).length;
   const itens = mostrarInativos ? todos : todos.filter((a) => a.ativo);
 
   const alternarAtivo = useMutation({
@@ -128,6 +129,14 @@ export function Almoxarifados() {
       />
 
       {feedback && <Aviso tom={erro ? 'erro' : 'pago'}>{feedback}</Aviso>}
+
+      {soNoSaldo > 0 && (
+        <Aviso tom="atencao">
+          {soNoSaldo === 1 ? '1 almoxarifado apareceu' : `${soNoSaldo} almoxarifados apareceram`}{' '}
+          só pelo saldo, marcados "não achado no cadastro": o IXC tem produto com eles, mas a
+          listagem de almoxarifados dele não os trouxe. Editar funciona — é só escolher a filial.
+        </Aviso>
+      )}
 
       <Bloco
         titulo={`${itens.length} ${itens.length === 1 ? 'almoxarifado' : 'almoxarifados'}`}
@@ -178,12 +187,22 @@ export function Almoxarifados() {
                       <div className="font-medium text-tinta-800">{a.descricao}</div>
                       <div className="num text-xs text-tinta-400">código {a.id}</div>
                     </td>
-                    <td className="td text-tinta-700">{a.filial ?? '—'}</td>
-                    <td className="td">
-                      {a.ativo ? (
-                        <span className="text-xs text-tinta-400">—</span>
+                    <td className="td text-tinta-700">
+                      {a.filialId === 0 ? (
+                        <span
+                          className="text-xs text-tinta-400"
+                          title='O "Almoxarifados (listar)" do IXC não trouxe este — apareceu porque tem produto com ele. Ao editar, escolha a filial.'
+                        >
+                          não achado no cadastro
+                        </span>
                       ) : (
-                        <Selo>inativo</Selo>
+                        (a.filial ?? '—')
+                      )}
+                    </td>
+                    <td className="td">
+                      {!a.ativo && <Selo>inativo</Selo>}
+                      {a.ativo && a.filialId !== 0 && (
+                        <span className="text-xs text-tinta-400">—</span>
                       )}
                     </td>
                     <td className="td text-right">

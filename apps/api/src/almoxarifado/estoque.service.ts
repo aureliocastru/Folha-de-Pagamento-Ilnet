@@ -191,6 +191,18 @@ export class EstoqueService {
     return itens;
   }
 
+  /**
+   * Os almoxarifados que aparecem no saldo — todo id que já teve produto
+   * passando por ele. `AlmoxarifadosService` usa isto para completar o
+   * cadastro: o `Almoxarifados (listar)` do IXC não devolve todos numa
+   * chamada só (visto em produção — ele para na metade de quem tem saldo de
+   * verdade), e um almoxarifado com material dentro não pode sumir da tela só
+   * porque a listagem do cadastro o deixou de fora.
+   */
+  async almoxarifadosConhecidos(): Promise<Array<{ id: number; nome: string }>> {
+    return almoxarifadosDe(await this.doIxc(false));
+  }
+
   /** id da unidade → sigla ("UN", "M"). Some sem barulho se o IXC recusar. */
   private async lerUnidades(): Promise<Map<number, string>> {
     try {
