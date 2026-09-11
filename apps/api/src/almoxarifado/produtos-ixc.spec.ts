@@ -1,4 +1,5 @@
 import {
+  fiscalQueFalta,
   hojeParaIxc,
   montarEdicaoProduto,
   montarEntrada,
@@ -78,6 +79,48 @@ describe('montarEdicaoProduto', () => {
   it('recusa nome curto e preço negativo', () => {
     expect(() => montarEdicaoProduto(PRODUTO_NO_IXC, { descricao: 'a' })).toThrow(/curto/);
     expect(() => montarEdicaoProduto(PRODUTO_NO_IXC, { precoBase: -1 })).toThrow(/preço/);
+  });
+
+  // O produto que nasceu no IXC sem NCM: o IXC recusa qualquer PUT nele.
+  const SEM_FISCAL = {
+    ...PRODUTO_NO_IXC,
+    id: '217',
+    descricao: '..',
+    ncm: '',
+    id_class_fiscal: '1',
+    id_conta_estoque: '0',
+    aceita_valor: '',
+  };
+
+  it('com modelo, copia só o que está vazio', () => {
+    const modelo = { ...PRODUTO_NO_IXC, id_class_fiscal: '9', id_conta_estoque: '12' };
+    const corpo = montarEdicaoProduto(SEM_FISCAL, { descricao: 'Aurelio Teste' }, modelo);
+    expect(corpo).toMatchObject({
+      id: '217',
+      descricao: 'Aurelio Teste',
+      ncm: '85367000',
+      id_conta_estoque: '12',
+      // Já estava preenchida: fica a do produto, e não a do modelo.
+      id_class_fiscal: '1',
+      aceita_valor: 'P',
+    });
+  });
+
+  it('recusa modelo sem fiscal, e patrimônio como modelo', () => {
+    expect(() => montarEdicaoProduto(SEM_FISCAL, {}, SEM_FISCAL)).toThrow(/NCM/);
+    expect(() => montarEdicaoProduto(SEM_FISCAL, {}, { ...PRODUTO_NO_IXC, tipo: 'P' })).toThrow(
+      /patrimônio/,
+    );
+  });
+});
+
+describe('fiscalQueFalta', () => {
+  it('diz o nome do que falta, e nada quando está completo', () => {
+    expect(fiscalQueFalta(PRODUTO_NO_IXC)).toEqual([]);
+    expect(fiscalQueFalta({ ...PRODUTO_NO_IXC, ncm: '', id_sub_grupo: '0' })).toEqual([
+      'o subgrupo',
+      'o NCM',
+    ]);
   });
 });
 

@@ -103,6 +103,10 @@ export class EditarProdutoDto {
 
   @IsOptional() @Transform(numero) @IsInt() @Min(1)
   unidadeId?: number;
+
+  /** Produto parecido de onde sai o fiscal que falta (NCM, subgrupo…). */
+  @IsOptional() @Transform(numero) @IsInt() @Min(1)
+  modeloId?: number;
 }
 
 export class CriarProdutoDto {

@@ -220,7 +220,11 @@ export function Estoque() {
       </Bloco>
 
       {editando !== null && (
-        <JanelaDoProduto produtoId={editando} onFechar={() => setEditando(null)} />
+        <JanelaDoProduto
+          produtoId={editando}
+          produtos={dados?.itens ?? []}
+          onFechar={() => setEditando(null)}
+        />
       )}
       {cadastrando && (
         <NovoProduto

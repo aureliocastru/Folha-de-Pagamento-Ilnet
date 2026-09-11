@@ -2146,6 +2146,8 @@ export interface ProdutoNoIxc {
   unidadeId: number;
   unidade: string | null;
   tipo: string;
+  /** O fiscal obrigatório que falta no cadastro ("o NCM"…) — sem ele o IXC não grava. */
+  faltaFiscal: string[];
   saldos: ItemDeEstoque['saldos'];
   total: number;
 }

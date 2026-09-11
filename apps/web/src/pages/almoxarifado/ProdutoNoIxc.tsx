@@ -78,9 +78,12 @@ type Aba = 'cadastro' | 'mover' | 'entrada';
  */
 export function JanelaDoProduto({
   produtoId,
+  produtos,
   onFechar,
 }: {
   produtoId: number;
+  /** Os produtos do estoque, para escolher o modelo do fiscal que faltar. */
+  produtos: ItemDeEstoque[];
   onFechar: () => void;
 }) {
   const qc = useQueryClient();
@@ -179,7 +182,13 @@ export function JanelaDoProduto({
           {opcoes.isLoading && <Carregando texto="Lendo as opções do IXC…" />}
 
           {opcoes.data && aba === 'cadastro' && (
-            <Cadastro produto={p} opcoes={opcoes.data} onMudou={mudou} onApagado={onFechar} />
+            <Cadastro
+              produto={p}
+              produtos={produtos}
+              opcoes={opcoes.data}
+              onMudou={mudou}
+              onApagado={onFechar}
+            />
           )}
           {opcoes.data && aba === 'mover' && (
             <Mover produto={p} opcoes={opcoes.data} onMudou={mudou} />
@@ -195,11 +204,13 @@ export function JanelaDoProduto({
 
 function Cadastro({
   produto,
+  produtos,
   opcoes,
   onMudou,
   onApagado,
 }: {
   produto: ProdutoNoIxc;
+  produtos: ItemDeEstoque[];
   opcoes: OpcoesDoEstoque;
   onMudou: (texto: string) => void;
   onApagado: () => void;
@@ -209,19 +220,30 @@ function Cadastro({
   const [preco, setPreco] = useState(produto.precoBase.toFixed(2));
   const [unidadeId, setUnidadeId] = useState(String(produto.unidadeId || ''));
   const [ativo, setAtivo] = useState(produto.ativo);
+  const [modelo, setModelo] = useState<ItemDeEstoque | null>(null);
 
+  const faltaFiscal = produto.faltaFiscal.length > 0;
   const mudancas: Record<string, unknown> = {};
   if (descricao.trim() !== produto.descricao) mudancas.descricao = descricao.trim();
   if (preco !== '' && Number(preco) !== produto.precoBase) mudancas.precoBase = Number(preco);
   if (unidadeId && Number(unidadeId) !== produto.unidadeId) mudancas.unidadeId = Number(unidadeId);
   if (ativo !== produto.ativo) mudancas.ativo = ativo;
+  // Completar o fiscal já é mudança, mesmo sem mexer em mais nada.
+  if (faltaFiscal && modelo) mudancas.modeloId = modelo.produtoId;
   const temMudanca = Object.keys(mudancas).length > 0;
 
   const salvar = useMutation({
     mutationFn: async () => {
       await api.patch(`/almoxarifado/produtos/${produto.id}`, mudancas);
     },
-    onSuccess: () => onMudou('Cadastro alterado no IXC.'),
+    onSuccess: () => {
+      setModelo(null);
+      onMudou(
+        mudancas.modeloId
+          ? `Cadastro alterado no IXC, com o fiscal copiado de "${modelo?.descricao}".`
+          : 'Cadastro alterado no IXC.',
+      );
+    },
   });
 
   const apagar = useMutation({
@@ -238,6 +260,22 @@ function Cadastro({
 
   return (
     <div>
+      {faltaFiscal && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+          <p className="mb-2 text-sm">
+            Este produto está sem <strong>{produto.faltaFiscal.join(', ')}</strong> no IXC. O
+            IXC confere isso a cada gravação, e sem ele não aceita nem troca de nome. Escolha
+            um produto parecido: o fiscal que falta sai dele, e o que este já tem fica.
+          </p>
+          <EscolherModelo
+            id="produto-modelo"
+            produtos={produtos.filter((p) => p.produtoId !== produto.id)}
+            modelo={modelo}
+            onEscolher={setModelo}
+          />
+        </div>
+      )}
+
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2">
           <label className="rotulo" htmlFor="produto-nome">
@@ -742,6 +780,74 @@ function DarEntrada({
   );
 }
 
+/** Achar, pelo nome, o produto parecido de onde sai o fiscal. */
+function EscolherModelo({
+  id,
+  produtos,
+  modelo,
+  onEscolher,
+}: {
+  id: string;
+  produtos: ItemDeEstoque[];
+  modelo: ItemDeEstoque | null;
+  onEscolher: (p: ItemDeEstoque | null) => void;
+}) {
+  const [termo, setTermo] = useState('');
+  const achados = useMemo(() => {
+    const t = semAcento(termo.trim());
+    if (t.length < 2) return [];
+    return produtos.filter((p) => semAcento(p.descricao).includes(t)).slice(0, 8);
+  }, [termo, produtos]);
+
+  return (
+    <>
+      <label className="rotulo" htmlFor={id}>
+        Parecido com (modelo)
+      </label>
+      {modelo ? (
+        <div className="flex items-center justify-between gap-2 rounded-xl border border-tinta-200 bg-papel px-3 py-2">
+          <span className="text-sm text-tinta-800">
+            {modelo.descricao}
+            <span className="num ml-2 text-xs text-tinta-400">{modelo.produtoId}</span>
+          </span>
+          <button type="button" onClick={() => onEscolher(null)} className="btn btn-sutil btn-p">
+            Trocar
+          </button>
+        </div>
+      ) : (
+        <>
+          <input
+            id={id}
+            value={termo}
+            onChange={(e) => setTermo(e.target.value)}
+            className="campo"
+            placeholder="Digite o nome de um produto parecido"
+            autoComplete="off"
+          />
+          {achados.length > 0 && (
+            <div className="mt-2 max-h-44 overflow-y-auto rolagem-fina rounded-xl border border-tinta-100 bg-papel">
+              {achados.map((p) => (
+                <button
+                  key={p.produtoId}
+                  type="button"
+                  onClick={() => {
+                    onEscolher(p);
+                    setTermo('');
+                  }}
+                  className="block w-full px-3 py-2 text-left text-sm hover:bg-tinta-50"
+                >
+                  <span className="text-tinta-800">{p.descricao}</span>
+                  <span className="num ml-2 text-xs text-tinta-400">{p.produtoId}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
 /**
  * Cadastrar um produto novo no IXC.
  *
@@ -766,17 +872,10 @@ export function NovoProduto({
   const [preco, setPreco] = useState('');
   const [unidadeId, setUnidadeId] = useState('');
   const [modelo, setModelo] = useState<ItemDeEstoque | null>(null);
-  const [termo, setTermo] = useState('');
 
-  const achados = useMemo(() => {
-    const t = semAcento(termo.trim());
-    if (t.length < 2) return [];
-    return produtos.filter((p) => semAcento(p.descricao).includes(t)).slice(0, 8);
-  }, [termo, produtos]);
-
-  function escolherModelo(p: ItemDeEstoque) {
+  function escolherModelo(p: ItemDeEstoque | null) {
     setModelo(p);
-    setTermo('');
+    if (!p) return;
     // A unidade do modelo é o palpite mais provável para o produto novo.
     const u = opcoes.data?.unidades.find((x) => x.sigla === p.unidade);
     if (u && !unidadeId) setUnidadeId(String(u.id));
@@ -804,46 +903,12 @@ export function NovoProduto({
     <Janela titulo="Novo produto no IXC" onFechar={onFechar}>
       {opcoes.isError && <Aviso tom="erro">{mensagemErro(opcoes.error)}</Aviso>}
 
-      <label className="rotulo" htmlFor="novo-modelo">
-        Parecido com (modelo)
-      </label>
-      {modelo ? (
-        <div className="flex items-center justify-between gap-2 rounded-xl border border-tinta-200 px-3 py-2">
-          <span className="text-sm text-tinta-800">
-            {modelo.descricao}
-            <span className="num ml-2 text-xs text-tinta-400">{modelo.produtoId}</span>
-          </span>
-          <button type="button" onClick={() => setModelo(null)} className="btn btn-sutil btn-p">
-            Trocar
-          </button>
-        </div>
-      ) : (
-        <>
-          <input
-            id="novo-modelo"
-            value={termo}
-            onChange={(e) => setTermo(e.target.value)}
-            className="campo"
-            placeholder="Digite o nome de um produto parecido"
-            autoComplete="off"
-          />
-          {achados.length > 0 && (
-            <div className="mt-2 max-h-44 overflow-y-auto rolagem-fina rounded-xl border border-tinta-100">
-              {achados.map((p) => (
-                <button
-                  key={p.produtoId}
-                  type="button"
-                  onClick={() => escolherModelo(p)}
-                  className="block w-full px-3 py-2 text-left text-sm hover:bg-tinta-50"
-                >
-                  <span className="text-tinta-800">{p.descricao}</span>
-                  <span className="num ml-2 text-xs text-tinta-400">{p.produtoId}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </>
-      )}
+      <EscolherModelo
+        id="novo-modelo"
+        produtos={produtos}
+        modelo={modelo}
+        onEscolher={escolherModelo}
+      />
       <p className="ajuda">
         Do modelo saem subgrupo, tipo, NCM, classificação fiscal, tributação e contas
         contábeis — o que o IXC exige e ninguém sabe de cabeça.

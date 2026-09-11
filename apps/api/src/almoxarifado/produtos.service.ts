@@ -9,6 +9,7 @@ import { IxcClient } from '../ixc/ixc.client';
 import { numeroDoIxc, type ItemDeEstoque } from './estoque.mapper';
 import { EstoqueService } from './estoque.service';
 import {
+  fiscalQueFalta,
   hojeParaIxc,
   montarEdicaoProduto,
   montarEntrada,
@@ -29,6 +30,11 @@ export interface ProdutoNaTela {
   unidade: string | null;
   /** `produtos.tipo`: C comércio, O consumo, M matéria-prima… */
   tipo: string;
+  /**
+   * O fiscal obrigatório que o cadastro não tem ("o NCM"…). Com algum aqui, o
+   * IXC recusa qualquer gravação no produto até alguém completar.
+   */
+  faltaFiscal: string[];
   /** O saldo de cada almoxarifado, lido agora do IXC. */
   saldos: ItemDeEstoque['saldos'];
   total: number;
@@ -89,6 +95,7 @@ export class ProdutosService {
       unidadeId,
       unidade: unidades.find((u) => u.id === unidadeId)?.sigla ?? null,
       tipo: String(bruto.tipo ?? ''),
+      faltaFiscal: fiscalQueFalta(bruto),
       saldos: saldos?.saldos ?? [],
       total: saldos?.total ?? 0,
     };
@@ -112,16 +119,39 @@ export class ProdutosService {
 
   // --- Cadastro ---
 
-  async editar(produtoId: number, mudancas: EdicaoDoProduto, quem: Quem) {
+  /**
+   * `modeloId`: o produto parecido de onde sai o fiscal que falta — só para o
+   * produto que nasceu no IXC sem NCM, subgrupo ou classificação fiscal, que
+   * o IXC não deixa gravar de outro jeito.
+   */
+  async editar(
+    produtoId: number,
+    { modeloId, ...mudancas }: EdicaoDoProduto & { modeloId?: number },
+    quem: Quem,
+  ) {
     const atual = await this.lerProduto(produtoId);
     if (mudancas.descricao !== undefined) {
       await this.recusarNomeRepetido(mudancas.descricao, produtoId);
     }
-    await this.ixc.update('produtos', produtoId, montarEdicaoProduto(atual, mudancas));
+    const modelo = modeloId ? await this.lerProduto(modeloId) : undefined;
+    const corpo = montarEdicaoProduto(atual, mudancas, modelo);
+    try {
+      await this.ixc.update('produtos', produtoId, corpo);
+    } catch (err) {
+      const falta = fiscalQueFalta(corpo);
+      if (falta.length === 0) throw err;
+      const motivo = err instanceof Error ? err.message : String(err);
+      throw new BadRequestException(
+        `Este produto está sem ${falta.join(', ')} no IXC, e o IXC confere isso a ` +
+          'cada gravação — por isso não aceita nem troca de nome. Escolha um produto ' +
+          `parecido para copiar o fiscal que falta. (${motivo})`,
+      );
+    }
     this.estoque.esquecer();
     this.logger.log(
       `${quem.nome} alterou o produto #${produtoId} no IXC: ` +
-        Object.keys(mudancas).join(', '),
+        Object.keys(mudancas).join(', ') +
+        (modeloId ? ` (fiscal completado do modelo #${modeloId})` : ''),
     );
     return this.detalhar(produtoId);
   }

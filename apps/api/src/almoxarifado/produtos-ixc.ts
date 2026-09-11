@@ -75,16 +75,33 @@ export interface EdicaoDoProduto {
  * inclusive as colunas que este app não conhece.
  *
  * `ultima_atualizacao` vai vazia, como no exemplo: quem a preenche é o IXC.
+ *
+ * O IXC confere os obrigatórios do cadastro inteiro a cada `PUT`, e não só o
+ * campo mudado: produto que nasceu lá sem NCM não aceita nem troca de nome.
+ * Para esse, vem um `modelo` — um produto parecido — e o fiscal que falta sai
+ * dele, como no cadastro de produto novo. Só o que está **vazio** é copiado:
+ * o que o produto já tem preenchido não se troca por tabela.
  */
 export function montarEdicaoProduto(
   atual: Record<string, unknown>,
   mudancas: EdicaoDoProduto,
+  modelo?: Record<string, unknown>,
 ): Record<string, unknown> {
   const corpo: Record<string, unknown> = {};
   for (const [coluna, valor] of Object.entries(atual)) {
     corpo[coluna] = typeof valor === 'string' ? dataParaEscrita(valor) : valor;
   }
   corpo.ultima_atualizacao = '';
+
+  if (modelo) {
+    validarModelo(modelo);
+    for (const campo of COPIADOS_DO_MODELO) {
+      if (vazio(corpo[campo])) corpo[campo] = texto(modelo[campo]);
+    }
+    for (const [campo, valor] of Object.entries(FIXOS_DO_CADASTRO)) {
+      if (vazio(corpo[campo])) corpo[campo] = valor;
+    }
+  }
 
   if (mudancas.descricao !== undefined) {
     corpo.descricao = descricaoValida(mudancas.descricao);
@@ -152,6 +169,56 @@ const OBRIGATORIOS_DO_MODELO: Array<[string, string]> = [
   ['ncm', 'o NCM'],
 ];
 
+/** Os obrigatórios com valor fixo na documentação ("Obrigatório o valor ser P"). */
+const FIXOS_DO_CADASTRO = {
+  aceita_valor: 'P',
+  mostra_valor_ecommerce: 'P',
+  tipo_ecommerce: 'P',
+  ecommerce_prioridade: '1',
+} as const;
+
+function texto(v: unknown): string {
+  return v === null || v === undefined ? '' : String(v).trim();
+}
+
+function vazio(v: unknown): boolean {
+  const t = texto(v);
+  return !t || t === '0';
+}
+
+/**
+ * O fiscal obrigatório que falta no produto, pelo nome ("o NCM", "o subgrupo"…).
+ * Vazio: o cadastro tem tudo o que o IXC confere ao gravar.
+ */
+export function fiscalQueFalta(produto: Record<string, unknown>): string[] {
+  return OBRIGATORIOS_DO_MODELO.filter(([campo]) => vazio(produto[campo])).map(
+    ([, nome]) => nome,
+  );
+}
+
+/**
+ * O modelo tem de ter o fiscal completo, e ser produto comum de estoque.
+ * Patrimônio e serviço não servem: patrimônio é peça com número de série (anda
+ * de outro jeito no estoque) e serviço não tem estoque nenhum.
+ */
+function validarModelo(modelo: Record<string, unknown>): void {
+  const falta = fiscalQueFalta(modelo);
+  if (falta.length > 0) {
+    throw new BadRequestException(
+      `O produto modelo não tem ${falta[0]} preenchido no IXC. Escolha outro modelo — ` +
+        'um que já tenha nota fiscal saindo certo.',
+    );
+  }
+  const tipo = texto(modelo.tipo).toUpperCase();
+  if (tipo === 'P' || tipo === 'S') {
+    throw new BadRequestException(
+      tipo === 'P'
+        ? 'O modelo é um patrimônio (peça com número de série). Escolha um produto comum de estoque.'
+        : 'O modelo é um serviço, que não tem estoque. Escolha um produto de estoque.',
+    );
+  }
+}
+
 /**
  * O corpo do `POST /produtos` ("Produtos (inserir)").
  *
@@ -164,33 +231,12 @@ const OBRIGATORIOS_DO_MODELO: Array<[string, string]> = [
  *  - `aceita_valor: "P"`, `mostra_valor_ecommerce: "P"`, `tipo_ecommerce: "P"`,
  *    `ecommerce_prioridade: "1"` — fixos: a documentação diz "Obrigatório o
  *    valor ser P" e "Obrigatório o valor ser 1".
- *
- * Patrimônio e serviço não servem de modelo: patrimônio é peça com número de
- * série (anda de outro jeito no estoque) e serviço não tem estoque nenhum.
  */
 export function montarNovoProduto(
   dados: NovoProduto,
   modelo: Record<string, unknown>,
 ): Record<string, unknown> {
-  const texto = (v: unknown) => (v === null || v === undefined ? '' : String(v).trim());
-
-  for (const [campo, nome] of OBRIGATORIOS_DO_MODELO) {
-    const valor = texto(modelo[campo]);
-    if (!valor || valor === '0') {
-      throw new BadRequestException(
-        `O produto modelo não tem ${nome} preenchido no IXC. Escolha outro modelo — ` +
-          'um que já tenha nota fiscal saindo certo.',
-      );
-    }
-  }
-  const tipo = texto(modelo.tipo).toUpperCase();
-  if (tipo === 'P' || tipo === 'S') {
-    throw new BadRequestException(
-      tipo === 'P'
-        ? 'O modelo é um patrimônio (peça com número de série). Escolha um produto comum de estoque.'
-        : 'O modelo é um serviço, que não tem estoque. Escolha um produto de estoque.',
-    );
-  }
+  validarModelo(modelo);
 
   const corpo: Record<string, unknown> = {};
   for (const campo of COPIADOS_DO_MODELO) corpo[campo] = texto(modelo[campo]);
@@ -202,10 +248,7 @@ export function montarNovoProduto(
     descricao: descricaoValida(dados.descricao),
     unidade: String(idValido(dados.unidadeId, 'a unidade')),
     preco_base: valorParaIxc(precoValido(dados.precoBase)),
-    aceita_valor: 'P',
-    mostra_valor_ecommerce: 'P',
-    tipo_ecommerce: 'P',
-    ecommerce_prioridade: '1',
+    ...FIXOS_DO_CADASTRO,
     ultima_atualizacao: '',
   };
 }
