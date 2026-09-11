@@ -132,6 +132,10 @@ export class CriarAlmoxarifadoDto {
 
   @Transform(numero) @IsInt() @Min(1)
   filialId!: number;
+
+  /** O usuário do IXC do técnico dono, quando é a van de um técnico. */
+  @IsOptional() @Transform(numero) @IsInt() @Min(1)
+  tecnicoUsuarioId?: number;
 }
 
 export class EditarAlmoxarifadoDto {

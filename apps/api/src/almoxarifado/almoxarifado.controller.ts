@@ -184,6 +184,16 @@ export class AlmoxarifadoController {
     return this.almoxarifados.criar(dto, quem(req));
   }
 
+  /**
+   * Liga o usuário do IXC do sistema aos almoxarifados que ele não enxerga
+   * (os de técnico). Só acrescenta ligação; não tira nem troca o padrão.
+   */
+  @Post('almoxarifados/liberar')
+  @HttpCode(200)
+  liberarAlmoxarifados(@Req() req: Request) {
+    return this.almoxarifados.liberar(quem(req));
+  }
+
   @Patch('almoxarifados/:id')
   editarAlmoxarifado(
     @Param('id', ParseIntPipe) id: number,

@@ -17,6 +17,11 @@ import { BadRequestException } from '@nestjs/common';
 export interface NovoAlmoxarifado {
   descricao: string;
   filialId: number;
+  /**
+   * O usuário do IXC do técnico dono, quando é o almoxarifado de um técnico
+   * (a van dele). É o que se faz, no IXC, na aba Almoxarifados do usuário.
+   */
+  tecnicoUsuarioId?: number;
 }
 
 /** O que se pode mudar num almoxarifado a partir daqui. */
@@ -63,6 +68,26 @@ export function montarEdicaoAlmoxarifado(
     corpo.ativo = mudancas.ativo ? 'S' : 'N';
   }
   return corpo;
+}
+
+/**
+ * O corpo do `POST /almox_usuario` ("Almoxarifados do Usuário / inserir"): liga
+ * um usuário do IXC a um almoxarifado — é o que o faz enxergá-lo, lá e na API.
+ *
+ * `padrao_usuario` é "N" salvo quando quem chama diz o contrário: o padrão é o
+ * almoxarifado que a OS do técnico consome, e marcá-lo à toa mudaria de onde
+ * sai o material dele.
+ */
+export function montarVinculo(
+  usuarioId: number,
+  almoxId: number,
+  padrao = false,
+): Record<string, unknown> {
+  return {
+    id_usuario: String(idValido(usuarioId, 'o usuário do IXC')),
+    id_almox: String(idValido(almoxId, 'o almoxarifado')),
+    padrao_usuario: padrao ? 'S' : 'N',
+  };
 }
 
 function descricaoValida(descricao: string): string {

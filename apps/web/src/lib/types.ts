@@ -2156,15 +2156,24 @@ export interface ProdutoNoIxc {
 export interface AlmoxarifadoCadastro {
   id: number;
   descricao: string;
+  /** 0 quando o sistema não enxerga o cadastro (não liberado). */
   filialId: number;
-  /** Nulo se a filial do cadastro não existir mais no IXC. */
   filial: string | null;
   ativo: boolean;
+  /**
+   * O usuário do IXC do sistema está ligado a ele. Sem isso o IXC esconde o
+   * cadastro da API — não dá para editar nem transferir para ele.
+   */
+  liberado: boolean;
+  /** Quem está ligado a ele no IXC — o técnico dono, quando é de técnico. */
+  usuarios: Array<{ id: number; nome: string; padrao: boolean }>;
 }
 
-/** As opções do formulário de almoxarifado — hoje, só as filiais do IXC. */
+/** As opções do formulário de almoxarifado. */
 export interface OpcoesDoAlmoxarifado {
   filiais: Array<{ id: number; nome: string }>;
+  /** Usuários do IXC ativos que são de um colaborador. */
+  tecnicos: Array<{ id: number; nome: string }>;
 }
 
 /** As escolhas dos formulários do estoque, lidas do IXC. */

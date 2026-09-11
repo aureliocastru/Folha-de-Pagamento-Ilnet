@@ -1,4 +1,19 @@
-import { montarEdicaoAlmoxarifado, montarNovoAlmoxarifado } from './almoxarifados-ixc';
+import {
+  montarEdicaoAlmoxarifado,
+  montarNovoAlmoxarifado,
+  montarVinculo,
+} from './almoxarifados-ixc';
+
+describe('montarVinculo', () => {
+  it('liga usuário e almoxarifado como no exemplo "Almoxarifados do Usuário (inserir)"', () => {
+    expect(montarVinculo(41, 4)).toEqual({ id_usuario: '41', id_almox: '4', padrao_usuario: 'N' });
+    expect(montarVinculo(41, 4, true).padrao_usuario).toBe('S');
+  });
+
+  it('recusa id faltando', () => {
+    expect(() => montarVinculo(0, 4)).toThrow(/usuário/);
+  });
+});
 
 /**
  * Os corpos que vão ao IXC para a tabela `almox`, conferidos contra os

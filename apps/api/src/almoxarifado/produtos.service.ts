@@ -231,7 +231,10 @@ export class ProdutosService {
     const origem = almoxarifados.find((a) => a.id === dados.de);
     const destino = almoxarifados.find((a) => a.id === dados.para);
     if (!origem || !destino) {
-      throw new BadRequestException('Almoxarifado de origem ou de destino não existe no IXC.');
+      throw new BadRequestException(
+        `O sistema não enxerga o almoxarifado de ${!origem ? 'origem' : 'destino'} no IXC — ` +
+          'é de técnico e não está liberado. Libere na aba Almoxarifados e tente de novo.',
+      );
     }
     if (!destino.ativo) {
       throw new BadRequestException(`O almoxarifado "${destino.nome}" está desativado no IXC.`);
@@ -336,7 +339,12 @@ export class ProdutosService {
       this.unidades(),
     ]);
     const almox = almoxarifados.find((a) => a.id === dados.almoxId);
-    if (!almox) throw new BadRequestException('Esse almoxarifado não existe no IXC.');
+    if (!almox) {
+      throw new BadRequestException(
+        'O sistema não enxerga esse almoxarifado no IXC — é de técnico e não está liberado. ' +
+          'Libere na aba Almoxarifados e tente de novo.',
+      );
+    }
     if (!almox.ativo) {
       throw new BadRequestException(`O almoxarifado "${almox.nome}" está desativado no IXC.`);
     }

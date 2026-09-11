@@ -9,6 +9,7 @@ import {
   type LinhaDeComodatoIxc,
 } from './comodato.mapper';
 import { numeroDoIxc } from './estoque.mapper';
+import { EstoqueService } from './estoque.service';
 
 /**
  * Quanto a leitura vale. Comodato muda pouco ao longo do dia (a instalação é
@@ -37,7 +38,10 @@ export class ComodatoService {
   private readonly logger = new Logger(ComodatoService.name);
   private guardado: { em: number; dados: ComodatoNaTela } | null = null;
 
-  constructor(private readonly ixc: IxcClient) {}
+  constructor(
+    private readonly ixc: IxcClient,
+    private readonly estoque: EstoqueService,
+  ) {}
 
   async listar(recarregar = false): Promise<ComodatoNaTela> {
     if (!recarregar && this.guardado && Date.now() - this.guardado.em < VALIDADE_MS) {
@@ -130,16 +134,28 @@ export class ComodatoService {
     );
   }
 
+  /**
+   * id → nome. O `almox` só devolve os almoxarifados ligados ao usuário do
+   * sistema — o da van de um técnico fica de fora —, então os nomes que
+   * faltam vêm do saldo, onde todo almoxarifado com produto aparece.
+   */
   private async nomesDeAlmoxarifados(): Promise<Map<number, string>> {
-    const linhas = await this.ixc.listAll<{ id?: string; descricao?: string }>(
-      'almox',
-      { qtype: 'almox.id', query: '0', oper: '>', sortname: 'almox.id', sortorder: 'asc' },
-      { pageSize: 200, maxPages: 5 },
-    );
-    return new Map(
-      linhas
-        .map((a) => [numeroDoIxc(a.id), String(a.descricao ?? '').trim()] as const)
-        .filter(([id, nome]) => id > 0 && nome !== ''),
-    );
+    const [linhas, doSaldo] = await Promise.all([
+      this.ixc.listAll<{ id?: string; descricao?: string }>(
+        'almox',
+        { qtype: 'almox.id', query: '0', oper: '>', sortname: 'almox.id', sortorder: 'asc' },
+        { pageSize: 200, maxPages: 5 },
+      ),
+      this.estoque
+        .almoxarifadosConhecidos()
+        .catch(() => [] as Array<{ id: number; nome: string }>),
+    ]);
+    const nomes = new Map<number, string>(doSaldo.map((a) => [a.id, a.nome]));
+    for (const a of linhas) {
+      const id = numeroDoIxc(a.id);
+      const nome = String(a.descricao ?? '').trim();
+      if (id > 0 && nome !== '') nomes.set(id, nome);
+    }
+    return nomes;
   }
 }
