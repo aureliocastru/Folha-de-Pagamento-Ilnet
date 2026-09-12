@@ -273,6 +273,22 @@ export function patrimoniosMoviveis(
 }
 
 /**
+ * Produto inativo no IXC.
+ *
+ * A janela de transferência não o mostra — nem para mover, nem entre os que
+ * ficam —, pela mesma razão que a tela Estoque o esconde por padrão: quem o
+ * inativou tirou-o de circulação, e reencontrá-lo aqui, com três linhas de
+ * explicação, é o contrário do que ele pediu. O que ficou parado nele
+ * continua à vista no Estoque, marcando "Mostrar inativos".
+ *
+ * Cadastro que não veio conta como ativo: sumir com o que não se sabe seria
+ * pior do que mostrar.
+ */
+export function produtoInativo(bruto: Record<string, unknown> | undefined): boolean {
+  return String(bruto?.ativo ?? 'S').trim().toUpperCase() === 'N';
+}
+
+/**
  * Peça de produto que não tem saldo no almoxarifado não vai: mover a peça
  * baixa o saldo, e de zero ele vai a negativo.
  *

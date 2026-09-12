@@ -14,6 +14,7 @@ import {
   pecasForaDaPrateleira,
   pecasPresas,
   patrimoniosMoviveis,
+  produtoInativo,
   semSaldoParaAPeca,
   separarMoviveis,
   SITUACOES_LIDAS,
@@ -163,12 +164,17 @@ export class TransferenciasService {
    */
   async conteudo(almoxId: number): Promise<ConteudoDoAlmoxarifado> {
     const inicio = Date.now();
-    const [lido, [unidades], linhasDePatrimonio] = await Promise.all([
+    const [lido, [unidades], pecasDoIxc] = await Promise.all([
       this.estoque.listar({ almoxId, recarregar: true }),
       this.produtos.paraMovimentar(),
       this.pecasDoAlmoxarifado(almoxId),
     ]);
+    /* Inativo fica de fora da janela inteira — ver `produtoInativo`. O que
+       não diz se é ativo continua aparecendo: sumir com o que não se sabe
+       seria pior do que mostrar. */
+    const inativos = lido.itens.filter((i) => i.ativo === false);
     const itens = lido.itens
+      .filter((i) => i.ativo !== false)
       .map((i) => ({
         produtoId: i.produtoId,
         descricao: i.descricao,
@@ -178,8 +184,19 @@ export class TransferenciasService {
       .filter((i) => i.saldo > 0);
     const cadastros = await this.produtos.cadastrosPorId([
       ...itens.map((i) => i.produtoId),
-      ...linhasDePatrimonio.map((l) => numeroDoIxc(l.id_produto)),
+      ...pecasDoIxc.map((l) => numeroDoIxc(l.id_produto)),
     ]);
+    const linhasDePatrimonio = pecasDoIxc.filter(
+      (l) => !produtoInativo(cadastros.get(numeroDoIxc(l.id_produto))),
+    );
+    const comSaldoParado = inativos.filter((i) => i.total !== 0).length;
+    if (comSaldoParado > 0 || pecasDoIxc.length !== linhasDePatrimonio.length) {
+      this.logger.log(
+        `Almoxarifado #${almoxId}: ${comSaldoParado} produto(s) inativo(s) com saldo e ` +
+          `${pecasDoIxc.length - linhasDePatrimonio.length} peça(s) de produto inativo fora da ` +
+          'janela — inativo não se transfere, e o saldo deles está na tela Estoque.',
+      );
+    }
 
     this.registrarPecaSemFinalidade(linhasDePatrimonio);
     const saldoPorProduto = new Map(lido.itens.map((i) => [i.produtoId, i.total]));

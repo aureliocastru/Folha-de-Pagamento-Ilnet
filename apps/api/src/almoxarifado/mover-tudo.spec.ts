@@ -5,6 +5,7 @@ import {
   patrimoniosMoviveis,
   pecasForaDaPrateleira,
   pecasPresas,
+  produtoInativo,
   semSaldoParaAPeca,
   separarMoviveis,
 } from './mover-tudo';
@@ -75,6 +76,16 @@ describe('patrimoniosMoviveis', () => {
       expect.stringContaining('nº PAT6'),
       expect.stringContaining('nº PAT7'),
     ]);
+  });
+});
+
+describe('produtoInativo', () => {
+  it('só o "N" do IXC esconde o produto; sem cadastro, ele aparece', () => {
+    expect(produtoInativo({ ativo: 'N' })).toBe(true);
+    expect(produtoInativo({ ativo: 'n' })).toBe(true);
+    expect(produtoInativo({ ativo: 'S' })).toBe(false);
+    expect(produtoInativo({})).toBe(false);
+    expect(produtoInativo(undefined)).toBe(false);
   });
 });
 
@@ -261,6 +272,8 @@ describe('TransferenciasService', () => {
       onusSemPeca?: number;
       /** O que a soma dos movimentos confirma do saldo sem peça. */
       movimentosConfirmam?: number;
+      /** Este produto está inativo no IXC. */
+      inativo?: number;
     } = {},
   ) {
     const saidas = new Map<string, number>();
@@ -313,6 +326,7 @@ describe('TransferenciasService', () => {
         itens: saldo
           .map((s) => ({
             ...s,
+            ativo: s.produtoId !== opts.inativo,
             total:
               s.total -
               (saidas.get(`m${s.produtoId}`) ?? 0) -
@@ -355,6 +369,13 @@ describe('TransferenciasService', () => {
     expect(c.moviveis.map((m) => m.produtoId)).toEqual([11, 10]); // por nome
     expect(c.patrimonios.map((p) => p.patrimonioId)).toEqual([1, 2]);
     expect(c.deFora).toEqual([]); // as 2 ONUs do saldo têm as 2 peças
+  });
+
+  it('produto inativo no IXC não entra na janela — nem para mover, nem entre os que ficam', async () => {
+    const { service } = montar({ inativo: 10 });
+    const c = await service.conteudo(29);
+    expect(c.moviveis.map((m) => m.produtoId)).toEqual([11]);
+    expect(c.deFora).toEqual([]);
   });
 
   it('só pede ao IXC as peças da prateleira e as presas — o comodato não vem', async () => {
