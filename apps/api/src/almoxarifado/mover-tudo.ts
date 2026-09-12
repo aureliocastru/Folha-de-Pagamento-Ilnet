@@ -162,52 +162,93 @@ function dataDoIxc(v: unknown): string | null {
   return m ? `${m[3]}/${m[2]}/${m[1]}` : t;
 }
 
+/** Onde uma peça está presa — o que decide se ela vai junto com as outras. */
+interface LugarDaPresa {
+  situacao: string;
+  finalidade: string;
+  numero: string;
+  desde: string | null;
+  porque: string | null;
+}
+
 /**
- * As peças presas no almoxarifado (alocada, indisponível), cada uma dita por
- * inteiro: qual peça, desde quando e onde está presa — é o que quem vai
- * resolver no IXC precisa saber para achar.
+ * Quantas peças o motivo nomeia antes do "e mais N".
+ *
+ * Visto em produção (12/09/2026): uma ONU com doze peças presas na mesma
+ * entrada aberta. Nomeadas todas, com a explicação repetida em cada uma, o
+ * motivo virava vinte linhas de texto igual — e quem lê precisa de duas
+ * coisas: saber que são doze, e ter um número na mão para procurar no IXC.
  */
-export function pecasPresas(linhas: Array<Record<string, unknown>>): Map<number, string[]> {
-  const porProduto = new Map<number, string[]>();
+const PECAS_NOMEADAS = 3;
+
+/**
+ * As peças presas no almoxarifado (alocada, indisponível) — juntas por lugar.
+ *
+ * As que estão presas no mesmo movimento têm a mesma explicação e o mesmo
+ * conserto: ela é dita uma vez, com quantas são e o número de algumas para
+ * procurar no IXC. Uma frase por lugar, e não uma por peça.
+ */
+export function pecasPresas(linhas: Array<Record<string, unknown>>): Map<number, string> {
+  const porProduto = new Map<number, Map<string, { lugar: LugarDaPresa; pecas: string[] }>>();
   for (const l of linhas) {
     const situacao = String(l.situacao ?? '').trim();
     const patrimonioId = numeroDoIxc(l.id);
     if (patrimonioId <= 0 || !PRESA_AQUI.has(situacao)) continue;
-    const peca = identificacao({
-      patrimonioId,
-      numeroPatrimonial: texto(l.serial) ?? texto(l.nro_patrimonio) ?? texto(l.cod_patrimonio),
-      mac: texto(l.id_mac) ?? texto(l.mac),
-      numeroSerie: texto(l.serial_fornecedor),
-    });
-    let onde: string;
-    if (situacao === '6') {
-      onde = 'alocada (numa estrutura ou com alguém) — devolva ao almoxarifado no IXC';
-    } else {
-      const finalidade = String(l.finalidade_indisponivel ?? '').trim().toUpperCase();
-      const numero = texto(l.id_finalidade) ? `#${texto(l.id_finalidade)}` : '(sem número)';
-      const desde = dataDoIxc(l.data_movimentacao_indisponivel);
-      const porque = texto(l.descricao_indisponivel);
-      onde =
-        'indisponível' +
-        (desde ? ` desde ${desde}` : '') +
-        ', ' +
-        (PRESA_EM[finalidade]?.(numero) ??
-          // Visto em produção (11/09/2026): a listagem da API veio sem a
-          // finalidade, mas a peça estava presa numa entrada (compra) aberta
-          // — e o IXC não deixa mudar a situação à mão. Quem diz onde é a
-          // aba do próprio patrimônio.
-          'presa num movimento que o IXC não informou aqui — no IXC, abra o patrimônio, ' +
-            'aba "Detalhes da indisponibilidade", e encerre o movimento que aparece lá ' +
-            '(numa entrada, é finalizar a compra)') +
-        (porque ? ` ("${porque}")` : '');
-    }
-    const lista = porProduto.get(numeroDoIxc(l.id_produto)) ?? [];
+    const lugar: LugarDaPresa = {
+      situacao,
+      finalidade: String(l.finalidade_indisponivel ?? '').trim().toUpperCase(),
+      numero: texto(l.id_finalidade) ? `#${texto(l.id_finalidade)}` : '(sem número)',
+      desde: dataDoIxc(l.data_movimentacao_indisponivel),
+      porque: texto(l.descricao_indisponivel),
+    };
+    const chave = [lugar.situacao, lugar.finalidade, lugar.numero, lugar.desde, lugar.porque].join(
+      '|',
+    );
+    const produtoId = numeroDoIxc(l.id_produto);
+    const grupos = porProduto.get(produtoId) ?? new Map<string, { lugar: LugarDaPresa; pecas: string[] }>();
+    const grupo = grupos.get(chave) ?? { lugar, pecas: [] };
     // O código vai junto: é por ele que a tela de Patrimônios do IXC procura.
-    lista.push(`a peça ${peca} (código ${patrimonioId} no IXC) está ${onde}`);
-    porProduto.set(numeroDoIxc(l.id_produto), lista);
+    grupo.pecas.push(`${identificacao(identidadeDaPeca(l))} (código ${patrimonioId} no IXC)`);
+    grupos.set(chave, grupo);
+    porProduto.set(produtoId, grupos);
   }
-  return porProduto;
+
+  const porMotivo = new Map<number, string>();
+  for (const [produtoId, grupos] of porProduto) {
+    porMotivo.set(
+      produtoId,
+      [...grupos.values()].map((g) => frasePresa(g.lugar, g.pecas)).join('; '),
+    );
+  }
+  return porMotivo;
 }
+
+/** "12 peças estão indisponíveis desde 30/08, presas na entrada #7: nº A, nº B e mais 10". */
+function frasePresa(lugar: LugarDaPresa, pecas: string[]): string {
+  const uma = pecas.length === 1;
+  const lugarDito =
+    lugar.situacao === '6'
+      ? `${uma ? 'alocada' : 'alocadas'} (numa estrutura ou com alguém) — devolva ao ` +
+        'almoxarifado no IXC'
+      : `${uma ? 'indisponível' : 'indisponíveis'}${lugar.desde ? ` desde ${lugar.desde}` : ''}, ` +
+        (PRESA_EM[lugar.finalidade]?.(lugar.numero) ?? semFinalidade(uma)) +
+        (lugar.porque ? ` ("${lugar.porque}")` : '');
+
+  if (uma) return `a peça ${pecas[0]} está ${lugarDito}`;
+  const nomeadas = pecas.slice(0, PECAS_NOMEADAS).join(', ');
+  const resto = pecas.length > PECAS_NOMEADAS ? ` e mais ${pecas.length - PECAS_NOMEADAS}` : '';
+  return `${pecas.length} peças estão ${lugarDito}: ${nomeadas}${resto}`;
+}
+
+/*
+ * Visto em produção (11/09/2026): a listagem da API veio sem a finalidade, mas
+ * a peça estava presa numa entrada (compra) aberta — e o IXC não deixa mudar a
+ * situação à mão. Quem diz onde é a aba do próprio patrimônio.
+ */
+const semFinalidade = (uma: boolean): string =>
+  `${uma ? 'presa' : 'presas'} num movimento que o IXC não informou aqui — no IXC, abra o ` +
+  'patrimônio, aba "Detalhes da indisponibilidade", e encerre o movimento que aparece lá ' +
+  '(numa entrada, é finalizar a compra)';
 
 /**
  * O que identifica uma peça, lido da linha do IXC.
@@ -388,8 +429,8 @@ export function separarMoviveis(
   unidades: Array<{ id: number; sigla: string }>,
   porPatrimonio: Map<number, number> = new Map(),
   foraDaPrateleira: Map<number, Map<string, number>> = new Map(),
-  /** De `pecasPresas`: o que dizer da peça presa, para o motivo apontar onde. */
-  presas: Map<number, string[]> = new Map(),
+  /** De `pecasPresas`: o que dizer das peças presas, para o motivo apontar onde. */
+  presas: Map<number, string> = new Map(),
 ): { moviveis: ItemMovivel[]; semPeca: ItemSemPeca[]; deFora: ItemDeFora[] } {
   const moviveis: ItemMovivel[] = [];
   const semPeca: ItemSemPeca[] = [];
@@ -426,9 +467,9 @@ export function separarMoviveis(
           saldo: sobra,
           motivo: presa
             ? `patrimônio: ${
-                presas.get(item.produtoId)?.join('; ') ??
+                presas.get(item.produtoId) ??
                 `o saldo pode ser a peça que está aqui ${descreverFora(fora)}`
-              }. Resolvida lá, ela volta a ir por transferência`
+              }. Resolvido no IXC, volta a ir por transferência`
             : 'patrimônio sem peça e sem unidade no cadastro — acerte na edição do produto',
         });
         continue;

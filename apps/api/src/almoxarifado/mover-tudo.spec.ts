@@ -172,9 +172,21 @@ describe('separarMoviveis', () => {
     expect(apontado.deFora[0].motivo).toMatch(
       /peça nº PAT1 · MAC .* \(código 1 no IXC\) está indisponível desde 30\/08\/2026, na transferência com confirmação #2871 — falta confirmar/,
     );
-    expect(pecasPresas([peca(5, '8')]).get(12)?.[0]).toMatch(
+    expect(pecasPresas([peca(5, '8')]).get(12)).toMatch(
       /código 5 no IXC\) está indisponível, presa num movimento .* "Detalhes da indisponibilidade"/,
     );
+
+    /* Doze peças presas no mesmo lugar são uma frase, e não doze: a explicação
+       uma vez, quantas são, e três números para procurar no IXC. */
+    const muitas = pecasPresas(
+      Array.from({ length: 12 }, (_, i) =>
+        peca(100 + i, '8', { finalidade_indisponivel: 'E', id_finalidade: '77' }),
+      ),
+    ).get(12)!;
+    expect(muitas).toMatch(/^12 peças estão indisponíveis, na entrada \(compra\) #77 ainda aberta/);
+    expect(muitas).toMatch(/e mais 9$/);
+    // A explicação aparece uma vez só.
+    expect(muitas.match(/entrada \(compra\)/g)).toHaveLength(1);
 
     // Comodato não prende: a peça já saiu do saldo. Só explica.
     const soComodato = separarMoviveis(
