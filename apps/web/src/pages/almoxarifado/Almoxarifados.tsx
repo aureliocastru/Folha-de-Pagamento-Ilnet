@@ -416,14 +416,19 @@ function ConteudoDoAlmoxarifado({ id }: { id: number }) {
     return <p className="py-3 text-[13px] text-rose-700">{mensagemErro(conteudo.error)}</p>;
   }
 
+  /* Dentro do almoxarifado só cabe material da prateleira. Inativo no IXC
+     fica de fora — foi inativado justamente para sair da frente, e a tela
+     Estoque também o esconde por padrão. Serviço idem: o IXC não soma entrada
+     dele, o negativo não é falta de nada, e "Ativação de Fibra" não é coisa
+     que se guarde em prateleira. */
   const itens = (conteudo.data?.itens ?? [])
-    .filter((i) => i.saldos.some((s) => s.saldo !== 0))
+    .filter((i) => i.ativo && !i.servico && i.saldos.some((s) => s.saldo !== 0))
     .sort((a, b) => a.descricao.localeCompare(b.descricao, 'pt-BR'));
 
   if (itens.length === 0) {
     return (
       <p className="py-3 text-[13px] text-tinta-500">
-        Este almoxarifado está vazio — nenhum produto com saldo no IXC.
+        Este almoxarifado está vazio — nenhum produto ativo com saldo no IXC.
       </p>
     );
   }

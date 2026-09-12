@@ -181,13 +181,22 @@ export function montarEstoque(
 }
 
 export function resumirEstoque(itens: ItemDeEstoque[]): ResumoDoEstoque {
+  /*
+   * O inativo não entra na conta.
+   *
+   * Os cartões respondem "o que a casa tem" — quantos itens, quantos zerados,
+   * quanto vale o que está guardado. Produto inativado é produto que saiu de
+   * circulação: somá-lo aqui inflava o valor guardado com switch de 2018 e
+   * fazia o número dos cartões brigar com a lista, que esconde o inativo.
+   */
+  const daCasa = itens.filter((i) => i.ativo);
   return {
-    itens: itens.length,
-    abaixoDoMinimo: itens.filter((i) => i.abaixoDoMinimo).length,
-    semNenhum: itens.filter((i) => i.semNenhum).length,
+    itens: daCasa.length,
+    abaixoDoMinimo: daCasa.filter((i) => i.abaixoDoMinimo).length,
+    semNenhum: daCasa.filter((i) => i.semNenhum).length,
     valorEmEstoque:
       Math.round(
-        itens.reduce((s, i) => s + i.total * (i.precoBase ?? 0), 0) * 100,
+        daCasa.reduce((s, i) => s + i.total * (i.precoBase ?? 0), 0) * 100,
       ) / 100,
   };
 }

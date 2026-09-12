@@ -116,7 +116,24 @@ export class AcertoDeNegativosService {
   /** Os negativos de agora, lidos de novo do IXC. */
   async listar(): Promise<NegativosNaTela> {
     const lido = await this.estoque.listar({ recarregar: true });
-    const comNegativo = lido.itens.filter((i) => i.saldos.some((s) => s.saldo < 0));
+    /*
+     * Produto inativo fica de fora: ele saiu de circulação, e ninguém vai dar
+     * entrada de compra para acertar o saldo de algo que a casa não usa mais.
+     * O negativo dele continua à vista no Estoque, marcando "Mostrar
+     * inativos" — que é onde se reativa, se um dia for o caso.
+     */
+    const comNegativo = lido.itens.filter(
+      (i) => i.ativo && i.saldos.some((s) => s.saldo < 0),
+    );
+    const inativosComNegativo = lido.itens.filter(
+      (i) => !i.ativo && i.saldos.some((s) => s.saldo < 0),
+    ).length;
+    if (inativosComNegativo > 0) {
+      this.logger.log(
+        `${inativosComNegativo} produto(s) inativo(s) com saldo negativo fora da tela de ` +
+          'acerto — inativo não se compra para acertar.',
+      );
+    }
     const [[unidades, almoxarifados], cadastros] = await Promise.all([
       this.produtos.paraMovimentar(),
       this.produtos.cadastrosPorId(comNegativo.map((i) => i.produtoId)),
