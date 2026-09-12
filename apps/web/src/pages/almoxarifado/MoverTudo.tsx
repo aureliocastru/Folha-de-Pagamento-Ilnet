@@ -88,8 +88,9 @@ export function MoverTudo({
             <div className="mb-3">
               <p className="mb-1 text-sm text-tinta-600">
                 <strong>{c.moviveis.length}</strong>{' '}
-                {c.moviveis.length === 1 ? 'produto' : 'produtos'}, cada um com tudo o que tem
-                aqui
+                {c.moviveis.length === 1
+                  ? 'produto, com tudo o que tem aqui'
+                  : 'produtos, cada um com tudo o que tem aqui'}
               </p>
               <ListaDeItens
                 itens={c.moviveis.map((i) => ({
@@ -105,8 +106,9 @@ export function MoverTudo({
             <div className="mb-3">
               <p className="mb-1 text-sm text-tinta-600">
                 <strong>{c.patrimonios.length}</strong>{' '}
-                {c.patrimonios.length === 1 ? 'peça' : 'peças'} de patrimônio, cada uma com o
-                seu MAC e número
+                {c.patrimonios.length === 1
+                  ? 'peça de patrimônio, com o seu MAC e número'
+                  : 'peças de patrimônio, cada uma com o seu MAC e número'}
               </p>
               <ListaDeItens
                 itens={c.patrimonios.map((p) => ({

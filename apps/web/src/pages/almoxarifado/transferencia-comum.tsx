@@ -213,20 +213,51 @@ export function Andamento({
 }
 
 export function FicamDeFora({ itens }: { itens: ConteudoDoAlmoxarifado['deFora'] }) {
+  /*
+   * O motivo vem por item, mas quase sempre é o mesmo para um monte deles —
+   * dez ONUs que a entrada de acerto criou levam a mesma explicação de três
+   * linhas. Repetida em cada linha, ela empurra o nome das peças para fora da
+   * janela: quem abriu isto quer ver **o que** fica, e só depois por quê. Por
+   * isso a explicação aparece uma vez, com a lista dela embaixo.
+   */
+  const grupos = porMotivo(itens);
   return (
     <div className="mt-3">
       <p className="mb-1 text-sm font-semibold text-amber-700 dark:text-amber-300">
         Ficam ({itens.length}) — não vão por transferência
       </p>
-      <ListaDeItens
-        itens={itens.map((i, n) => ({
-          chave: `${i.produtoId}-${n}`,
-          nome: i.descricao,
-          detalhe: `${quantidade(i.saldo)} ${i.unidade ?? ''} · ${i.motivo}`,
-        }))}
-      />
+      <div className="space-y-2">
+        {grupos.map((g) => (
+          <div key={g.motivo}>
+            <p className="mb-1 text-[12px] leading-snug text-tinta-500">
+              <strong className="text-tinta-600">{g.itens.length}</strong>{' '}
+              {g.itens.length === 1 ? 'item' : 'itens'} · {g.motivo}
+            </p>
+            <ListaDeItens
+              itens={g.itens.map((i, n) => ({
+                chave: `${i.produtoId}-${n}`,
+                nome: i.descricao,
+                detalhe: `${quantidade(i.saldo)} ${i.unidade ?? ''}`.trim(),
+              }))}
+            />
+          </div>
+        ))}
+      </div>
     </div>
   );
+}
+
+/** Os que ficam, juntados por motivo — na ordem em que o servidor os mandou. */
+function porMotivo(
+  itens: ConteudoDoAlmoxarifado['deFora'],
+): Array<{ motivo: string; itens: ConteudoDoAlmoxarifado['deFora'] }> {
+  const grupos = new Map<string, ConteudoDoAlmoxarifado['deFora']>();
+  for (const i of itens) {
+    const doMotivo = grupos.get(i.motivo);
+    if (doMotivo) doMotivo.push(i);
+    else grupos.set(i.motivo, [i]);
+  }
+  return [...grupos.entries()].map(([motivo, doMotivo]) => ({ motivo, itens: doMotivo }));
 }
 
 export function ListaDeItens({
