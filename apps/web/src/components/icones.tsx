@@ -354,6 +354,16 @@ export function IconeMais({ className }: IconeProps) {
   );
 }
 
+/** A lupa: procurar o que foi digitado no campo ao lado. */
+export function IconeLupa({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <circle cx="11" cy="11" r="6.5" />
+      <path d="m16 16 4.5 4.5" />
+    </svg>
+  );
+}
+
 export function IconeLixeira({ className }: IconeProps) {
   return (
     <svg {...base} className={className}>

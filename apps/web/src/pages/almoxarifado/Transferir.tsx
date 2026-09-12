@@ -9,6 +9,7 @@ import {
   Pagina,
   Vazio,
 } from '../../components/ui';
+import { IconeLixeira, IconeLupa, IconeMais } from '../../components/icones';
 import { api, mensagemErro } from '../../lib/api';
 import { semAcento } from '../../lib/busca';
 import type {
@@ -62,6 +63,8 @@ export function Transferir() {
   const [produtos, setProdutos] = useState<Record<number, string>>({});
   const [pecas, setPecas] = useState<Set<number>>(new Set());
   const [observacao, setObservacao] = useState('');
+  /** A janela que mostra o que vai e para onde, antes de gravar no IXC. */
+  const [confirmando, setConfirmando] = useState(false);
   /** A transferência acompanhada — a gravada agora, ou a do "tentar de novo". */
   const [aberta, setAberta] = useState<AndamentoDaTransferencia | null>(null);
   const transferenciaId = aberta?.id ?? null;
@@ -108,6 +111,22 @@ export function Transferir() {
 
   function porPeca(p: PatrimonioDoAlmoxarifado) {
     setPecas((s) => new Set(s).add(p.patrimonioId));
+  }
+
+  function tirarProduto(produtoId: number) {
+    setProdutos((p) => {
+      const n = { ...p };
+      delete n[produtoId];
+      return n;
+    });
+  }
+
+  function tirarPeca(patrimonioId: number) {
+    setPecas((s) => {
+      const n = new Set(s);
+      n.delete(patrimonioId);
+      return n;
+    });
   }
 
   function porTudo(conteudoDaOrigem: ConteudoDoAlmoxarifado) {
@@ -270,22 +289,36 @@ export function Transferir() {
           <label className="rotulo" htmlFor="transf-busca">
             Peça ou produto
           </label>
-          <input
-            id="transf-busca"
-            ref={campoDeBusca}
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                aoBipar();
-              }
-            }}
-            className="campo"
-            placeholder="Bipe ou digite MAC, nº patrimonial, série — ou o nome do produto"
-            autoComplete="off"
-            autoFocus
-          />
+          {/* O botão faz o que o Enter faz: no celular, onde o teclado esconde
+              a tela e o "ir" some, é ele quem procura. */}
+          <div className="flex gap-2">
+            <input
+              id="transf-busca"
+              ref={campoDeBusca}
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  aoBipar();
+                }
+              }}
+              className="campo min-w-0 flex-1"
+              placeholder="Bipe ou digite MAC, nº patrimonial, série — ou o nome do produto"
+              autoComplete="off"
+              autoFocus
+            />
+            <button
+              type="button"
+              onClick={aoBipar}
+              disabled={!busca.trim() || acharNoIxc.isPending}
+              className="btn btn-pagar shrink-0"
+              title="Procurar a peça no IXC"
+            >
+              <IconeLupa />
+              Procurar
+            </button>
+          </div>
           <p className="ajuda">
             {acharNoIxc.isPending
               ? 'Procurando a peça no IXC…'
@@ -346,6 +379,41 @@ export function Transferir() {
             </select>
           </div>
         </div>
+        {/*
+          Concluir fica aqui em cima, junto do destino, e não no fim da página:
+          a lista do que vai tem quinhentas linhas de rolagem, e terminar a
+          transferência não pode depender de chegar ao fim delas.
+        */}
+        {itensNaLista > 0 && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-tinta-200 pt-3">
+            <p className="text-[13px] text-tinta-600">
+              <strong>{itensNaLista}</strong> {itensNaLista === 1 ? 'item' : 'itens'} na lista
+              {nomeDe && ` — sai de ${nomeDe}`}
+              {nomePara && `, vai para ${nomePara}`}
+              {naLista.problemas > 0 && (
+                <span className="text-rose-600 dark:text-rose-300">
+                  {' '}
+                  · {naLista.problemas} com quantidade a acertar
+                </span>
+              )}
+            </p>
+            <button
+              type="button"
+              disabled={
+                !para || itensNaLista === 0 || naLista.problemas > 0 || transferir.isPending
+              }
+              onClick={() => setConfirmando(true)}
+              className="btn btn-primario"
+            >
+              {transferir.isPending
+                ? 'Abrindo a transferência…'
+                : !para
+                  ? 'Escolha para onde vai'
+                  : `Transferir ${itensNaLista} ${itensNaLista === 1 ? 'item' : 'itens'}`}
+            </button>
+          </div>
+        )}
+
         {(almoxarifados.data ?? []).some((a) => !a.liberado) && (
           <p className="ajuda mt-2">
             Almoxarifado de técnico que não aparece aqui ainda não está liberado para o sistema —
@@ -390,6 +458,8 @@ export function Transferir() {
                     }
                     onPorProduto={(m) => porProduto(m.produtoId, m.saldo)}
                     onPorPeca={(p) => porPeca(p)}
+                    onTirarProduto={(m) => tirarProduto(m.produtoId)}
+                    onTirarPeca={(p) => tirarPeca(p.patrimonioId)}
                   />
                 )}
 
@@ -443,15 +513,7 @@ export function Transferir() {
                       aria-label={`Quantidade de ${l.m.descricao}`}
                     />
                     <span className="w-8 text-[11px] text-tinta-400">{l.m.unidadeSigla}</span>
-                    <Tirar
-                      onClick={() =>
-                        setProdutos((p) => {
-                          const n = { ...p };
-                          delete n[l.m.produtoId];
-                          return n;
-                        })
-                      }
-                    />
+                    <Tirar onClick={() => tirarProduto(l.m.produtoId)} />
                   </div>
                 ))}
                 {naLista.pecas.map((p) => (
@@ -463,15 +525,7 @@ export function Transferir() {
                       <div className="truncate text-[13px] text-tinta-800">{p.descricao}</div>
                       <div className="truncate text-[11px] text-tinta-400">{identificacao(p)}</div>
                     </div>
-                    <Tirar
-                      onClick={() =>
-                        setPecas((s) => {
-                          const n = new Set(s);
-                          n.delete(p.patrimonioId);
-                          return n;
-                        })
-                      }
-                    />
+                    <Tirar onClick={() => tirarPeca(p.patrimonioId)} />
                   </div>
                 ))}
               </div>
@@ -493,31 +547,100 @@ export function Transferir() {
 
             {transferir.isError && <Aviso tom="erro">{mensagemErro(transferir.error)}</Aviso>}
 
-            <div className="mt-3 flex justify-end">
-              <button
-                type="button"
-                disabled={!para || itensNaLista === 0 || naLista.problemas > 0 || transferir.isPending}
-                onClick={() => {
-                  if (
-                    confirm(
-                      `Transferir ${itensNaLista} ${itensNaLista === 1 ? 'item' : 'itens'} de ` +
-                        `"${nomeDe}" para "${nomePara}" no IXC?`,
-                    )
-                  ) {
-                    transferir.mutate();
+            {/* O de concluir é o de cima; aqui embaixo fica só o atalho para
+                quem acabou de mexer na lista e não quer rolar de volta. */}
+            {itensNaLista > 0 && (
+              <div className="mt-3 flex justify-end">
+                <button
+                  type="button"
+                  disabled={
+                    !para || naLista.problemas > 0 || transferir.isPending
                   }
-                }}
-                className="btn btn-primario"
-              >
-                {transferir.isPending
-                  ? 'Abrindo a transferência…'
-                  : !para
-                    ? 'Escolha para onde vai'
-                    : `Transferir ${itensNaLista} ${itensNaLista === 1 ? 'item' : 'itens'}`}
-              </button>
-            </div>
+                  onClick={() => setConfirmando(true)}
+                  className="btn btn-primario"
+                >
+                  {transferir.isPending
+                    ? 'Abrindo a transferência…'
+                    : !para
+                      ? 'Escolha para onde vai'
+                      : `Transferir ${itensNaLista} ${itensNaLista === 1 ? 'item' : 'itens'}`}
+                </button>
+              </div>
+            )}
           </Bloco>
         </div>
+      )}
+
+      {confirmando && (
+        <Janela titulo="Confere antes de gravar no IXC" onFechar={() => setConfirmando(false)}>
+          <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+            <span className="selo bg-tinta-100 text-tinta-600">{nomeDe}</span>
+            <span className="text-tinta-400" aria-hidden>
+              →
+            </span>
+            <span className="selo bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
+              {nomePara}
+            </span>
+          </div>
+
+          <div className="rolagem-fina max-h-[22rem] overflow-y-auto rounded-xl border border-tinta-100">
+            {naLista.produtos.map((l) => (
+              <div
+                key={`c-m${l.m.produtoId}`}
+                className="flex items-baseline justify-between gap-3 border-b border-tinta-100 px-3 py-2 last:border-b-0"
+              >
+                <span className="min-w-0 flex-1 text-[13px] text-tinta-800">{l.m.descricao}</span>
+                <span className="valor whitespace-nowrap text-[13px]">
+                  {quantidade(l.n)} {l.m.unidadeSigla}
+                </span>
+              </div>
+            ))}
+            {naLista.pecas.map((p) => (
+              <div
+                key={`c-p${p.patrimonioId}`}
+                className="flex items-baseline justify-between gap-3 border-b border-tinta-100 px-3 py-2 last:border-b-0"
+              >
+                <span className="min-w-0 flex-1 text-[13px] text-tinta-800">
+                  {p.descricao}
+                  <span className="block truncate text-[11px] text-tinta-400">
+                    {identificacao(p)}
+                  </span>
+                </span>
+                <span className="valor whitespace-nowrap text-[13px]">1 {p.unidadeSigla}</span>
+              </div>
+            ))}
+          </div>
+
+          {observacao.trim() && (
+            <p className="ajuda mt-2">Observação, que vai para o IXC: "{observacao.trim()}"</p>
+          )}
+          <p className="ajuda mt-2">
+            Grava uma transferência só no IXC. Para desfazer, só movendo de volta.
+          </p>
+
+          <div className="mt-4 flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setConfirmando(false)}
+              className="btn btn-neutro"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              disabled={transferir.isPending}
+              onClick={() => {
+                setConfirmando(false);
+                transferir.mutate();
+              }}
+              className="btn btn-pagar"
+            >
+              {transferir.isPending
+                ? 'Abrindo a transferência…'
+                : `Transferir ${itensNaLista} ${itensNaLista === 1 ? 'item' : 'itens'}`}
+            </button>
+          </div>
+        </Janela>
       )}
 
       {acompanhada && (
@@ -557,12 +680,16 @@ function ListaDaOrigem({
   naLista,
   onPorProduto,
   onPorPeca,
+  onTirarProduto,
+  onTirarPeca,
 }: {
   produtos: ProdutoDaOrigem[];
   pecas: PatrimonioDoAlmoxarifado[];
   naLista: (k: { tipo: 'produto' | 'peca'; id: number }) => boolean;
   onPorProduto: (m: ProdutoDaOrigem) => void;
   onPorPeca: (p: PatrimonioDoAlmoxarifado) => void;
+  onTirarProduto: (m: ProdutoDaOrigem) => void;
+  onTirarPeca: (p: PatrimonioDoAlmoxarifado) => void;
 }) {
   const total = produtos.length + pecas.length;
   if (total === 0) return <p className="text-sm text-tinta-400">Nada com esse termo.</p>;
@@ -581,6 +708,7 @@ function ListaDaOrigem({
           }
           jaNaLista={naLista({ tipo: 'produto', id: m.produtoId })}
           onPor={() => onPorProduto(m)}
+          onTirar={() => onTirarProduto(m)}
         />
       ))}
       {pecasMostradas.map((p) => (
@@ -590,6 +718,7 @@ function ListaDaOrigem({
           detalhe={identificacao(p)}
           jaNaLista={naLista({ tipo: 'peca', id: p.patrimonioId })}
           onPor={() => onPorPeca(p)}
+          onTirar={() => onTirarPeca(p)}
         />
       ))}
       {total > MOSTRAR_ATE && (
@@ -601,48 +730,60 @@ function ListaDaOrigem({
   );
 }
 
+/**
+ * Uma linha do que a origem tem, com o botão do que fazer com ela.
+ *
+ * Verde põe, vermelho tira, e os dois são botão com nome escrito: um "+" e um
+ * "×" de dez pixels são alvo de mira no computador e de sorte no celular, que
+ * é onde esta tela é usada — com a caixa numa das mãos.
+ */
 function LinhaDaOrigem({
   nome,
   detalhe,
   jaNaLista,
   onPor,
+  onTirar,
 }: {
   nome: string;
   detalhe: string;
   jaNaLista: boolean;
   onPor: () => void;
+  onTirar: () => void;
 }) {
   return (
-    <div className="flex items-center gap-2 border-b border-tinta-100 px-3 py-1.5 last:border-b-0">
+    <div className="flex items-center gap-2 border-b border-tinta-100 px-3 py-2 last:border-b-0">
       <div className="min-w-0 flex-1">
         <div className="truncate text-[13px] text-tinta-800">{nome}</div>
         <div className="truncate text-[11px] text-tinta-400">{detalhe}</div>
       </div>
       {jaNaLista ? (
-        <span className="text-[11px] text-tinta-400">na lista</span>
+        <Tirar onClick={onTirar} />
       ) : (
         <button
           type="button"
           onClick={onPor}
-          className="btn btn-sutil btn-p"
+          className="btn btn-pagar shrink-0"
           aria-label={`Pôr ${nome} na lista`}
         >
-          +
+          <IconeMais />
+          Pôr
         </button>
       )}
     </div>
   );
 }
 
+/** Tirar da lista: vermelho, com o nome escrito, do tamanho de um dedo. */
 function Tirar({ onClick }: { onClick: () => void }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="btn btn-sutil btn-p text-rose-600 dark:text-rose-300"
+      className="btn btn-perigo shrink-0"
       aria-label="Tirar da lista"
     >
-      ×
+      <IconeLixeira />
+      Tirar
     </button>
   );
 }

@@ -272,7 +272,11 @@
   .btn-acao {
     @apply bg-barra text-white shadow-sm hover:bg-barra/90 active:bg-barra;
   }
-  /* Dinheiro saindo. Verde e sólido: é o botão que se procura na linha. */
+  /*
+   * Dinheiro saindo — e, fora do financeiro, o verde de "faz acontecer" numa
+   * linha: pôr a peça na transferência, procurar o código bipado. Sólido: é o
+   * botão que o dedo procura na linha, e no celular ele é o alvo.
+   */
   .btn-pagar {
     @apply bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 active:bg-emerald-800;
   }
