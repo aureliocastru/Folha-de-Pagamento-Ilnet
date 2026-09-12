@@ -89,8 +89,10 @@ export function Estoque() {
      por padrão: é o que não se compra nem se empresta mais, e só atrapalha
      quem está procurando o que a casa tem hoje. */
   const negativos = useMemo(
-    () => (dados?.itens ?? []).filter(temNegativo).length,
-    [dados],
+    () =>
+      (dados?.itens ?? []).filter((i) => (mostrarInativos || i.ativo) && temNegativo(i))
+        .length,
+    [dados, mostrarInativos],
   );
   /* O zerado some por padrão, como o inativo: quem abre o estoque quer ver o
      que tem na prateleira. Ele volta quando se pede por ele: "Só o que está

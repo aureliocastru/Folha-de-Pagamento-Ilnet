@@ -9,12 +9,16 @@ import { IxcClient } from '../ixc/ixc.client';
 import { numeroDoIxc } from './estoque.mapper';
 import { EstoqueService } from './estoque.service';
 import {
+  CAMPOS_DO_CODIGO,
   emParalelo,
+  identidadeDaPeca,
   identificacao,
+  normalizarCodigo,
   pecasForaDaPrateleira,
   pecasPresas,
   patrimoniosMoviveis,
   produtoInativo,
+  situacaoDaPeca,
   semSaldoParaAPeca,
   separarMoviveis,
   SITUACOES_LIDAS,
@@ -138,6 +142,24 @@ const GUARDA_MS = 60 * 60_000;
  * requisição. A chamada valida, abre a transferência e volta na hora; a tela
  * acompanha por `andamento`. Um item que o IXC recusa não para os outros.
  */
+/** Uma peça achada pelo código, e onde ela está — o que a tela de Transferir usa. */
+export interface PecaAchada {
+  patrimonioId: number;
+  produtoId: number;
+  descricao: string;
+  numeroPatrimonial: string | null;
+  mac: string | null;
+  numeroSerie: string | null;
+  /** 0 quando a peça não está em almoxarifado nenhum. */
+  almoxId: number;
+  almoxarifado: string;
+  /** "disponível", "alocada", "em comodato"… */
+  situacao: string;
+  podeMover: boolean;
+  /** Por que não dá para transferi-la agora — null quando dá. */
+  impedimento: string | null;
+}
+
 @Injectable()
 export class TransferenciasService {
   private readonly logger = new Logger(TransferenciasService.name);
@@ -156,6 +178,107 @@ export class TransferenciasService {
     private readonly estoque: EstoqueService,
     private readonly produtos: ProdutosService,
   ) {}
+
+  /**
+   * Onde está a peça de um código bipado — em qualquer almoxarifado.
+   *
+   * É o que faz a tela de Transferir começar pelo fim: bipa-se a ONU e o
+   * sistema diz de onde ela sai, em vez de pedir que se escolha o
+   * almoxarifado de cabeça antes de procurar. O IXC não tem uma busca por
+   * "código da peça": o número da casa, o MAC e a série do fornecedor moram
+   * em campos diferentes, e a procura é em todos ao mesmo tempo.
+   */
+  async acharPeca(codigo: string): Promise<PecaAchada> {
+    const procurado = codigo.trim();
+    const alvo = normalizarCodigo(procurado);
+    if (alvo.length < 3) {
+      throw new BadRequestException(
+        'Bipe ou digite ao menos 3 caracteres do MAC, do nº patrimonial ou da série.',
+      );
+    }
+
+    const porCampo = await Promise.all(
+      CAMPOS_DO_CODIGO.map((campo) =>
+        this.ixc
+          .list<Record<string, unknown>>('patrimonio', {
+            qtype: `patrimonio.${campo}`,
+            query: procurado,
+            // "L" é o LIKE do webservice: quem digita os últimos dígitos do
+            // MAC não quer só a peça cujo MAC é exatamente aquilo.
+            oper: 'L',
+            rp: 20,
+          })
+          .then((r) => r.registros ?? [])
+          // Campo que este IXC não tem responde erro; os outros seguem.
+          .catch(() => [] as Array<Record<string, unknown>>),
+      ),
+    );
+    const porId = new Map<number, Record<string, unknown>>();
+    for (const l of porCampo.flat()) {
+      const id = numeroDoIxc(l.id);
+      if (id > 0) porId.set(id, l);
+    }
+    if (porId.size === 0) {
+      throw new NotFoundException(
+        `Nenhuma peça no IXC com "${procurado}" no MAC, no nº patrimonial ou na série. ` +
+          `Para achar produto pelo nome, escolha primeiro de onde ele sai.`,
+      );
+    }
+
+    /* O código inteiro ganha do pedaço: quem bipa quer aquela peça, e não as
+       dez cujo número começa igual. Só havendo empate é que se pergunta. */
+    const achadas = [...porId.values()];
+    const exatas = achadas.filter((l) => {
+      const i = identidadeDaPeca(l);
+      return [i.mac, i.numeroPatrimonial, i.numeroSerie].some(
+        (x) => normalizarCodigo(x) === alvo,
+      );
+    });
+    const escolhidas = exatas.length > 0 ? exatas : achadas;
+    if (escolhidas.length > 1) {
+      throw new BadRequestException(
+        `${escolhidas.length} peças do IXC combinam com "${procurado}". Bipe ou digite o ` +
+          'código inteiro.',
+      );
+    }
+
+    const linha = escolhidas[0];
+    const peca = identidadeDaPeca(linha);
+    const produtoId = numeroDoIxc(linha.id_produto);
+    const almoxId = numeroDoIxc(linha.id_almoxarifado);
+    const [[, almoxarifados], cadastros] = await Promise.all([
+      this.produtos.paraMovimentar(),
+      this.produtos.cadastrosPorId([produtoId]),
+    ]);
+    const cadastro = cadastros.get(produtoId);
+    const almox = almoxarifados.find((a) => a.id === almoxId);
+    const situacao = situacaoDaPeca(linha.situacao);
+
+    const impedimento = !almoxId
+      ? 'a peça não está em almoxarifado nenhum no IXC'
+      : !almox
+        ? 'o almoxarifado dela não está liberado para o sistema — libere na aba Almoxarifados'
+        : !almox.ativo
+          ? `o almoxarifado "${almox.nome}" está desativado no IXC`
+          : !situacao.naPrateleira
+            ? `a peça está ${situacao.nome} — no IXC ela não está na prateleira para sair`
+            : produtoInativo(cadastro)
+              ? 'o produto desta peça está inativo no IXC'
+              : null;
+
+    return {
+      ...peca,
+      produtoId,
+      descricao:
+        String(cadastro?.descricao ?? linha.descricao ?? '').trim() ||
+        `Produto ${produtoId || '?'}`,
+      almoxId,
+      almoxarifado: almox?.nome ?? (almoxId ? `Almoxarifado ${almoxId}` : ''),
+      situacao: situacao.nome,
+      podeMover: impedimento === null,
+      impedimento,
+    };
+  }
 
   /**
    * O que o almoxarifado tem agora — lido de novo do IXC, sem a leitura

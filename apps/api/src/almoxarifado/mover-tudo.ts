@@ -210,6 +210,58 @@ export function pecasPresas(linhas: Array<Record<string, unknown>>): Map<number,
 }
 
 /**
+ * O que identifica uma peça, lido da linha do IXC.
+ *
+ * Os três campos não são um só por acaso: o número patrimonial da casa mora
+ * em `serial` (ou `nro_patrimonio`, ou `cod_patrimonio`, conforme a idade do
+ * cadastro), o MAC em `id_mac`, e a série do fornecedor em
+ * `serial_fornecedor`. Quem bipa não sabe em qual deles o código dele está —
+ * e nem precisa saber.
+ */
+export function identidadeDaPeca(l: Record<string, unknown>): {
+  patrimonioId: number;
+  numeroPatrimonial: string | null;
+  mac: string | null;
+  numeroSerie: string | null;
+} {
+  return {
+    patrimonioId: numeroDoIxc(l.id),
+    numeroPatrimonial: texto(l.serial) ?? texto(l.nro_patrimonio) ?? texto(l.cod_patrimonio),
+    mac: texto(l.id_mac) ?? texto(l.mac),
+    numeroSerie: texto(l.serial_fornecedor),
+  };
+}
+
+/** Os campos de `patrimonio` em que um código bipado pode estar. */
+export const CAMPOS_DO_CODIGO = [
+  'serial',
+  'nro_patrimonio',
+  'cod_patrimonio',
+  'id_mac',
+  'serial_fornecedor',
+];
+
+/** Só letra e número: o MAC bipado com ":" e o digitado sem ele são o mesmo. */
+export function normalizarCodigo(t: unknown): string {
+  return String(t ?? '')
+    .toUpperCase()
+    .replace(/[^0-9A-Z]/g, '');
+}
+
+/**
+ * Onde a peça está, para efeito de mover: na prateleira (1 Disponível, 7
+ * Disponível Técnico) ou não — presa no almoxarifado (alocada, indisponível)
+ * ou já fora dele (vendida, em comodato, inutilizada).
+ */
+export function situacaoDaPeca(situacao: unknown): { naPrateleira: boolean; nome: string } {
+  const s = String(situacao ?? '').trim();
+  if (NO_ESTOQUE.has(s)) {
+    return { naPrateleira: true, nome: s === '7' ? 'disponível com o técnico' : 'disponível' };
+  }
+  return { naPrateleira: false, nome: NOME_DA_SITUACAO[s] ?? `na situação ${s}` };
+}
+
+/**
  * Os patrimônios do almoxarifado que podem ir: os que estão nele e na
  * prateleira, com produto e unidade no cadastro (o item da transferência pede
  * os dois).
@@ -229,12 +281,7 @@ export function patrimoniosMoviveis(
     const bruto = produtos.get(produtoId);
     const descricao =
       texto(bruto?.descricao) ?? texto(l.descricao) ?? `Produto ${produtoId || '?'}`;
-    const peca = {
-      patrimonioId,
-      numeroPatrimonial: texto(l.serial) ?? texto(l.nro_patrimonio) ?? texto(l.cod_patrimonio),
-      mac: texto(l.id_mac) ?? texto(l.mac),
-      numeroSerie: texto(l.serial_fornecedor),
-    };
+    const peca = identidadeDaPeca(l);
     const fica = (motivo: string) =>
       deFora.push({
         produtoId,

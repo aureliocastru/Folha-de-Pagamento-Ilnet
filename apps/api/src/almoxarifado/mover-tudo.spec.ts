@@ -274,6 +274,8 @@ describe('TransferenciasService', () => {
       movimentosConfirmam?: number;
       /** Este produto está inativo no IXC. */
       inativo?: number;
+      /** As peças que a busca por código enxerga no IXC. */
+      pecasDoIxc?: Array<Record<string, string>>;
     } = {},
   ) {
     const saidas = new Map<string, number>();
@@ -298,6 +300,22 @@ describe('TransferenciasService', () => {
             : [],
       ),
       getById: jest.fn(async (_t: string, _c: string, id: number) => CADASTROS.get(id) ?? null),
+      /* A busca por código: o webservice procura um campo de cada vez, e a
+         peça responde no campo em que o código dela está. */
+      list: jest.fn(async (tabela: string, params: { qtype: string; query: string }) => {
+        if (tabela !== 'patrimonio') return { total: 0, page: 1, registros: [] };
+        const campo = params.qtype.split('.')[1];
+        const procurado = String(params.query).toUpperCase().replace(/[^0-9A-Z]/g, '');
+        const registros = (opts.pecasDoIxc ?? [peca(1, '1'), peca(2, '7'), peca(3, '4')]).filter(
+          (l) => {
+            const v = String((l as Record<string, string>)[campo] ?? '')
+              .toUpperCase()
+              .replace(/[^0-9A-Z]/g, '');
+            return v !== '' && procurado !== '' && v.includes(procurado);
+          },
+        );
+        return { total: registros.length, page: 1, registros };
+      }),
       create: jest.fn(async (tabela: string, corpo: Record<string, string>) => {
         if (tabela === 'transf_almox_top') return { id: 77, raw: {} };
         concorrencia.push(emVoo);
@@ -369,6 +387,79 @@ describe('TransferenciasService', () => {
     expect(c.moviveis.map((m) => m.produtoId)).toEqual([11, 10]); // por nome
     expect(c.patrimonios.map((p) => p.patrimonioId)).toEqual([1, 2]);
     expect(c.deFora).toEqual([]); // as 2 ONUs do saldo têm as 2 peças
+  });
+
+  describe('acharPeca', () => {
+    it('acha pelo MAC e diz de qual almoxarifado ela sai', async () => {
+      const { service } = montar();
+      const achada = await service.acharPeca('AA:BB:CC:00:00:01');
+      expect(achada).toMatchObject({
+        patrimonioId: 1,
+        produtoId: 12,
+        descricao: 'ONU Huawei',
+        almoxId: 29,
+        almoxarifado: 'CLEYSON',
+        situacao: 'disponível',
+        podeMover: true,
+        impedimento: null,
+      });
+    });
+
+    it('o MAC digitado sem os dois-pontos é o mesmo MAC', async () => {
+      const { service } = montar();
+      const achada = await service.acharPeca('aabbcc000001');
+      expect(achada.patrimonioId).toBe(1);
+    });
+
+    it('acha pelo nº patrimonial e pela série do fornecedor', async () => {
+      const { service } = montar();
+      expect((await service.acharPeca('PAT2')).patrimonioId).toBe(2);
+      expect((await service.acharPeca('HWTC2')).patrimonioId).toBe(2);
+    });
+
+    it('peça fora da prateleira vem com o motivo, e não se move', async () => {
+      const { service } = montar();
+      const achada = await service.acharPeca('PAT3'); // situação 4: em comodato
+      expect(achada).toMatchObject({
+        patrimonioId: 3,
+        podeMover: false,
+        situacao: 'em comodato',
+      });
+      expect(achada.impedimento).toMatch(/não está na prateleira/);
+    });
+
+    it('almoxarifado que o sistema não enxerga: diz que falta liberar', async () => {
+      const { service } = montar({
+        pecasDoIxc: [peca(9, '1', { id_almoxarifado: '77' })],
+      });
+      const achada = await service.acharPeca('PAT9');
+      expect(achada.podeMover).toBe(false);
+      expect(achada.impedimento).toMatch(/liberado para o sistema/);
+    });
+
+    it('código curto não vai ao IXC', async () => {
+      const { service, ixc } = montar();
+      await expect(service.acharPeca('AA')).rejects.toThrow(/ao menos 3/);
+      expect(ixc.list).not.toHaveBeenCalled();
+    });
+
+    it('nada achado diz o que fazer', async () => {
+      const { service } = montar();
+      await expect(service.acharPeca('ZZZZZZ')).rejects.toThrow(/Nenhuma peça no IXC/);
+    });
+
+    it('mais de uma peça com o pedaço digitado: pede o código inteiro', async () => {
+      const { service } = montar();
+      // "AABBCC0000" está no MAC das três peças.
+      await expect(service.acharPeca('AA:BB:CC:00:00')).rejects.toThrow(/código inteiro/);
+    });
+
+    it('o código inteiro ganha do pedaço — a peça exata não vira empate', async () => {
+      const { service } = montar({
+        pecasDoIxc: [peca(1, '1', { serial: '100' }), peca(2, '1', { serial: '1001' })],
+      });
+      expect((await service.acharPeca('100')).patrimonioId).toBe(1);
+    });
   });
 
   it('produto inativo no IXC não entra na janela — nem para mover, nem entre os que ficam', async () => {

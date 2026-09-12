@@ -16,6 +16,7 @@ import type {
   AndamentoDaTransferencia,
   ConteudoDoAlmoxarifado,
   PatrimonioDoAlmoxarifado,
+  PecaAchada,
 } from '../../lib/types';
 import { quantidade } from './ProdutoNoIxc';
 import {
@@ -118,9 +119,56 @@ export function Transferir() {
     setPecas(new Set(conteudoDaOrigem.patrimonios.map((p) => p.patrimonioId)));
   }
 
+  /**
+   * A peça achada no IXC entra na lista, e a origem dela vira a origem da
+   * transferência — é o que faz a tela começar pelo fim: bipa-se a ONU sem
+   * saber de cabeça em que van ela está.
+   */
+  function biparAchada(achada: PecaAchada) {
+    if (!achada.podeMover) {
+      setAviso({
+        texto:
+          `${achada.descricao} está em ${achada.almoxarifado || 'lugar nenhum'}, mas não dá para ` +
+          `transferir daqui: ${achada.impedimento}.`,
+        ruim: true,
+      });
+      return;
+    }
+    const origemNova = String(achada.almoxId);
+    if (origemNova !== de) {
+      // A lista era do almoxarifado anterior; nada dela vale na origem nova.
+      setDe(origemNova);
+      if (origemNova === para) setPara('');
+      setProdutos({});
+      setPecas(new Set([achada.patrimonioId]));
+    } else {
+      setPecas((s) => new Set(s).add(achada.patrimonioId));
+    }
+    setBusca('');
+    setAviso({
+      texto: `Entrou: ${achada.descricao} — sai de ${achada.almoxarifado}. Escolha para onde vai.`,
+      ruim: false,
+    });
+  }
+
+  const acharNoIxc = useMutation({
+    mutationFn: async (codigo: string) =>
+      (
+        await api.get<PecaAchada>('/almoxarifado/patrimonios/onde', { params: { codigo } })
+      ).data,
+    onSuccess: biparAchada,
+    onError: (e) => setAviso({ texto: mensagemErro(e), ruim: true }),
+  });
+
   /** Enter no campo: se é o código de uma peça, ela entra na hora — é o leitor bipando. */
   function aoBipar() {
-    if (!c || !busca.trim()) return;
+    if (!busca.trim() || acharNoIxc.isPending) return;
+    /* Sem origem escolhida — ou com o código de uma peça que não está nela —
+       quem responde é o IXC: ele diz de qual almoxarifado ela sai. */
+    if (!c) {
+      acharNoIxc.mutate(busca.trim());
+      return;
+    }
     const peca = pecaDoCodigo(c.patrimonios, busca);
     if (peca) {
       if (pecas.has(peca.patrimonioId)) {
@@ -140,8 +188,10 @@ export function Transferir() {
       setBusca('');
       return;
     }
-    if (normalizarCodigo(busca).length >= 6 && filtrados.pecas.length === 0 && filtrados.produtos.length === 0) {
-      setAviso({ texto: `Nenhuma peça disponível em ${c.nome} com o código "${busca.trim()}".`, ruim: true });
+    /* Não é nada que esteja nesta origem: pode ser peça de outro
+       almoxarifado, e é o IXC que sabe de qual. */
+    if (normalizarCodigo(busca).length >= 3 && filtrados.pecas.length === 0 && filtrados.produtos.length === 0) {
+      acharNoIxc.mutate(busca.trim());
     }
   }
 
@@ -209,7 +259,52 @@ export function Transferir() {
         descricao="A transferência entre almoxarifados do IXC, mais simples: escolha de onde sai e para onde vai, bipe ou procure o que vai — MAC, nº patrimonial ou série para ONU e roteador — e grave. Fica tudo salvo no IXC."
       />
 
-      <Bloco titulo="De onde e para onde">
+      <Bloco titulo="Bipe a peça, e escolha para onde vai">
+        {/*
+          A busca fica aqui em cima, antes dos dois campos e sempre à vista: é
+          por ela que a tela começa. Bipada uma ONU, o IXC diz de qual
+          almoxarifado ela sai e o "Sai de" se marca sozinho — resta escolher o
+          destino. Escolhendo a origem à mão, o mesmo campo filtra a lista dela.
+        */}
+        <div className="mb-3">
+          <label className="rotulo" htmlFor="transf-busca">
+            Peça ou produto
+          </label>
+          <input
+            id="transf-busca"
+            ref={campoDeBusca}
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                aoBipar();
+              }
+            }}
+            className="campo"
+            placeholder="Bipe ou digite MAC, nº patrimonial, série — ou o nome do produto"
+            autoComplete="off"
+            autoFocus
+          />
+          <p className="ajuda">
+            {acharNoIxc.isPending
+              ? 'Procurando a peça no IXC…'
+              : 'Bipando uma peça, o almoxarifado de onde ela sai é marcado sozinho.'}
+          </p>
+        </div>
+
+        {aviso && (
+          <p
+            className={`mb-3 text-[13px] ${
+              aviso.ruim
+                ? 'text-rose-600 dark:text-rose-300'
+                : 'text-emerald-700 dark:text-emerald-300'
+            }`}
+          >
+            {aviso.texto}
+          </p>
+        )}
+
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <label className="rotulo" htmlFor="transf-de">
@@ -269,24 +364,7 @@ export function Transferir() {
 
             {c && (
               <>
-                <div className="mb-2 flex gap-2">
-                  <input
-                    ref={campoDeBusca}
-                    value={busca}
-                    onChange={(e) => setBusca(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        aoBipar();
-                      }
-                    }}
-                    // min-w-0: sem ele o campo não encolhe ao lado do "Pôr
-                    // tudo", e no celular empurrava a tela para o lado.
-                    className="campo min-w-0 flex-1"
-                    placeholder="Bipe ou digite MAC, nº patrimonial, série — ou o nome"
-                    autoComplete="off"
-                    autoFocus
-                  />
+                <div className="mb-2 flex justify-end">
                   <button
                     type="button"
                     onClick={() => porTudo(c)}
@@ -296,15 +374,6 @@ export function Transferir() {
                     Pôr tudo
                   </button>
                 </div>
-                {aviso && (
-                  <p
-                    className={`mb-2 text-[13px] ${
-                      aviso.ruim ? 'text-rose-600 dark:text-rose-300' : 'text-emerald-700 dark:text-emerald-300'
-                    }`}
-                  >
-                    {aviso.texto}
-                  </p>
-                )}
 
                 {produtosDaOrigem.length + c.patrimonios.length === 0 ? (
                   <Vazio titulo="Nada para transferir">

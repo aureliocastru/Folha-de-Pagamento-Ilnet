@@ -272,6 +272,16 @@ export class AlmoxarifadoController {
   }
 
   /**
+   * Onde está a peça de um código bipado — MAC, nº patrimonial ou série, em
+   * qualquer almoxarifado. É o que deixa a tela de Transferir marcar a origem
+   * sozinha.
+   */
+  @Get('patrimonios/onde')
+  ondeEstaAPeca(@Query('codigo') codigo?: string) {
+    return this.transferencias.acharPeca(codigo ?? '');
+  }
+
+  /**
    * Liga um usuário do IXC a este almoxarifado — é o que o faz enxergá-lo, lá
    * e na API. `padrao` marca este como o almoxarifado de onde a OS dele sai.
    */

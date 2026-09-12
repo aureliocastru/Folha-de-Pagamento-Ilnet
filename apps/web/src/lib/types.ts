@@ -2250,6 +2250,24 @@ export interface ItemDoAlmoxarifado {
   unidade: string | null;
 }
 
+/** Uma peça achada pelo código bipado, e onde ela está. */
+export interface PecaAchada {
+  patrimonioId: number;
+  produtoId: number;
+  descricao: string;
+  numeroPatrimonial: string | null;
+  mac: string | null;
+  numeroSerie: string | null;
+  /** 0 quando a peça não está em almoxarifado nenhum. */
+  almoxId: number;
+  almoxarifado: string;
+  /** "disponível", "alocada", "em comodato"… */
+  situacao: string;
+  podeMover: boolean;
+  /** Por que não dá para transferi-la agora — null quando dá. */
+  impedimento: string | null;
+}
+
 /** Uma peça de patrimônio (ONU, roteador…) na prateleira de um almoxarifado. */
 export interface PatrimonioDoAlmoxarifado {
   patrimonioId: number;
