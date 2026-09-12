@@ -185,10 +185,22 @@ export class TransferenciasService {
     const saldoPorProduto = new Map(lido.itens.map((i) => [i.produtoId, i.total]));
     const lidas = patrimoniosMoviveis(linhasDePatrimonio, cadastros, unidades);
     const comSaldo = semSaldoParaAPeca(lidas.patrimonios, saldoPorProduto);
-    const pecas = {
-      patrimonios: comSaldo.patrimonios,
-      deFora: [...lidas.deFora, ...comSaldo.deFora],
-    };
+    /*
+     * A peça sem saldo do produto aqui não aparece na tela — nem para mover,
+     * nem entre as que ficam.
+     *
+     * Ela não está na prateleira: o saldo é 0, e ela é o que a entrada de
+     * acerto criou para cobrir um negativo. Listá-la só enchia a janela de
+     * linhas iguais e escondia o item que de fato pede decisão. Quem procura
+     * uma peça que sumiu acha aqui no log.
+     */
+    const pecas = { patrimonios: comSaldo.patrimonios, deFora: lidas.deFora };
+    if (comSaldo.deFora.length > 0) {
+      this.logger.log(
+        `${comSaldo.deFora.length} peça(s) do almoxarifado #${almoxId} fora da tela: o produto ` +
+          'não tem saldo aqui, e mover a peça deixaria negativo.',
+      );
+    }
     const porPatrimonio = new Map<number, number>();
     for (const p of pecas.patrimonios) {
       porPatrimonio.set(p.produtoId, (porPatrimonio.get(p.produtoId) ?? 0) + 1);
