@@ -142,6 +142,48 @@ const GUARDA_MS = 60 * 60_000;
  * requisição. A chamada valida, abre a transferência e volta na hora; a tela
  * acompanha por `andamento`. Um item que o IXC recusa não para os outros.
  */
+/** As situações cuja peça vale a pena seguir: alocada (6) e indisponível (8). */
+const PRESAS_A_SEGUIR = new Set(['6', '8']);
+
+/** Quantos movimentos se seguem por leitura de almoxarifado — ver `movimentosQuePrendem`. */
+const MOVIMENTOS_SEGUIDOS = 40;
+
+/** O status da compra no IXC. */
+const STATUS_DA_ENTRADA: Record<string, string> = {
+  A: 'ainda aberta',
+  F: 'já finalizada',
+  C: 'cancelada',
+};
+
+/**
+ * O que dizer do movimento que segura a peça — e o que fazer com ele.
+ *
+ * Entrada de compra aberta é o caso comum, e tem conserto direto: finalizar a
+ * compra no IXC solta as peças. Entrada já finalizada com peça presa é outra
+ * coisa — ficou para trás lá dentro —, e a tela diz isso em vez de mandar
+ * finalizar o que já está finalizado.
+ */
+export function dizerOMovimento(
+  mov: Record<string, unknown>,
+  entrada: Record<string, unknown> | null | undefined,
+): string | null {
+  const entradaId = numeroDoIxc(mov.id_entrada);
+  if (String(mov.tipo ?? '').trim().toUpperCase() !== 'E' || entradaId <= 0) return null;
+  const status = String(entrada?.status ?? '').trim().toUpperCase();
+  const nf = String(entrada?.numero_nf ?? '').trim();
+  const data = String(entrada?.data_entrada ?? '').slice(0, 10).split('-').reverse().join('/');
+  const dito =
+    `na entrada (compra) #${entradaId}`
+    + (nf && nf !== '0' ? ` da NF ${nf}` : '')
+    + (data.length === 10 ? `, de ${data}` : '')
+    + (status ? `, ${STATUS_DA_ENTRADA[status] ?? `status ${status}`}` : '');
+  if (status === 'A') return `${dito} — finalize a compra no IXC e a peça se solta`;
+  return (
+    `${dito} — a compra não está mais aberta, mas a peça ficou presa nela: no IXC, abra o ` +
+    'patrimônio e veja a aba "Detalhes da indisponibilidade"'
+  );
+}
+
 /** Uma peça achada pelo código, e onde ela está — o que a tela de Transferir usa. */
 export interface PecaAchada {
   patrimonioId: number;
@@ -178,6 +220,63 @@ export class TransferenciasService {
     private readonly estoque: EstoqueService,
     private readonly produtos: ProdutosService,
   ) {}
+
+  /**
+   * Onde cada peça presa está presa — seguindo o `id_movimento_produto`.
+   *
+   * A listagem de `patrimonio` deste IXC não traz `finalidade_indisponivel`
+   * (por isso o motivo dizia "um movimento que o IXC não informou aqui"), mas
+   * traz o número do movimento que segurou a peça. Esse movimento diz de qual
+   * **entrada de compra** ele é, e a entrada diz se ainda está aberta — que é
+   * o conserto: finalizar a compra no IXC solta as peças.
+   *
+   * Visto em produção (12/09/2026): 71 peças indisponíveis, quase todas em
+   * compras abertas desde 2020 — uma delas com dez ONUs de uma nota só.
+   */
+  private async movimentosQuePrendem(
+    linhas: Array<Record<string, unknown>>,
+  ): Promise<Map<number, string>> {
+    const presas = linhas.filter((l) => PRESAS_A_SEGUIR.has(String(l.situacao ?? '').trim()));
+    const porMovimento = new Map<number, number[]>();
+    for (const l of presas) {
+      const movimentoId = numeroDoIxc(l.id_movimento_produto);
+      const patrimonioId = numeroDoIxc(l.id);
+      if (movimentoId <= 0 || patrimonioId <= 0) continue;
+      porMovimento.set(movimentoId, [...(porMovimento.get(movimentoId) ?? []), patrimonioId]);
+    }
+    /* Um almoxarifado antigo tem dezenas de peças presas, e cada movimento é
+       uma ida ao IXC. O teto evita que a tela fique esperando por uma lista
+       que ninguém vai ler inteira. */
+    const movimentos = [...porMovimento.keys()].slice(0, MOVIMENTOS_SEGUIDOS);
+    const onde = new Map<number, string>();
+    const entradas = new Map<number, Record<string, unknown> | null>();
+
+    await emParalelo(movimentos, 6, async (movimentoId) => {
+      const mov = await this.ixc
+        .getById<Record<string, unknown>>(
+          'movimento_produtos',
+          'movimento_produtos.id',
+          movimentoId,
+        )
+        .catch(() => null);
+      if (!mov) return;
+      const entradaId = numeroDoIxc(mov.id_entrada);
+      if (entradaId > 0 && !entradas.has(entradaId)) {
+        entradas.set(
+          entradaId,
+          await this.ixc
+            .getById<Record<string, unknown>>('entrada', 'entrada.id', entradaId)
+            .catch(() => null),
+        );
+      }
+      const dito = dizerOMovimento(mov, entradaId > 0 ? entradas.get(entradaId) : null);
+      if (!dito) return;
+      for (const patrimonioId of porMovimento.get(movimentoId) ?? []) {
+        onde.set(patrimonioId, dito);
+      }
+    });
+    return onde;
+  }
 
   /**
    * Onde está a peça de um código bipado — em qualquer almoxarifado.
@@ -351,7 +450,7 @@ export class TransferenciasService {
       unidades,
       porPatrimonio,
       pecasForaDaPrateleira(linhasDePatrimonio),
-      pecasPresas(linhasDePatrimonio),
+      pecasPresas(linhasDePatrimonio, await this.movimentosQuePrendem(linhasDePatrimonio)),
     );
     const semPeca = await this.conferirSemPeca(almoxId, saldo.semPeca);
     this.logger.log(

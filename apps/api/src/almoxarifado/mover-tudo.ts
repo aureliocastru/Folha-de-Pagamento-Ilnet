@@ -169,6 +169,8 @@ interface LugarDaPresa {
   numero: string;
   desde: string | null;
   porque: string | null;
+  /** O movimento que segura a peça, quando se conseguiu segui-lo. */
+  movimento?: string;
 }
 
 /**
@@ -188,7 +190,16 @@ const PECAS_NOMEADAS = 3;
  * conserto: ela é dita uma vez, com quantas são e o número de algumas para
  * procurar no IXC. Uma frase por lugar, e não uma por peça.
  */
-export function pecasPresas(linhas: Array<Record<string, unknown>>): Map<number, string> {
+export function pecasPresas(
+  linhas: Array<Record<string, unknown>>,
+  /**
+   * patrimonioId → onde a peça está presa, dito por inteiro (de
+   * `movimentosQuePrendem`). O IXC não põe a finalidade na listagem, mas põe
+   * o `id_movimento_produto` — e é seguindo esse número que se descobre a
+   * compra aberta que está segurando a peça.
+   */
+  ondePorPeca: Map<number, string> = new Map(),
+): Map<number, string> {
   const porProduto = new Map<number, Map<string, { lugar: LugarDaPresa; pecas: string[] }>>();
   for (const l of linhas) {
     const situacao = String(l.situacao ?? '').trim();
@@ -201,9 +212,16 @@ export function pecasPresas(linhas: Array<Record<string, unknown>>): Map<number,
       desde: dataDoIxc(l.data_movimentacao_indisponivel),
       porque: texto(l.descricao_indisponivel),
     };
-    const chave = [lugar.situacao, lugar.finalidade, lugar.numero, lugar.desde, lugar.porque].join(
-      '|',
-    );
+    const achado = ondePorPeca.get(patrimonioId);
+    if (achado) lugar.movimento = achado;
+    const chave = [
+      lugar.situacao,
+      lugar.finalidade,
+      lugar.numero,
+      lugar.desde,
+      lugar.porque,
+      lugar.movimento,
+    ].join('|');
     const produtoId = numeroDoIxc(l.id_produto);
     const grupos = porProduto.get(produtoId) ?? new Map<string, { lugar: LugarDaPresa; pecas: string[] }>();
     const grupo = grupos.get(chave) ?? { lugar, pecas: [] };
@@ -231,7 +249,9 @@ function frasePresa(lugar: LugarDaPresa, pecas: string[]): string {
       ? `${uma ? 'alocada' : 'alocadas'} (numa estrutura ou com alguém) — devolva ao ` +
         'almoxarifado no IXC'
       : `${uma ? 'indisponível' : 'indisponíveis'}${lugar.desde ? ` desde ${lugar.desde}` : ''}, ` +
-        (PRESA_EM[lugar.finalidade]?.(lugar.numero) ?? semFinalidade(uma)) +
+        (lugar.movimento ??
+          PRESA_EM[lugar.finalidade]?.(lugar.numero) ??
+          semFinalidade(uma)) +
         (lugar.porque ? ` ("${lugar.porque}")` : '');
 
   if (uma) return `a peça ${pecas[0]} está ${lugarDito}`;

@@ -9,7 +9,11 @@ import {
   semSaldoParaAPeca,
   separarMoviveis,
 } from './mover-tudo';
-import { TransferenciasService, type AndamentoDaTransferencia } from './transferencias.service';
+import {
+  dizerOMovimento,
+  TransferenciasService,
+  type AndamentoDaTransferencia,
+} from './transferencias.service';
 
 /**
  * Transferência de vários itens entre almoxarifados — produto por
@@ -176,6 +180,15 @@ describe('separarMoviveis', () => {
       /código 5 no IXC\) está indisponível, presa num movimento .* "Detalhes da indisponibilidade"/,
     );
 
+    /* Sabendo qual compra segura a peça, o motivo diz a compra — e não mais
+       "um movimento que o IXC não informou aqui". */
+    expect(
+      pecasPresas(
+        [peca(5, '8')],
+        new Map([[5, 'na entrada (compra) #2374 da NF 123555 — finalize a compra no IXC']]),
+      ).get(12),
+    ).toMatch(/está indisponível, na entrada \(compra\) #2374 da NF 123555/);
+
     /* Doze peças presas no mesmo lugar são uma frase, e não doze: a explicação
        uma vez, quantas são, e três números para procurar no IXC. */
     const muitas = pecasPresas(
@@ -258,6 +271,39 @@ describe('emParalelo', () => {
     });
     expect(feitos.sort()).toEqual([1, 2, 3, 4, 5, 6, 7]);
     expect(pico).toBeLessThanOrEqual(3);
+  });
+});
+
+describe('dizerOMovimento', () => {
+  /*
+   * O IXC não põe a finalidade da indisponibilidade na listagem de
+   * patrimônio, mas põe o `id_movimento_produto`. Seguindo esse número se
+   * chega à compra que está segurando a peça — e o conserto é finalizá-la.
+   */
+  const movimento = { tipo: 'E', id_entrada: '2374' };
+
+  it('compra aberta: diz qual é e o que fazer com ela', () => {
+    const dito = dizerOMovimento(movimento, {
+      status: 'A',
+      numero_nf: '123555',
+      data_entrada: '2022-01-26 00:00:00',
+    });
+    expect(dito).toBe(
+      'na entrada (compra) #2374 da NF 123555, de 26/01/2022, ainda aberta — finalize a ' +
+        'compra no IXC e a peça se solta',
+    );
+  });
+
+  it('compra já finalizada não manda finalizar de novo', () => {
+    const dito = dizerOMovimento(movimento, { status: 'F', numero_nf: '0', data_entrada: '' });
+    expect(dito).toMatch(/#2374, já finalizada — a compra não está mais aberta/);
+    // Sem nota e sem data, não inventa nenhuma das duas.
+    expect(dito).not.toMatch(/NF|de \d/);
+  });
+
+  it('movimento que não é entrada de compra não vira conselho nenhum', () => {
+    expect(dizerOMovimento({ tipo: 'S', id_entrada: '0' }, null)).toBeNull();
+    expect(dizerOMovimento({ tipo: 'E', id_entrada: '0' }, null)).toBeNull();
   });
 });
 
