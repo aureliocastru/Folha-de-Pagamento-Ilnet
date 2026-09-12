@@ -25,7 +25,16 @@ const PERFIS: PerfilUsuario[] = ['ADMIN', 'RH', 'VISUALIZADOR', 'TECNICO'];
  * nada, sempre, e é o servidor que garante isso (ver o `ModulosGuard`).
  * Mostrar-lhe botões de módulo aqui seria oferecer uma escolha que não existe.
  */
-function SemEscolhaDeModulo() {
+function SemEscolhaDeModulo({ longo = false }: { longo?: boolean }) {
+  if (longo) {
+    return (
+      <p className="ajuda mt-1">
+        O técnico de campo abre uma tela só — a análise de risco — e não tem
+        módulos para distribuir. Para dar um módulo a esta pessoa, troque o
+        perfil aqui em cima: os módulos aparecem para escolher.
+      </p>
+    );
+  }
   return (
     <span
       className="text-xs text-tinta-400"
@@ -33,6 +42,67 @@ function SemEscolhaDeModulo() {
     >
       só a análise de risco
     </span>
+  );
+}
+
+/**
+ * Os módulos de um login, para clicar — a mesma escolha na criação, na lista e
+ * na janela de editar, e por isso escrita uma vez só.
+ *
+ * Lista vazia é "todos", e é assim que nascem os logins antigos: por isso, sem
+ * nada marcado, todos aparecem ligados. Desmarcar o último não grava lista
+ * vazia — isso voltaria a significar "todos", o contrário do que quem
+ * desmarcou quis dizer.
+ */
+function ChipsDeModulo({
+  role,
+  modulos,
+  pendente = false,
+  pequeno = false,
+  onMudar,
+}: {
+  role: PerfilUsuario;
+  modulos: string[];
+  pendente?: boolean;
+  /** Na linha da tabela, onde o espaço é da largura da coluna. */
+  pequeno?: boolean;
+  onMudar: (modulos: string[]) => void;
+}) {
+  const todos = modulos.length === 0;
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {MODULOS.map((m) => {
+        const ligado = todos || modulos.includes(m.id);
+        const some = m.papeis && !m.papeis.includes(role);
+        return (
+          <button
+            key={m.id}
+            type="button"
+            disabled={pendente || some}
+            title={
+              some
+                ? `O perfil ${PERFIL_LABEL[role]} não abre ${m.nome}`
+                : ligado
+                  ? `Tirar ${m.nome} deste login`
+                  : `Dar ${m.nome} a este login`
+            }
+            onClick={() => {
+              const atual = todos ? MODULOS.map((x) => x.id) : [...modulos];
+              const novo = ligado
+                ? atual.filter((id) => id !== m.id)
+                : [...atual, m.id];
+              if (novo.length === 0) return;
+              onMudar(novo);
+            }}
+            className={`rounded-full border font-medium transition ${
+              pequeno ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs'
+            } ${corDoModulo(ligado, !!some)}`}
+          >
+            {m.nome}
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -252,6 +322,7 @@ export function Usuarios() {
         >
           <EditarLogin
             usuario={editando}
+            souEu={editando.id === eu?.id}
             pendente={alterar.isPending}
             onSalvar={(dados) => {
               alterar.mutate(
@@ -386,36 +457,7 @@ function NovoUsuario({
         {role === 'TECNICO' ? (
           <SemEscolhaDeModulo />
         ) : (
-        <div className="flex flex-wrap gap-1.5">
-          {MODULOS.map((m) => {
-            const ligado = modulos.length === 0 || modulos.includes(m.id);
-            const some = m.papeis && !m.papeis.includes(role);
-            return (
-              <button
-                key={m.id}
-                type="button"
-                disabled={some}
-                onClick={() => {
-                  const atual =
-                    modulos.length === 0 ? MODULOS.map((x) => x.id) : modulos;
-                  const novo = ligado
-                    ? atual.filter((id) => id !== m.id)
-                    : [...atual, m.id];
-                  if (novo.length === 0) return;
-                  setModulos(novo);
-                }}
-                className={`rounded-full border px-2.5 py-1 text-xs font-medium transition ${corDoModulo(ligado, !!some)}`}
-                title={
-                  some
-                    ? `O perfil ${PERFIL_LABEL[role]} não abre ${m.nome}`
-                    : undefined
-                }
-              >
-                {m.nome}
-              </button>
-            );
-          })}
-        </div>
+          <ChipsDeModulo role={role} modulos={modulos} onMudar={setModulos} />
         )}
       </div>
 
@@ -466,66 +508,65 @@ function ModulosDoLogin({
   }
   if (usuario.role === 'TECNICO') return <SemEscolhaDeModulo />;
 
-  const lista = usuario.modulos ?? [];
-  const todos = lista.length === 0;
-
   return (
-    <div className="flex flex-wrap gap-1.5">
-      {MODULOS.map((m) => {
-        const ligado = todos || lista.includes(m.id);
-        const some = m.papeis && !m.papeis.includes(usuario.role);
-        return (
-          <button
-            key={m.id}
-            type="button"
-            disabled={pendente || some}
-            title={
-              some
-                ? `O perfil ${PERFIL_LABEL[usuario.role]} não abre ${m.nome}`
-                : ligado
-                  ? `Tirar ${m.nome} deste login`
-                  : `Dar ${m.nome} a este login`
-            }
-            onClick={() => {
-              const atual = todos ? MODULOS.map((x) => x.id) : [...lista];
-              const novo = ligado
-                ? atual.filter((id) => id !== m.id)
-                : [...atual, m.id];
-              // Sem nenhum marcado a lista voltaria a significar "todos", que é
-              // o contrário do que quem desmarcou o último quis dizer.
-              if (novo.length === 0) return;
-              onMudar(novo);
-            }}
-            className={`rounded-full border px-2 py-0.5 text-[11px] font-medium transition ${corDoModulo(ligado, !!some)}`}
-          >
-            {m.nome}
-          </button>
-        );
-      })}
-    </div>
+    <ChipsDeModulo
+      role={usuario.role}
+      modulos={usuario.modulos ?? []}
+      pendente={pendente}
+      pequeno
+      onMudar={onMudar}
+    />
   );
 }
 
-/** Nome e e-mail de um login. A senha tem caminho próprio; o perfil, também. */
+/**
+ * O que se muda num login que já existe: nome, e-mail, perfil e módulos.
+ *
+ * O perfil e os módulos também se mexem direto na linha, um clique cada. Aqui
+ * eles estão de novo porque um depende do outro — é o perfil que diz quais
+ * módulos existem para a pessoa —, e porque quem abre "editar" para distribuir
+ * acesso não deveria ter de fechar a janela para achar onde se escolhe. A
+ * senha continua tendo caminho próprio ("trocar senha").
+ */
 function EditarLogin({
   usuario,
+  souEu,
   pendente,
   onSalvar,
 }: {
   usuario: UsuarioAdmin;
+  /** O próprio administrador logado: a API não o deixa rebaixar-se. */
+  souEu: boolean;
   pendente: boolean;
-  onSalvar: (dados: { nome: string; email: string }) => void;
+  onSalvar: (dados: {
+    nome: string;
+    email: string;
+    role: PerfilUsuario;
+    modulos?: string[];
+  }) => void;
 }) {
   const [nome, setNome] = useState(usuario.nome);
   const [email, setEmail] = useState(usuario.email);
+  const [role, setRole] = useState<PerfilUsuario>(usuario.role);
+  const [modulos, setModulos] = useState<string[]>(usuario.modulos ?? []);
 
   const valido = nome.trim().length >= 2 && email.includes('@');
+  /* ADMIN abre tudo e TECNICO abre a tela dele: nos dois não há lista para
+     mandar, e mandá-la escreveria uma escolha que o sistema não usa. */
+  const escolheModulos = role !== 'ADMIN' && role !== 'TECNICO';
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        if (valido) onSalvar({ nome: nome.trim(), email: email.trim() });
+        if (valido) {
+          onSalvar({
+            nome: nome.trim(),
+            email: email.trim(),
+            role,
+            modulos: escolheModulos ? modulos : undefined,
+          });
+        }
       }}
     >
       <div className="grid gap-4 sm:grid-cols-2">
@@ -559,6 +600,43 @@ function EditarLogin({
             funcionar no mesmo instante.
           </p>
         </div>
+        <div>
+          <label className="rotulo" htmlFor="editar-perfil">
+            Perfil
+          </label>
+          <select
+            id="editar-perfil"
+            value={role}
+            disabled={souEu}
+            onChange={(e) => setRole(e.target.value as PerfilUsuario)}
+            className="campo disabled:opacity-60"
+          >
+            {PERFIS.map((x) => (
+              <option key={x} value={x}>
+                {PERFIL_LABEL[x]}
+              </option>
+            ))}
+          </select>
+          <p className="ajuda">
+            {souEu
+              ? 'É o seu próprio login: o perfil não se rebaixa por aqui.'
+              : PERFIL_DESCRICAO[role]}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <span className="rotulo">Módulos</span>
+        {role === 'ADMIN' ? (
+          <p className="ajuda mt-1">
+            Administrador abre todos os módulos — é ele quem distribui o acesso
+            dos outros. Para limitar onde esta pessoa entra, troque o perfil.
+          </p>
+        ) : role === 'TECNICO' ? (
+          <SemEscolhaDeModulo longo />
+        ) : (
+          <ChipsDeModulo role={role} modulos={modulos} onMudar={setModulos} />
+        )}
       </div>
 
       <div className="mt-5 flex justify-end">
