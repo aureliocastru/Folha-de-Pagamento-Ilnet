@@ -2106,6 +2106,8 @@ export interface SaldoNoAlmoxarifado {
   minimo: number | null;
   maximo: number | null;
   abaixoDoMinimo: boolean;
+  /** É Perdas e Falhas: aparece, mas não soma no que a casa tem. */
+  perdas?: boolean;
 }
 
 /** Um item do estoque, com o saldo de cada almoxarifado. */
@@ -2406,4 +2408,136 @@ export interface PessoaDoAlmoxarifado {
   id: string;
   nome: string;
   apelido: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Conferência de estoque — o inventário na prateleira, lançado no IXC
+// ---------------------------------------------------------------------------
+
+export type SituacaoConferencia = 'EM_ANDAMENTO' | 'BATEU' | 'AJUSTADO' | 'INCOMPLETO' | 'DESFEITO';
+
+/** Uma transferência ou compra que a conferência mandou ao IXC. */
+export interface LancamentoDaConferencia {
+  tipo: 'transferencia' | 'compra';
+  motivo: string;
+  ok: boolean;
+  erro?: string;
+  transferenciaId?: number | null;
+  entradaId?: number | null;
+  quantidade?: number;
+  de?: { id: number; nome: string };
+  para?: { id: number; nome: string };
+  pecas?: Array<{ patrimonioId: number; identificacao: string }>;
+  falharam?: Array<{ patrimonioId: number; identificacao: string; motivo: string }>;
+  pecasCriadas?: string[];
+  apagada?: boolean;
+  desfeito?: boolean;
+}
+
+export interface ConferenciaDeEstoque {
+  id: string;
+  rodadaId: string;
+  almoxId: number;
+  almoxarifado: string;
+  produtoId: number;
+  descricao: string;
+  unidade: string | null;
+  patrimonio: boolean;
+  sistema: number;
+  contado: number;
+  valorUnitario: number | null;
+  situacao: SituacaoConferencia;
+  /** Ainda lançando no IXC (ou desfazendo). */
+  rodando: boolean;
+  saldoDepois: number | null;
+  lancamentos: LancamentoDaConferencia[];
+  lancamentosDitos: string[];
+  pendencias: string[];
+  observacao: string | null;
+  erro: string | null;
+  conferidoPor: string;
+  criadoEm: string;
+  terminadoEm: string | null;
+  desfeitoEm: string | null;
+  desfeitoPor: string | null;
+  podeDesfazer: boolean;
+}
+
+export interface RodadaDeInventario {
+  id: string;
+  nome: string;
+  iniciadoEm: string;
+  iniciadoPor: string;
+  conferidos: number;
+}
+
+export interface PainelDaConferencia {
+  rodada: RodadaDeInventario | null;
+  perdas: { id: number; nome: string; ativo: boolean } | null;
+  almoxarifados: Array<{
+    id: number;
+    nome: string;
+    ativo: boolean;
+    liberado: boolean;
+    /** Produtos com saldo lá (ou já conferidos lá nesta rodada). */
+    itens: number;
+    conferidos: number;
+  }>;
+}
+
+export interface ItemParaConferir {
+  produtoId: number;
+  descricao: string;
+  unidade: string | null;
+  precoBase: number | null;
+  patrimonio: boolean;
+  ativo: boolean;
+  controlaEstoque: boolean;
+  saldo: number;
+  conferencia: ConferenciaDeEstoque | null;
+}
+
+export interface ConferenciaDoAlmoxarifado {
+  almox: { id: number; nome: string; ativo: boolean; liberado: boolean };
+  rodada: RodadaDeInventario | null;
+  lidoEm: string;
+  itens: ItemParaConferir[];
+}
+
+export interface PecaParaConferir {
+  patrimonioId: number;
+  numeroPatrimonial: string | null;
+  mac: string | null;
+  numeroSerie: string | null;
+  identificacao: string;
+  situacao: string;
+  naPrateleira: boolean;
+  identificada: boolean;
+}
+
+export interface ProdutoParaConferir {
+  produtoId: number;
+  descricao: string;
+  unidade: string | null;
+  unidadeId: number;
+  precoBase: number;
+  custoMedio: number;
+  tipo: string;
+  patrimonio: boolean;
+  ativo: boolean;
+  controlaEstoque: boolean;
+  almox: { id: number; nome: string; ativo: boolean };
+  perdas: { id: number; nome: string; ativo: boolean } | null;
+  saldo: number;
+  saldoEmPerdas: number;
+  pecas: PecaParaConferir[] | null;
+  impedimento: string | null;
+  conferencias: ConferenciaDeEstoque[];
+}
+
+export interface ProdutoAchadoParaConferir {
+  produtoId: number;
+  descricao: string;
+  patrimonio: boolean;
+  ativo: boolean;
 }

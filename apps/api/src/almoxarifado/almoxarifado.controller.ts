@@ -16,9 +16,11 @@ import type { Request } from 'express';
 import { AcertoDeNegativosService } from './acerto-negativos.service';
 import { AlmoxarifadosService } from './almoxarifados.service';
 import { ComodatoService } from './comodato.service';
+import { ConferenciaService } from './conferencia.service';
 import {
   AcertoDeNegativosDto,
   AtualizarFerramentaDto,
+  ConferirDto,
   CriarAlmoxarifadoDto,
   CriarFerramentaDto,
   CriarProdutoDto,
@@ -79,6 +81,7 @@ export class AlmoxarifadoController {
     private readonly almoxarifados: AlmoxarifadosService,
     private readonly transferencias: TransferenciasService,
     private readonly acerto: AcertoDeNegativosService,
+    private readonly conferencia: ConferenciaService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -229,6 +232,63 @@ export class AlmoxarifadoController {
   @Get('negativos/desfazimentos/:id')
   andamentoDoDesfazimento(@Param('id', ParseUUIDPipe) id: string) {
     return this.acerto.desfazimento(id);
+  }
+
+  // -------------------------------------------------------------------------
+  // Conferência de estoque — o inventário na prateleira, lançado no IXC
+  // -------------------------------------------------------------------------
+
+  /** A rodada de inventário aberta, e quanto de cada almoxarifado já foi conferido. */
+  @Get('conferencia')
+  painelDaConferencia() {
+    return this.conferencia.painel();
+  }
+
+  /** Produtos do IXC pelo nome ou código — o que está na prateleira e não aparece na lista. */
+  @Get('conferencia/produtos')
+  buscarParaConferir(@Query('busca') busca?: string) {
+    return this.conferencia.buscarProdutos(busca ?? '');
+  }
+
+  /** O que conferir num almoxarifado. */
+  @Get('conferencia/almoxarifados/:almoxId')
+  conferenciaDoAlmoxarifado(@Param('almoxId', ParseIntPipe) almoxId: number) {
+    return this.conferencia.doAlmoxarifado(almoxId);
+  }
+
+  /** A janela de conferir um produto: o saldo de agora aqui e em Perdas, e as peças. */
+  @Get('conferencia/almoxarifados/:almoxId/produtos/:produtoId')
+  produtoParaConferir(
+    @Param('almoxId', ParseIntPipe) almoxId: number,
+    @Param('produtoId', ParseIntPipe) produtoId: number,
+  ) {
+    return this.conferencia.produto(almoxId, produtoId);
+  }
+
+  /** Encerra o inventário aberto; a próxima conferência começa outro. */
+  @Post('conferencia/rodada/encerrar')
+  @HttpCode(200)
+  encerrarInventario(@Req() req: Request) {
+    return this.conferencia.encerrarRodada(quem(req));
+  }
+
+  /** Confere e lança a diferença no IXC. Volta com o resultado, ou com o andamento. */
+  @Post('conferencia')
+  @HttpCode(200)
+  conferir(@Body() dto: ConferirDto, @Req() req: Request) {
+    return this.conferencia.conferir(dto, quem(req));
+  }
+
+  @Get('conferencia/:id')
+  umaConferencia(@Param('id', ParseUUIDPipe) id: string) {
+    return this.conferencia.uma(id);
+  }
+
+  /** Volta o que a conferência lançou no IXC. */
+  @Post('conferencia/:id/desfazer')
+  @HttpCode(200)
+  desfazerConferencia(@Param('id', ParseUUIDPipe) id: string, @Req() req: Request) {
+    return this.conferencia.desfazer(id, quem(req));
   }
 
   // -------------------------------------------------------------------------

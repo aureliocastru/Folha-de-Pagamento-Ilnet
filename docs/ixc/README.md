@@ -34,6 +34,9 @@ Troque `BUSCA` pelo que procura (`baixa`, `fornecedor`, `auditoria`…).
 | Movimento de uma conta (banco e caixa) | `fn_movim_finan` (GET) | documentado como "Contabilidade"; é daqui que o Fechamento de Caixa lê |
 | Marcar uma linha como conciliada | — | **não dá**: o campo é ignorado em toda escrita (ver abaixo) |
 | Lançamento na movimentação financeira | — | **não existe** (ver abaixo) |
+| Conferência de estoque: o que faltou | `transf_almox_top` + `transf_almox_item` para "Perdas e Falhas" | documentado; é a transferência que já andava |
+| Conferência de estoque: o que sobrou | `entrada` + `movimento_produtos` (compra de acerto) | documentado; o saldo sobe com a compra ainda aberta |
+| Inventário do IXC (ajustar saldo ao contado) | `inventario_estoque` | **não documentado; grava errado pela API** (ver abaixo) |
 
 ### `data_pagamento` não é o dia em que o dinheiro saiu
 
@@ -160,3 +163,44 @@ saindo da conta e a despesa entrando. Escrever uma linha só é meio lançamento
 meio lançamento é pior que nenhum: foi assim que três títulos ficaram tortos
 (commit `b3d9780`). Quem for pegar esta ponta precisa gravar o par, e provar em
 base de teste que o IXC costura os dois.
+
+### O Inventário do IXC existe no webservice, e grava o movimento errado
+
+Fica registrado porque é a primeira coisa que alguém tenta quando precisa
+acertar o estoque ao que foi contado — e a resposta é "não por aqui".
+
+**O recurso existe.** Não está na coleção, mas `inventario_estoque` responde à
+listagem (os filtros usam a tabela `inventario.*`; `inventario_estoque.id`
+devolve a página de erro em HTML). Cada linha é produto × almoxarifado:
+`estoque_atual`, `novo_estoque`, `custo_medio_atual`, `novo_custo_medio`,
+`data_inventario`. Esta base tem 468 linhas, a última de 18/08/2021, e cada uma
+gerou um `movimento_produtos` com `tipo = I` e `id_inventario` apontando para
+ela — pela tela do IXC, o movimento sai certo (0 → 1 vira entrada de 1; 411 → 0
+vira saída de 411) e o IXC calcula a diferença pelo saldo real, não pelo
+`estoque_atual` mandado (a linha 840 diz `999999.999999999` e o movimento foi
+de 1).
+
+**Pela API, não.** Testado em 13/09/2026, com autorização, no produto 624 e no
+almoxarifado "Perdas e Falhas" (vazio):
+
+```
+POST inventario_estoque { id_produto: 624, id_almox: 43, estoque_atual: 0, novo_estoque: 1, … }
+  → {"type":"success","id":894}
+  → movimento 1012409: tipo I, qtde_saida 1, id_almox 1   ← SAÍDA, no Almoxarifado Principal
+```
+
+O almoxarifado veio errado (o Principal, e não o mandado) e o sinal também. O
+`DELETE inventario_estoque/894` apagou a linha **e o movimento junto**, e o
+saldo voltou ao que era. Não se tentou adivinhar outros nomes de campo: cada
+tentativa é um movimento torto em produção.
+
+**Por isso a conferência de estoque** (`almoxarifado/conferencia.ts`) lança pelo
+que já anda: o que faltou vai por transferência para "Perdas e Falhas", e o que
+sobrou volta de lá ou entra por compra de acerto (documento
+`CONFERENCIA DE ESTOQUE (sistema)`). O saldo de Perdas e Falhas continua no IXC
+— aqui ele não soma no total da casa. Zerar Perdas e Falhas de vez é pela tela
+de Inventário do IXC, que grava certo.
+
+**O que pedir ao suporte do IXC**, se isto voltar à mesa: quais campos o
+`inventario_estoque` precisa receber na inserção para gerar o movimento no
+almoxarifado da linha, e com o sinal de `novo_estoque − saldo`.

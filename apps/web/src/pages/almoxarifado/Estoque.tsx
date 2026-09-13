@@ -356,7 +356,10 @@ function LinhaDoItem({
   onAbrir: () => void;
   onEditar: () => void;
 }) {
-  const saldos = esconderZeros ? item.saldos.filter((s) => s.saldo !== 0) : item.saldos;
+  // Perdas e Falhas vai para o fim: aparece, mas não é da prateleira.
+  const saldos = (esconderZeros ? item.saldos.filter((s) => s.saldo !== 0) : item.saldos)
+    .slice()
+    .sort((a, b) => Number(!!a.perdas) - Number(!!b.perdas));
   const temMais = saldos.length > 2;
   const mostrados = aberto ? saldos : saldos.slice(0, 2);
 
@@ -389,12 +392,16 @@ function LinhaDoItem({
             <span
               key={s.almoxId}
               title={
-                s.minimo !== null
-                  ? `mínimo cadastrado: ${quantidade(s.minimo)}`
-                  : 'sem mínimo cadastrado'
+                s.perdas
+                  ? 'O que a conferência não achou na prateleira. Não soma no que a casa tem.'
+                  : s.minimo !== null
+                    ? `mínimo cadastrado: ${quantidade(s.minimo)}`
+                    : 'sem mínimo cadastrado'
               }
               className={`selo-p ${
-                s.saldo < 0
+                s.perdas
+                  ? 'bg-tinta-50 text-tinta-400 line-through decoration-tinta-300'
+                  : s.saldo < 0
                   ? 'bg-rose-50 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300'
                   : s.abaixoDoMinimo
                     ? 'bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300'
@@ -463,7 +470,8 @@ function LinhaDoItem({
  * é o total: 5 no ILNET e -5 no Principal somam zero, e os 5 existem.
  */
 function temSaldo(item: ItemDeEstoque): boolean {
-  return item.saldos.some((s) => s.saldo > 0);
+  // O que está em Perdas e Falhas não está na prateleira.
+  return item.saldos.some((s) => s.saldo > 0 && !s.perdas);
 }
 
 /**

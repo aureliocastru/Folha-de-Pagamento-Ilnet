@@ -19,6 +19,7 @@ import { Login } from './pages/Login';
 import { Modulos } from './pages/Modulos';
 import { Inicio as ContasPagarInicio } from './pages/contas-pagar/Inicio';
 import { Estoque } from './pages/almoxarifado/Estoque';
+import { Conferencia } from './pages/almoxarifado/Conferencia';
 import { Almoxarifados } from './pages/almoxarifado/Almoxarifados';
 import { Transferir } from './pages/almoxarifado/Transferir';
 import { Ferramentas } from './pages/almoxarifado/Ferramentas';
@@ -214,6 +215,7 @@ export default function App() {
       >
         <Route index element={<Navigate to="estoque" replace />} />
         <Route path="estoque" element={<Estoque />} />
+        <Route path="conferencia" element={<Conferencia />} />
         <Route path="almoxarifados" element={<Almoxarifados />} />
         <Route path="transferir" element={<Transferir />} />
         <Route path="ferramentas" element={<Ferramentas />} />

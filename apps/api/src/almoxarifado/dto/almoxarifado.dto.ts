@@ -244,6 +244,42 @@ export class EntradaDeCompraDto {
   numeroNota?: string;
 }
 
+/**
+ * A contagem de um produto num almoxarifado — a conferência de estoque.
+ *
+ * Produto comum manda `contado`. Patrimônio manda `contado` (pela quantidade)
+ * ou as peças (`pecasAchadas` e as outras listas) — ver `planejarPecas`.
+ */
+export class ConferirDto {
+  @Transform(numero) @IsInt() @Min(1) almoxId!: number;
+  @Transform(numero) @IsInt() @Min(1) produtoId!: number;
+
+  /** O saldo que a tela mostrou. Diferente do IXC de agora, nada se lança. */
+  @Transform(numero) @IsNumber({ maxDecimalPlaces: 5 })
+  sistemaVisto!: number;
+
+  @IsOptional() @Transform(numero) @IsNumber({ maxDecimalPlaces: 5 }) @Min(0)
+  contado?: number;
+
+  @IsOptional() @Transform(numero) @IsNumber({ maxDecimalPlaces: 2 }) @Min(0)
+  valorUnitario?: number;
+
+  @IsOptional() @Transform(texto) @IsString() @MaxLength(200)
+  observacao?: string;
+
+  @IsOptional() @IsArray() @ArrayMaxSize(5000) @IsInt({ each: true }) @Min(1, { each: true })
+  pecasAchadas?: number[];
+
+  @IsOptional() @IsArray() @ArrayMaxSize(2000) @IsInt({ each: true }) @Min(1, { each: true })
+  pecasTrazidas?: number[];
+
+  @IsOptional() @IsArray() @ArrayMaxSize(500) @IsString({ each: true }) @MaxLength(60, { each: true })
+  codigosSemCadastro?: string[];
+
+  @IsOptional() @Transform(numero) @IsInt() @Min(0)
+  pecasSemEtiqueta?: number;
+}
+
 export class DevolverDto {
   /** Em que estado ela voltou. */
   @IsOptional() @Transform(textoOuNulo) @IsString() @MaxLength(2000)

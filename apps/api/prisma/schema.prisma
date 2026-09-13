@@ -2587,6 +2587,92 @@ model EmprestimoDeFerramenta {
   @@map("emprestimos_de_ferramenta")
 }
 
+/// Uma rodada de inventário: a casa inteira sendo contada, item por item.
+///
+/// O saldo continua sendo do IXC — o que mora aqui é o **caderno da
+/// contagem**: o que já foi conferido, por quem, e o que se lançou lá por
+/// causa disso. É o que responde "falta conferir o quê?" no meio de uma
+/// semana de contagem, e "de onde saiu essa compra?" um mês depois.
+model InventarioRodada {
+  id String @id @default(uuid())
+
+  nome String
+
+  iniciadoEm   DateTime  @default(now()) @map("iniciado_em")
+  iniciadoPor  String    @map("iniciado_por")
+  /// Nulo = a rodada que está valendo. Só uma aberta por vez.
+  encerradoEm  DateTime? @map("encerrado_em")
+  encerradoPor String?   @map("encerrado_por")
+
+  conferencias ConferenciaDeEstoque[]
+
+  @@index([encerradoEm])
+  @@map("inventario_rodadas")
+}
+
+enum SituacaoConferencia {
+  /// Lançando no IXC agora.
+  EM_ANDAMENTO
+  /// O IXC já tinha o que foi contado — nada lançado.
+  BATEU
+  /// Lançado, e relido o IXC ficou igual ao contado.
+  AJUSTADO
+  /// Algo não entrou, ou o IXC relido não bateu. O que foi lançado está em `lancamentos`.
+  INCOMPLETO
+  /// Desfeito depois: o que se lançou foi voltado.
+  DESFEITO
+}
+
+/// Um produto contado num almoxarifado, e o que isso lançou no IXC.
+model ConferenciaDeEstoque {
+  id String @id @default(uuid())
+
+  rodada   InventarioRodada @relation(fields: [rodadaId], references: [id], onDelete: Cascade)
+  rodadaId String           @map("rodada_id")
+
+  /// O almoxarifado e o produto do IXC, com o nome escrito: o cadastro de lá
+  /// muda (é para isso que a conferência existe), e a linha continua dizendo
+  /// o que foi contado.
+  almoxId      Int    @map("almox_id")
+  almoxarifado String
+  produtoId    Int    @map("produto_id")
+  descricao    String
+  unidade      String?
+  /// Patrimônio (ONU, roteador): contado peça por peça.
+  patrimonio   Boolean @default(false)
+
+  /// O saldo do IXC na hora de lançar, e o que se contou na prateleira.
+  sistema Decimal @db.Decimal(18, 5)
+  contado Decimal @db.Decimal(18, 5)
+  /// O valor de cada unidade que entrou por compra.
+  valorUnitario Decimal? @map("valor_unitario") @db.Decimal(14, 2)
+
+  situacao    SituacaoConferencia @default(EM_ANDAMENTO)
+  /// O saldo relido no IXC depois de lançar.
+  saldoDepois Decimal?            @map("saldo_depois") @db.Decimal(18, 5)
+
+  /// Cada transferência e compra que foi ao IXC, com o número que ele deu
+  /// (ver `Lancamento` em `conferencia.ts`). É por aqui que se desfaz.
+  lancamentos Json @default("[]")
+  /// Patrimônio: as peças achadas, as que faltaram, as trazidas e as sem cadastro.
+  pecas       Json?
+  /// O que ficou para resolver no IXC, dito para gente.
+  pendencias  Json @default("[]")
+
+  observacao String?
+  erro       String?
+
+  conferidoPor String    @map("conferido_por")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  terminadoEm  DateTime? @map("terminado_em")
+  desfeitoEm   DateTime? @map("desfeito_em")
+  desfeitoPor  String?   @map("desfeito_por")
+
+  @@index([rodadaId, almoxId])
+  @@index([produtoId, almoxId])
+  @@map("conferencias_de_estoque")
+}
+
 // ---------------------------------------------------------------------------
 // Pontuação dos funcionários.
 //

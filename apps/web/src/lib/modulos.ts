@@ -251,6 +251,10 @@ const almoxarifado: Modulo = {
   papeis: ['ADMIN', 'RH', 'VISUALIZADOR'],
   menu: [
     { to: 'estoque', label: 'Estoque', icone: IconeCaixa },
+    // O inventário na prateleira: conta-se o que tem, e a diferença é lançada
+    // no IXC — o que faltou vai para Perdas e Falhas, o que sobrou volta de lá
+    // ou entra por compra.
+    { to: 'conferencia', label: 'Conferência', icone: IconeChecklist },
     // O cadastro de onde a casa guarda material — não o saldo (isso é a aba
     // Estoque). Nome, filial, ativo: a tabela `almox` do IXC.
     { to: 'almoxarifados', label: 'Almoxarifados', icone: IconePrateleira },

@@ -5,6 +5,7 @@ import { AcertoDeNegativosService } from './acerto-negativos.service';
 import { AlmoxarifadoController } from './almoxarifado.controller';
 import { AlmoxarifadosService } from './almoxarifados.service';
 import { ComodatoService } from './comodato.service';
+import { ConferenciaService } from './conferencia.service';
 import { EstoqueService } from './estoque.service';
 import { FerramentasService } from './ferramentas.service';
 import { ProdutosService } from './produtos.service';
@@ -32,6 +33,7 @@ import { TransferenciasService } from './transferencias.service';
     AlmoxarifadosService,
     TransferenciasService,
     AcertoDeNegativosService,
+    ConferenciaService,
   ],
 })
 export class AlmoxarifadoModule {}

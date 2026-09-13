@@ -44,6 +44,28 @@ export interface SaldoNoAlmoxarifado {
   maximo: number | null;
   /** Tem menos que o mínimo definido para este almoxarifado. */
   abaixoDoMinimo: boolean;
+  /**
+   * É o almoxarifado "Perdas e Falhas" — para onde a conferência manda o que
+   * faltou na prateleira. Aparece, mas não soma no que a casa tem.
+   */
+  perdas?: boolean;
+}
+
+/**
+ * O almoxarifado para onde vai o que a conferência não achou (ver
+ * `conferencia.ts`). Pelo nome: é o cadastro que a casa já tinha no IXC
+ * (#43), e mudar de lugar não pode depender de alguém lembrar de um número.
+ */
+export const NOME_DO_ALMOX_DE_PERDAS = 'Perdas e Falhas';
+
+export function ehAlmoxDePerdas(nome: string | null | undefined): boolean {
+  const n = String(nome ?? '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+  return n === NOME_DO_ALMOX_DE_PERDAS.toLowerCase();
 }
 
 /** Um item do estoque, com o saldo de cada almoxarifado. */
@@ -59,9 +81,16 @@ export interface ItemDeEstoque {
    * entrada de serviço — o negativo dele não é falta de material.
    */
   servico?: boolean;
+  /** `produtos.tipo`: C, O, M, P (patrimônio, que anda peça por peça), S… */
+  tipo?: string;
+  /** "Controla estoque" do cadastro. Desligado, nada que se lance mexe no saldo. */
+  controlaEstoque?: boolean;
   /** Um por almoxarifado, do maior saldo para o menor. */
   saldos: SaldoNoAlmoxarifado[];
-  /** A soma de todos os almoxarifados. É o "quanto a casa tem". */
+  /**
+   * A soma dos almoxarifados — o "quanto a casa tem". Perdas e Falhas fica
+   * fora: o que está lá é o que a conferência não achou na prateleira.
+   */
   total: number;
   /** Está abaixo do mínimo em pelo menos um almoxarifado. */
   abaixoDoMinimo: boolean;
@@ -138,6 +167,8 @@ export function montarEstoque(
         // lá tem linha sem a coluna, e escondê-las seria esconder estoque.
         ativo: (l.produto_ativo ?? 'S') !== 'N',
         servico: (l.produto_tipo ?? '').trim().toUpperCase() === 'S',
+        tipo: (l.produto_tipo ?? '').trim().toUpperCase(),
+        controlaEstoque: (l.produto_controla_estoque ?? 'S').trim().toUpperCase() !== 'N',
         saldos: [],
         total: 0,
         abaixoDoMinimo: false,
@@ -149,11 +180,11 @@ export function montarEstoque(
     const saldo = arredondar(numeroDoIxc(l.saldo));
     const limite = limites.get(`${produtoId}:${almoxId}`);
     const minimo = limite?.minimo ?? null;
+    const almoxarifado = (l.almox_descricao ?? '').trim() || `Almoxarifado ${almoxId}`;
 
     item.saldos.push({
       almoxId,
-      almoxarifado:
-        (l.almox_descricao ?? '').trim() || `Almoxarifado ${almoxId}`,
+      almoxarifado,
       saldo,
       minimo,
       maximo: limite?.maximo ?? null,
@@ -161,6 +192,7 @@ export function montarEstoque(
       // zero é só zero — e marcar tudo de vermelho apagaria o alerta de quem
       // de fato se preocupou em definir o dele.
       abaixoDoMinimo: minimo !== null && saldo < minimo,
+      ...(ehAlmoxDePerdas(almoxarifado) ? { perdas: true } : {}),
     });
   }
 
@@ -170,7 +202,7 @@ export function montarEstoque(
         b.saldo - a.saldo ||
         a.almoxarifado.localeCompare(b.almoxarifado, 'pt-BR'),
     );
-    item.total = arredondar(item.saldos.reduce((s, x) => s + x.saldo, 0));
+    item.total = totalDaCasa(item.saldos);
     item.abaixoDoMinimo = item.saldos.some((x) => x.abaixoDoMinimo);
     item.semNenhum = item.total <= 0;
   }
@@ -178,6 +210,11 @@ export function montarEstoque(
   return [...porProduto.values()].sort((a, b) =>
     a.descricao.localeCompare(b.descricao, 'pt-BR'),
   );
+}
+
+/** A soma dos saldos, sem Perdas e Falhas — o que não foi achado não é da prateleira. */
+export function totalDaCasa(saldos: SaldoNoAlmoxarifado[]): number {
+  return arredondar(saldos.reduce((s, x) => s + (x.perdas ? 0 : x.saldo), 0));
 }
 
 export function resumirEstoque(itens: ItemDeEstoque[]): ResumoDoEstoque {
