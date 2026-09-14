@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 
 /**
  * Como esta casa compara texto digitado com texto guardado.
@@ -26,17 +26,100 @@ export function semAcento(texto: string): string {
 }
 
 /**
+ * O código como o leitor o bipa: sem acento, sem caixa e sem separador.
+ *
+ * O IXC guarda o MAC como "E0:C2:50:1A:2B:3C" e a etiqueta traz "E0C2501A2B3C";
+ * o patrimônio vem "PAT-0012" num lugar e "PAT0012" noutro. Sem os separadores,
+ * os dois se encontram.
+ */
+export function semSeparador(texto: string): string {
+  return semAcento(texto).replace(/[^\p{L}\p{N}]/gu, '');
+}
+
+type Campo = string | number | null | undefined;
+
+/** Uma linha pronta para a busca — feita uma vez por leitura, e não uma vez por tecla. */
+export interface Buscavel {
+  texto: string;
+  colado: string;
+}
+
+export function buscavel(campos: Campo[]): Buscavel {
+  const cheios = campos.filter((c) => c !== null && c !== undefined && c !== '').map(String);
+  // Um campo por linha: o termo nunca atravessa de um campo para o outro.
+  return {
+    texto: semAcento(cheios.join('\n')),
+    colado: cheios.map(semSeparador).join('\n'),
+  };
+}
+
+/** O que foi digitado, peneirado uma vez. */
+export interface Termo {
+  texto: string;
+  /**
+   * O termo sem separador, quando ele é uma palavra só — é assim que um código
+   * chega. Com espaço é nome ("sao domin"), e colar as palavras acharia o que
+   * ninguém procurou.
+   */
+  colado: string | null;
+}
+
+export function termoDeBusca(digitado: string): Termo {
+  const texto = semAcento(digitado.trim());
+  const colado = texto && !/\s/.test(texto) ? semSeparador(texto) : '';
+  return { texto, colado: colado || null };
+}
+
+export function acha(linha: Buscavel, termo: Termo): boolean {
+  if (!termo.texto) return true;
+  return linha.texto.includes(termo.texto) || (!!termo.colado && linha.colado.includes(termo.colado));
+}
+
+/**
  * Algum destes campos contém o termo?
  *
- * O termo já vem peneirado por quem chama (uma vez por busca, e não uma vez por
- * linha); os campos são peneirados aqui. Campo vazio não conta.
+ * Para lista pequena, que se peneira inteira a cada busca. Lista de milhares
+ * guarda o `buscavel` de cada linha — ver `useFiltrados`.
  */
-export function combina(
-  campos: Array<string | null | undefined>,
-  termo: string,
-): boolean {
+export function combina(campos: Campo[], termo: string): boolean {
   if (!termo) return true;
-  return campos.some((v) => !!v && semAcento(v).includes(termo));
+  return acha(buscavel(campos), termoDeBusca(termo));
+}
+
+/**
+ * A busca que filtra a tela, sem travar quem digita.
+ *
+ * O campo acompanha a tecla; a lista vem um passo atrás. O React desenha a
+ * lista nova quando sobra tempo, e larga o desenho no meio se chegou outra
+ * tecla. Sem isto, o Comodato (14 mil peças) congelava a página por segundos a
+ * cada letra — e o leitor de código de barras, que manda doze teclas num
+ * piscar, parecia não escrever nada.
+ *
+ * Só adianta se a lista não se redesenhar junto com a tecla: quem usa monta a
+ * lista num `useMemo` que depende do `termo` devolvido aqui, e não do texto do
+ * campo.
+ *
+ * @returns o termo adiado, e se a lista ainda está atrás do campo
+ */
+export function useBuscaNaTela(digitado: string): { termo: Termo; atualizando: boolean } {
+  const adiado = useDeferredValue(digitado);
+  const termo = useMemo(() => termoDeBusca(adiado), [adiado]);
+  return { termo, atualizando: adiado !== digitado };
+}
+
+/**
+ * Os itens que casam com o termo.
+ *
+ * O texto de busca de cada item é montado uma vez por leitura. `campos` tem de
+ * ser a mesma função sempre (declarada fora do componente): trocá-la a cada
+ * render remontaria tudo a cada tecla.
+ */
+export function useFiltrados<T>(itens: T[], campos: (item: T) => Campo[], termo: Termo): T[] {
+  const indice = useMemo(() => itens.map((i) => buscavel(campos(i))), [itens, campos]);
+  return useMemo(
+    () => (termo.texto ? itens.filter((_, k) => acha(indice[k], termo)) : itens),
+    [itens, indice, termo],
+  );
 }
 
 /**
@@ -57,8 +140,8 @@ const ESPERA_DA_BUSCA = 400;
  * quarta chegando depois da sétima deixaria a tela mostrando o resultado de
  * "math". Então o valor devolvido só acompanha o campo quando ele fica quieto.
  *
- * Quem filtra em memória não precisa disto: ali a lista já encolhe na tecla,
- * sem custo nenhum.
+ * Quem filtra em memória não precisa disto: ali a lista encolhe na tecla —
+ * e, sendo grande, com `useBuscaNaTela`.
  *
  * @param termo o que está digitado agora
  * @param aoMudar roda quando o termo muda de verdade — é onde a paginação

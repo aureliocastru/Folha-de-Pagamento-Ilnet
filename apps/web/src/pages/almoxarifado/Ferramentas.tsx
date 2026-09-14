@@ -12,6 +12,7 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { combina } from '../../lib/busca';
 import { formatData } from '../../lib/format';
 import type {
   EmprestimoDeFerramenta,
@@ -129,16 +130,9 @@ export function Ferramentas() {
   });
 
   const todas = lista.data ?? [];
-  const termo = busca.trim().toLowerCase();
   const ferramentas = todas
     .filter((f) => (soEmprestadas ? f.comQuem : true))
-    .filter((f) =>
-      termo
-        ? [f.nome, f.patrimonio, f.descricao, f.comQuem?.quem]
-            .filter(Boolean)
-            .some((t) => t!.toLowerCase().includes(termo))
-        : true,
-    );
+    .filter((f) => combina([f.nome, f.patrimonio, f.descricao, f.comQuem?.quem], busca));
 
   const naRua = todas.filter((f) => f.comQuem).length;
   const atrasadas = todas.filter((f) => f.comQuem?.atrasado).length;

@@ -11,6 +11,7 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { acha, buscavel, useBuscaNaTela } from '../../lib/busca';
 import { formatBRL } from '../../lib/format';
 import type { AlmoxarifadoCadastro, EstoqueNaTela, ItemDeEstoque } from '../../lib/types';
 import { AcertarNegativos } from './AcertarNegativos';
@@ -79,7 +80,8 @@ export function Estoque() {
       .map(([id, nome]) => ({ id, nome }))
       .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   }, [cadastro.data, dados]);
-  const termo = busca.trim().toLowerCase();
+  // A lista anda um passo atrás do campo: a tecla não espera a tabela (ver `useBuscaNaTela`).
+  const { termo, atualizando } = useBuscaNaTela(busca);
   const inativos = useMemo(
     () => (dados?.itens ?? []).filter((i) => !i.ativo).length,
     [dados],
@@ -98,22 +100,40 @@ export function Estoque() {
      que tem na prateleira. Ele volta quando se pede por ele: "Só o que está
      faltando", "Só negativos", ou uma busca — quem digita o nome de um produto
      quer aquele produto, tendo ou não tendo. */
-  const esconderZerados = !soFaltando && !soNegativos && !termo;
+  const esconderZerados = !soFaltando && !soNegativos && !termo.texto;
   const faltando = useMemo(
     () =>
       (dados?.itens ?? []).filter((i) => (mostrarInativos || i.ativo) && estaFaltando(i))
         .length,
     [dados, mostrarInativos],
   );
-  const itens = (dados?.itens ?? []).filter((i) => {
-    if (!mostrarInativos && !i.ativo) return false;
-    if (soNegativos && !temNegativo(i)) return false;
-    if (soFaltando && !estaFaltando(i)) return false;
-    if (esconderZerados && !temSaldo(i)) return false;
-    return termo
-      ? i.descricao.toLowerCase().includes(termo) || String(i.produtoId) === termo
-      : true;
-  });
+  const itens = useMemo(
+    () =>
+      (dados?.itens ?? []).filter((i) => {
+        if (!mostrarInativos && !i.ativo) return false;
+        if (soNegativos && !temNegativo(i)) return false;
+        if (soFaltando && !estaFaltando(i)) return false;
+        if (esconderZerados && !temSaldo(i)) return false;
+        return (
+          !termo.texto || String(i.produtoId) === termo.texto || acha(buscavel([i.descricao]), termo)
+        );
+      }),
+    [dados, mostrarInativos, soNegativos, soFaltando, esconderZerados, termo],
+  );
+  const linhas = useMemo(
+    () =>
+      itens.map((i) => (
+        <LinhaDoItem
+          key={i.produtoId}
+          item={i}
+          aberto={aberto === i.produtoId}
+          esconderZeros={esconderZerados}
+          onAbrir={() => setAberto((a) => (a === i.produtoId ? null : i.produtoId))}
+          onEditar={() => setEditando(i.produtoId)}
+        />
+      )),
+    [itens, aberto, esconderZerados],
+  );
 
   return (
     <Pagina>
@@ -273,14 +293,16 @@ export function Estoque() {
           <Vazio titulo="Nada por aqui">
             {soFaltando
               ? 'Nenhum item abaixo do mínimo ou zerado — o estoque está em dia.'
-              : almox && !termo
+              : almox && !termo.texto
                 ? 'Este almoxarifado não tem produto lançado no IXC — está vazio.'
                 : 'O IXC não devolveu saldo nenhum para este filtro.'}
           </Vazio>
         )}
 
         {itens.length > 0 && (
-          <div className="rolagem-fina overflow-x-auto">
+          <div
+            className={`rolagem-fina overflow-x-auto transition-opacity ${atualizando ? 'opacity-60' : ''}`}
+          >
             <table className="w-full text-sm">
               <thead>
                 <tr>
@@ -291,20 +313,7 @@ export function Estoque() {
                   <th className="th text-right">Ação</th>
                 </tr>
               </thead>
-              <tbody>
-                {itens.map((i) => (
-                  <LinhaDoItem
-                    key={i.produtoId}
-                    item={i}
-                    aberto={aberto === i.produtoId}
-                    esconderZeros={esconderZerados}
-                    onAbrir={() =>
-                      setAberto((a) => (a === i.produtoId ? null : i.produtoId))
-                    }
-                    onEditar={() => setEditando(i.produtoId)}
-                  />
-                ))}
-              </tbody>
+              <tbody>{linhas}</tbody>
             </table>
           </div>
         )}

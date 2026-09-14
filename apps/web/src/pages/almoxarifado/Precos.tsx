@@ -13,6 +13,7 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { combina } from '../../lib/busca';
 import { formatData, formatPrecoUnitario } from '../../lib/format';
 import type {
   FornecedorCotacao,
@@ -109,14 +110,7 @@ export function Precos() {
   });
 
   const produtos = lista.data ?? [];
-  const termo = busca.trim().toLowerCase();
-  const filtrados = termo
-    ? produtos.filter((p) =>
-        [p.nome, p.codigo].filter(Boolean).some((t) =>
-          t!.toLowerCase().includes(termo),
-        ),
-      )
-    : produtos;
+  const filtrados = produtos.filter((p) => combina([p.nome, p.codigo], busca));
 
   const semPreco = produtos.filter((p) => !p.maisBarato).length;
 

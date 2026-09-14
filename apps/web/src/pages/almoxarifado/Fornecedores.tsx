@@ -11,6 +11,7 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { combina } from '../../lib/busca';
 import type { FornecedorCotacao } from '../../lib/types';
 
 /** O formulário vazio — também é o que "Novo fornecedor" abre. */
@@ -126,11 +127,7 @@ export function Fornecedores() {
 
   const fornecedores = lista.data ?? [];
   const filtrados = fornecedores.filter((f) =>
-    busca.trim()
-      ? [f.nome, f.nomeFantasia, f.contato, f.cnpj]
-          .filter(Boolean)
-          .some((t) => t!.toLowerCase().includes(busca.trim().toLowerCase()))
-      : true,
+    combina([f.nome, f.nomeFantasia, f.contato, f.cnpj], busca),
   );
 
   return (
