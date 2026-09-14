@@ -26,8 +26,27 @@ function recorrente(over: Record<string, unknown> = {}) {
     tipoPagamentoIxc: null,
     categoriaId: null,
     ativa: true,
+    diaDoVencimento: null,
+    totalParcelas: null,
+    parcelasLancadas: 0,
+    parcelasPorMes: 1,
+    lancadasNoMes: 0,
     ...over,
   };
+}
+
+/** Um consórcio de 60 parcelas que paga duas por mês, com 9 já pagas. */
+function consorcio(over: Record<string, unknown> = {}) {
+  return recorrente({
+    fornecedorNome: 'Administradora de Consórcio',
+    observacao: 'Consórcio caçamba',
+    valor: 3242.37,
+    diaDoVencimento: 20,
+    totalParcelas: 60,
+    parcelasLancadas: 9,
+    parcelasPorMes: 2,
+    ...over,
+  });
 }
 
 function montarServico(
@@ -92,6 +111,13 @@ describe('mesSeguinte', () => {
   it('fevereiro de ano bissexto', () => {
     expect(mesSeguinte(new Date(Date.UTC(2028, 0, 31)))).toEqual(
       new Date(Date.UTC(2028, 1, 29)),
+    );
+  });
+
+  it('com o dia combinado, o 31 volta a ser 31 depois de fevereiro', () => {
+    // 28/02 de um "todo dia 31" → 31/03, e não 28/03.
+    expect(mesSeguinte(new Date(Date.UTC(2026, 1, 28)), 31)).toEqual(
+      new Date(Date.UTC(2026, 2, 31)),
     );
   });
 });
@@ -193,5 +219,112 @@ describe('RecorrentesService.gerarPendentes', () => {
     await service.gerarPendentes('u1');
 
     expect(categorias.classificar).toHaveBeenCalledWith(7777, 'cat-1', 'u1');
+  });
+});
+
+describe('RecorrentesService.gerarPendentes — consórcio', () => {
+  beforeAll(() => {
+    jest.useFakeTimers().setSystemTime(HOJE);
+  });
+  afterAll(() => {
+    jest.useRealTimers();
+  });
+
+  it('duas por mês: gera as parcelas 10 e 11 no mesmo vencimento, numeradas', async () => {
+    const { service, contasPagar } = montarServico({ lista: [consorcio()] });
+
+    const r = await service.gerarPendentes();
+
+    expect(r.geradas).toBe(2);
+    expect(contasPagar.criarDespesa).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        observacao: 'Consórcio caçamba (10/60)',
+        valor: 3242.37,
+        dataVencimento: new Date(Date.UTC(2026, 7, 20)),
+      }),
+      undefined,
+    );
+    expect(contasPagar.criarDespesa).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        observacao: 'Consórcio caçamba (11/60)',
+        dataVencimento: new Date(Date.UTC(2026, 7, 20)),
+      }),
+      undefined,
+    );
+  });
+
+  it('o vencimento só anda depois da segunda do mês', async () => {
+    const { service, atualizacoes } = montarServico({ lista: [consorcio()] });
+
+    await service.gerarPendentes();
+
+    expect(atualizacoes[0]).toMatchObject({
+      parcelasLancadas: 10,
+      lancadasNoMes: 1,
+    });
+    expect(atualizacoes[0]).not.toHaveProperty('proximoVencimento');
+    expect(atualizacoes[1]).toMatchObject({
+      parcelasLancadas: 11,
+      lancadasNoMes: 0,
+      proximoVencimento: new Date(Date.UTC(2026, 8, 20)),
+    });
+  });
+
+  it('se a segunda do mês falhou, a rodada seguinte gera só ela', async () => {
+    const { service, contasPagar } = montarServico({
+      lista: [consorcio({ parcelasLancadas: 10, lancadasNoMes: 1 })],
+    });
+
+    const r = await service.gerarPendentes();
+
+    expect(r.geradas).toBe(1);
+    expect(contasPagar.criarDespesa).toHaveBeenCalledTimes(1);
+    expect(contasPagar.criarDespesa).toHaveBeenCalledWith(
+      expect.objectContaining({ observacao: 'Consórcio caçamba (11/60)' }),
+      undefined,
+    );
+  });
+
+  it('a última parcela desliga o consórcio, mesmo no meio do mês', async () => {
+    // Faltava uma só, e o mês pagaria duas: sai a 60 e para.
+    const { service, contasPagar, atualizacoes } = montarServico({
+      lista: [consorcio({ parcelasLancadas: 59 })],
+    });
+
+    const r = await service.gerarPendentes();
+
+    expect(r.geradas).toBe(1);
+    expect(contasPagar.criarDespesa).toHaveBeenCalledWith(
+      expect.objectContaining({ observacao: 'Consórcio caçamba (60/60)' }),
+      undefined,
+    );
+    expect(atualizacoes[0]).toMatchObject({ parcelasLancadas: 60, ativa: false });
+  });
+
+  it('quitado não gera nada, mesmo religado', async () => {
+    const { service, contasPagar } = montarServico({
+      lista: [consorcio({ parcelasLancadas: 60, ativa: true })],
+    });
+
+    expect((await service.gerarPendentes()).geradas).toBe(0);
+    expect(contasPagar.criarDespesa).not.toHaveBeenCalled();
+  });
+
+  it('recusa começar com mais parcelas saídas do que o total', async () => {
+    const { service } = montarServico();
+
+    await expect(
+      service.criar({
+        idFornecedorIxc: 196,
+        fornecedorNome: 'Administradora',
+        valor: 100,
+        observacao: 'Consórcio',
+        proximoVencimento: '2026-09-20',
+        totalParcelas: 60,
+        parcelasLancadas: 61,
+      }),
+    ).rejects.toThrow(/61 parcelas/);
   });
 });

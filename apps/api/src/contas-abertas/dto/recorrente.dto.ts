@@ -65,6 +65,41 @@ export class CriarRecorrenteDto {
 
   /** Vencimento em sabado, domingo ou feriado anda para o proximo dia util. */
   @IsOptional() @IsBoolean() apenasDiasUteis?: boolean;
+
+  /** "Todo dia 14" — o dia a que o vencimento volta a cada mês. */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsInt()
+  @Min(1)
+  @Max(31)
+  diaDoVencimento?: number;
+
+  /**
+   * Preenchido, é consórcio. De 2 a 360 porque é o que a lista de contas lê
+   * como parcela: fora disso o "(12/60)" não viraria "parcela 12/60" lá.
+   */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsInt()
+  @Min(2)
+  @Max(360)
+  totalParcelas?: number;
+
+  /** Quantas já saíram: as pagas e as já lançadas no IXC. */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsInt()
+  @Min(0)
+  @Max(360)
+  parcelasLancadas?: number;
+
+  /** Quantas vencem juntas no mesmo mês. */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsInt()
+  @Min(1)
+  @Max(12)
+  parcelasPorMes?: number;
 }
 
 export class AtualizarRecorrenteDto {
@@ -106,4 +141,33 @@ export class AtualizarRecorrenteDto {
 
   /** Vencimento em sábado, domingo ou feriado anda para o próximo dia útil. */
   @IsOptional() @IsBoolean() apenasDiasUteis?: boolean;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsInt()
+  @Min(1)
+  @Max(31)
+  diaDoVencimento?: number;
+
+  /** Preenchido numa recorrente comum, ela vira consórcio. */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsInt()
+  @Min(2)
+  @Max(360)
+  totalParcelas?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsInt()
+  @Min(0)
+  @Max(360)
+  parcelasLancadas?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsInt()
+  @Min(1)
+  @Max(12)
+  parcelasPorMes?: number;
 }

@@ -12,9 +12,10 @@ import {
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { formatBRL, formatData } from '../../lib/format';
+import { CadastroDoConsorcio, ListaDeConsorcios } from './Consorcios';
 
 /** Uma despesa que se repete todo mês, como a API a devolve. */
-interface Recorrente {
+export interface Recorrente {
   id: string;
   idFornecedorIxc: number;
   fornecedorNome: string;
@@ -26,9 +27,17 @@ interface Recorrente {
   apenasDiasUteis: boolean;
   ultimaGeracaoEm: string | null;
   ultimoErro: string | null;
+  categoriaId: string | null;
+  tipoPagamentoIxc: string | null;
+  diaDoVencimento: number | null;
+  /** Preenchido, é consórcio. */
+  totalParcelas: number | null;
+  parcelasLancadas: number;
+  parcelasPorMes: number;
+  lancadasNoMes: number;
 }
 
-interface RecorrenteComResumo {
+export interface RecorrenteComResumo {
   recorrente: Recorrente;
   geradas: number;
   /** Dias até a próxima nascer no IXC. Negativo = já era para ter nascido. */
@@ -49,6 +58,11 @@ export function Recorrentes() {
   const [vencimento, setVencimento] = useState('');
   const [aviso, setAviso] = useState<string | null>(null);
   const [erro, setErro] = useState(false);
+  const [aba, setAba] = useState<'mensais' | 'consorcios'>('mensais');
+  /** O cadastro de consórcio aberto: `base` nula é consórcio novo. */
+  const [cadastro, setCadastro] = useState<{ base: Recorrente | null } | null>(
+    null,
+  );
 
   const lista = useQuery({
     queryKey: ['recorrentes'],
@@ -117,26 +131,76 @@ export function Recorrentes() {
     },
   });
 
-  const itens = lista.data ?? [];
+  const todos = lista.data ?? [];
+  // Consórcio é a recorrente com fim: mora na aba dele, e não entre as mensais.
+  const consorcios = todos.filter((i) => i.recorrente.totalParcelas != null);
+  const itens = todos.filter((i) => i.recorrente.totalParcelas == null);
   const ativas = itens.filter((i) => i.recorrente.ativa);
   const porMes = ativas.reduce((s, i) => s + Number(i.recorrente.valor), 0);
+  const consorciosAtivos = consorcios.filter((i) => i.recorrente.ativa);
+  const consorciosPorMes = consorciosAtivos.reduce(
+    (s, i) =>
+      s + Number(i.recorrente.valor) * Math.max(1, i.recorrente.parcelasPorMes),
+    0,
+  );
 
   return (
     <Pagina>
       <CabecalhoPagina
         secao="Contas a pagar"
         titulo="Recorrentes"
-        descricao="Serviços pagos todo mês. A conta de cada mês nasce sozinha no IXC poucos dias antes de vencer — e já aprovada."
+        descricao="Serviços pagos todo mês e consórcios. A conta de cada mês nasce sozinha no IXC poucos dias antes de vencer — e já aprovada."
         acoes={
-          <button
-            onClick={() => gerarAgora.mutate()}
-            disabled={gerarAgora.isPending}
-            className="btn btn-acao"
-          >
-            {gerarAgora.isPending ? 'Gerando…' : 'Gerar agora'}
-          </button>
+          <>
+            <button
+              onClick={() => setCadastro({ base: null })}
+              className="btn btn-neutro"
+            >
+              Novo consórcio
+            </button>
+            <button
+              onClick={() => gerarAgora.mutate()}
+              disabled={gerarAgora.isPending}
+              className="btn btn-acao"
+            >
+              {gerarAgora.isPending ? 'Gerando…' : 'Gerar agora'}
+            </button>
+          </>
         }
       />
+
+      {cadastro && (
+        <CadastroDoConsorcio
+          base={cadastro.base}
+          todas={todos}
+          onFechar={() => setCadastro(null)}
+          onPronto={(mensagem) => {
+            setCadastro(null);
+            setErro(false);
+            setAviso(mensagem);
+            setAba('consorcios');
+            invalidar();
+          }}
+        />
+      )}
+
+      <div className="mb-4 flex flex-wrap gap-2">
+        {(
+          [
+            ['mensais', `Mensais (${itens.length})`],
+            ['consorcios', `Consórcios (${consorcios.length})`],
+          ] as const
+        ).map(([qual, rotulo]) => (
+          <button
+            key={qual}
+            onClick={() => setAba(qual)}
+            aria-pressed={aba === qual}
+            className={`btn btn-p ${aba === qual ? 'btn-acao' : 'btn-sutil'}`}
+          >
+            {rotulo}
+          </button>
+        ))}
+      </div>
 
       {aviso && (
         <Aviso
@@ -154,13 +218,50 @@ export function Recorrentes() {
         </Aviso>
       )}
 
-      {ativas.length > 0 && (
+      {aba === 'consorcios' && (
+        <>
+          {consorciosAtivos.length > 0 && (
+            <p className="mb-4 text-sm text-tinta-500">
+              {consorciosAtivos.length} consórcio(s) correndo, somando{' '}
+              <strong className="valor">{formatBRL(consorciosPorMes)}</strong>{' '}
+              por mês.
+            </p>
+          )}
+          <Bloco semPadding>
+            {lista.isLoading ? (
+              <Carregando />
+            ) : (
+              <ListaDeConsorcios
+                itens={consorcios}
+                ocupado={salvar.isPending}
+                onEditar={(r) => setCadastro({ base: r })}
+                onLigar={(r) =>
+                  salvar.mutate({ id: r.id, dados: { ativa: !r.ativa } })
+                }
+                onApagar={(r) => {
+                  if (
+                    confirm(
+                      `Apagar o consórcio de ${r.fornecedorNome}? ` +
+                        'As parcelas já geradas continuam no IXC.',
+                    )
+                  ) {
+                    remover.mutate(r.id);
+                  }
+                }}
+              />
+            )}
+          </Bloco>
+        </>
+      )}
+
+      {aba === 'mensais' && ativas.length > 0 && (
         <p className="mb-4 text-sm text-tinta-500">
           {ativas.length} despesa(s) ativa(s), somando{' '}
           <strong className="valor">{formatBRL(porMes)}</strong> por mês.
         </p>
       )}
 
+      {aba === 'mensais' && (
       <Bloco semPadding>
         {lista.isLoading ? (
           <Carregando />
@@ -335,6 +436,13 @@ export function Recorrentes() {
                                 Editar
                               </button>
                               <button
+                                onClick={() => setCadastro({ base: r })}
+                                className="btn btn-sutil btn-p"
+                                title="Tem número de parcelas: passa para Consórcios, numera as contas e para na última"
+                              >
+                                É consórcio
+                              </button>
+                              <button
                                 onClick={() =>
                                   salvar.mutate({
                                     id: r.id,
@@ -377,6 +485,7 @@ export function Recorrentes() {
           </div>
         )}
       </Bloco>
+      )}
 
       <p className="ajuda">
         A verificação roda sozinha a cada seis horas. "Gerar agora" só antecipa

@@ -914,6 +914,24 @@ model DespesaRecorrente {
   /// Ligado por padrão, inclusive nas recorrentes que já existiam.
   apenasDiasUteis Boolean @default(true) @map("apenas_dias_uteis")
 
+  /// O dia combinado ("todo dia 14"). Sem ele, o dia é o do próximo
+  /// vencimento — e um dia 31 que passou por fevereiro virava dia 28 para
+  /// sempre.
+  diaDoVencimento Int? @map("dia_do_vencimento")
+
+  // --- Consórcio: a repetição que acaba ---
+  /// Quantas parcelas o consórcio tem. Preenchido, a recorrente é um
+  /// consórcio: numera cada conta ("12/60") e para sozinha na última.
+  totalParcelas    Int? @map("total_parcelas")
+  /// Quantas já saíram — as pagas antes do cadastro mais as que esta rotina
+  /// lançou. A próxima conta é a de número seguinte.
+  parcelasLancadas Int  @default(0) @map("parcelas_lancadas")
+  /// Quantas parcelas vencem juntas a cada mês (a Canopus cobra duas).
+  parcelasPorMes   Int  @default(1) @map("parcelas_por_mes")
+  /// Quantas do mês corrente já nasceram. Se o IXC recusa a segunda de duas,
+  /// a próxima rodada gera só a que faltou, e não as duas de novo.
+  lancadasNoMes    Int  @default(0) @map("lancadas_no_mes")
+
   // --- Como a conta sai (o mesmo do lançamento avulso) ---
   contaContabil    Int?    @map("conta_contabil")
   contaPagamento   Int?    @map("conta_pagamento")
