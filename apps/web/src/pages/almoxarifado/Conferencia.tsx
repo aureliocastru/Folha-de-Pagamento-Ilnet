@@ -15,7 +15,7 @@ import {
   type Tom,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
-import { semAcento } from '../../lib/busca';
+import { semAcento, useTermoAdiado } from '../../lib/busca';
 import { formatBRL } from '../../lib/format';
 import type {
   ConferenciaDeEstoque,
@@ -210,6 +210,26 @@ function ListaDoAlmoxarifado({ almoxId, onVoltar }: { almoxId: number; onVoltar:
     return !termo || semAcento(i.descricao).includes(termo) || String(i.produtoId) === busca.trim();
   });
 
+  /* O que o IXC tem com esse nome e não está na lista: zerado aqui, ou que
+     nunca teve saldo neste almoxarifado. Na ILNET, que é o geral, o produto
+     achado na prateleira tem de poder ser conferido mesmo assim — sem ir ao
+     "Achei um que não está na lista". Inativo e serviço o servidor não traz. */
+  const buscaAdiada = useTermoAdiado(busca);
+  const doIxc = useQuery({
+    queryKey: [...CHAVE, 'produtos', buscaAdiada],
+    queryFn: async () =>
+      (
+        await api.get<ProdutoAchadoParaConferir[]>('/almoxarifado/conferencia/produtos', {
+          params: { busca: buscaAdiada },
+        })
+      ).data,
+    enabled: buscaAdiada.length >= 2,
+    staleTime: 60_000,
+  });
+  const idsNaLista = useMemo(() => new Set(itens.map((i) => i.produtoId)), [itens]);
+  const foraDaLista =
+    busca.trim().length >= 2 ? (doIxc.data ?? []).filter((p) => !idsNaLista.has(p.produtoId)) : [];
+
   const acharPeca = useMutation({
     mutationFn: async (codigo: string) =>
       (await api.get<PecaAchada>('/almoxarifado/patrimonios/onde', { params: { codigo } })).data,
@@ -230,6 +250,12 @@ function ListaDoAlmoxarifado({ almoxId, onVoltar }: { almoxId: number; onVoltar:
     );
     if (todos.length === 1) {
       setAberto({ produtoId: todos[0].produtoId });
+      setBusca('');
+      return;
+    }
+    // Nada na lista, e um só no IXC com esse nome: é ele.
+    if (todos.length === 0 && buscaAdiada === t && foraDaLista.length === 1) {
+      setAberto({ produtoId: foraDaLista[0].produtoId });
       setBusca('');
       return;
     }
@@ -333,7 +359,8 @@ function ListaDoAlmoxarifado({ almoxId, onVoltar }: { almoxId: number; onVoltar:
         )}
       </Bloco>
 
-      {dados && (
+      {/* Achado só no IXC, a lista vazia sai: "Nada por aqui" em cima do que foi achado confunde. */}
+      {dados && (filtrados.length > 0 || foraDaLista.length === 0) && (
         <Bloco titulo={`${filtrados.length} ${filtrados.length === 1 ? 'produto' : 'produtos'}`} semPadding>
           {filtrados.length === 0 ? (
             <div className="p-4">
@@ -366,6 +393,42 @@ function ListaDoAlmoxarifado({ almoxId, onVoltar }: { almoxId: number; onVoltar:
                       {i.unidade && <span className="ml-1 text-[11px] text-tinta-400">{i.unidade}</span>}
                     </div>
                     <div className="text-[11px] text-tinta-400">no IXC</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </Bloco>
+      )}
+
+      {dados && busca.trim().length >= 2 && (foraDaLista.length > 0 || doIxc.isFetching) && (
+        <Bloco
+          titulo={`Sem saldo em ${dados.almox.nome}${foraDaLista.length ? ` (${foraDaLista.length})` : ''}`}
+          semPadding
+        >
+          {foraDaLista.length === 0 ? (
+            <div className="p-4">
+              <Carregando texto="Procurando no IXC…" />
+            </div>
+          ) : (
+            <div className="divide-y divide-tinta-100">
+              {foraDaLista.map((p) => (
+                <button
+                  key={p.produtoId}
+                  type="button"
+                  onClick={() => setAberto({ produtoId: p.produtoId })}
+                  className="flex w-full items-center gap-3 px-3.5 py-3 text-left transition hover:bg-tinta-50 md:px-5"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-medium text-tinta-800">{p.descricao}</div>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[12px] text-tinta-400">
+                      <span className="num">código {p.produtoId}</span>
+                      {p.patrimonio && <Selo tom="info" pequeno>patrimônio</Selo>}
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className="valor text-[15px]">0</div>
+                    <div className="text-[11px] text-tinta-400">aqui</div>
                   </div>
                 </button>
               ))}
@@ -443,7 +506,8 @@ function ProcurarProduto({
   });
 
   return (
-    <Janela titulo="Achei um produto que não está na lista" onFechar={onFechar}>
+    // Presa no alto no celular: o resultado aparece embaixo do campo, acima do teclado.
+    <Janela titulo="Achei um produto que não está na lista" onFechar={onFechar} noAlto>
       <p className="mb-3 text-[13px] text-tinta-500">
         O IXC não tem saldo dele aqui. Procure pelo nome ou código; se não existir no IXC, cadastre
         em Estoque › Novo produto e volte.
@@ -479,7 +543,8 @@ function ProcurarProduto({
         <p className="mt-3 text-sm text-tinta-400">Nenhum produto com esse nome no IXC.</p>
       )}
       {achados.data && achados.data.length > 0 && (
-        <div className="mt-3 max-h-[24rem] divide-y divide-tinta-100 overflow-y-auto rolagem-fina rounded-xl border border-tinta-100">
+        // Sem altura própria: quem rola é a janela, que no celular vai só até o teclado.
+        <div className="mt-3 divide-y divide-tinta-100 rounded-xl border border-tinta-100">
           {achados.data.map((p) => (
             <button
               key={p.produtoId}

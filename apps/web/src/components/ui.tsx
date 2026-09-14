@@ -279,6 +279,28 @@ export function Bloco({
   );
 }
 
+/** O pedaço da tela que o teclado deixa à vista (o `visualViewport`), no celular. */
+function areaVisivel() {
+  const vv = window.visualViewport;
+  return { topo: vv?.offsetTop ?? 0, altura: vv?.height ?? window.innerHeight };
+}
+
+function useAreaVisivel() {
+  const [area, setArea] = useState(areaVisivel);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const atualizar = () => setArea(areaVisivel());
+    vv.addEventListener('resize', atualizar);
+    vv.addEventListener('scroll', atualizar);
+    return () => {
+      vv.removeEventListener('resize', atualizar);
+      vv.removeEventListener('scroll', atualizar);
+    };
+  }, []);
+  return area;
+}
+
 /**
  * Janela por cima da tela, para o que precisa de resposta agora — pagar alguém,
  * por exemplo. Um bloco no rodapé da página resolveria o mesmo, mas nasce fora
@@ -289,12 +311,20 @@ export function Janela({
   titulo,
   onFechar,
   children,
+  noAlto = false,
 }: {
   titulo: string;
   onFechar: () => void;
   children: ReactNode;
+  /**
+   * No celular, presa no alto da tela em vez de subir do pé. É para a janela
+   * de busca: o resultado aparece embaixo do campo, e na folha que sobe do pé
+   * ele ficava atrás do teclado (a busca de produto da Conferência, no iPhone).
+   */
+  noAlto?: boolean;
 }) {
   const celular = useCelular();
+  const area = useAreaVisivel();
 
   useEffect(() => {
     const aoTeclar = (e: KeyboardEvent) => {
@@ -331,6 +361,31 @@ export function Janela({
    * sempre à mão — num formulário de despesa com doze campos, a saída não pode
    * depender de rolar até o começo.
    */
+  /*
+   * Presa no alto: o campo fica no topo e o resultado desce até onde o teclado
+   * começa. A altura é a do pedaço visível, e não a da tela — com o teclado
+   * aberto o iPhone não encolhe a tela, só cobre a parte de baixo dela.
+   */
+  if (celular && noAlto) {
+    return (
+      <div className="fixed inset-0 z-50 bg-barra/70 backdrop-blur-sm">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={titulo}
+          style={{ top: area.topo, maxHeight: area.altura }}
+          className="surgir absolute inset-x-0 flex flex-col rounded-b-2xl border-b border-tinta-100 bg-papel pt-[env(safe-area-inset-top)] shadow-2xl"
+        >
+          <div className="faixa-titulo flex shrink-0 items-center justify-between gap-3 py-2 pl-4 pr-2">
+            <h2 className="titulo-bloco min-w-0 truncate">{titulo}</h2>
+            <BotaoFechar onFechar={onFechar} />
+          </div>
+          <div className="rolagem-fina min-h-0 flex-1 overflow-y-auto px-4 py-4">{children}</div>
+        </div>
+      </div>
+    );
+  }
+
   if (celular) {
     return (
       <div className="fixed inset-0 z-50 flex flex-col justify-end bg-barra/70 backdrop-blur-sm">
