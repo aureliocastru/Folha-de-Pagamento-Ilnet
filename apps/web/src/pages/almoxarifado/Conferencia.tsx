@@ -73,13 +73,6 @@ export function Conferencia() {
       <CabecalhoPagina
         secao="Almoxarifado"
         titulo="Conferência de estoque"
-        descricao={
-          <>
-            Conte o que tem na prateleira e diga aqui. O sistema lança a diferença no IXC: o que
-            faltou vai para <strong>Perdas e Falhas</strong>; o que sobrou volta de lá, ou entra
-            por compra com o valor que você informar.
-          </>
-        }
         acoes={painel.data?.rodada && <EncerrarInventario nome={painel.data.rodada.nome} />}
       />
 
@@ -190,7 +183,6 @@ function ListaDoAlmoxarifado({ almoxId, onVoltar }: { almoxId: number; onVoltar:
   const [busca, setBusca] = useState('');
   const [filtro, setFiltro] = useState<Filtro>('faltam');
   const [aberto, setAberto] = useState<{ produtoId: number; peca?: PecaAchada } | null>(null);
-  const [procurando, setProcurando] = useState(false);
   const [aviso, setAviso] = useState<string | null>(null);
   const campo = useRef<HTMLInputElement>(null);
 
@@ -212,8 +204,8 @@ function ListaDoAlmoxarifado({ almoxId, onVoltar }: { almoxId: number; onVoltar:
 
   /* O que o IXC tem com esse nome e não está na lista: zerado aqui, ou que
      nunca teve saldo neste almoxarifado. Na ILNET, que é o geral, o produto
-     achado na prateleira tem de poder ser conferido mesmo assim — sem ir ao
-     "Achei um que não está na lista". Inativo e serviço o servidor não traz. */
+     achado na prateleira tem de poder ser conferido mesmo assim, pela mesma
+     busca. Inativo e serviço o servidor não traz. */
   const buscaAdiada = useTermoAdiado(busca);
   const doIxc = useQuery({
     queryKey: [...CHAVE, 'produtos', buscaAdiada],
@@ -263,13 +255,16 @@ function ListaDoAlmoxarifado({ almoxId, onVoltar }: { almoxId: number; onVoltar:
       acharPeca.mutate(t);
       return;
     }
-    if (todos.length === 0) setAviso('Nada na lista com esse nome. Procure no IXC pelo botão abaixo.');
+    if (todos.length === 0 && buscaAdiada === t && !doIxc.isFetching && foraDaLista.length === 0) {
+      setAviso('Nenhum produto com esse nome, nem aqui nem no IXC.');
+    }
   }
 
   return (
     <>
       <Bloco
         titulo={dados?.almox.nome ?? 'Almoxarifado'}
+        className="mb-2"
         acao={
           <button type="button" onClick={onVoltar} className="btn btn-sutil btn-p">
             ← Almoxarifados
@@ -280,84 +275,92 @@ function ListaDoAlmoxarifado({ almoxId, onVoltar }: { almoxId: number; onVoltar:
         {lista.isError && <Aviso tom="erro">{mensagemErro(lista.error)}</Aviso>}
 
         {dados && (
-          <>
-            <div className="mb-3">
-              <div className="flex items-baseline justify-between text-[13px] text-tinta-600">
-                <span>
-                  <strong>{feitos}</strong> de {itens.length} conferidos
-                </span>
-                <span className="text-[11px] text-tinta-400">
-                  lido do IXC às{' '}
-                  {new Date(dados.lidoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                </span>
-              </div>
-              <div className="mt-1 h-2 overflow-hidden rounded-full bg-tinta-100">
-                <div
-                  className="h-full bg-brand-600 transition-all"
-                  style={{ width: `${itens.length ? Math.round((feitos / itens.length) * 100) : 0}%` }}
-                />
-              </div>
+          <div>
+            <div className="flex items-baseline justify-between text-[13px] text-tinta-600">
+              <span>
+                <strong>{feitos}</strong> de {itens.length} conferidos
+              </span>
+              <span className="text-[11px] text-tinta-400">
+                lido do IXC às{' '}
+                {new Date(dados.lidoEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+              </span>
             </div>
-
-            <label className="rotulo" htmlFor="conf-busca">
-              Produto
-            </label>
-            <div className="flex gap-2">
-              <input
-                id="conf-busca"
-                ref={campo}
-                value={busca}
-                onChange={(e) => {
-                  setBusca(e.target.value);
-                  setAviso(null);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    aoBipar();
-                  }
-                }}
-                className="campo min-w-0 flex-1"
-                placeholder="Nome, código — ou bipe a ONU"
-                autoComplete="off"
+            <div className="mt-1 h-2 overflow-hidden rounded-full bg-tinta-100">
+              <div
+                className="h-full bg-brand-600 transition-all"
+                style={{ width: `${itens.length ? Math.round((feitos / itens.length) * 100) : 0}%` }}
               />
-              <button
-                type="button"
-                onClick={aoBipar}
-                disabled={!busca.trim() || acharPeca.isPending}
-                className="btn btn-pagar shrink-0"
-              >
-                <IconeLupa />
-                Procurar
-              </button>
             </div>
-            {acharPeca.isPending && <p className="ajuda">Procurando a peça no IXC…</p>}
-            {aviso && <p className="mt-1 text-[13px] text-rose-600 dark:text-rose-300">{aviso}</p>}
-
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              {(
-                [
-                  ['faltam', `Falta conferir (${itens.length - feitos})`],
-                  ['conferidos', `Conferidos (${feitos})`],
-                  ['todos', `Todos (${itens.length})`],
-                ] as Array<[Filtro, string]>
-              ).map(([f, rotulo]) => (
-                <button
-                  key={f}
-                  type="button"
-                  onClick={() => setFiltro(f)}
-                  className={`btn btn-p ${filtro === f ? 'btn-primario' : 'btn-neutro'}`}
-                >
-                  {rotulo}
-                </button>
-              ))}
-              <button type="button" onClick={() => setProcurando(true)} className="btn btn-p btn-sutil">
-                Achei um que não está na lista
-              </button>
-            </div>
-          </>
+          </div>
         )}
       </Bloco>
+
+      {/*
+        A busca fica presa no alto ao rolar a lista: de pé na prateleira, o
+        próximo produto se procura sem voltar ao começo de novecentas linhas.
+        Fora do cartão de propósito — dentro dele ela só grudaria até o fim do
+        cartão. No celular fica logo abaixo do cabeçalho, que tem 53px.
+      */}
+      {dados && (
+        <div className="sticky top-[53px] z-10 -mx-3 mb-4 border-b border-tinta-200 bg-tinta-50/95 px-3 py-2 backdrop-blur sm:-mx-6 sm:px-6 md:top-0 lg:-mx-7 lg:px-7">
+          <div className="flex gap-2">
+            <input
+              id="conf-busca"
+              ref={campo}
+              value={busca}
+              onChange={(e) => {
+                setBusca(e.target.value);
+                setAviso(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  aoBipar();
+                }
+              }}
+              className="campo min-w-0 flex-1"
+              placeholder="Nome, código — ou bipe a ONU"
+              aria-label="Produto"
+              autoComplete="off"
+            />
+            <button
+              type="button"
+              onClick={aoBipar}
+              disabled={!busca.trim() || acharPeca.isPending}
+              className="btn btn-pagar shrink-0"
+            >
+              <IconeLupa />
+              Procurar
+            </button>
+          </div>
+          {acharPeca.isPending && <p className="ajuda">Procurando a peça no IXC…</p>}
+          {aviso && <p className="mt-1 text-[13px] text-rose-600 dark:text-rose-300">{aviso}</p>}
+
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {(
+              [
+                ['faltam', `Falta conferir (${itens.length - feitos})`],
+                ['conferidos', `Conferidos (${feitos})`],
+                ['todos', `Todos (${itens.length})`],
+              ] as Array<[Filtro, string]>
+            ).map(([f, rotulo]) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFiltro(f)}
+                aria-pressed={filtro === f}
+                className={`rounded-full border px-2.5 py-1 text-[12px] font-semibold transition ${
+                  filtro === f
+                    ? 'border-brand-600 bg-brand-600 text-white'
+                    : 'border-tinta-200 bg-papel text-tinta-600 hover:border-tinta-300'
+                }`}
+              >
+                {rotulo}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Achado só no IXC, a lista vazia sai: "Nada por aqui" em cima do que foi achado confunde. */}
       {dados && (filtrados.length > 0 || foraDaLista.length === 0) && (
@@ -437,16 +440,6 @@ function ListaDoAlmoxarifado({ almoxId, onVoltar }: { almoxId: number; onVoltar:
         </Bloco>
       )}
 
-      {procurando && (
-        <ProcurarProduto
-          onFechar={() => setProcurando(false)}
-          onEscolher={(produtoId) => {
-            setProcurando(false);
-            setAberto({ produtoId });
-          }}
-        />
-      )}
-
       {aberto && (
         <JanelaConferir
           key={`${aberto.produtoId}-${aberto.peca?.patrimonioId ?? ''}`}
@@ -482,86 +475,6 @@ function SeloDaConferencia({ c }: { c: ConferenciaDeEstoque }) {
       {s.rotulo}
       {detalhe}
     </Selo>
-  );
-}
-
-function ProcurarProduto({
-  onFechar,
-  onEscolher,
-}: {
-  onFechar: () => void;
-  onEscolher: (produtoId: number) => void;
-}) {
-  const [termo, setTermo] = useState('');
-  const [procurado, setProcurado] = useState('');
-  const achados = useQuery({
-    queryKey: [...CHAVE, 'produtos', procurado],
-    queryFn: async () =>
-      (
-        await api.get<ProdutoAchadoParaConferir[]>('/almoxarifado/conferencia/produtos', {
-          params: { busca: procurado },
-        })
-      ).data,
-    enabled: procurado.length >= 2,
-  });
-
-  return (
-    // Presa no alto no celular: o resultado aparece embaixo do campo, acima do teclado.
-    <Janela titulo="Achei um produto que não está na lista" onFechar={onFechar} noAlto>
-      <p className="mb-3 text-[13px] text-tinta-500">
-        O IXC não tem saldo dele aqui. Procure pelo nome ou código; se não existir no IXC, cadastre
-        em Estoque › Novo produto e volte.
-      </p>
-      <div className="flex gap-2">
-        <input
-          value={termo}
-          onChange={(e) => setTermo(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              setProcurado(termo.trim());
-            }
-          }}
-          className="campo min-w-0 flex-1"
-          placeholder="Nome ou código do produto"
-          autoComplete="off"
-          autoFocus
-        />
-        <button
-          type="button"
-          onClick={() => setProcurado(termo.trim())}
-          disabled={termo.trim().length < 2}
-          className="btn btn-pagar shrink-0"
-        >
-          <IconeLupa />
-          Procurar
-        </button>
-      </div>
-      {achados.isFetching && <Carregando texto="Procurando no IXC…" />}
-      {achados.isError && <Aviso tom="erro">{mensagemErro(achados.error)}</Aviso>}
-      {achados.data && achados.data.length === 0 && (
-        <p className="mt-3 text-sm text-tinta-400">Nenhum produto com esse nome no IXC.</p>
-      )}
-      {achados.data && achados.data.length > 0 && (
-        // Sem altura própria: quem rola é a janela, que no celular vai só até o teclado.
-        <div className="mt-3 divide-y divide-tinta-100 rounded-xl border border-tinta-100">
-          {achados.data.map((p) => (
-            <button
-              key={p.produtoId}
-              type="button"
-              onClick={() => onEscolher(p.produtoId)}
-              className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left hover:bg-tinta-50"
-            >
-              <span className="min-w-0 truncate text-[13px] text-tinta-800">{p.descricao}</span>
-              <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-tinta-400">
-                {p.patrimonio && <Selo tom="info" pequeno>patrimônio</Selo>}
-                código {p.produtoId}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-    </Janela>
   );
 }
 
