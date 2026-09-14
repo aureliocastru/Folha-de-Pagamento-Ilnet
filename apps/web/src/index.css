@@ -332,6 +332,38 @@
   }
 
   /*
+   * A caixa branca do que já foi escolhido — branca nos dois temas.
+   *
+   * No escuro a busca, a lista da origem e a lista do que vai eram o mesmo
+   * azul, e o que já estava escolhido se perdia no resto. Aqui dentro a paleta
+   * volta a ser a clara: tudo o que usa `tinta` e `campo` se lê como no tema
+   * claro, sem um `dark:` em cada linha.
+   */
+  .caixa-clara {
+    color-scheme: light;
+    --tinta-50: 241 244 249;
+    --tinta-100: 225 231 240;
+    --tinta-200: 194 204 221;
+    --tinta-300: 118 134 165;
+    --tinta-400: 107 124 156;
+    --tinta-500: 70 88 122;
+    --tinta-600: 42 58 87;
+    --tinta-700: 27 39 64;
+    --tinta-800: 17 26 46;
+    --tinta-900: 10 16 32;
+    --papel: 255 255 255;
+    --campo: 255 255 255;
+    --campo-foco: 255 255 255;
+    --faixa: 247 249 252;
+    --linha-hover: 232 237 245;
+    @apply rounded-2xl border border-tinta-200 bg-white text-tinta-800 shadow-lg;
+  }
+  /* O vermelho claro do escuro some no branco: aqui dentro vale o do claro. */
+  .dark .caixa-clara .btn-perigo {
+    @apply text-rose-600 hover:border-rose-200 hover:bg-rose-50;
+  }
+
+  /*
    * Caixa de marcar. A do navegador é pequena demais para o que decide aqui —
    * "já foi paga" muda se o dinheiro sai ou não —, e no tema escuro ela nascia
    * branca, brilhando no meio do formulário.

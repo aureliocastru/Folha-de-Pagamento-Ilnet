@@ -244,7 +244,9 @@ export function Transferir() {
       const problema = !(n > 0) ? 'quantidade inválida' : n > m.saldo + 1e-9 ? `só tem ${quantidade(m.saldo)}` : null;
       return [{ m, qtd, n, problema }];
     });
-    const escolhidas = c.patrimonios.filter((p) => pecas.has(p.patrimonioId));
+    // A última bipada vem primeiro: é ela que se quer ver entrando na caixa.
+    const porId = new Map(c.patrimonios.map((p) => [p.patrimonioId, p]));
+    const escolhidas = [...pecas].reverse().flatMap((id) => porId.get(id) ?? []);
     return {
       produtos: linhas,
       pecas: escolhidas,
@@ -380,37 +382,109 @@ export function Transferir() {
           </div>
         </div>
         {/*
-          Concluir fica aqui em cima, junto do destino, e não no fim da página:
-          a lista do que vai tem quinhentas linhas de rolagem, e terminar a
-          transferência não pode depender de chegar ao fim delas.
+          O que vai fica aqui em cima, logo abaixo do destino, e não depois da
+          lista da origem: no celular ela empurrava o que foi escolhido — e o
+          botão de concluir — para o fim de centenas de linhas. Caixa branca
+          nos dois temas, para não se confundir com o resto da tela.
         */}
         {itensNaLista > 0 && (
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-tinta-200 pt-3">
-            <p className="text-[13px] text-tinta-600">
-              <strong>{itensNaLista}</strong> {itensNaLista === 1 ? 'item' : 'itens'} na lista
-              {nomeDe && ` — sai de ${nomeDe}`}
-              {nomePara && `, vai para ${nomePara}`}
-              {naLista.problemas > 0 && (
-                <span className="text-rose-600 dark:text-rose-300">
-                  {' '}
-                  · {naLista.problemas} com quantidade a acertar
-                </span>
-              )}
-            </p>
-            <button
-              type="button"
-              disabled={
-                !para || itensNaLista === 0 || naLista.problemas > 0 || transferir.isPending
-              }
-              onClick={() => setConfirmando(true)}
-              className="btn btn-primario"
-            >
-              {transferir.isPending
-                ? 'Abrindo a transferência…'
-                : !para
-                  ? 'Escolha para onde vai'
-                  : `Transferir ${itensNaLista} ${itensNaLista === 1 ? 'item' : 'itens'}`}
-            </button>
+          <div className="caixa-clara mt-4 p-3 md:p-4">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h3 className="text-[13px] font-bold uppercase tracking-wide text-tinta-900">
+                Vai na transferência ({itensNaLista})
+              </h3>
+              <button type="button" onClick={limparLista} className="btn btn-sutil btn-p">
+                Limpar
+              </button>
+            </div>
+
+            <div className="rolagem-fina max-h-[22rem] overflow-y-auto rounded-xl border border-tinta-200">
+              {naLista.pecas.map((p) => (
+                <div
+                  key={`p${p.patrimonioId}`}
+                  className="flex items-center gap-2 border-b border-tinta-100 px-3 py-2 last:border-b-0"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13px] font-medium text-tinta-900">{p.descricao}</div>
+                    <div className="truncate text-[11px] text-tinta-500">{identificacao(p)}</div>
+                  </div>
+                  <Tirar onClick={() => tirarPeca(p.patrimonioId)} />
+                </div>
+              ))}
+              {naLista.produtos.map((l) => (
+                // No celular a quantidade desce para a linha de baixo: ao lado do
+                // nome, o campo e o "Tirar" deixavam dele só "MAT…".
+                <div
+                  key={`m${l.m.produtoId}`}
+                  className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-tinta-100 px-3 py-2 last:border-b-0"
+                >
+                  <div className="min-w-0 basis-full sm:basis-0 sm:flex-1">
+                    <div className="text-[13px] font-medium text-tinta-900 sm:truncate">{l.m.descricao}</div>
+                    <div className="text-[11px] text-tinta-500">
+                      tem {quantidade(l.m.saldo)} {l.m.unidadeSigla}
+                      {l.problema && <span className="ml-1 text-rose-600">· {l.problema}</span>}
+                    </div>
+                  </div>
+                  <div className="ml-auto flex items-center gap-2">
+                    <input
+                      value={l.qtd}
+                      onChange={(e) =>
+                        setProdutos((p) => ({
+                          ...p,
+                          [l.m.produtoId]: e.target.value.replace(/[^\d.,]/g, ''),
+                        }))
+                      }
+                      inputMode="decimal"
+                      className="campo num w-24 py-1 text-right"
+                      aria-label={`Quantidade de ${l.m.descricao}`}
+                    />
+                    <span className="w-8 text-[11px] text-tinta-500">{l.m.unidadeSigla}</span>
+                    <Tirar onClick={() => tirarProduto(l.m.produtoId)} />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-3">
+              <label className="rotulo" htmlFor="transf-obs">
+                Observação (vai para o IXC)
+              </label>
+              <input
+                id="transf-obs"
+                value={observacao}
+                onChange={(e) => setObservacao(e.target.value.slice(0, 200))}
+                className="campo"
+                placeholder="Ex.: kit da van da equipe 2"
+                autoComplete="off"
+              />
+            </div>
+
+            {transferir.isError && <Aviso tom="erro">{mensagemErro(transferir.error)}</Aviso>}
+
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[13px] text-tinta-600">
+                {nomeDe && `Sai de ${nomeDe}`}
+                {nomePara && `, vai para ${nomePara}`}
+                {naLista.problemas > 0 && (
+                  <span className="text-rose-600">
+                    {' '}
+                    · {naLista.problemas} com quantidade a acertar
+                  </span>
+                )}
+              </p>
+              <button
+                type="button"
+                disabled={!para || naLista.problemas > 0 || transferir.isPending}
+                onClick={() => setConfirmando(true)}
+                className="btn btn-primario"
+              >
+                {transferir.isPending
+                  ? 'Abrindo a transferência…'
+                  : !para
+                    ? 'Escolha para onde vai'
+                    : `Transferir ${itensNaLista} ${itensNaLista === 1 ? 'item' : 'itens'}`}
+              </button>
+            </div>
           </div>
         )}
 
@@ -425,7 +499,7 @@ export function Transferir() {
       {de && (
         // grid-cols-1 é minmax(0, 1fr): sem ele a coluna cresce até o
         // conteúdo mais largo, e no celular passava da tela.
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="grid grid-cols-1">
           <Bloco titulo={nomeDe ? `O que tem em ${nomeDe}` : 'O que tem'}>
             {conteudo.isLoading && <Carregando texto="Lendo no IXC o que tem nele…" />}
             {conteudo.isError && <Aviso tom="erro">{mensagemErro(conteudo.error)}</Aviso>}
@@ -465,107 +539,6 @@ export function Transferir() {
 
                 {c.deFora.length > 0 && <FicamDeFora itens={c.deFora} />}
               </>
-            )}
-          </Bloco>
-
-          <Bloco
-            titulo={`Vai na transferência (${itensNaLista})`}
-            acao={
-              itensNaLista > 0 && (
-                <button type="button" onClick={limparLista} className="btn btn-sutil btn-p">
-                  Limpar
-                </button>
-              )
-            }
-          >
-            {itensNaLista === 0 ? (
-              <p className="text-sm text-tinta-400">
-                Bipe uma peça ou toque em + num item da esquerda.
-              </p>
-            ) : (
-              <div className="max-h-[28rem] overflow-y-auto rolagem-fina rounded-xl border border-tinta-100">
-                {naLista.produtos.map((l) => (
-                  <div
-                    key={`m${l.m.produtoId}`}
-                    className="flex items-center gap-2 border-b border-tinta-100 px-3 py-1.5 last:border-b-0"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[13px] text-tinta-800">{l.m.descricao}</div>
-                      <div className="text-[11px] text-tinta-400">
-                        tem {quantidade(l.m.saldo)} {l.m.unidadeSigla}
-                        {l.problema && (
-                          <span className="ml-1 text-rose-600 dark:text-rose-300">
-                            · {l.problema}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <input
-                      value={l.qtd}
-                      onChange={(e) =>
-                        setProdutos((p) => ({
-                          ...p,
-                          [l.m.produtoId]: e.target.value.replace(/[^\d.,]/g, ''),
-                        }))
-                      }
-                      inputMode="decimal"
-                      className="campo num w-24 py-1 text-right"
-                      aria-label={`Quantidade de ${l.m.descricao}`}
-                    />
-                    <span className="w-8 text-[11px] text-tinta-400">{l.m.unidadeSigla}</span>
-                    <Tirar onClick={() => tirarProduto(l.m.produtoId)} />
-                  </div>
-                ))}
-                {naLista.pecas.map((p) => (
-                  <div
-                    key={`p${p.patrimonioId}`}
-                    className="flex items-center gap-2 border-b border-tinta-100 px-3 py-1.5 last:border-b-0"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-[13px] text-tinta-800">{p.descricao}</div>
-                      <div className="truncate text-[11px] text-tinta-400">{identificacao(p)}</div>
-                    </div>
-                    <Tirar onClick={() => tirarPeca(p.patrimonioId)} />
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="mt-3">
-              <label className="rotulo" htmlFor="transf-obs">
-                Observação (vai para o IXC)
-              </label>
-              <input
-                id="transf-obs"
-                value={observacao}
-                onChange={(e) => setObservacao(e.target.value.slice(0, 200))}
-                className="campo"
-                placeholder="Ex.: kit da van da equipe 2"
-                autoComplete="off"
-              />
-            </div>
-
-            {transferir.isError && <Aviso tom="erro">{mensagemErro(transferir.error)}</Aviso>}
-
-            {/* O de concluir é o de cima; aqui embaixo fica só o atalho para
-                quem acabou de mexer na lista e não quer rolar de volta. */}
-            {itensNaLista > 0 && (
-              <div className="mt-3 flex justify-end">
-                <button
-                  type="button"
-                  disabled={
-                    !para || naLista.problemas > 0 || transferir.isPending
-                  }
-                  onClick={() => setConfirmando(true)}
-                  className="btn btn-primario"
-                >
-                  {transferir.isPending
-                    ? 'Abrindo a transferência…'
-                    : !para
-                      ? 'Escolha para onde vai'
-                      : `Transferir ${itensNaLista} ${itensNaLista === 1 ? 'item' : 'itens'}`}
-                </button>
-              </div>
             )}
           </Bloco>
         </div>
