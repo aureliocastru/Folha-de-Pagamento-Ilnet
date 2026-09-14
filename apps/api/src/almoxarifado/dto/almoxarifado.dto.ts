@@ -126,9 +126,9 @@ export class CriarProdutoDto {
   @Transform(numero) @IsInt() @Min(1)
   unidadeId!: number;
 
-  /** O produto de onde saem subgrupo, NCM, classificação fiscal e contas. */
-  @Transform(numero) @IsInt() @Min(1)
-  modeloId!: number;
+  /** O produto de onde saem subgrupo, NCM, classificação fiscal e contas. Sem ele, o padrão. */
+  @IsOptional() @Transform(numero) @IsInt() @Min(1)
+  modeloId?: number;
 }
 
 // --- Almoxarifados (cadastro, escrito no IXC) ---

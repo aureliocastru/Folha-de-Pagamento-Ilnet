@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Aviso, CampoDinheiro, Carregando, Janela } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { semAcento, useTermoAdiado } from '../../lib/busca';
@@ -7,6 +7,7 @@ import { formatBRL } from '../../lib/format';
 import { OndeFicouNegativo } from './rastreio';
 import type {
   ConferenciaDeSaldo,
+  EstoqueNaTela,
   ItemDeEstoque,
   OpcoesDoEstoque,
   ProdutoNoIxc,
@@ -79,12 +80,9 @@ type Aba = 'cadastro' | 'mover' | 'entrada';
  */
 export function JanelaDoProduto({
   produtoId,
-  produtos,
   onFechar,
 }: {
   produtoId: number;
-  /** Os produtos do estoque, para escolher o modelo do fiscal que faltar. */
-  produtos: ItemDeEstoque[];
   onFechar: () => void;
 }) {
   const qc = useQueryClient();
@@ -120,10 +118,16 @@ export function JanelaDoProduto({
 
       {p && (
         <>
-          <p className="mb-3 text-[13px] text-tinta-500">
-            Código {p.id} no IXC · {formatBRL(p.precoBase)} a {p.unidade ?? 'unidade'}
-            {!p.ativo && ' · desativado'}
-          </p>
+          {/* Voltar à vista: quem editou volta para a lista, que já mostra o nome e o preço novos. */}
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[13px] text-tinta-500">
+              Código {p.id} no IXC · {formatBRL(p.precoBase)} a {p.unidade ?? 'unidade'}
+              {!p.ativo && ' · desativado'}
+            </p>
+            <button type="button" onClick={onFechar} className="btn btn-p btn-neutro">
+              ← Voltar
+            </button>
+          </div>
 
           {/* O saldo de cada lugar, lido agora do IXC. */}
           <div className="mb-4 rounded-xl border border-tinta-200 p-3">
@@ -211,9 +215,16 @@ export function JanelaDoProduto({
             <Aviso
               tom={aviso.tom}
               acao={
-                <button onClick={() => setAviso(null)} className="btn btn-sutil btn-p">
-                  Ok
-                </button>
+                <div className="flex gap-1">
+                  {aviso.tom === 'pago' && (
+                    <button onClick={onFechar} className="btn btn-primario btn-p">
+                      ← Voltar para a lista
+                    </button>
+                  )}
+                  <button onClick={() => setAviso(null)} className="btn btn-sutil btn-p">
+                    Ok
+                  </button>
+                </div>
               }
             >
               {aviso.texto}
@@ -251,7 +262,6 @@ export function JanelaDoProduto({
           {opcoes.data && aba === 'cadastro' && (
             <Cadastro
               produto={p}
-              produtos={produtos}
               opcoes={opcoes.data}
               onMudou={mudou}
               onApagado={onFechar}
@@ -281,13 +291,11 @@ export function JanelaDoProduto({
 
 function Cadastro({
   produto,
-  produtos,
   opcoes,
   onMudou,
   onApagado,
 }: {
   produto: ProdutoNoIxc;
-  produtos: ItemDeEstoque[];
   opcoes: OpcoesDoEstoque;
   onMudou: (texto: string) => void;
   onApagado: () => void;
@@ -297,27 +305,38 @@ function Cadastro({
   const [preco, setPreco] = useState(produto.precoBase.toFixed(2));
   const [unidadeId, setUnidadeId] = useState(String(produto.unidadeId || ''));
   const [ativo, setAtivo] = useState(produto.ativo);
-  const [modelo, setModelo] = useState<ItemDeEstoque | null>(null);
 
+  /* Sem o fiscal (NCM…), o servidor completa com o do modelo padrão ao
+     gravar — ninguém é perguntado. Completar já é mudança, mesmo sem mexer em
+     mais nada. */
   const faltaFiscal = produto.faltaFiscal.length > 0;
   const mudancas: Record<string, unknown> = {};
   if (descricao.trim() !== produto.descricao) mudancas.descricao = descricao.trim();
   if (preco !== '' && Number(preco) !== produto.precoBase) mudancas.precoBase = Number(preco);
   if (unidadeId && Number(unidadeId) !== produto.unidadeId) mudancas.unidadeId = Number(unidadeId);
   if (ativo !== produto.ativo) mudancas.ativo = ativo;
-  // Completar o fiscal já é mudança, mesmo sem mexer em mais nada.
-  if (faltaFiscal && modelo) mudancas.modeloId = modelo.produtoId;
-  const temMudanca = Object.keys(mudancas).length > 0;
+  const temMudanca = Object.keys(mudancas).length > 0 || faltaFiscal;
 
   const salvar = useMutation({
-    mutationFn: async () => {
-      await api.patch(`/almoxarifado/produtos/${produto.id}`, mudancas);
-    },
-    onSuccess: () => {
-      setModelo(null);
+    mutationFn: async () =>
+      (await api.patch<ProdutoNoIxc>(`/almoxarifado/produtos/${produto.id}`, mudancas)).data,
+    onSuccess: (novo) => {
+      // A lista atrás da janela já mostra o nome e o preço novos, sem esperar a releitura.
+      qc.setQueriesData<EstoqueNaTela>({ queryKey: ['almoxarifado', 'estoque'] }, (d) =>
+        d
+          ? {
+              ...d,
+              itens: d.itens.map((i) =>
+                i.produtoId === novo.id
+                  ? { ...i, descricao: novo.descricao, precoBase: novo.precoBase, ativo: novo.ativo, unidade: novo.unidade }
+                  : i,
+              ),
+            }
+          : d,
+      );
       onMudou(
-        mudancas.modeloId
-          ? `Cadastro alterado no IXC, com o fiscal copiado de "${modelo?.descricao}".`
+        faltaFiscal
+          ? `Cadastro alterado no IXC, com o fiscal que faltava copiado de "${opcoes.modeloFiscalPadrao.nome}".`
           : 'Cadastro alterado no IXC.',
       );
     },
@@ -337,22 +356,6 @@ function Cadastro({
 
   return (
     <div>
-      {faltaFiscal && (
-        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
-          <p className="mb-2 text-sm">
-            Este produto está sem <strong>{produto.faltaFiscal.join(', ')}</strong> no IXC. O
-            IXC confere isso a cada gravação, e sem ele não aceita nem troca de nome. Escolha
-            um produto parecido: o fiscal que falta sai dele, e o que este já tem fica.
-          </p>
-          <EscolherModelo
-            id="produto-modelo"
-            produtos={produtos.filter((p) => p.produtoId !== produto.id)}
-            modelo={modelo}
-            onEscolher={setModelo}
-          />
-        </div>
-      )}
-
       <div className="grid gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2">
           <label className="rotulo" htmlFor="produto-nome">
@@ -404,7 +407,13 @@ function Cadastro({
 
       {salvar.isError && <Aviso tom="erro">{mensagemErro(salvar.error)}</Aviso>}
 
-      <div className="mt-4 flex justify-end">
+      <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+        {faltaFiscal && (
+          <p className="ajuda mr-auto mt-0">
+            Sem {produto.faltaFiscal.join(', ')} no IXC: ao salvar, vem o de{' '}
+            {opcoes.modeloFiscalPadrao.nome}.
+          </p>
+        )}
         <button
           type="button"
           onClick={() => salvar.mutate()}
@@ -639,6 +648,40 @@ function DarEntrada({
     retry: 0,
   });
 
+  /*
+   * O tipo de documento e a condição vêm da última compra deste fornecedor no
+   * IXC. A lista de tipos que a API devolve tem tipo que o IXC recusa ao abrir
+   * a compra — o 35 deu "Ocorreu um erro ao processar" na LIXA FERRO 100 —, e o
+   * 203 que a tela do IXC grava nem está nela. Copiar de uma compra que o IXC
+   * aceitou é o que funciona; é o mesmo que o acerto de negativos faz.
+   */
+  const modelo = useQuery({
+    queryKey: ['almoxarifado', 'entradas', 'ultima', fornecedor?.id],
+    queryFn: async () =>
+      (
+        await api.get<{
+          entradaId: number;
+          tipoDocumentoId: number;
+          condicaoPagamentoId: number;
+        } | null>('/almoxarifado/entradas/ultima', { params: { fornecedor: fornecedor!.id } })
+      ).data,
+    enabled: !!fornecedor,
+    staleTime: 5 * 60_000,
+  });
+  // Copia uma vez por compra-modelo: quem trocar o tipo à mão depois não é desfeito.
+  const copiadoDe = useRef<number | null>(null);
+  useEffect(() => {
+    const m = modelo.data;
+    if (!m || copiadoDe.current === m.entradaId) return;
+    copiadoDe.current = m.entradaId;
+    if (m.tipoDocumentoId > 0) setTipoDocumentoId(String(m.tipoDocumentoId));
+    if (m.condicaoPagamentoId > 0) setCondicaoPagamentoId(String(m.condicaoPagamentoId));
+  }, [modelo.data]);
+  const tipoDoModeloForaDaLista =
+    !!modelo.data &&
+    modelo.data.tipoDocumentoId > 0 &&
+    !opcoes.tiposDeDocumento.some((t) => t.id === modelo.data!.tipoDocumentoId);
+
   const n = numeroDigitado(qtde);
   const vu = Number(unitario);
   const total = Number.isFinite(n) && Number.isFinite(vu) ? Math.round(n * vu * 100) / 100 : 0;
@@ -809,6 +852,11 @@ function DarEntrada({
             className="campo"
           >
             <option value="">Escolha…</option>
+            {modelo.data && tipoDoModeloForaDaLista && (
+              <option value={modelo.data.tipoDocumentoId}>
+                {modelo.data.tipoDocumentoId} — o da compra #{modelo.data.entradaId}
+              </option>
+            )}
             {opcoes.tiposDeDocumento.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.id} — {t.nome}
@@ -834,6 +882,26 @@ function DarEntrada({
             ))}
           </select>
         </div>
+        {fornecedor && (
+          <div className="sm:col-span-2">
+            {modelo.isLoading && (
+              <p className="ajuda">Lendo no IXC a última compra de {fornecedor.nome}…</p>
+            )}
+            {modelo.data && (
+              <p className="ajuda">
+                Tipo de documento e condição copiados da última compra de {fornecedor.nome} no
+                IXC (#{modelo.data.entradaId}), que o IXC aceitou.
+              </p>
+            )}
+            {modelo.data === null && (
+              <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                {fornecedor.nome} ainda não tem compra no IXC para copiar o tipo de documento, e o
+                IXC recusa alguns tipos desta lista (o 35 é um). Se der erro, lance pelo
+                Fornecedor Avulso, ou faça a primeira compra dele pela tela do IXC.
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {lancar.isError && <Aviso tom="erro">{mensagemErro(lancar.error)}</Aviso>}
@@ -932,9 +1000,9 @@ function EscolherModelo({
  * Cadastrar um produto novo no IXC.
  *
  * O cadastro de produto do IXC pede o que ninguém sabe de cabeça — NCM,
- * classificação fiscal, subgrupo, tributação. Em vez de perguntar isso aqui, a
- * tela pede um produto **parecido** que já existe: é dele que saem esses
- * campos, já certos. Aqui se escolhe só nome, unidade e preço.
+ * classificação fiscal, subgrupo, tributação. Isso sai de um produto modelo
+ * que já existe: o padrão (`modeloFiscalPadrao`), sem perguntar, ou outro
+ * parecido, para quem quiser trocar. Aqui se escolhe só nome, unidade e preço.
  */
 export function NovoProduto({
   produtos,
@@ -952,6 +1020,8 @@ export function NovoProduto({
   const [preco, setPreco] = useState('');
   const [unidadeId, setUnidadeId] = useState('');
   const [modelo, setModelo] = useState<ItemDeEstoque | null>(null);
+  /** Trocar o modelo padrão por outro — fechado até alguém pedir. */
+  const [trocandoModelo, setTrocandoModelo] = useState(false);
 
   function escolherModelo(p: ItemDeEstoque | null) {
     setModelo(p);
@@ -968,7 +1038,8 @@ export function NovoProduto({
           descricao: descricao.trim(),
           precoBase: Number(preco || 0),
           unidadeId: Number(unidadeId),
-          modeloId: modelo!.produtoId,
+          // Sem modelo escolhido, o servidor usa o padrão.
+          modeloId: modelo?.produtoId,
         })
       ).data,
     onSuccess: (p) => {
@@ -977,24 +1048,14 @@ export function NovoProduto({
     },
   });
 
-  const valido = descricao.trim().length >= 2 && !!unidadeId && !!modelo;
+  const valido = descricao.trim().length >= 2 && !!unidadeId;
+  const padrao = opcoes.data?.modeloFiscalPadrao;
 
   return (
     <Janela titulo="Novo produto no IXC" onFechar={onFechar}>
       {opcoes.isError && <Aviso tom="erro">{mensagemErro(opcoes.error)}</Aviso>}
 
-      <EscolherModelo
-        id="novo-modelo"
-        produtos={produtos}
-        modelo={modelo}
-        onEscolher={escolherModelo}
-      />
-      <p className="ajuda">
-        Do modelo saem subgrupo, tipo, NCM, classificação fiscal, tributação e contas
-        contábeis — o que o IXC exige e ninguém sabe de cabeça.
-      </p>
-
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-2">
         <div className="sm:col-span-2">
           <label className="rotulo" htmlFor="novo-nome">
             Nome do produto novo
@@ -1031,6 +1092,44 @@ export function NovoProduto({
           </label>
           <CampoDinheiro id="novo-preco" valor={preco} onChange={setPreco} />
         </div>
+      </div>
+
+      <div className="mt-4">
+        {trocandoModelo ? (
+          <>
+            <EscolherModelo
+              id="novo-modelo"
+              produtos={produtos}
+              modelo={modelo}
+              onEscolher={escolherModelo}
+            />
+            <p className="ajuda">
+              Do modelo saem subgrupo, tipo, NCM, classificação fiscal, tributação e contas
+              contábeis.{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  setModelo(null);
+                  setTrocandoModelo(false);
+                }}
+                className="font-semibold text-brand-700 hover:underline dark:text-brand-300"
+              >
+                Voltar ao padrão{padrao ? ` (${padrao.nome})` : ''}
+              </button>
+            </p>
+          </>
+        ) : (
+          <p className="ajuda">
+            NCM, classificação fiscal e tributação vêm de {padrao?.nome ?? 'o produto padrão'}.{' '}
+            <button
+              type="button"
+              onClick={() => setTrocandoModelo(true)}
+              className="font-semibold text-brand-700 hover:underline dark:text-brand-300"
+            >
+              Usar outro produto
+            </button>
+          </p>
+        )}
       </div>
 
       {criar.isError && <Aviso tom="erro">{mensagemErro(criar.error)}</Aviso>}

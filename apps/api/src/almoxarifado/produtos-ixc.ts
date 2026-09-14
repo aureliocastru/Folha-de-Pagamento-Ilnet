@@ -174,6 +174,16 @@ const COPIADOS_DO_MODELO = [
   'pcomissao',
 ] as const;
 
+/**
+ * O modelo do fiscal quando ninguém escolhe outro: a BATERIA APC (#612).
+ *
+ * Pedido em 14/09/2026: produto sem NCM não pergunta mais de qual produto
+ * parecido copiar — vem deste, na edição e no cadastro novo. Na edição só o
+ * que está **vazio** é copiado (ver `montarEdicaoProduto`): produto que já tem
+ * NCM não muda.
+ */
+export const MODELO_FISCAL_PADRAO = { id: 612, nome: 'BATERIA APC' } as const;
+
 /** Os obrigatórios do "Produtos (inserir)" que têm de vir preenchidos do modelo. */
 const OBRIGATORIOS_DO_MODELO: Array<[string, string]> = [
   ['id_sub_grupo', 'o subgrupo'],

@@ -324,7 +324,6 @@ export function Estoque() {
       {editando !== null && (
         <JanelaDoProduto
           produtoId={editando}
-          produtos={dados?.itens ?? []}
           onFechar={() => setEditando(null)}
         />
       )}

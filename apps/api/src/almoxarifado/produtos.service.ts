@@ -17,6 +17,7 @@ import {
   DOCUMENTO_DO_ACERTO,
   fiscalQueFalta,
   hojeParaIxc,
+  MODELO_FISCAL_PADRAO,
   montarEdicaoProduto,
   montarEntrada,
   montarItemDaEntrada,
@@ -60,6 +61,8 @@ export interface OpcoesDoEstoque {
   almoxarifados: Array<{ id: number; nome: string; filialId: number; ativo: boolean }>;
   tiposDeDocumento: Array<{ id: number; nome: string }>;
   condicoesDePagamento: Array<{ id: number; nome: string }>;
+  /** De onde vem o fiscal que falta quando ninguém escolhe outro modelo. */
+  modeloFiscalPadrao: { id: number; nome: string };
 }
 
 /** O que a conferência depois de mexer no saldo achou. */
@@ -124,7 +127,13 @@ export class ProdutosService {
         this.tiposDeDocumento(),
         this.condicoesDePagamento(),
       ]);
-    return { unidades, almoxarifados, tiposDeDocumento, condicoesDePagamento };
+    return {
+      unidades,
+      almoxarifados,
+      tiposDeDocumento,
+      condicoesDePagamento,
+      modeloFiscalPadrao: { ...MODELO_FISCAL_PADRAO },
+    };
   }
 
   /** Fornecedores do IXC para a entrada de compra — só leitura, só os ativos. */
@@ -137,7 +146,9 @@ export class ProdutosService {
   /**
    * `modeloId`: o produto parecido de onde sai o fiscal que falta — só para o
    * produto que nasceu no IXC sem NCM, subgrupo ou classificação fiscal, que
-   * o IXC não deixa gravar de outro jeito.
+   * o IXC não deixa gravar de outro jeito. Sem `modeloId`, o que falta vem do
+   * `MODELO_FISCAL_PADRAO` — ninguém é perguntado. Vale para toda gravação:
+   * a da janela e o "Inativar" da lista.
    */
   async editar(
     produtoId: number,
@@ -148,35 +159,37 @@ export class ProdutosService {
     if (mudancas.descricao !== undefined) {
       await this.recusarNomeRepetido(mudancas.descricao, produtoId);
     }
-    const modelo = modeloId ? await this.lerProduto(modeloId) : undefined;
+    const idDoModelo =
+      modeloId ?? (fiscalQueFalta(atual).length > 0 ? MODELO_FISCAL_PADRAO.id : undefined);
+    const modelo = idDoModelo ? await this.lerProduto(idDoModelo) : undefined;
     const corpo = montarEdicaoProduto(atual, mudancas, modelo);
     try {
       await this.ixc.update('produtos', produtoId, corpo);
     } catch (err) {
-      const falta = fiscalQueFalta(corpo);
+      const falta = fiscalQueFalta(atual);
       if (falta.length === 0) throw err;
       const motivo = err instanceof Error ? err.message : String(err);
       throw new BadRequestException(
-        `Este produto está sem ${falta.join(', ')} no IXC, e o IXC confere isso a ` +
-          'cada gravação — por isso não aceita nem troca de nome. Escolha um produto ' +
-          `parecido para copiar o fiscal que falta. (${motivo})`,
+        `Este produto está sem ${falta.join(', ')} no IXC. O fiscal que faltava foi copiado ` +
+          `do produto #${idDoModelo}, e mesmo assim o IXC recusou a gravação (${motivo}).`,
       );
     }
     this.estoque.esquecer();
     this.logger.log(
       `${quem.nome} alterou o produto #${produtoId} no IXC: ` +
         Object.keys(mudancas).join(', ') +
-        (modeloId ? ` (fiscal completado do modelo #${modeloId})` : ''),
+        (idDoModelo ? ` (fiscal completado do modelo #${idDoModelo})` : ''),
     );
     return this.detalhar(produtoId);
   }
 
   async criar(
-    dados: { descricao: string; precoBase: number; unidadeId: number; modeloId: number },
+    dados: { descricao: string; precoBase: number; unidadeId: number; modeloId?: number },
     quem: Quem,
   ): Promise<ProdutoNaTela> {
     await this.recusarNomeRepetido(dados.descricao);
-    const modelo = await this.lerProduto(dados.modeloId);
+    const modeloId = dados.modeloId ?? MODELO_FISCAL_PADRAO.id;
+    const modelo = await this.lerProduto(modeloId);
     const { id } = await this.ixc.create('produtos', montarNovoProduto(dados, modelo));
     if (!id) {
       throw new BadRequestException(
@@ -187,7 +200,7 @@ export class ProdutosService {
     this.estoque.esquecer();
     this.logger.log(
       `${quem.nome} cadastrou o produto #${id} no IXC ("${dados.descricao}", ` +
-        `modelo #${dados.modeloId}).`,
+        `modelo #${modeloId}).`,
     );
     return this.detalhar(id);
   }
@@ -368,18 +381,31 @@ export class ProdutosService {
     const data = hojeParaIxc();
     const valorTotal = Math.round(dados.quantidade * dados.valorUnitario * 100) / 100;
 
-    const { id: entradaId } = await this.ixc.create(
-      'entrada',
-      montarEntrada({
-        tipoDocumentoId: dados.tipoDocumentoId,
-        fornecedorId: dados.fornecedorId,
-        condicaoPagamentoId: dados.condicaoPagamentoId,
-        filialId: almox.filialId,
-        data,
-        numeroNota: dados.numeroNota?.trim() ?? '',
-        valorTotal,
-      }),
-    );
+    let entradaId: number | null;
+    try {
+      ({ id: entradaId } = await this.ixc.create(
+        'entrada',
+        montarEntrada({
+          tipoDocumentoId: dados.tipoDocumentoId,
+          fornecedorId: dados.fornecedorId,
+          condicaoPagamentoId: dados.condicaoPagamentoId,
+          filialId: almox.filialId,
+          data,
+          numeroNota: dados.numeroNota?.trim() ?? '',
+          valorTotal,
+        }),
+      ));
+    } catch (err) {
+      // O erro genérico do IXC não diz o campo. O que já o causou aqui foi o
+      // tipo de documento: o 35 da lista da API foi recusado (LIXA FERRO 100,
+      // 14/09/2026), e o 203 que a tela do IXC grava nem aparece nela.
+      const motivo = err instanceof Error ? err.message : String(err);
+      throw new BadRequestException(
+        `O IXC recusou abrir a compra com o tipo de documento ${dados.tipoDocumentoId} (${motivo}). ` +
+          'Use o tipo de uma compra que o IXC já aceitou deste fornecedor — a tela copia o da ' +
+          'última — ou lance pelo Fornecedor Avulso.',
+      );
+    }
     if (!entradaId) {
       throw new BadRequestException(
         'O IXC não devolveu o número da compra — nada foi lançado. Tente de novo.',

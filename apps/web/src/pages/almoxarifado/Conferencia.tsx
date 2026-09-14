@@ -20,7 +20,6 @@ import { formatBRL } from '../../lib/format';
 import type {
   ConferenciaDeEstoque,
   ConferenciaDoAlmoxarifado,
-  EstoqueNaTela,
   ItemParaConferir,
   PainelDaConferencia,
   PecaAchada,
@@ -1035,14 +1034,9 @@ const CAIXA: Record<Tom, string> = {
   info: 'border-sky-200 bg-sky-50 text-sky-800 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-300',
 };
 
-/** A janela de cadastro do Estoque, com a lista de produtos que ela usa para o modelo do fiscal. */
+/** A janela de cadastro do Estoque. O fiscal que faltar vem do modelo padrão, no servidor. */
 function CorrigirCadastro({ produtoId, onFechar }: { produtoId: number; onFechar: () => void }) {
-  const estoque = useQuery({
-    queryKey: ['almoxarifado', 'estoque', ''],
-    queryFn: async () => (await api.get<EstoqueNaTela>('/almoxarifado/estoque')).data,
-    staleTime: 60_000,
-  });
-  return <JanelaDoProduto produtoId={produtoId} produtos={estoque.data?.itens ?? []} onFechar={onFechar} />;
+  return <JanelaDoProduto produtoId={produtoId} onFechar={onFechar} />;
 }
 
 /**

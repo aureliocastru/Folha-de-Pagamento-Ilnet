@@ -19,6 +19,10 @@ const PRODUTO = {
   tipo: 'C',
   preco_base: '1.50',
   ncm: '85367000',
+  id_sub_grupo: '1',
+  movimentacao: 'A',
+  icms_issqn: 'I',
+  id_class_fiscal: '2',
 };
 
 const ALMOX = [
@@ -105,6 +109,47 @@ describe('ProdutosService.editar', () => {
     );
     expect(ixc.update).not.toHaveBeenCalled();
   });
+
+  // O modelo padrão: completo, e produto comum de estoque (ver `validarModelo`).
+  const BATERIA = {
+    id: '612',
+    descricao: 'BATERIA APC',
+    tipo: 'C',
+    id_sub_grupo: '4',
+    movimentacao: 'A',
+    icms_issqn: 'I',
+    id_class_fiscal: '9',
+    ncm: '85072010',
+  };
+
+  it('produto sem NCM: o fiscal que falta vem do modelo padrão, sem ninguém escolher', async () => {
+    const { service, ixc } = montar();
+    const semNcm = { ...PRODUTO, ncm: '' };
+    ixc.getById.mockImplementation((async (_t: string, _c: string, id: number) =>
+      id === 612 ? BATERIA : semNcm) as never);
+    await service.editar(36, { ativo: false }, eu);
+    expect(ixc.getById).toHaveBeenCalledWith('produtos', 'produtos.id', 612);
+    expect(ixc.update).toHaveBeenCalledWith(
+      'produtos',
+      36,
+      expect.objectContaining({ ncm: '85072010', ativo: 'N', descricao: 'Conector APC' }),
+    );
+  });
+
+  it('produto com o fiscal completo não lê modelo nenhum', async () => {
+    const { service, ixc } = montar();
+    await service.editar(36, { precoBase: 2 }, eu);
+    expect(ixc.getById).not.toHaveBeenCalledWith('produtos', 'produtos.id', 612);
+    expect(ixc.update).toHaveBeenCalledWith('produtos', 36, expect.objectContaining({ ncm: '85367000' }));
+  });
+
+  it('cadastro novo sem modelo escolhido usa o padrão', async () => {
+    const { service, ixc } = montar();
+    ixc.getById.mockImplementation((async (_t: string, _c: string, id: number) =>
+      id === 612 ? BATERIA : PRODUTO) as never);
+    await service.criar({ descricao: 'Lixa ferro 100', precoBase: 1.5, unidadeId: 1 }, eu);
+    expect(ixc.create).toHaveBeenCalledWith('produtos', expect.objectContaining({ ncm: '85072010' }));
+  });
 });
 
 describe('ProdutosService.apagar', () => {
@@ -189,5 +234,14 @@ describe('ProdutosService.darEntrada', () => {
       .mockResolvedValueOnce({ id: 12, raw: {} })
       .mockRejectedValueOnce(new Error('campo obrigatório'));
     await expect(service.darEntrada(36, entrada, eu)).rejects.toThrow(/compra #12 foi aberta/);
+  });
+
+  it('se o IXC recusa abrir a compra, aponta o tipo de documento e não manda o item', async () => {
+    const { service, ixc } = montar({ saldos: [['1', 10]] });
+    ixc.create.mockRejectedValueOnce(new Error('Ocorreu um erro ao processar. Contate o suporte IXC Soft.'));
+    await expect(service.darEntrada(36, { ...entrada, tipoDocumentoId: 35 }, eu)).rejects.toThrow(
+      /tipo de documento 35/,
+    );
+    expect(ixc.create).toHaveBeenCalledTimes(1);
   });
 });

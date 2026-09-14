@@ -2339,6 +2339,8 @@ export interface OpcoesDoEstoque {
   almoxarifados: Array<{ id: number; nome: string; filialId: number; ativo: boolean }>;
   tiposDeDocumento: Array<{ id: number; nome: string }>;
   condicoesDePagamento: Array<{ id: number; nome: string }>;
+  /** De onde vem o fiscal que falta quando ninguém escolhe outro modelo. */
+  modeloFiscalPadrao: { id: number; nome: string };
 }
 
 /** A conferência do saldo no IXC depois de mexer nele. */
