@@ -131,7 +131,6 @@ export interface ItemParaConferir {
   unidade: string | null;
   precoBase: number | null;
   patrimonio: boolean;
-  ativo: boolean;
   controlaEstoque: boolean;
   /** O saldo do IXC neste almoxarifado, agora. */
   saldo: number;
@@ -236,19 +235,23 @@ export class ConferenciaService {
       this.estoque.listar({}),
     ]);
     const perdas = almoxarifados.find((a) => ehAlmoxDePerdas(a.nome)) ?? null;
-    const conferidas = rodada
-      ? await this.prisma.conferenciaDeEstoque.findMany({
-          where: { rodadaId: rodada.id, situacao: { not: SituacaoConferencia.DESFEITO } },
-          select: { almoxId: true, produtoId: true },
-        })
-      : [];
+    // Inativo não se conta: nem o saldo que o IXC ainda guarda dele, nem a conferência que já houve.
+    const inativos = new Set(lido.itens.filter((i) => !i.ativo).map((i) => i.produtoId));
+    const conferidas = (
+      rodada
+        ? await this.prisma.conferenciaDeEstoque.findMany({
+            where: { rodadaId: rodada.id, situacao: { not: SituacaoConferencia.DESFEITO } },
+            select: { almoxId: true, produtoId: true },
+          })
+        : []
+    ).filter((c) => !inativos.has(c.produtoId));
 
     const produtosPorAlmox = new Map<number, Set<number>>();
     const conferidosPorAlmox = new Map<number, Set<number>>();
     const juntar = (m: Map<number, Set<number>>, almoxId: number, produtoId: number) =>
       m.set(almoxId, (m.get(almoxId) ?? new Set()).add(produtoId));
     for (const i of lido.itens) {
-      if (i.servico) continue;
+      if (i.servico || !i.ativo) continue;
       for (const s of i.saldos) {
         if (Math.abs(s.saldo) > QUASE_ZERO) juntar(produtosPorAlmox, s.almoxId, i.produtoId);
       }
@@ -301,11 +304,13 @@ export class ConferenciaService {
       : [];
     const ultima = new Map<number, ConferenciaDeEstoque>();
     for (const c of conferencias) if (!ultima.has(c.produtoId)) ultima.set(c.produtoId, c);
+    // Inativo não se confere: sai da lista e da conta, com saldo no IXC ou conferência antiga.
+    for (const i of lido.itens) if (!i.ativo) ultima.delete(i.produtoId);
 
     const porProduto = new Map(lido.itens.map((i) => [i.produtoId, i]));
     const itens: ItemParaConferir[] = [];
     for (const i of lido.itens) {
-      if (i.servico) continue;
+      if (i.servico || !i.ativo) continue;
       const saldo = i.total;
       if (Math.abs(saldo) <= QUASE_ZERO && !ultima.has(i.produtoId)) continue;
       itens.push(this.itemParaConferir(i, saldo, ultima.get(i.produtoId) ?? null));
@@ -319,7 +324,6 @@ export class ConferenciaService {
         unidade: c.unidade,
         precoBase: null,
         patrimonio: c.patrimonio,
-        ativo: true,
         controlaEstoque: true,
         saldo: 0,
         conferencia: this.naTela(c),
@@ -361,7 +365,7 @@ export class ConferenciaService {
       custoMedio: numeroDoIxc(ctx.bruto.custo_medio),
       tipo: ctx.tipo,
       patrimonio: ctx.patrimonio,
-      ativo: String(ctx.bruto.ativo ?? 'S').toUpperCase() !== 'N',
+      ativo: !produtoInativo(ctx.bruto),
       controlaEstoque: !naoControlaEstoque(ctx.bruto),
       almox: ctx.almox
         ? { id: ctx.almox.id, nome: ctx.almox.nome, ativo: ctx.almox.ativo }
@@ -378,6 +382,7 @@ export class ConferenciaService {
   /**
    * Produtos do IXC pelo nome ou código — para conferir o que está na
    * prateleira e não aparece na lista (o IXC não tem saldo dele aqui).
+   * Serviço e inativo não vêm: não se confere nenhum dos dois.
    */
   async buscarProdutos(termo: string) {
     const busca = termo.trim();
@@ -402,13 +407,12 @@ export class ConferenciaService {
         const id = numeroDoIxc(p.id);
         if (id <= 0 || vistos.has(id)) return false;
         vistos.add(id);
-        return String(p.tipo ?? '').trim().toUpperCase() !== 'S';
+        return String(p.tipo ?? '').trim().toUpperCase() !== 'S' && !produtoInativo(p);
       })
       .map((p) => ({
         produtoId: numeroDoIxc(p.id),
         descricao: String(p.descricao ?? '').trim() || `Produto ${numeroDoIxc(p.id)}`,
         patrimonio: String(p.tipo ?? '').trim().toUpperCase() === 'P',
-        ativo: String(p.ativo ?? 'S').toUpperCase() !== 'N',
       }));
   }
 
@@ -1077,13 +1081,16 @@ export class ConferenciaService {
         : !perdas
           ? `Não achei o almoxarifado "Perdas e Falhas" no IXC (ou ele não está liberado para o sistema). ` +
             'É para lá que vai o que falta — cadastre ou libere na aba Almoxarifados.'
-          : tipo === 'S'
-            ? 'Serviço não é estoque: o IXC não soma entrada de serviço.'
-            : naoControlaEstoque(bruto)
-              ? `${NAO_CONTROLA} — nada que se lance muda o saldo dele. ${SAIDA_DO_NAO_CONTROLA}.`
-              : !unidade
-                ? 'O produto está sem unidade no IXC — corrija o cadastro (botão "Corrigir cadastro") antes de conferir.'
-                : null;
+          : produtoInativo(bruto)
+            ? `"${descricao}" está inativo no IXC, e inativo não se confere. Se ele voltou a ser usado, ` +
+              'ative-o na aba Estoque ("Mostrar inativos").'
+            : tipo === 'S'
+              ? 'Serviço não é estoque: o IXC não soma entrada de serviço.'
+              : naoControlaEstoque(bruto)
+                ? `${NAO_CONTROLA} — nada que se lance muda o saldo dele. ${SAIDA_DO_NAO_CONTROLA}.`
+                : !unidade
+                  ? 'O produto está sem unidade no IXC — corrija o cadastro (botão "Corrigir cadastro") antes de conferir.'
+                  : null;
 
     return {
       produtoId,
@@ -1459,7 +1466,6 @@ export class ConferenciaService {
       unidade: i.unidade,
       precoBase: i.precoBase,
       patrimonio: i.tipo === 'P',
-      ativo: i.ativo,
       controlaEstoque: i.controlaEstoque !== false,
       saldo,
       conferencia: c ? this.naTela(c) : null,
@@ -1595,6 +1601,11 @@ function pecaParaConferir(l: Record<string, unknown>): PecaParaConferir {
     naPrateleira: situacao.naPrateleira,
     identificada: pecaDaLinha(l).identificada,
   };
+}
+
+/** "N" é o inativo do IXC; ausente conta como ativo, como no Estoque (`estoque.mapper`). */
+function produtoInativo(p: Record<string, unknown>): boolean {
+  return String(p.ativo ?? 'S').trim().toUpperCase() === 'N';
 }
 
 function fmt(n: number): string {

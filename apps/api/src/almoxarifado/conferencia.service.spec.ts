@@ -24,6 +24,7 @@ const PRODUTOS: Record<number, Record<string, string>> = {
   70: { id: '70', descricao: 'ONU SIMPLES', tipo: 'P', unidade: '1', ativo: 'S', controla_estoque: 'S', preco_base: '120.00' },
   80: { id: '80', descricao: 'Ativação', tipo: 'S', unidade: '1', ativo: 'S', controla_estoque: 'S' },
   90: { id: '90', descricao: 'Switch velho', tipo: 'C', unidade: '1', ativo: 'S', controla_estoque: 'N' },
+  60: { id: '60', descricao: 'Conector de limpeza', tipo: 'C', unidade: '1', ativo: 'N', controla_estoque: 'S', preco_base: '9.00' },
 };
 
 interface Peca {
@@ -67,7 +68,7 @@ function montar(opts: { almoxarifados?: typeof PRINCIPAL[] } = {}) {
           produto_unidade: '1',
           produto_tipo: PRODUTOS[p]?.tipo,
           produto_controla_estoque: PRODUTOS[p]?.controla_estoque,
-          produto_ativo: 'S',
+          produto_ativo: PRODUTOS[p]?.ativo,
           id_almox: String(a),
           almox_descricao: nomeDoAlmox(a),
           saldo: String(v),
@@ -88,6 +89,10 @@ function montar(opts: { almoxarifados?: typeof PRINCIPAL[] } = {}) {
     list: jest.fn(async (tabela: string, params: { qtype: string; query: string; gridParam?: unknown }) => {
       if (tabela === 'patrimonio') {
         const r = filtrarPecas(params);
+        return { total: r.length, page: 1, registros: r };
+      }
+      if (tabela === 'produtos') {
+        const r = Object.values(PRODUTOS).filter((p) => p.descricao.toLowerCase().includes(params.query.toLowerCase()));
         return { total: r.length, page: 1, registros: r };
       }
       return { total: 0, page: 1, registros: [] };
@@ -612,5 +617,30 @@ describe('ConferenciaService — rodada e lista', () => {
     expect(painel.perdas).toMatchObject({ id: 43 });
     expect(painel.almoxarifados.map((a) => a.id)).not.toContain(43);
     expect(painel.almoxarifados.find((a) => a.id === 1)).toMatchObject({ itens: 1, conferidos: 1 });
+  });
+
+  it('inativo não entra: nem na lista, nem na conta, nem na busca — e não se lança nada dele', async () => {
+    const t = montar();
+    t.porSaldo(10, 1, 25);
+    t.porSaldo(60, 1, 1);
+    t.porSaldo(60, 4, 3);
+
+    const lista = await t.service.doAlmoxarifado(1);
+    expect(lista.itens.map((i) => i.produtoId)).toEqual([10]);
+
+    const painel = await t.service.painel();
+    expect(painel.almoxarifados.find((a) => a.id === 1)).toMatchObject({ itens: 1, conferidos: 0 });
+    // A ILNET só tinha o inativo: não sobra nada para contar lá.
+    expect(painel.almoxarifados.find((a) => a.id === 4)).toMatchObject({ itens: 0 });
+
+    expect((await t.service.buscarProdutos('conector')).map((p) => p.produtoId)).toEqual([10]);
+    expect(await t.service.buscarProdutos('60')).toEqual([]);
+
+    expect((await t.service.produto(1, 60)).impedimento).toMatch(/inativo/);
+    await expect(t.service.conferir({ almoxId: 1, produtoId: 60, sistemaVisto: 1, contado: 0 }, eu)).rejects.toThrow(
+      /inativo/,
+    );
+    expect(t.escritas()).toBe(0);
+    expect(t.saldo(60, 1)).toBe(1);
   });
 });

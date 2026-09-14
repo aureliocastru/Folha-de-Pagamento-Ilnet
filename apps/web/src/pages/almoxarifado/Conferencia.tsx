@@ -358,7 +358,6 @@ function ListaDoAlmoxarifado({ almoxId, onVoltar }: { almoxId: number; onVoltar:
                     <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[12px] text-tinta-400">
                       <span className="num">código {i.produtoId}</span>
                       {i.patrimonio && <Selo tom="info" pequeno>patrimônio</Selo>}
-                      {!i.ativo && <Selo tom="neutro" pequeno>inativo</Selo>}
                       {i.conferencia && <SeloDaConferencia c={i.conferencia} />}
                     </div>
                   </div>
@@ -492,7 +491,6 @@ function ProcurarProduto({
               <span className="min-w-0 truncate text-[13px] text-tinta-800">{p.descricao}</span>
               <span className="flex shrink-0 items-center gap-1.5 text-[11px] text-tinta-400">
                 {p.patrimonio && <Selo tom="info" pequeno>patrimônio</Selo>}
-                {!p.ativo && <Selo tom="neutro" pequeno>inativo</Selo>}
                 código {p.produtoId}
               </span>
             </button>
@@ -737,7 +735,6 @@ function JanelaConferir({
           <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-tinta-400">
             <span className="num">código {p.produtoId}</span>
             {p.patrimonio && <Selo tom="info" pequeno>patrimônio</Selo>}
-            {!p.ativo && <Selo tom="neutro" pequeno>inativo no IXC</Selo>}
             <button
               type="button"
               onClick={() => setCadastro(true)}

@@ -2491,7 +2491,6 @@ export interface ItemParaConferir {
   unidade: string | null;
   precoBase: number | null;
   patrimonio: boolean;
-  ativo: boolean;
   controlaEstoque: boolean;
   saldo: number;
   conferencia: ConferenciaDeEstoque | null;
@@ -2539,5 +2538,4 @@ export interface ProdutoAchadoParaConferir {
   produtoId: number;
   descricao: string;
   patrimonio: boolean;
-  ativo: boolean;
 }
