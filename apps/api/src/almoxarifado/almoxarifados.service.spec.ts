@@ -79,13 +79,54 @@ function montar(opts: { doSaldo?: Array<{ id: number; nome: string }> } = {}) {
       return { type: 'success' };
     }),
   };
-  const estoque = { almoxarifadosConhecidos: jest.fn(async () => opts.doSaldo ?? []) };
+  const estoque = {
+    almoxarifadosConhecidos: jest.fn(async () => opts.doSaldo ?? []),
+    esquecer: jest.fn(),
+  };
   const config = { get: jest.fn(() => ({ token: `${SISTEMA}:hash` })) };
   const service = new AlmoxarifadosService(ixc as never, estoque as never, config as never);
   return { service, ixc, estoque, almoxPorId, vinculos };
 }
 
 const eu = { nome: 'Administrador' };
+
+describe('AlmoxarifadosService.almoxDeSaidas', () => {
+  it('cria "Saídas" na primeira saída, ligada ao sistema', async () => {
+    const { service, ixc } = montar();
+
+    const saidas = await service.almoxDeSaidas(1, eu);
+
+    expect(saidas).toEqual({ id: 44, nome: 'Saídas' });
+    expect(ixc.create).toHaveBeenCalledWith(
+      'almox',
+      expect.objectContaining({ descricao: 'Saídas', id_filial: '1' }),
+    );
+    expect(ixc.create).toHaveBeenCalledWith(
+      'almox_usuario',
+      expect.objectContaining({ id_usuario: String(SISTEMA), id_almox: '44' }),
+    );
+  });
+
+  it('já existindo, usa a que está lá — sem criar outra', async () => {
+    const { service, ixc, almoxPorId } = montar();
+    almoxPorId.set('50', { id: '50', descricao: 'SAIDAS', id_filial: '1', ativo: 'S' });
+
+    expect(await service.almoxDeSaidas(1, eu)).toEqual({ id: 50, nome: 'SAIDAS' });
+    expect(ixc.create).not.toHaveBeenCalledWith('almox', expect.anything());
+  });
+
+  it('duas saídas ao mesmo tempo criam uma Saídas só', async () => {
+    const { service, ixc } = montar();
+
+    const [a, b] = await Promise.all([
+      service.almoxDeSaidas(1, eu),
+      service.almoxDeSaidas(1, eu),
+    ]);
+
+    expect(a.id).toBe(b.id);
+    expect(ixc.create.mock.calls.filter(([tabela]) => tabela === 'almox')).toHaveLength(1);
+  });
+});
 
 describe('AlmoxarifadosService.listar', () => {
   it('junta visíveis, saldo e ligações, e diz de quem é cada um', async () => {

@@ -24,7 +24,12 @@ import {
   type PecaDoLancamento,
   type TransferenciaLancada,
 } from './conferencia';
-import { ehAlmoxDePerdas, numeroDoIxc, type ItemDeEstoque } from './estoque.mapper';
+import {
+  ehAlmoxDePerdas,
+  ehAlmoxForaDaCasa,
+  numeroDoIxc,
+  type ItemDeEstoque,
+} from './estoque.mapper';
 import { EstoqueService } from './estoque.service';
 import {
   emParalelo,
@@ -276,7 +281,8 @@ export class ConferenciaService {
           conferidos: conferidosPorAlmox.get(id)?.size ?? 0,
         };
       })
-      .filter((a) => a.id !== perdas?.id && !ehAlmoxDePerdas(a.nome))
+      // Saídas também fica fora: o que está lá já foi embora, não tem prateleira para contar.
+      .filter((a) => a.id !== perdas?.id && !ehAlmoxForaDaCasa(a.nome))
       // Inativo e vazio não tem o que contar.
       .filter((a) => a.ativo || a.itens > 0)
       .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));

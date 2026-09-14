@@ -2691,6 +2691,43 @@ model ConferenciaDeEstoque {
   @@map("conferencias_de_estoque")
 }
 
+/// Uma saída de material: a bucha que foi para a obra, quem levou e quando.
+///
+/// O saldo sai no IXC por transferência para o almoxarifado "Saídas" (que não
+/// soma no que a casa tem). O IXC guarda a transferência, mas não tem onde
+/// escrever "pra onde foi" nem "quem pegou" — isso fica aqui, e é o histórico
+/// que a tela mostra ao tocar no produto.
+model SaidaDeEstoque {
+  id String @id @default(uuid())
+
+  /// O produto e o almoxarifado do IXC, com o nome escrito: o cadastro de lá
+  /// muda, e a linha continua dizendo o que saiu.
+  produtoId    Int     @map("produto_id")
+  descricao    String
+  unidade      String?
+  almoxId      Int     @map("almox_id")
+  almoxarifado String
+
+  quantidade Decimal @db.Decimal(18, 5)
+  /// Pra onde vai ("obra do POP Centro", "cliente Fulano").
+  destino    String
+  /// Quem pegou, escrito como foi digitado.
+  quemPegou  String  @map("quem_pegou")
+  observacao String?
+
+  /// O dia da saída — o dia em que foi lançada.
+  data DateTime
+
+  /// A transferência que tirou o saldo no IXC.
+  transferenciaIxcId Int? @map("transferencia_ixc_id")
+
+  registradoPor String   @map("registrado_por")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([produtoId, data])
+  @@map("saidas_de_estoque")
+}
+
 // ---------------------------------------------------------------------------
 // Pontuação dos funcionários.
 //

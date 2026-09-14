@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { AppConfig } from '../config/configuration';
 import { IxcClient } from '../ixc/ixc.client';
-import { numeroDoIxc } from './estoque.mapper';
+import { ehAlmoxDeSaidas, NOME_DO_ALMOX_DE_SAIDAS, numeroDoIxc } from './estoque.mapper';
 import { EstoqueService } from './estoque.service';
 import {
   montarEdicaoAlmoxarifado,
@@ -326,6 +326,46 @@ export class AlmoxarifadosService {
       );
     }
     this.logger.log(`${quem.nome} apagou o almoxarifado #${id} ("${atual.descricao}") no IXC.`);
+  }
+
+  /**
+   * O almoxarifado "Saídas" — para onde vai o material que saiu. Acha pelo
+   * nome; se não existe, cria (na filial de quem está saindo), e se existe mas
+   * o sistema não o enxerga, liga o usuário do sistema a ele.
+   *
+   * Uma criação por vez: duas saídas no mesmo segundo, com a Saídas ainda por
+   * nascer, criariam duas — e cada uma ficaria com metade do que saiu.
+   */
+  almoxDeSaidas(filialId: number, quem: Quem): Promise<{ id: number; nome: string }> {
+    const vez = this.saidasEmAndamento.then(() => this.acharOuCriarSaidas(filialId, quem));
+    this.saidasEmAndamento = vez.catch(() => undefined);
+    return vez;
+  }
+
+  private saidasEmAndamento: Promise<unknown> = Promise.resolve();
+
+  private async acharOuCriarSaidas(
+    filialId: number,
+    quem: Quem,
+  ): Promise<{ id: number; nome: string }> {
+    const existente = (await this.listar()).find((a) => ehAlmoxDeSaidas(a.descricao));
+    if (existente) {
+      if (!existente.liberado) await this.garantirAcesso([existente.id]);
+      else if (!existente.ativo) {
+        throw new BadRequestException(
+          `O almoxarifado "${existente.descricao}" está desativado no IXC, e é para lá que vão ` +
+            'as saídas. Ative-o na aba Almoxarifados.',
+        );
+      }
+      return { id: existente.id, nome: existente.descricao };
+    }
+
+    const criado = await this.criar({ descricao: NOME_DO_ALMOX_DE_SAIDAS, filialId }, quem);
+    this.estoque.esquecer();
+    this.logger.log(
+      `Almoxarifado "${NOME_DO_ALMOX_DE_SAIDAS}" criado no IXC (#${criado.id}) para a primeira saída.`,
+    );
+    return { id: criado.id, nome: criado.descricao };
   }
 
   /**

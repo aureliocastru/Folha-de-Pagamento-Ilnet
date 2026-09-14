@@ -16,6 +16,7 @@ import { formatBRL } from '../../lib/format';
 import type { AlmoxarifadoCadastro, EstoqueNaTela, ItemDeEstoque } from '../../lib/types';
 import { AcertarNegativos } from './AcertarNegativos';
 import { JanelaDoProduto, NovoProduto, quantidade } from './ProdutoNoIxc';
+import { SaidaDoProduto } from './SaidaDoProduto';
 
 /**
  * O estoque de material, do IXC.
@@ -43,6 +44,8 @@ export function Estoque() {
   const [aberto, setAberto] = useState<number | null>(null);
   /** O produto aberto na janela de edição. */
   const [editando, setEditando] = useState<number | null>(null);
+  /** O produto aberto na janela de saída (e do histórico de saídas). */
+  const [saindo, setSaindo] = useState<number | null>(null);
   const [cadastrando, setCadastrando] = useState(false);
 
   const lista = useQuery({
@@ -130,6 +133,7 @@ export function Estoque() {
           esconderZeros={esconderZerados}
           onAbrir={() => setAberto((a) => (a === i.produtoId ? null : i.produtoId))}
           onEditar={() => setEditando(i.produtoId)}
+          onSaida={() => setSaindo(i.produtoId)}
         />
       )),
     [itens, aberto, esconderZerados],
@@ -321,6 +325,15 @@ export function Estoque() {
 
       {acertando && <AcertarNegativos onFechar={() => setAcertando(false)} />}
 
+      {/* O item vem da lista de agora, e não de quando a janela abriu: depois
+          de uma saída a lista relida traz o saldo novo. */}
+      {saindo !== null && dados?.itens.find((i) => i.produtoId === saindo) && (
+        <SaidaDoProduto
+          item={dados.itens.find((i) => i.produtoId === saindo)!}
+          onFechar={() => setSaindo(null)}
+        />
+      )}
+
       {editando !== null && (
         <JanelaDoProduto
           produtoId={editando}
@@ -356,6 +369,7 @@ function LinhaDoItem({
   esconderZeros,
   onAbrir,
   onEditar,
+  onSaida,
 }: {
   item: ItemDeEstoque;
   aberto: boolean;
@@ -363,9 +377,13 @@ function LinhaDoItem({
   esconderZeros: boolean;
   onAbrir: () => void;
   onEditar: () => void;
+  /** Abre a saída do produto, com o histórico das saídas dele. */
+  onSaida: () => void;
 }) {
-  // Perdas e Falhas vai para o fim: aparece, mas não é da prateleira.
+  // Perdas e Falhas vai para o fim: aparece, mas não é da prateleira. Saídas
+  // nem aparece: o que foi embora está no histórico do produto.
   const saldos = (esconderZeros ? item.saldos.filter((s) => s.saldo !== 0) : item.saldos)
+    .filter((s) => !s.saidas)
     .slice()
     .sort((a, b) => Number(!!a.perdas) - Number(!!b.perdas));
   const temMais = saldos.length > 2;
@@ -374,7 +392,15 @@ function LinhaDoItem({
   return (
     <tr className="linha">
       <td className="td">
-        <div className="font-medium text-tinta-800">{item.descricao}</div>
+        {/* Tocar no nome abre a saída e o histórico: é a coluna que o celular sempre mostra. */}
+        <button
+          type="button"
+          onClick={onSaida}
+          className="text-left font-medium text-tinta-800 hover:text-brand-700 hover:underline"
+          title="Dar saída e ver as saídas deste produto"
+        >
+          {item.descricao}
+        </button>
         <div className="num text-xs text-tinta-400">
           código {item.produtoId}
           {item.precoBase ? ` · ${formatBRL(item.precoBase)} a unidade` : ''}
@@ -457,6 +483,11 @@ function LinhaDoItem({
 
       <td className="td text-right">
         <div className="flex justify-end gap-1.5">
+          {item.ativo && !item.servico && temSaldo(item) && (
+            <button type="button" onClick={onSaida} className="btn btn-acao btn-p">
+              Saída
+            </button>
+          )}
           <AlternarAtivo item={item} />
           <button type="button" onClick={onEditar} className="btn btn-neutro btn-p">
             Editar
@@ -478,8 +509,8 @@ function LinhaDoItem({
  * é o total: 5 no ILNET e -5 no Principal somam zero, e os 5 existem.
  */
 function temSaldo(item: ItemDeEstoque): boolean {
-  // O que está em Perdas e Falhas não está na prateleira.
-  return item.saldos.some((s) => s.saldo > 0 && !s.perdas);
+  // O que está em Perdas e Falhas ou em Saídas não está na prateleira.
+  return item.saldos.some((s) => s.saldo > 0 && !s.perdas && !s.saidas);
 }
 
 /**

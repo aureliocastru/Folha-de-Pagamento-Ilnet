@@ -9,6 +9,7 @@ import { ConferenciaService } from './conferencia.service';
 import { EstoqueService } from './estoque.service';
 import { FerramentasService } from './ferramentas.service';
 import { ProdutosService } from './produtos.service';
+import { SaidasService } from './saidas.service';
 import { TransferenciasService } from './transferencias.service';
 
 /**
@@ -34,6 +35,7 @@ import { TransferenciasService } from './transferencias.service';
     TransferenciasService,
     AcertoDeNegativosService,
     ConferenciaService,
+    SaidasService,
   ],
 })
 export class AlmoxarifadoModule {}

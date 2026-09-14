@@ -30,7 +30,7 @@ export function quantidade(n: number): string {
  * milhar; sem ela, o ponto é a casa decimal — tirar todo ponto faria de "2.5"
  * vinte e cinco metros de cabo. Vazio ou inválido → NaN.
  */
-function numeroDigitado(texto: string): number {
+export function numeroDigitado(texto: string): number {
   const t = texto.trim();
   if (!t) return NaN;
   return Number(t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t);

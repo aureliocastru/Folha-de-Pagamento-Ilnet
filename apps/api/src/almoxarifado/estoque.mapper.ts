@@ -49,6 +49,11 @@ export interface SaldoNoAlmoxarifado {
    * faltou na prateleira. Aparece, mas não soma no que a casa tem.
    */
   perdas?: boolean;
+  /**
+   * É o almoxarifado "Saídas" — para onde vai o material que saiu (a bucha que
+   * foi para a obra). Não soma no que a casa tem.
+   */
+  saidas?: boolean;
 }
 
 /**
@@ -58,14 +63,29 @@ export interface SaldoNoAlmoxarifado {
  */
 export const NOME_DO_ALMOX_DE_PERDAS = 'Perdas e Falhas';
 
-export function ehAlmoxDePerdas(nome: string | null | undefined): boolean {
-  const n = String(nome ?? '')
+/** O almoxarifado das saídas de material. Criado pelo sistema na primeira saída. */
+export const NOME_DO_ALMOX_DE_SAIDAS = 'Saídas';
+
+function nomeComparavel(nome: string | null | undefined): string {
+  return String(nome ?? '')
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .trim()
     .replace(/\s+/g, ' ')
     .toLowerCase();
-  return n === NOME_DO_ALMOX_DE_PERDAS.toLowerCase();
+}
+
+export function ehAlmoxDePerdas(nome: string | null | undefined): boolean {
+  return nomeComparavel(nome) === nomeComparavel(NOME_DO_ALMOX_DE_PERDAS);
+}
+
+export function ehAlmoxDeSaidas(nome: string | null | undefined): boolean {
+  return nomeComparavel(nome) === nomeComparavel(NOME_DO_ALMOX_DE_SAIDAS);
+}
+
+/** Perdas ou Saídas: tem saldo no IXC, mas não é prateleira. */
+export function ehAlmoxForaDaCasa(nome: string | null | undefined): boolean {
+  return ehAlmoxDePerdas(nome) || ehAlmoxDeSaidas(nome);
 }
 
 /** Um item do estoque, com o saldo de cada almoxarifado. */
@@ -89,7 +109,8 @@ export interface ItemDeEstoque {
   saldos: SaldoNoAlmoxarifado[];
   /**
    * A soma dos almoxarifados — o "quanto a casa tem". Perdas e Falhas fica
-   * fora: o que está lá é o que a conferência não achou na prateleira.
+   * fora (o que a conferência não achou na prateleira), e Saídas também (o que
+   * já foi embora).
    */
   total: number;
   /** Está abaixo do mínimo em pelo menos um almoxarifado. */
@@ -193,6 +214,7 @@ export function montarEstoque(
       // de fato se preocupou em definir o dele.
       abaixoDoMinimo: minimo !== null && saldo < minimo,
       ...(ehAlmoxDePerdas(almoxarifado) ? { perdas: true } : {}),
+      ...(ehAlmoxDeSaidas(almoxarifado) ? { saidas: true } : {}),
     });
   }
 
@@ -212,9 +234,14 @@ export function montarEstoque(
   );
 }
 
-/** A soma dos saldos, sem Perdas e Falhas — o que não foi achado não é da prateleira. */
+/**
+ * A soma dos saldos, sem Perdas e Falhas e sem Saídas — o que não foi achado e
+ * o que já foi embora não são da prateleira.
+ */
 export function totalDaCasa(saldos: SaldoNoAlmoxarifado[]): number {
-  return arredondar(saldos.reduce((s, x) => s + (x.perdas ? 0 : x.saldo), 0));
+  return arredondar(
+    saldos.reduce((s, x) => s + (x.perdas || x.saidas ? 0 : x.saldo), 0),
+  );
 }
 
 export function resumirEstoque(itens: ItemDeEstoque[]): ResumoDoEstoque {

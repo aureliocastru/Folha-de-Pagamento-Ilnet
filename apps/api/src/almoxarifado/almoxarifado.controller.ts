@@ -32,12 +32,14 @@ import {
   LigarUsuarioDto,
   MoverTudoDto,
   PadraoDoUsuarioDto,
+  SaidaDeEstoqueDto,
   TransferenciaDto,
   TransferirProdutoDto,
 } from './dto/almoxarifado.dto';
 import { EstoqueService } from './estoque.service';
 import { FerramentasService } from './ferramentas.service';
 import { ProdutosService } from './produtos.service';
+import { SaidasService } from './saidas.service';
 import { TransferenciasService } from './transferencias.service';
 
 /** `?x=1`, `?x=true` — tudo o que uma tela manda como "sim". */
@@ -82,6 +84,7 @@ export class AlmoxarifadoController {
     private readonly transferencias: TransferenciasService,
     private readonly acerto: AcertoDeNegativosService,
     private readonly conferencia: ConferenciaService,
+    private readonly saidas: SaidasService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -188,6 +191,23 @@ export class AlmoxarifadoController {
     @Query('almox', ParseIntPipe) almox: number,
   ) {
     return this.produtos.rastreio(id, almox);
+  }
+
+  /** Dá saída do material: transferência para "Saídas" no IXC, e o registro de pra onde e quem. */
+  @Post('produtos/:id/saidas')
+  @HttpCode(201)
+  darSaida(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SaidaDeEstoqueDto,
+    @Req() req: Request,
+  ) {
+    return this.saidas.darSaida(id, dto, quem(req));
+  }
+
+  /** As saídas do produto, da mais nova para a mais velha. */
+  @Get('produtos/:id/saidas')
+  saidasDoProduto(@Param('id', ParseIntPipe) id: number) {
+    return this.saidas.historico(id);
   }
 
   @Post('produtos/:id/entrada')

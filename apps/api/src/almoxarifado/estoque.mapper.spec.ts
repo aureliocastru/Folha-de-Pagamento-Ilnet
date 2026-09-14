@@ -49,6 +49,17 @@ describe('numeroDoIxc', () => {
 });
 
 describe('montarEstoque', () => {
+  it('o que foi para Saídas ou Perdas não soma no que a casa tem', () => {
+    const [item] = montarEstoque([
+      linha({ id_almox: '1', almox_descricao: 'Estoque', saldo: '10' }),
+      linha({ id_almox: '50', almox_descricao: 'SAIDAS', saldo: '3' }),
+      linha({ id_almox: '43', almox_descricao: 'Perdas e Falhas', saldo: '2' }),
+    ]);
+
+    expect(item.total).toBe(10);
+    expect(item.saldos.find((s) => s.almoxId === 50)).toMatchObject({ saidas: true });
+  });
+
   it('junta o mesmo produto de vários almoxarifados num item só', () => {
     const itens = montarEstoque([
       linha({ id_almox: '1', almox_descricao: 'Estoque', saldo: '4' }),

@@ -214,6 +214,23 @@ export class TransferirProdutoDto {
   observacao?: string;
 }
 
+/** A saída de material: de onde, quanto, pra onde vai e quem pegou. A data é a do dia. */
+export class SaidaDeEstoqueDto {
+  @Transform(numero) @IsInt() @Min(1) almoxId!: number;
+
+  @Transform(numero) @IsNumber({ maxDecimalPlaces: 5 }) @Min(0.00001)
+  quantidade!: number;
+
+  @Transform(texto) @IsString() @MinLength(2, { message: 'Diga pra onde vai.' }) @MaxLength(100)
+  destino!: string;
+
+  @Transform(texto) @IsString() @MinLength(2, { message: 'Diga quem pegou.' }) @MaxLength(80)
+  quemPegou!: string;
+
+  @IsOptional() @Transform(texto) @IsString() @MaxLength(500)
+  observacao?: string;
+}
+
 /** O acerto dos saldos negativos: a compra de acerto e o que vai nela. */
 export class AcertoDeNegativosDto {
   @Transform(numero) @IsInt() @Min(1) fornecedorId!: number;

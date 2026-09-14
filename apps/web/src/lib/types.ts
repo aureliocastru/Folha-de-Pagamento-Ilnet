@@ -2108,6 +2108,29 @@ export interface SaldoNoAlmoxarifado {
   abaixoDoMinimo: boolean;
   /** É Perdas e Falhas: aparece, mas não soma no que a casa tem. */
   perdas?: boolean;
+  /** É Saídas — o material que já foi embora. Não soma no que a casa tem. */
+  saidas?: boolean;
+}
+
+/** Uma saída de material, como o histórico do produto a mostra. */
+export interface SaidaDeEstoque {
+  id: string;
+  data: string;
+  quantidade: number;
+  unidade: string | null;
+  almoxarifado: string;
+  destino: string;
+  quemPegou: string;
+  observacao: string | null;
+  transferenciaIxcId: number | null;
+  registradoPor: string;
+}
+
+export interface HistoricoDeSaidas {
+  saidas: SaidaDeEstoque[];
+  /** Pra onde e quem já apareceram — o campo sugere. */
+  destinos: string[];
+  pessoas: string[];
 }
 
 /** Um item do estoque, com o saldo de cada almoxarifado. */
