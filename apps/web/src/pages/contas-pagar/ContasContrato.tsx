@@ -258,37 +258,82 @@ function NumeroDeCopiar({
     setTimeout(() => setEstado('parado'), 2500);
   }
 
+  const aviso = (
+    <span
+      aria-live="polite"
+      className={`text-xs font-semibold transition-opacity ${
+        estado === 'parado' ? 'opacity-0' : 'opacity-100'
+      } ${
+        estado === 'selecionado'
+          ? 'text-amber-600 dark:text-amber-400'
+          : 'text-emerald-600 dark:text-emerald-400'
+      }`}
+    >
+      {estado === 'selecionado' ? 'Selecionado — Ctrl+C' : 'Copiado!'}
+    </span>
+  );
+
+  /*
+   * Na linha da tabela o número é coadjuvante: quem bate o olho procura o nome
+   * do endereço, e um número em negrito com moldura, igual em todas as linhas,
+   * disputava com ele. Aqui ele vira uma etiqueta apagada, com o rótulo dentro
+   * e o ícone de copiar dizendo o que o clique faz.
+   */
+  if (pequeno) {
+    return (
+      <span className="inline-flex items-center gap-2">
+        <button
+          type="button"
+          onClick={copiar}
+          title={titulo}
+          className="group/cc inline-flex items-center gap-1.5 rounded-md bg-tinta-100 px-1.5 py-0.5 text-xs text-tinta-500 transition hover:bg-brand-500/10 hover:text-brand-700 dark:hover:text-brand-300"
+        >
+          <span>{rotulo}</span>
+          <span ref={numeroRef} className="num font-medium text-tinta-600 group-hover/cc:text-inherit">
+            {numero}
+          </span>
+          <IconeCopiar />
+        </button>
+        {estado !== 'parado' && aviso}
+      </span>
+    );
+  }
+
   return (
     <span className="inline-flex items-center gap-2">
-      <span
-        className={`${pequeno ? 'text-xs' : 'text-[13px]'} text-tinta-500`}
-      >
-        {rotulo}
-      </span>
+      <span className="text-[13px] text-tinta-500">{rotulo}</span>
       <button
         ref={numeroRef}
         type="button"
         onClick={copiar}
         title={titulo}
-        className={`num rounded-lg border border-tinta-200 bg-papel font-semibold tracking-wide text-tinta-800 transition hover:border-brand-300 hover:bg-brand-500/5 hover:text-brand-700 ${
-          pequeno ? 'px-2 py-0.5 text-[13px]' : 'px-2.5 py-1 text-[15px]'
-        }`}
+        className="num rounded-lg border border-tinta-200 bg-papel px-2.5 py-1 text-[15px] font-semibold tracking-wide text-tinta-800 transition hover:border-brand-300 hover:bg-brand-500/5 hover:text-brand-700"
       >
         {numero}
       </button>
-      <span
-        aria-live="polite"
-        className={`text-xs font-semibold transition-opacity ${
-          estado === 'parado' ? 'opacity-0' : 'opacity-100'
-        } ${
-          estado === 'selecionado'
-            ? 'text-amber-600 dark:text-amber-400'
-            : 'text-emerald-600 dark:text-emerald-400'
-        }`}
-      >
-        {estado === 'selecionado' ? 'Selecionado — Ctrl+C' : 'Copiado!'}
-      </span>
+      {aviso}
     </span>
+  );
+}
+
+/** Dois retângulos sobrepostos: o sinal de copiar. */
+function IconeCopiar() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="shrink-0 opacity-60"
+      aria-hidden
+    >
+      <rect x="9" y="9" width="12" height="12" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </svg>
   );
 }
 
@@ -791,15 +836,19 @@ function LinhaDoEndereco({
           title={`Ver o consumo de ${c.apelido} mês a mês`}
           className="group text-left"
         >
-          <span className="flex items-center gap-1.5 font-medium text-tinta-800 transition group-hover:text-brand-700 dark:group-hover:text-brand-300">
+          {/* O nome é o que se procura na lista: maior, mais forte, na fonte
+              dos títulos. O resto da célula fica apagado de propósito. */}
+          <span className="block font-display text-base font-semibold leading-tight text-tinta-900 transition group-hover:text-brand-700 dark:group-hover:text-brand-300">
             {c.apelido}
-            <span className="text-tinta-300 transition group-hover:text-brand-500">
+            {/* Na mesma linha da última palavra: nome comprido quebra, e a seta
+                vai junto em vez de ficar sozinha na ponta da célula. */}
+            <span className="ml-1.5 font-sans font-normal text-tinta-300 transition group-hover:text-brand-500">
               &rsaquo;
             </span>
           </span>
         </button>
         {/* Fora do botão do nome: clicar no número copia, e não abre o cartão. */}
-        <div className="mt-1">
+        <div className="mt-1.5">
           <NumeroDeCopiar
             pequeno
             rotulo="CC:"
@@ -807,8 +856,10 @@ function LinhaDoEndereco({
             titulo={`Copiar a conta contrato de ${c.apelido}`}
           />
         </div>
+        {/* A observação com cara de anotação — o traço do lado a separa do
+            número de cima, que é outra coisa (e às vezes ela é um CPF). */}
         {c.observacao && (
-          <p className="mt-1 max-w-[18rem] text-xs text-tinta-500">
+          <p className="mt-1.5 max-w-[18rem] border-l-2 border-tinta-200 pl-2 text-xs leading-snug text-tinta-400">
             {c.observacao}
           </p>
         )}
