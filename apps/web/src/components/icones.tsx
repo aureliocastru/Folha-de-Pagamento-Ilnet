@@ -474,6 +474,32 @@ export function IconePrateleira({ className }: IconeProps) {
   );
 }
 
+/** Um carro de lado: a frota. */
+export function IconeCarro({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M3 16.5v-3.2l1.8-4.1A2 2 0 0 1 6.6 8h10.8a2 2 0 0 1 1.8 1.2l1.8 4.1v3.2a1 1 0 0 1-1 1h-1" />
+      <path d="M6 17.5H5a1 1 0 0 1-1-1" />
+      <path d="M9.5 17.5h5" />
+      <path d="M3.5 13h17" />
+      <circle cx="7.5" cy="17.5" r="2" />
+      <circle cx="16.5" cy="17.5" r="2" />
+    </svg>
+  );
+}
+
+/** Bomba de combustível: o abastecimento. */
+export function IconeBomba({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M4 20.5V5.5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v15" />
+      <path d="M2.5 20.5h13" />
+      <path d="M6.5 7.5h5v4h-5z" />
+      <path d="M14 10h2a1.5 1.5 0 0 1 1.5 1.5v4a1.5 1.5 0 0 0 3 0V8.2L18 5.5" />
+    </svg>
+  );
+}
+
 /** Chave inglesa: as ferramentas que saem e voltam. */
 export function IconeChaveInglesa({ className }: IconeProps) {
   return (

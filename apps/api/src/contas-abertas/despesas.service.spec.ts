@@ -14,6 +14,9 @@ import type { CriarDespesaDto } from './dto/despesa.dto';
 
 const HOJE = new Date('2026-08-15T09:30:00-03:00');
 
+const MOTO = '6f1d2a3b-0000-4000-8000-000000000001';
+const VEICULO_SUMIDO = '6f1d2a3b-0000-4000-8000-000000000099';
+
 function montarServico(
   opts: {
     idFnApagarIxc?: number | null;
@@ -56,13 +59,24 @@ function montarServico(
   // passa por lá, e um dublê mudo basta para o construtor.
   const ixc = { upload: jest.fn() };
 
+  // Só o veículo é lido do banco aqui: o id "sumido" faz o papel do que foi
+  // apagado noutra aba.
+  const prisma = {
+    veiculo: {
+      findUnique: jest.fn(async ({ where }: { where: { id: string } }) =>
+        where.id === VEICULO_SUMIDO ? null : { id: where.id },
+      ),
+    },
+  };
+
   const service = new DespesasService(
     contasPagar as never,
     categorias as never,
     pagamentos as never,
     ixc as never,
+    prisma as never,
   );
-  return { service, contasPagar, categorias, pagamentos, conta , ixc };
+  return { service, contasPagar, categorias, pagamentos, conta , ixc, prisma };
 }
 
 const BASE: CriarDespesaDto = {
@@ -94,6 +108,35 @@ describe('DespesasService.lancar', () => {
       }),
       'u1',
     );
+  });
+
+  it('liga a conta ao veículo escolhido, junto com a categoria que a pessoa marcou', async () => {
+    const { service, contasPagar, categorias } = montarServico();
+
+    await service.lancar(
+      { ...BASE, veiculoId: MOTO, categoriaId: 'b3a1c2d4-0000-4000-8000-000000000007' },
+      'u1',
+    );
+
+    expect(contasPagar.criarDespesa).toHaveBeenCalledWith(
+      expect.objectContaining({ veiculoId: MOTO }),
+      'u1',
+    );
+    // O veículo não troca a categoria: a de mão de obra continua sendo a de mão de obra.
+    expect(categorias.classificar).toHaveBeenCalledWith(
+      4242,
+      'b3a1c2d4-0000-4000-8000-000000000007',
+      'u1',
+    );
+  });
+
+  it('veículo que não existe mais não deixa lançar nada no IXC', async () => {
+    const { service, contasPagar } = montarServico();
+
+    await expect(service.lancar({ ...BASE, veiculoId: VEICULO_SUMIDO })).rejects.toThrow(
+      /veículo escolhido não existe/,
+    );
+    expect(contasPagar.criarDespesa).not.toHaveBeenCalled();
   });
 
   it('usa as datas escolhidas, sem escorregar de dia pelo fuso', async () => {

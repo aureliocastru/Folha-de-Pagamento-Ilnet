@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
   FotoDoPonto,
   PainelDePontos,
@@ -9,17 +9,21 @@ import {
   mesPorExtenso,
   somarMeses,
 } from '../../components/PainelDePontos';
-import { IconeTrofeu } from '../../components/icones';
+import { IconeBomba, IconeTrofeu } from '../../components/icones';
 import { Aviso, Carregando } from '../../components/ui';
 import { mensagemErro } from '../../lib/api';
 import { formatData } from '../../lib/format';
 import { apiPontos, mascararCpf, tokenDoPortal } from '../../lib/pontos';
+import { TelaDeAbastecimento, useVeiculosDoCpf } from './Abastecimento';
 
 type Etapa =
   | { tipo: 'cpf' }
   | { tipo: 'senha'; cpf: string; nome: string | null; funcionario: boolean }
   | { tipo: 'coordenador'; nome: string }
-  | { tipo: 'funcionario'; cpf: string };
+  | { tipo: 'funcionario'; cpf: string; aba?: AbaDoFuncionario };
+
+/** As duas telas de quem entra só com o CPF. */
+type AbaDoFuncionario = 'pontos' | 'abastecimento';
 
 interface MinhaPontuacao {
   nome: string;
@@ -67,6 +71,13 @@ export function Portal() {
     if (sessao.isError) tokenDoPortal.apagar();
   }, [sessao.data, sessao.isError]);
 
+  // Estável entre renders: a área do funcionário a chama de dentro de um efeito.
+  const trocarAba = useCallback(
+    (aba: AbaDoFuncionario) =>
+      setEtapa((e) => (e.tipo === 'funcionario' ? { ...e, aba } : e)),
+    [],
+  );
+
   function sair() {
     tokenDoPortal.apagar();
     qc.removeQueries({ queryKey: ['pontos'] });
@@ -80,7 +91,9 @@ export function Portal() {
           <div className="flex items-center gap-2.5">
             <img src="/logo-ilnet.png" alt="ilnet" width={92} height={57} className="h-auto w-[72px]" />
             <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-tinta-400">
-              Pontuação
+              {etapa.tipo === 'funcionario' && etapa.aba === 'abastecimento'
+                ? 'Abastecimento'
+                : 'Pontuação'}
             </span>
           </div>
           {etapa.tipo !== 'cpf' && (
@@ -105,8 +118,9 @@ export function Portal() {
           <SenhaDoCoordenador
             cpf={etapa.cpf}
             nome={etapa.nome}
+            funcionario={etapa.funcionario}
             onEntrou={(nome) => setEtapa({ tipo: 'coordenador', nome })}
-            onSoMinha={etapa.funcionario ? () => setEtapa({ tipo: 'funcionario', cpf: etapa.cpf }) : undefined}
+            onSoMinha={(aba) => setEtapa({ tipo: 'funcionario', cpf: etapa.cpf, aba })}
             onVoltar={() => setEtapa({ tipo: 'cpf' })}
           />
         ) : etapa.tipo === 'coordenador' ? (
@@ -116,10 +130,79 @@ export function Portal() {
             <PainelDePontos cliente={apiPontos} base="/pontos" />
           </>
         ) : (
-          <TelaDoFuncionario cpf={etapa.cpf} />
+          <AreaDoFuncionario
+            cpf={etapa.cpf}
+            aba={etapa.aba}
+            onAba={trocarAba}
+          />
         )}
       </main>
     </div>
+  );
+}
+
+/**
+ * O que abre para quem entra só com o CPF: a pontuação e, se algum veículo da
+ * frota está no nome dele, o abastecimento.
+ *
+ * Quem tem veículo cai direto no abastecimento: ele abre o portal no posto,
+ * com a nota na mão. A pontuação fica a um toque, na aba ao lado.
+ */
+function AreaDoFuncionario({
+  cpf,
+  aba,
+  onAba,
+}: {
+  cpf: string;
+  aba?: AbaDoFuncionario;
+  onAba: (aba: AbaDoFuncionario) => void;
+}) {
+  const veiculos = useVeiculosDoCpf(cpf);
+  const temVeiculo = (veiculos.data?.veiculos.length ?? 0) > 0;
+  const padrao: AbaDoFuncionario = temVeiculo ? 'abastecimento' : 'pontos';
+
+  // A aba escolhida sozinha vira a da etapa: é por ela que o cabeçalho diz onde se está.
+  useEffect(() => {
+    if (!aba && !veiculos.isLoading) onAba(padrao);
+  }, [aba, veiculos.isLoading, padrao, onAba]);
+
+  if (veiculos.isLoading && !aba) return <Carregando />;
+
+  const atual: AbaDoFuncionario = aba ?? padrao;
+
+  return (
+    <>
+      {(temVeiculo || atual === 'abastecimento') && (
+        <div className="mb-4 grid grid-cols-2 gap-1 rounded-xl bg-tinta-100 p-1">
+          {(
+            [
+              ['abastecimento', 'Abastecimento', IconeBomba],
+              ['pontos', 'Pontuação', IconeTrofeu],
+            ] as const
+          ).map(([valor, rotulo, Icone]) => (
+            <button
+              key={valor}
+              type="button"
+              onClick={() => onAba(valor)}
+              aria-pressed={atual === valor}
+              className={`flex h-11 items-center justify-center gap-2 rounded-lg text-sm font-semibold transition ${
+                atual === valor
+                  ? 'bg-papel text-tinta-900 shadow-sm'
+                  : 'text-tinta-500 hover:text-tinta-700'
+              }`}
+            >
+              <Icone className="h-4 w-4" />
+              {rotulo}
+            </button>
+          ))}
+        </div>
+      )}
+      {atual === 'abastecimento' ? (
+        <TelaDeAbastecimento cpf={cpf} />
+      ) : (
+        <TelaDoFuncionario cpf={cpf} />
+      )}
+    </>
   );
 }
 
@@ -161,7 +244,7 @@ function EntradaPorCpf({
       <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-400/15 text-amber-600 dark:text-amber-300">
         <IconeTrofeu className="h-6 w-6" />
       </div>
-      <h1 className="font-display text-xl font-semibold text-tinta-900">Sua pontuação</h1>
+      <h1 className="font-display text-xl font-semibold text-tinta-900">Pontuação e abastecimento</h1>
       <p className="mb-5 mt-1 text-sm text-tinta-500">Digite seu CPF para entrar.</p>
       <form onSubmit={enviar}>
         <label className="rotulo" htmlFor="portal-cpf">
@@ -193,18 +276,23 @@ function EntradaPorCpf({
 function SenhaDoCoordenador({
   cpf,
   nome,
+  funcionario,
   onEntrou,
   onSoMinha,
   onVoltar,
 }: {
   cpf: string;
   nome: string | null;
+  /** O coordenador também é funcionário: tem pontos, e pode ter veículo. */
+  funcionario: boolean;
   onEntrou: (nome: string) => void;
-  onSoMinha?: () => void;
+  onSoMinha: (aba: AbaDoFuncionario) => void;
   onVoltar: () => void;
 }) {
   const [senha, setSenha] = useState('');
   const campo = useRef<HTMLInputElement>(null);
+  const veiculos = useVeiculosDoCpf(cpf, funcionario);
+  const temVeiculo = (veiculos.data?.veiculos.length ?? 0) > 0;
 
   const entrar = useMutation({
     mutationFn: async () =>
@@ -259,16 +347,26 @@ function SenhaDoCoordenador({
         <button type="button" onClick={onVoltar} className="text-tinta-500 hover:text-tinta-700">
           ‹ Outro CPF
         </button>
-        {onSoMinha && (
+        {funcionario && (
           <button
             type="button"
-            onClick={onSoMinha}
+            onClick={() => onSoMinha('pontos')}
             className="font-semibold text-brand-700 hover:underline dark:text-brand-300"
           >
             Ver só a minha pontuação
           </button>
         )}
       </div>
+      {temVeiculo && (
+        <button
+          type="button"
+          onClick={() => onSoMinha('abastecimento')}
+          className="btn btn-neutro mt-4 h-11 w-full"
+        >
+          <IconeBomba className="h-4 w-4" />
+          Lançar abastecimento
+        </button>
+      )}
     </Cartao>
   );
 }

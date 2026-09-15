@@ -507,6 +507,8 @@ export class ContasPagarService {
       numeroNota?: string | null;
       chavePix?: string | null;
       tipoChavePix?: string | null;
+      /** O veículo da frota em que o dinheiro foi gasto. */
+      veiculoId?: string | null;
     },
     usuarioId?: string,
   ): Promise<ContaPagar> {
@@ -548,6 +550,7 @@ export class ContasPagarService {
         numeroNota: dados.numeroNota?.trim() || null,
         chavePix: dados.chavePix?.trim() || null,
         tipoChavePix: dados.tipoChavePix?.trim() || null,
+        veiculoId: dados.veiculoId || null,
         status: StatusContaPagar.RASCUNHO,
         criadoPor: usuarioId ?? null,
       },

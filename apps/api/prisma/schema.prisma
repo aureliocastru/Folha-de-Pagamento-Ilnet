@@ -139,6 +139,9 @@ model Funcionario {
   faltas        FaltaFuncionario[]
   lancamentos   Lancamento[]
   contasPagar   ContaPagar[]
+  /// Os veículos da frota que ele abastece — é o que o portal lhe mostra.
+  veiculosResponsavel Veiculo[]
+  abastecimentos      Abastecimento[]
   variaveisMes  VariavelMes[]
   vales         Vale[]
   itensFerias   ItemPrevisaoFerias[]
@@ -1214,6 +1217,12 @@ model ContaPagar {
   cartaoCredito   CartaoCredito? @relation(fields: [cartaoCreditoId], references: [id], onDelete: SetNull)
   cartaoCreditoId String?        @map("cartao_credito_id")
 
+  /// O veículo da frota em que este dinheiro foi gasto — a peça da moto, a
+  /// revisão do carro. É independente da categoria: a categoria diz com o que
+  /// se gastou (peça, mão de obra), o veículo diz em qual.
+  veiculo   Veiculo? @relation(fields: [veiculoId], references: [id], onDelete: SetNull)
+  veiculoId String?  @map("veiculo_id")
+
   status StatusContaPagar @default(RASCUNHO)
   erro   String?
 
@@ -1250,7 +1259,108 @@ model ContaPagar {
   @@index([origem])
   @@index([contaContratoId, competencia])
   @@index([cartaoCreditoId, competencia])
+  @@index([veiculoId])
   @@map("contas_pagar")
+}
+
+// ---------------------------------------------------------------------------
+// Veículos da frota.
+//
+// A moto do técnico, a caminhonete, o trator. O que se quer saber de cada um é
+// quanto já custou — a peça, a revisão, a troca de óleo —, e esse dinheiro sai
+// por conta a pagar como qualquer outro. O veículo só marca em qual deles foi.
+// ---------------------------------------------------------------------------
+
+enum TipoVeiculo {
+  MOTO
+  CARRO
+  CAMINHONETE
+  CAMINHAO
+  MAQUINA
+  OUTRO
+}
+
+/// Um veículo da frota.
+model Veiculo {
+  id String @id @default(uuid())
+
+  /// Como a casa o chama ("Moto do Anderson", "Hilux", "Trator")
+  apelido String
+  tipo    TipoVeiculo @default(CARRO)
+  placa   String?
+  /// Marca e modelo ("Honda CG 160")
+  modelo  String?
+  ano     Int?
+
+  observacao String?
+
+  /// Desligado (vendido, baixado) sai da escolha no lançamento. O que já se
+  /// gastou nele continua de pé.
+  ativo Boolean @default(true)
+
+  /// Quem anda com ele e o abastece. É o funcionário que, no portal (CPF),
+  /// vê este veículo e lança o abastecimento dele.
+  responsavel   Funcionario? @relation(fields: [responsavelId], references: [id], onDelete: SetNull)
+  responsavelId String?      @map("responsavel_id")
+
+  contas         ContaPagar[]
+  abastecimentos Abastecimento[]
+
+  criadoPor String?  @map("criado_por")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([ativo])
+  @@map("veiculos")
+}
+
+/// Um abastecimento: quanto, com que km no painel, e a foto da nota.
+///
+/// É controle, e não conta a pagar: o posto manda a fatura da semana inteira,
+/// com desconto, e é ela que se paga. O que se quer daqui é quanto cada veículo
+/// gasta de combustível, e a nota de cada vez que ele foi ao posto.
+model Abastecimento {
+  id String @id @default(uuid())
+
+  veiculo   Veiculo @relation(fields: [veiculoId], references: [id], onDelete: Restrict)
+  veiculoId String  @map("veiculo_id")
+
+  /// O valor da nota, antes do desconto da fatura.
+  valor Decimal @db.Decimal(14, 2)
+  /// O km do painel na hora de abastecer.
+  km    Int
+  /// Quando abasteceu.
+  data  DateTime
+
+  /// Quem lançou: o funcionário do portal, ou um login do sistema.
+  funcionario   Funcionario? @relation(fields: [funcionarioId], references: [id], onDelete: SetNull)
+  funcionarioId String?      @map("funcionario_id")
+  usuarioId     String?      @map("usuario_id")
+  /// O nome de quem lançou, escrito: sobrevive ao cadastro mudar.
+  lancadoPor    String       @map("lancado_por")
+
+  foto FotoDoAbastecimento?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([veiculoId, data])
+  @@map("abastecimentos")
+}
+
+/// A foto da nota do posto. À parte, como a dos pontos: são centenas de KB, e
+/// a ficha do veículo lista os abastecimentos sem precisar delas.
+model FotoDoAbastecimento {
+  id String @id @default(uuid())
+
+  abastecimento   Abastecimento @relation(fields: [abastecimentoId], references: [id], onDelete: Cascade)
+  abastecimentoId String        @unique @map("abastecimento_id")
+
+  /// A imagem, em data URL, já reduzida no navegador.
+  foto String
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("fotos_dos_abastecimentos")
 }
 
 // ---------------------------------------------------------------------------

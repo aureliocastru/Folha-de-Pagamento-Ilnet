@@ -34,6 +34,7 @@ import { HistoricoDePagamentos } from './pages/contas-pagar/HistoricoDePagamento
 import { CartoesCredito } from './pages/contas-pagar/CartoesCredito';
 import { ContasContrato } from './pages/contas-pagar/ContasContrato';
 import { Recorrentes } from './pages/contas-pagar/Recorrentes';
+import { Veiculos } from './pages/contas-pagar/Veiculos';
 import { Avulsos } from './pages/folha/Avulsos';
 import { Configuracoes } from './pages/folha/Configuracoes';
 import { ContasPagar } from './pages/folha/ContasPagar';
@@ -187,6 +188,8 @@ export default function App() {
         {/* A fatura de cada cartão: as compras dentro dela e o botão que a
             faz virar uma conta a pagar só. */}
         <Route path="cartao-credito" element={<CartoesCredito />} />
+        {/* A frota: cada veículo, o que já se gastou nele e os abastecimentos. */}
+        <Route path="veiculos" element={<Veiculos />} />
         <Route path="categorias" element={<ContasPagarCategorias />} />
         <Route path="fechamento-caixa" element={<FechamentoCaixa />} />
         {/* A mesma tela de sempre, com o caminho deste módulo. Ela morava só

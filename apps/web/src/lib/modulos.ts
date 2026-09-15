@@ -5,6 +5,7 @@ import {
   IconeCalendarioVolta,
   IconeCapacete,
   IconeCartao,
+  IconeCarro,
   IconeChaveInglesa,
   IconeChave,
   IconeChecklist,
@@ -128,6 +129,9 @@ const contasPagar: Modulo = {
     // A fatura do cartão: cada compra dentro dela, parcelada ou não, e no mês
     // do vencimento uma conta a pagar só, no valor da soma.
     { to: 'cartao-credito', label: 'Cartão de Crédito', icone: IconeCartao },
+    // A frota: quanto cada veículo já custou em peça e serviço (as contas
+    // lançadas com ele marcado) e em combustível (o que se abastece pelo portal).
+    { to: 'veiculos', label: 'Veículos', icone: IconeCarro },
     { to: 'categorias', label: 'Categorias', icone: IconeEtiqueta },
     // Bater o caixa do dinheiro em mãos: conferir as saídas do período,
     // fotografar a nota e declarar o que ainda está na rua com alguém.

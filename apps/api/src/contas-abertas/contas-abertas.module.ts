@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { FinanceiroModule } from '../financeiro/financeiro.module';
 import { IxcModule } from '../ixc/ixc.module';
+import { AbastecimentoPortalController } from './abastecimento-portal.controller';
+import { AbastecimentosService } from './abastecimentos.service';
 import { BaixasDoIxcService } from './baixas-do-ixc.service';
 import { CartoesCreditoController } from './cartoes-credito.controller';
 import { CartoesCreditoService } from './cartoes-credito.service';
@@ -19,6 +21,8 @@ import { ParcelasService } from './parcelas.service';
 import { RecorrentesPollerService } from './recorrentes-poller.service';
 import { RecorrentesController } from './recorrentes.controller';
 import { RecorrentesService } from './recorrentes.service';
+import { VeiculosController } from './veiculos.controller';
+import { VeiculosService } from './veiculos.service';
 
 @Module({
   // O financeiro entra por causa da despesa lançada à mão: ela vira conta a
@@ -36,6 +40,12 @@ import { RecorrentesService } from './recorrentes.service';
     // Os cartões de crédito: as compras de cada fatura, e o botão que faz a
     // fatura do mês virar uma conta a pagar só.
     CartoesCreditoController,
+    // A frota: os veículos, e quanto cada um já custou pelas contas lançadas
+    // com ele marcado.
+    VeiculosController,
+    // O abastecimento pelo portal do CPF, o mesmo da pontuação: quem anda com
+    // o veículo lança o km e a foto da nota, sem login no sistema.
+    AbastecimentoPortalController,
     // As duas metades da mesma tabela do IXC: o que a empresa deve, e o
     // histórico do que ela já pagou.
     HistoricoPagamentosController,
@@ -61,6 +71,8 @@ import { RecorrentesService } from './recorrentes.service';
     // se sabe antes de a fatura chegar, então nada é gerado sozinho.
     ContasContratoService,
     CartoesCreditoService,
+    VeiculosService,
+    AbastecimentosService,
   ],
   // O fechamento de caixa lanca a despesa do dinheiro que voltou da rua pelo
   // mesmo caminho desta tela: mesma auditoria, mesma baixa, mesmo titulo no

@@ -113,7 +113,14 @@ interface Parcela {
  * `fn_apagar` exige. Cadastrar um novo daqui encheria a base de duplicados: a
  * Cemar já está lá, o que falta é achá-la.
  */
-export function NovaDespesa({ onFechar }: { onFechar: () => void }) {
+export function NovaDespesa({
+  onFechar,
+  veiculoInicial,
+}: {
+  onFechar: () => void;
+  /** Lançada de dentro da ficha de um veículo: ele já vem escolhido. */
+  veiculoInicial?: { id: string; apelido: string };
+}) {
   const queryClient = useQueryClient();
 
   const [termo, setTermo] = useState('');
@@ -122,6 +129,11 @@ export function NovaDespesa({ onFechar }: { onFechar: () => void }) {
   const [emissao, setEmissao] = useState(hoje);
   const [vencimento, setVencimento] = useState(hoje);
   const [categoriaId, setCategoriaId] = useState('');
+  /**
+   * Em qual veículo da frota foi o gasto. Não depende da categoria: ela diz com
+   * o que (peça, mão de obra do mecânico), o veículo diz em qual.
+   */
+  const [veiculoId, setVeiculoId] = useState(veiculoInicial?.id ?? '');
   const [tipoPagamento, setTipoPagamento] = useState('');
   const [observacao, setObservacao] = useState('');
   const [codigoBarras, setCodigoBarras] = useState('');
@@ -181,6 +193,17 @@ export function NovaDespesa({ onFechar }: { onFechar: () => void }) {
     queryKey: ['config-financeira'],
     queryFn: async () =>
       (await api.get<ConfigFinanceira>('/config-financeira')).data,
+  });
+
+  const veiculos = useQuery({
+    queryKey: ['veiculos', 'ativos'],
+    queryFn: async () =>
+      (
+        await api.get<Array<{ id: string; apelido: string; placa: string | null }>>(
+          '/veiculos',
+          { params: { ativos: true } },
+        )
+      ).data,
   });
 
   // O tipo de pagamento começa no padrão das Configurações e fica editável: a
@@ -273,6 +296,7 @@ export function NovaDespesa({ onFechar }: { onFechar: () => void }) {
           dataVencimento: vencimento,
           observacao: observacao.trim(),
           categoriaId: categoriaId || null,
+          veiculoId: veiculoId || undefined,
           tipoPagamento: tipoPagamento.trim() || undefined,
           codigoBarras: digitos(codigoBarras) || undefined,
           documento: documento.trim() || undefined,
@@ -351,6 +375,7 @@ export function NovaDespesa({ onFechar }: { onFechar: () => void }) {
       void queryClient.invalidateQueries({ queryKey: ['contas-abertas'] });
       void queryClient.invalidateQueries({ queryKey: ['categorias-despesa'] });
       void queryClient.invalidateQueries({ queryKey: ['recorrentes'] });
+      void queryClient.invalidateQueries({ queryKey: ['veiculos'] });
     },
   });
 
@@ -971,6 +996,39 @@ export function NovaDespesa({ onFechar }: { onFechar: () => void }) {
               title="É por esta escolha que o dashboard separa os gastos. Fica guardada aqui — o IXC não tem onde recebê-la."
             />
           </div>
+
+          {/* Só aparece quando há frota cadastrada — ou quando a conta nasceu
+              dentro de um veículo, e aí ele já vem marcado. */}
+          {(veiculoInicial || (veiculos.data?.length ?? 0) > 0) && (
+            <div className="sm:col-span-2">
+              <label className="rotulo" htmlFor="veiculo">
+                Veículo da frota
+              </label>
+              <select
+                id="veiculo"
+                value={veiculoId}
+                onChange={(e) => setVeiculoId(e.target.value)}
+                className="campo"
+                disabled={veiculos.isLoading}
+              >
+                <option value="">Nenhum</option>
+                {veiculoInicial &&
+                  !veiculos.data?.some((v) => v.id === veiculoInicial.id) && (
+                    <option value={veiculoInicial.id}>{veiculoInicial.apelido}</option>
+                  )}
+                {(veiculos.data ?? []).map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.apelido}
+                    {v.placa ? ` · ${v.placa}` : ''}
+                  </option>
+                ))}
+              </select>
+              <p className="ajuda">
+                Peça, revisão, mecânico: o gasto entra na ficha do veículo. A
+                categoria continua sendo a que você marcar.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* --- Serviço que se repete todo mês --- */}

@@ -12,6 +12,7 @@ import {
 } from '../arquivos/data-url';
 import { IxcClient } from '../ixc/ixc.client';
 import { parseIxcId } from '../ixc/ixc.parse';
+import { PrismaService } from '../prisma/prisma.service';
 
 /** O que aconteceu ao dar por paga a conta recém-lançada. */
 export interface BaixaDoLancamento {
@@ -60,6 +61,7 @@ export class DespesasService {
     private readonly categorias: CategoriasService,
     private readonly pagamentos: PagamentosService,
     private readonly ixc: IxcClient,
+    private readonly prisma: PrismaService,
   ) {}
 
   /**
@@ -188,6 +190,20 @@ export class DespesasService {
     const hoje = hojeUtc();
     const emissao = dto.dataEmissao ? dataUtc(dto.dataEmissao) : hoje;
 
+    // Conferido antes de ir ao IXC: um veículo que não existe mais (apagado em
+    // outra aba) viraria uma conta lançada lá e sem vínculo aqui, em silêncio.
+    if (dto.veiculoId) {
+      const veiculo = await this.prisma.veiculo.findUnique({
+        where: { id: dto.veiculoId },
+        select: { id: true },
+      });
+      if (!veiculo) {
+        throw new BadRequestException(
+          'O veículo escolhido não existe mais. Escolha outro — nada foi lançado.',
+        );
+      }
+    }
+
     /** O que é igual em todas as parcelas. */
     const comum = {
       idFornecedorIxc: dto.idFornecedorIxc,
@@ -199,6 +215,7 @@ export class DespesasService {
       numeroNota: dto.numeroNota,
       chavePix: dto.chavePix,
       tipoChavePix: dto.tipoChavePix,
+      veiculoId: dto.veiculoId ?? null,
     };
 
     let lancada: DespesaLancada;

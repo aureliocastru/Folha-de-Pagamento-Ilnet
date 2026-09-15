@@ -218,6 +218,12 @@ export class CriarDespesaDto {
    */
   @IsOptional() @IsUUID() categoriaId?: string | null;
 
+  /**
+   * O veículo da frota em que o dinheiro foi gasto. Não depende da categoria:
+   * ela diz com o que (peça, mão de obra), o veículo diz em qual.
+   */
+  @IsOptional() @IsUUID() veiculoId?: string | null;
+
   /** Pix, Dinheiro, Boleto… Vazio = o padrão das Configurações. */
   @IsOptional() @IsString() @MaxLength(40) tipoPagamento?: string;
 

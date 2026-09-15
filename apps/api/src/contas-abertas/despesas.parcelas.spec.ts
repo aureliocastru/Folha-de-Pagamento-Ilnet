@@ -61,6 +61,8 @@ function montarServico(opts: { falharNa?: number } = {}) {
     categorias as never,
     pagamentos as never,
     ixc as never,
+    // Sem veículo nestes casos: o banco não é consultado.
+    {} as never,
   );
   return { service, contasPagar, categorias, pagamentos , ixc };
 }
