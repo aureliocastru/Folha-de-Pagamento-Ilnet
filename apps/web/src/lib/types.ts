@@ -10,6 +10,11 @@ export interface Usuario {
    * **Vazio = todos** — é lista de restrição, não de permissão.
    */
   modulos?: string[];
+  /**
+   * O que da Minha área este login abre: "pontuacao", "abastecimento",
+   * "pontuar". Aqui vazio é nada — ao contrário de `modulos`.
+   */
+  minhaArea?: string[];
   /** O perfil criado pelo administrador, quando o login tem um. */
   perfil?: { id: string; nome: string } | null;
   /**

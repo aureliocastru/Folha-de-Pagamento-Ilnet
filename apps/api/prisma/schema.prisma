@@ -69,6 +69,16 @@ model User {
   funcionario   Funcionario? @relation(fields: [funcionarioId], references: [id], onDelete: SetNull)
   funcionarioId String?      @unique @map("funcionario_id")
 
+  /// O que é da própria pessoa e este login abre, marcado pelo administrador
+  /// junto dos módulos: "pontuacao" (a pontuação dela), "abastecimento" (o
+  /// veículo que está no nome dela) e "pontuar" (é coordenador: pontua os
+  /// outros, e deixa de ver a análise de risco).
+  ///
+  /// Aqui **vazio é nada**, ao contrário de `modulos`: "todos" daria o painel
+  /// de pontuar a qualquer login esquecido. Os logins de antes nascem com a
+  /// pontuação e o abastecimento, que já viam; pontuar, ninguém.
+  minhaArea String[] @default(["pontuacao", "abastecimento"]) @map("minha_area")
+
   /// O bloco de notas deste login. Ver o modelo `Agenda`.
   agenda Agenda?
 

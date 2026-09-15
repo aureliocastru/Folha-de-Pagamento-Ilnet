@@ -38,10 +38,15 @@ export interface TokenDoCoordenador {
   tipo: 'coordenador-pontuacao';
 }
 
-/** Quem está lançando: um coordenador do portal, ou o ADMIN por dentro. */
+/**
+ * Quem está lançando: um coordenador do portal, o ADMIN por dentro, ou o login
+ * marcado como coordenador, pela tela do colaborador. Os dois últimos gravam o
+ * login (`usuarioId`); só o ADMIN apaga o que outro deu.
+ */
 export type Autor =
   | { tipo: 'coordenador'; id: string; nome: string }
-  | { tipo: 'admin'; id: string; nome: string };
+  | { tipo: 'admin'; id: string; nome: string }
+  | { tipo: 'login'; id: string; nome: string };
 
 /** Uma linha do painel: o funcionário, os pontos do mês e a posição. */
 export interface FuncionarioNoPainel {
@@ -409,7 +414,7 @@ export class PontuacaoService {
         data,
         competencia: competenciaDe(data),
         coordenadorId: autor.tipo === 'coordenador' ? autor.id : null,
-        usuarioId: autor.tipo === 'admin' ? autor.id : null,
+        usuarioId: autor.tipo !== 'coordenador' ? autor.id : null,
         lancadoPor: autor.nome,
         ...(foto ? { foto: { create: { foto } } } : {}),
       },
@@ -613,10 +618,11 @@ export class PontuacaoService {
 }
 
 function podeApagar(
-  l: { coordenadorId: string | null },
+  l: { coordenadorId: string | null; usuarioId: string | null },
   quem: Autor,
 ): boolean {
   if (quem.tipo === 'admin') return true;
+  if (quem.tipo === 'login') return l.usuarioId === quem.id;
   return l.coordenadorId === quem.id;
 }
 

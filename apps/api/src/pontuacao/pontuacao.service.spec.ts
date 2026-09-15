@@ -91,6 +91,7 @@ function montar(
 
 const admin = { tipo: 'admin', id: 'u1', nome: 'Administrador' } as const;
 const coordenador = { tipo: 'coordenador', id: 'c1', nome: 'Coordenadora' } as const;
+const coordenadorPeloLogin = { tipo: 'login', id: 'u9', nome: 'Encarregado' } as const;
 
 describe('cpfValido', () => {
   it('confere os dígitos verificadores', () => {
@@ -238,6 +239,14 @@ describe('PontuacaoService.lancar', () => {
     expect(data).not.toHaveProperty('foto');
   });
 
+  it('o coordenador pelo login fica gravado pelo login, e não como do portal', async () => {
+    const { service, prisma } = montar();
+    await service.lancar({ funcionarioId: 'f-ana', pontos: 1, motivo: 'Uniforme completo' }, coordenadorPeloLogin);
+    expect(prisma.lancamentoDePontos.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ coordenadorId: null, usuarioId: 'u9', lancadoPor: 'Encarregado' }),
+    });
+  });
+
   it('a foto vai junto, na tabela dela', async () => {
     const { service, prisma } = montar();
     await service.lancar(
@@ -306,6 +315,17 @@ describe('PontuacaoService.apagar', () => {
     const { service, prisma } = montar({ lancamento: { id: 'l1', coordenadorId: 'c2', pontos: 5 } });
     await expect(service.apagar('l1', coordenador)).rejects.toThrow(ForbiddenException);
     expect(prisma.lancamentoDePontos.delete).not.toHaveBeenCalled();
+  });
+
+  it('o coordenador pelo login apaga o que ele deu, e só', async () => {
+    const dele = montar({ lancamento: { id: 'l1', coordenadorId: null, usuarioId: 'u9', pontos: 1 } });
+    await dele.service.apagar('l1', coordenadorPeloLogin);
+    expect(dele.prisma.lancamentoDePontos.delete).toHaveBeenCalled();
+
+    // O que o coordenador do portal deu não tem login: não é dele.
+    const doPortal = montar({ lancamento: { id: 'l1', coordenadorId: 'c1', usuarioId: null, pontos: 1 } });
+    await expect(doPortal.service.apagar('l1', coordenadorPeloLogin)).rejects.toThrow(ForbiddenException);
+    expect(doPortal.prisma.lancamentoDePontos.delete).not.toHaveBeenCalled();
   });
 
   it('o ADMIN apaga qualquer um', async () => {

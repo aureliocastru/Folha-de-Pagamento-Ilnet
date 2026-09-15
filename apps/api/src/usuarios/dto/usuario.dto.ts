@@ -13,6 +13,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { MODULOS } from '../../auth/modulos.guard';
+import { AREAS_DO_COLABORADOR } from '../../colaborador/areas';
 
 const email = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.toLowerCase().trim() : value;
@@ -51,6 +52,13 @@ export class CriarUsuarioDto {
   @IsOptional()
   @IsUUID()
   funcionarioId?: string;
+
+  /** O que da Minha área este login abre. Vazio = nada. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(AREAS_DO_COLABORADOR.length)
+  @IsIn(AREAS_DO_COLABORADOR as unknown as string[], { each: true })
+  minhaArea?: string[];
 }
 
 export class AtualizarUsuarioDto {
@@ -94,6 +102,13 @@ export class AtualizarUsuarioDto {
   @IsOptional()
   @IsUUID()
   funcionarioId?: string | null;
+
+  /** O que da Minha área este login abre. Vazio = nada. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(AREAS_DO_COLABORADOR.length)
+  @IsIn(AREAS_DO_COLABORADOR as unknown as string[], { each: true })
+  minhaArea?: string[];
 }
 
 export class TrocarSenhaDto {

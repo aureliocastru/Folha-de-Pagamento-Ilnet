@@ -253,6 +253,8 @@ export interface LoginParaVinculo {
 
 export interface PessoaParaVinculo extends PessoaParaLogin {
   email?: string | null;
+  /** Como a pessoa é chamada ("Manteiga"): há login aberto com esse nome. */
+  apelido?: string | null;
 }
 
 export interface Vinculo {
@@ -272,6 +274,8 @@ export interface Vinculo {
  * - pelo e-mail do cadastro, igual ao do login — é o sinal mais forte;
  * - pelo nome, com a mesma identidade do abridor de logins: "Marco Antonio" é
  *   o começo de "Marco Antonio Castro";
+ * - pelo apelido, inteiro: o login aberto como "Manteiga" é de quem a casa
+ *   chama assim;
  * - pelo endereço da casa, quando o primeiro nome é de uma pessoa só
  *   (`werick@` é do único Werick).
  *
@@ -301,7 +305,11 @@ export function vincularLogins(
 
   const livres = pessoas
     .filter((p) => !tomadas.has(p.id))
-    .map((p) => ({ ...p, pedacos: pedacosDoNome(p.nome) }));
+    .map((p) => ({
+      ...p,
+      pedacos: pedacosDoNome(p.nome),
+      apelido: pedacosDoNome(p.apelido ?? '').join(' '),
+    }));
 
   const quantos = new Map<string, number>();
   for (const p of livres) {
@@ -328,6 +336,7 @@ export function vincularLogins(
     const nomeDoLogin = pedacosDoNome(login.nome);
     const candidatos = livres.filter((p) => {
       if (comecaCom(p.pedacos, nomeDoLogin)) return true;
+      if (p.apelido && p.apelido === nomeDoLogin.join(' ')) return true;
       const primeiro = p.pedacos[0];
       return (
         !!primeiro &&

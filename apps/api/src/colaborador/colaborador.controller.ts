@@ -1,6 +1,8 @@
 import {
   Body,
   Controller,
+  Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   NotFoundException,
@@ -14,8 +16,10 @@ import type { Request } from 'express';
 import { Roles } from '../auth/roles.decorator';
 import { AbastecimentosService } from '../contas-abertas/abastecimentos.service';
 import { LancarMeuAbastecimentoDto } from '../contas-abertas/dto/veiculo.dto';
-import { PontuacaoService } from '../pontuacao/pontuacao.service';
+import { LancarPontosDto } from '../pontuacao/dto/pontuacao.dto';
+import { type Autor, PontuacaoService } from '../pontuacao/pontuacao.service';
 import { VinculoDoLoginService } from '../usuarios/vinculo-do-login.service';
+import type { AreaDoColaborador } from './areas';
 
 /**
  * A tela do colaborador: o que é da pessoa que entrou, e só dela.
@@ -48,33 +52,90 @@ export class ColaboradorController {
     return {
       colaborador,
       veiculos: colaborador ? await this.abastecimentos.quantosVeiculos(colaborador.id) : 0,
+      areas: logado(req).minhaArea ?? [],
     };
   }
 
   @Get('pontuacao')
   async minhaPontuacao(@Req() req: Request, @Query('competencia') competencia?: string) {
+    exigir(req, 'pontuacao');
     return this.pontuacao.visaoDoColaborador(await this.quemSou(req), competencia);
   }
 
   /** A foto de um dos pontos — só dos dele. */
   @Get('pontuacao/:lancamentoId/foto')
   async fotoDosPontos(@Req() req: Request, @Param('lancamentoId') lancamentoId: string) {
+    exigir(req, 'pontuacao');
     return this.pontuacao.fotoDoLancamento(lancamentoId, await this.quemSou(req));
   }
 
   @Get('abastecimento')
   async meusVeiculos(@Req() req: Request) {
+    exigir(req, 'abastecimento');
     return this.abastecimentos.doColaborador(await this.quemSou(req));
   }
 
   @Post('abastecimento')
   @HttpCode(201)
   async abastecer(@Req() req: Request, @Body() dto: LancarMeuAbastecimentoDto) {
+    exigir(req, 'abastecimento');
     return this.abastecimentos.lancarPeloColaborador(
       await this.quemSou(req),
       idDoLogado(req),
       dto,
     );
+  }
+
+  // --- Pontuar: só o login com "Pontuar" marcado ---
+  //
+  // O mesmo painel do coordenador do portal, com as mesmas regras; muda só
+  // quem assina o lançamento — o login, e não o CPF com senha.
+
+  @Get('pontos/painel')
+  painel(@Req() req: Request, @Query('competencia') competencia?: string) {
+    this.soCoordenador(req);
+    return this.pontuacao.painel(competencia);
+  }
+
+  @Get('pontos/funcionarios/:id/lancamentos')
+  lancamentos(
+    @Req() req: Request,
+    @Param('id') id: string,
+    @Query('competencia') competencia?: string,
+  ) {
+    return this.pontuacao.lancamentosDe(id, competencia, this.soCoordenador(req));
+  }
+
+  @Post('pontos/lancamentos')
+  @HttpCode(201)
+  pontuar(@Req() req: Request, @Body() dto: LancarPontosDto) {
+    return this.pontuacao.lancar(dto, this.soCoordenador(req));
+  }
+
+  @Delete('pontos/lancamentos/:id')
+  @HttpCode(200)
+  async apagarPontos(@Req() req: Request, @Param('id') id: string) {
+    await this.pontuacao.apagar(id, this.soCoordenador(req));
+    return { ok: true };
+  }
+
+  @Get('pontos/lancamentos/:id/foto')
+  fotoDoLancamento(@Req() req: Request, @Param('id') id: string) {
+    this.soCoordenador(req);
+    return this.pontuacao.fotoDoLancamento(id);
+  }
+
+  @Get('pontos/motivos')
+  motivos(@Req() req: Request) {
+    this.soCoordenador(req);
+    return this.pontuacao.listarMotivos();
+  }
+
+  /** Quem pontua pelo login: "Pontuar" marcado nos módulos, na tela de Usuários. */
+  private soCoordenador(req: Request): Autor {
+    exigir(req, 'pontuar');
+    const u = logado(req);
+    return { tipo: 'login', id: u.id, nome: u.nome };
   }
 
   private async quemSou(req: Request): Promise<string> {
@@ -89,6 +150,20 @@ export class ColaboradorController {
   }
 }
 
+function logado(req: Request) {
+  return req.user as { id: string; nome: string; minhaArea?: string[] };
+}
+
+/** A parte da Minha área que o administrador deu a este login. */
+function exigir(req: Request, area: AreaDoColaborador): void {
+  if (!(logado(req).minhaArea ?? []).includes(area)) {
+    const nome = { pontuacao: 'Pontuação', abastecimento: 'Abastecimento', pontuar: 'Pontuar' }[area];
+    throw new ForbiddenException(
+      `Seu login não abre "${nome}". Peça ao administrador para marcar, nos módulos do seu login.`,
+    );
+  }
+}
+
 function idDoLogado(req: Request): string {
-  return (req.user as { id: string }).id;
+  return logado(req).id;
 }

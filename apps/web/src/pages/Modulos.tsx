@@ -1,8 +1,8 @@
 import { Link, Navigate } from 'react-router-dom';
-import { IconeTrofeu } from '../components/icones';
+import { IconeBomba, IconeChecklist, IconeTrofeu, type Icone } from '../components/icones';
 import { CabecalhoDeFora } from '../components/TelaDeFora';
 import { useAuth } from '../lib/auth';
-import { useInicioDoColaborador } from '../lib/colaborador';
+import { cartoesDoColaborador, useInicioDoColaborador } from '../lib/colaborador';
 import { caminhoInicial, modulosDoUsuario, TELA_DO_CAMPO } from '../lib/modulos';
 
 /**
@@ -12,11 +12,40 @@ import { caminhoInicial, modulosDoUsuario, TELA_DO_CAMPO } from '../lib/modulos'
  */
 export function Modulos() {
   const { usuario } = useAuth();
-  // Quem trabalha nos módulos também é colaborador: tem pontos, e pode ter um
-  // veículo no nome. O cartão "Minha área" só aparece para quem o login liga a
-  // um cadastro — para o login genérico ("Administrador") não há o que mostrar.
+  // Quem trabalha nos módulos também é colaborador: tem pontos, pode ter um
+  // veículo no nome, e pode coordenar. Cada um é um cartão, ao lado dos
+  // módulos, quando o administrador marcou — e quando há o que mostrar.
   const inicio = useInicioDoColaborador(usuario?.role !== 'TECNICO');
-  const colaborador = inicio.data?.colaborador ?? null;
+  const cartoes = cartoesDoColaborador(inicio.data);
+  const daArea: Array<{ para: string; nome: string; descricao: string; icone: Icone; tom: string }> = [
+    ...(cartoes.pontuacao
+      ? [{
+          para: '/campo/pontuacao',
+          nome: 'Minha pontuação',
+          descricao: 'Seus pontos do mês, o motivo de cada um e em que lugar você está',
+          icone: IconeTrofeu,
+          tom: 'bg-amber-400/15 text-amber-300',
+        }]
+      : []),
+    ...(cartoes.abastecimento
+      ? [{
+          para: '/campo/abastecimento',
+          nome: 'Abastecimento',
+          descricao: 'O km do painel e a foto da nota do posto, no veículo que está com você',
+          icone: IconeBomba,
+          tom: 'bg-sky-500/15 text-sky-300',
+        }]
+      : []),
+    ...(cartoes.pontuar
+      ? [{
+          para: '/campo/pontuar',
+          nome: 'Pontuar',
+          descricao: 'Dar ou tirar pontos dos funcionários, com o motivo e a foto',
+          icone: IconeChecklist,
+          tom: 'bg-emerald-500/15 text-emerald-300',
+        }]
+      : []),
+  ];
 
   // O técnico de campo não escolhe módulo: ele tem uma tela, e é esta. Chegar
   // aqui (pelo endereço, ou vindo de um módulo que ele não abre) é ser levado
@@ -69,24 +98,21 @@ export function Modulos() {
             </Link>
           ))}
 
-          {colaborador && (
+          {daArea.map((c) => (
             <Link
-              to={TELA_DO_CAMPO}
+              key={c.para}
+              to={c.para}
               className="surgir group rounded-2xl border border-white/10 bg-white/[0.03] p-4 transition sm:p-6 duration-200 hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/[0.06]"
             >
-              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-500/15 text-sky-300">
-                <IconeTrofeu />
+              <span className={`flex h-11 w-11 items-center justify-center rounded-xl ${c.tom}`}>
+                <c.icone />
               </span>
               <h2 className="mt-3.5 font-display text-[16px] font-semibold text-white sm:mt-5 sm:text-[17px]">
-                Minha área
+                {c.nome}
               </h2>
-              <p className="mt-1.5 text-[13px] leading-relaxed text-white/45">
-                {inicio.data?.veiculos
-                  ? 'Sua pontuação e o abastecimento do veículo que está com você'
-                  : 'Sua pontuação do mês e em que lugar você está'}
-              </p>
+              <p className="mt-1.5 text-[13px] leading-relaxed text-white/45">{c.descricao}</p>
             </Link>
-          )}
+          ))}
         </div>
       </main>
     </div>

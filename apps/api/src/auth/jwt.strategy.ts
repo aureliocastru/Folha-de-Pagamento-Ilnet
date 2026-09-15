@@ -37,6 +37,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         role: true,
         ativo: true,
         modulos: true,
+        // A Minha área: vem do banco a cada pedido, como os módulos.
+        minhaArea: true,
         // O perfil também vem do banco a cada pedido: mudar o que um perfil
         // permite vale no clique seguinte de todos os logins que o usam.
         perfil: { select: { id: true, nome: true, permissoes: true } },

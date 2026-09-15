@@ -12,6 +12,7 @@ import {
 import { api, mensagemErro } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { formatData } from '../../lib/format';
+import { AREAS_DO_COLABORADOR, AREAS_PADRAO } from '../../lib/colaborador';
 import { MODULOS_DISTRIBUIVEIS as MODULOS } from '../../lib/modulos';
 import { PERFIL_DESCRICAO, PERFIL_LABEL, PERFIL_TOM } from '../../lib/status';
 import type {
@@ -398,6 +399,16 @@ export function Usuarios() {
                             }
                           />
                         )}
+                        <div className="mt-1.5">
+                          <ChipsDaArea
+                            areas={u.minhaArea ?? []}
+                            pendente={alterar.isPending}
+                            pequeno
+                            onMudar={(minhaArea) =>
+                              alterar.mutate({ id: u.id, dados: { minhaArea } })
+                            }
+                          />
+                        </div>
                       </td>
                       <td className="td num text-tinta-500">
                         {formatData(u.createdAt)}
@@ -524,18 +535,23 @@ export function Usuarios() {
 /**
  * Quem este login é no cadastro, embaixo do nome, na lista.
  *
- * O técnico sem ninguém ligado ganha o aviso: é ele quem usa a tela do
- * colaborador, e sem o vínculo ela não mostra pontuação nem abastecimento. O
- * login genérico de escritório ("Administrador") não precisa de aviso nenhum.
+ * Sem ninguém ligado, o aviso aparece em qualquer perfil: sem o vínculo, a
+ * Minha área não mostra pontuação nem abastecimento — e o almoxarife ou o
+ * escritório também têm pontos e podem ter um veículo no nome. Só o
+ * administrador fica em cinza: é quase sempre o login genérico da casa.
  */
 function ColaboradorDoLogin({ usuario }: { usuario: UsuarioAdmin }) {
   const c = usuario.colaborador;
   if (!c) {
-    return usuario.role === 'TECNICO' ? (
-      <div className="mt-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-300">
+    return (
+      <div
+        className={`mt-0.5 text-[11px] font-medium ${
+          usuario.role === 'ADMIN' ? 'text-tinta-400' : 'text-amber-600 dark:text-amber-300'
+        }`}
+      >
         sem cadastro ligado — editar para ligar
       </div>
-    ) : null;
+    );
   }
   return (
     <div
@@ -548,6 +564,60 @@ function ColaboradorDoLogin({ usuario }: { usuario: UsuarioAdmin }) {
     >
       é {c.nomeCompleto}
       {c.automatico && <span className="text-tinta-400"> · pelo nome</span>}
+    </div>
+  );
+}
+
+/**
+ * O que é da própria pessoa: a pontuação dela, o abastecimento do veículo no
+ * nome dela, e pontuar os outros (coordenador). Chips iguais aos dos módulos,
+ * logo embaixo deles, e para qualquer perfil — o técnico e o administrador
+ * também têm pontos e podem ter carro.
+ *
+ * Diferente dos módulos, aqui nada marcado é nada: "todos" daria o painel de
+ * pontuar a quem ninguém escolheu. Quem tem Pontuar deixa de ver a análise de
+ * risco.
+ */
+function ChipsDaArea({
+  areas,
+  pendente = false,
+  pequeno = false,
+  onMudar,
+}: {
+  areas: string[];
+  pendente?: boolean;
+  pequeno?: boolean;
+  onMudar: (areas: string[]) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {AREAS_DO_COLABORADOR.map((a) => {
+        const ligado = areas.includes(a.id);
+        return (
+          <button
+            key={a.id}
+            type="button"
+            disabled={pendente}
+            title={
+              a.id === 'pontuar'
+                ? ligado
+                  ? 'Tirar: deixa de pontuar e volta a ver a análise de risco'
+                  : 'Coordenador: pontua os funcionários, e não vê a análise de risco'
+                : ligado
+                  ? `Tirar ${a.nome} deste login`
+                  : `Dar ${a.nome} a este login`
+            }
+            onClick={() =>
+              onMudar(ligado ? areas.filter((x) => x !== a.id) : [...areas, a.id])
+            }
+            className={`rounded-full border font-medium transition ${
+              pequeno ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs'
+            } ${corDoModulo(ligado, false)}`}
+          >
+            {a.nome}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -569,6 +639,7 @@ function NovoUsuario({
   const [nome, setNome] = useState('');
   /** Vazio = achar pelo nome depois de criado. */
   const [funcionarioId, setFuncionarioId] = useState('');
+  const [minhaArea, setMinhaArea] = useState<string[]>(AREAS_PADRAO);
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   /** "RH", ou "perfil:<id>" — ver `valorDoAcesso`. */
@@ -589,11 +660,13 @@ function NovoUsuario({
           senha,
           ...(perfilId ? { perfilId } : { role, modulos }),
           ...(funcionarioId ? { funcionarioId } : {}),
+          minhaArea,
         })
       ).data,
     onSuccess: (u) => {
       setNome('');
       setFuncionarioId('');
+      setMinhaArea(AREAS_PADRAO);
       setEmail('');
       setSenha('');
       setAcesso('RH');
@@ -706,7 +779,8 @@ function NovoUsuario({
       </div>
 
       {/* Onde este login trabalha. Com perfil criado, é ele que diz; com perfil
-          fixo, nada marcado = todos os módulos que o perfil permite. */}
+          fixo, nada marcado = todos os módulos que o perfil permite. Embaixo, o
+          que é da própria pessoa — esse, sim, nada marcado é nada. */}
       <div className="mt-4">
         <span className="rotulo">Módulos</span>
         {perfilEscolhido ? (
@@ -716,6 +790,9 @@ function NovoUsuario({
         ) : (
           <ChipsDeModulo role={role} modulos={modulos} onMudar={setModulos} />
         )}
+        <div className="mt-2">
+          <ChipsDaArea areas={minhaArea} onMudar={setMinhaArea} />
+        </div>
       </div>
 
       <div className="mt-5 flex flex-wrap items-center gap-4 border-t border-tinta-100 pt-5">
@@ -815,6 +892,7 @@ function EditarLogin({
   const [funcionarioId, setFuncionarioId] = useState(
     usuario.colaborador && !usuario.colaborador.automatico ? usuario.colaborador.id : '',
   );
+  const [minhaArea, setMinhaArea] = useState<string[]>(usuario.minhaArea ?? []);
 
   const { role: roleFixo, perfilId } = dadosDoAcesso(acesso);
   const role: PerfilUsuario = roleFixo ?? 'RH';
@@ -836,6 +914,7 @@ function EditarLogin({
             ...(perfilId ? { perfilId } : { role, perfilId: null }),
             modulos: escolheModulos ? modulos : undefined,
             funcionarioId: funcionarioId || null,
+            minhaArea,
             ...(souEu ? {} : { ativo }),
           });
         }
@@ -945,6 +1024,13 @@ function EditarLogin({
         ) : (
           <ChipsDeModulo role={role} modulos={modulos} onMudar={setModulos} />
         )}
+        <div className="mt-2">
+          <ChipsDaArea areas={minhaArea} onMudar={setMinhaArea} />
+        </div>
+        <p className="ajuda">
+          Pontuação e Abastecimento só aparecem para quem o login está ligado ao cadastro
+          (e o abastecimento, com veículo no nome). Quem tem Pontuar não vê a análise de risco.
+        </p>
       </div>
 
       <div className="mt-5 flex justify-end">

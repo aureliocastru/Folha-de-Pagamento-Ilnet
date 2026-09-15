@@ -218,6 +218,12 @@ describe('que colaborador é cada login', () => {
     expect(v.get('u1')?.funcionarioId).toBe('f-quiteria');
   });
 
+  it('acha pelo apelido, quando o login foi aberto com ele', () => {
+    const casa = [...CASA, { id: 'f-rui', nome: 'Rui Tavares Bento', apelido: 'Caramujo', email: null }];
+    const v = vincularLogins([login('u1', 'Caramujo', 'caramujo@ilnet.com.br')], casa);
+    expect(v.get('u1')?.funcionarioId).toBe('f-rui');
+  });
+
   it('não chuta entre dois xarás', () => {
     const v = vincularLogins([login('u1', 'Otavio', 'otavio@ilnet.com.br')], CASA);
     expect(v.has('u1')).toBe(false);

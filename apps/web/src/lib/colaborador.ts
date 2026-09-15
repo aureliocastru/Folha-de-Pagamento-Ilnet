@@ -9,6 +9,42 @@ export interface InicioDoColaborador {
   colaborador: ColaboradorDoLogin | null;
   /** Quantos veículos da frota estão no nome dele. */
   veiculos: number;
+  /** O que da Minha área o administrador deu a este login. */
+  areas: string[];
+}
+
+/**
+ * As partes da Minha área, na ordem dos chips da tela de Usuários e dos
+ * cartões. Distribuídas login a login, junto dos módulos.
+ */
+export const AREAS_DO_COLABORADOR = [
+  { id: 'pontuacao', nome: 'Pontuação' },
+  { id: 'abastecimento', nome: 'Abastecimento' },
+  { id: 'pontuar', nome: 'Pontuar' },
+] as const;
+
+/** O padrão de um login novo: o que todo colaborador tem. Pontuar, não. */
+export const AREAS_PADRAO = ['pontuacao', 'abastecimento'];
+
+/**
+ * Que cartões este login vê. Marcado não basta: a pontuação é da pessoa, e
+ * sem o login ligado ao cadastro não há de quem mostrar; o abastecimento, sem
+ * veículo no nome dela, não tem onde lançar.
+ */
+export function cartoesDoColaborador(inicio?: InicioDoColaborador | null) {
+  const areas = inicio?.areas ?? [];
+  const ligado = !!inicio?.colaborador;
+  const pontuacao = ligado && areas.includes('pontuacao');
+  const abastecimento = ligado && areas.includes('abastecimento') && (inicio?.veiculos ?? 0) > 0;
+  const pontuar = areas.includes('pontuar');
+  return {
+    pontuacao,
+    abastecimento,
+    pontuar,
+    algum: pontuacao || abastecimento || pontuar,
+    /** Marcou algo que é da pessoa, mas o login não está ligado a ela. */
+    faltaLigar: !ligado && (areas.includes('pontuacao') || areas.includes('abastecimento')),
+  };
 }
 
 /**

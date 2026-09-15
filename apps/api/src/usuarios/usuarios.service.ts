@@ -28,6 +28,7 @@ const CAMPOS = {
   modulos: true,
   ativo: true,
   perfil: { select: { id: true, nome: true } },
+  minhaArea: true,
   // Só para dizer se a senha pode ser vista; o conteúdo não sai daqui.
   senhaCifrada: true,
   createdAt: true,
@@ -144,6 +145,8 @@ export class UsuariosService {
           // Vazio = todos. Ver o comentário da coluna no schema.
           modulos: acesso.perfilId ? [] : (dto.modulos ?? []),
           funcionarioId: dto.funcionarioId ?? null,
+          // Sem pedido, o mesmo padrão do banco: a pontuação e o abastecimento.
+          ...(dto.minhaArea ? { minhaArea: dto.minhaArea } : {}),
         },
         select: CAMPOS,
       });
@@ -183,6 +186,7 @@ export class UsuariosService {
           modulos: acesso.perfilId ? [] : dto.modulos,
           ativo: dto.ativo,
           funcionarioId: dto.funcionarioId,
+          minhaArea: dto.minhaArea,
           ...(dto.senha ? await this.gravacaoDaSenha(dto.senha) : {}),
         },
         select: CAMPOS,

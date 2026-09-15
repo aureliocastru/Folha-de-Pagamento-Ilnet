@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { mensagemErro } from '../lib/api';
+import { api, mensagemErro } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { cartoesDoColaborador, type InicioDoColaborador } from '../lib/colaborador';
 import { destinoDepoisDoLogin } from '../lib/modulos';
 
 /**
@@ -31,8 +32,16 @@ export function Login() {
     setCarregando(true);
     try {
       // Cada perfil cai onde ele trabalha: o técnico de campo, na tela dele;
-      // quem abre um módulo só, direto nele; os demais, na escolha.
-      navigate(destinoDepoisDoLogin(await login(email, senha)));
+      // quem abre um módulo só, direto nele; os demais, na escolha. A Minha
+      // área conta como um cartão a mais — pergunta-se aqui, já com o login
+      // feito, e sem ela a entrada segue do jeito de sempre.
+      const usuario = await login(email, senha);
+      const inicio = await api
+        .get<InicioDoColaborador>('/colaborador')
+        .then((r) => r.data)
+        .catch(() => null);
+      const temMinhaArea = cartoesDoColaborador(inicio).algum;
+      navigate(destinoDepoisDoLogin(usuario, temMinhaArea));
     } catch (err) {
       setErro(mensagemErro(err));
     } finally {

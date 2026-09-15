@@ -4,13 +4,19 @@ import { Link, NavLink, Outlet, useNavigate, useParams } from 'react-router-dom'
 import {
   IconeBomba,
   IconeCapacete,
+  IconeChecklist,
   IconeTrofeu,
   type Icone,
 } from '../../components/icones';
+import { PainelDePontos } from '../../components/PainelDePontos';
 import { Aviso, Carregando, Selo } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { abreAnaliseDeRisco, useInicioDoColaborador } from '../../lib/colaborador';
+import {
+  abreAnaliseDeRisco,
+  cartoesDoColaborador,
+  useInicioDoColaborador,
+} from '../../lib/colaborador';
 import {
   GRAVIDADE_LABEL,
   GRAVIDADE_TOM,
@@ -109,7 +115,11 @@ export function Campo() {
  *
  * - **Minha pontuação** — só a dele, quando o login está ligado ao cadastro;
  * - **Abastecimento** — só quando algum veículo da frota está no nome dele;
- * - **Análise de risco** — a de sempre, para quem já a abria.
+ * - **Pontuar** — para o coordenador;
+ * - **Análise de risco** — a de sempre, para quem já a abria. O coordenador
+ *   não a vê: pontuar é o serviço dele, e subir no poste não.
+ *
+ * As três primeiras o administrador marca login a login, junto dos módulos.
  *
  * O que não é da pessoa nem aparece: um cartão que leva a um "isto não é seu"
  * é pior que cartão nenhum.
@@ -118,8 +128,8 @@ export function CampoInicio() {
   const { usuario } = useAuth();
   const inicio = useInicioDoColaborador();
   const colaborador = inicio.data?.colaborador ?? null;
-  const temVeiculo = (inicio.data?.veiculos ?? 0) > 0;
-  const apr = abreAnaliseDeRisco(usuario);
+  const cartoes = cartoesDoColaborador(inicio.data);
+  const apr = abreAnaliseDeRisco(usuario) && !cartoes.pontuar;
 
   const nome = colaborador?.nome ?? usuario?.nome.split(' ')[0] ?? '';
 
@@ -134,7 +144,7 @@ export function CampoInicio() {
 
       {inicio.isError && <Aviso tom="erro">{mensagemErro(inicio.error)}</Aviso>}
 
-      {inicio.isSuccess && !colaborador && (
+      {inicio.isSuccess && cartoes.faltaLigar && (
         <Aviso tom="atencao">
           Seu login ainda não está ligado ao seu cadastro de funcionário, e por isso a
           pontuação e o abastecimento não aparecem. Peça ao administrador para ligar, na
@@ -144,7 +154,7 @@ export function CampoInicio() {
 
       {!inicio.isLoading && (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          {colaborador && (
+          {cartoes.pontuacao && (
             <CartaoDaArea
               para="/campo/pontuacao"
               icone={IconeTrofeu}
@@ -153,13 +163,22 @@ export function CampoInicio() {
               descricao="Seus pontos do mês, o motivo de cada um e em que lugar você está"
             />
           )}
-          {colaborador && temVeiculo && (
+          {cartoes.abastecimento && (
             <CartaoDaArea
               para="/campo/abastecimento"
               icone={IconeBomba}
               tom="bg-sky-500/15 text-sky-600 dark:text-sky-300"
               titulo="Abastecimento"
               descricao="O km do painel e a foto da nota do posto, no veículo que está com você"
+            />
+          )}
+          {cartoes.pontuar && (
+            <CartaoDaArea
+              para="/campo/pontuar"
+              icone={IconeChecklist}
+              tom="bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
+              titulo="Pontuar"
+              descricao="Dar ou tirar pontos dos funcionários, com o motivo e a foto"
             />
           )}
           {apr && (
@@ -174,7 +193,7 @@ export function CampoInicio() {
         </div>
       )}
 
-      {inicio.isSuccess && !colaborador && !apr && (
+      {inicio.isSuccess && !cartoes.algum && !apr && !cartoes.faltaLigar && (
         <p className="text-sm text-tinta-500">Por enquanto não há nada para você aqui.</p>
       )}
     </div>
@@ -210,12 +229,15 @@ function CartaoDaArea({
 
 /** A volta para a tela inicial, no alto de cada uma das três. */
 function VoltarAoInicio({ children }: { children?: ReactNode }) {
+  const { usuario } = useAuth();
+  // Quem trabalha nos módulos chegou pelo cartão de lá, e volta para lá.
+  const tecnico = usuario?.role === 'TECNICO';
   return (
     <Link
-      to="/campo"
+      to={tecnico ? '/campo' : '/modulos'}
       className="mb-4 inline-flex items-center gap-1 text-sm font-medium text-tinta-500 hover:text-tinta-800"
     >
-      ‹ {children ?? 'Minha área'}
+      ‹ {children ?? (tecnico ? 'Minha área' : 'Módulos')}
     </Link>
   );
 }
@@ -234,6 +256,22 @@ export function CampoPontuacao() {
           (await api.get<{ foto: string }>(`/colaborador/pontuacao/${lancamentoId}/foto`)).data.foto
         }
       />
+    </>
+  );
+}
+
+/**
+ * O painel de pontuar do coordenador, pelo login: o mesmo do portal e o mesmo
+ * do administrador, com a API da tela do colaborador — que só atende o login
+ * com "Pontuar" marcado.
+ */
+export function CampoPontuar() {
+  return (
+    <>
+      <VoltarAoInicio />
+      <p className="eyebrow mb-1">Pontuação</p>
+      <h1 className="titulo-pagina mb-4">Pontuar</h1>
+      <PainelDePontos cliente={api} base="/colaborador/pontos" />
     </>
   );
 }

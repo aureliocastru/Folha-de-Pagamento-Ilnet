@@ -386,15 +386,22 @@ export function caminhoInicial(modulo: Modulo): string {
  * O técnico vai para a tela dele. Quem abre um módulo só vai direto para ele —
  * uma tela de escolha com um cartão único é um clique cobrado sem troco. Os
  * demais escolhem.
+ *
+ * `temMinhaArea` são os cartões que a conta de módulos não enxerga (Pontuação,
+ * Abastecimento, Pontuar): o almoxarife que abre só o Almoxarifado, mas tem
+ * um veículo no nome, ia direto para o estoque e nunca via onde abastecer.
  */
-export function destinoDepoisDoLogin(usuario?: {
-  role: PerfilUsuario;
-  modulos?: string[];
-} | null): string {
+export function destinoDepoisDoLogin(
+  usuario?: {
+    role: PerfilUsuario;
+    modulos?: string[];
+  } | null,
+  temMinhaArea = false,
+): string {
   if (usuario?.role === 'TECNICO') return TELA_DO_CAMPO;
 
   const abertos = modulosDoUsuario(usuario);
-  return abertos.length === 1 ? caminhoInicial(abertos[0]) : '/modulos';
+  return abertos.length === 1 && !temMinhaArea ? caminhoInicial(abertos[0]) : '/modulos';
 }
 
 /**

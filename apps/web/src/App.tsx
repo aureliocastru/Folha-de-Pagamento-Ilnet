@@ -20,6 +20,7 @@ import {
   CampoInicio,
   CampoNova,
   CampoPontuacao,
+  CampoPontuar,
 } from './pages/apr/Campo';
 import { Formularios } from './pages/apr/Formularios';
 import { Assinar } from './pages/Assinar';
@@ -315,6 +316,7 @@ export default function App() {
       >
         <Route index element={<CampoInicio />} />
         <Route path="pontuacao" element={<CampoPontuacao />} />
+        <Route path="pontuar" element={<CampoPontuar />} />
         <Route path="abastecimento" element={<CampoAbastecimento />} />
         <Route path="aprs" element={<CampoAprs />} />
         <Route path="nova" element={<CampoNova />} />

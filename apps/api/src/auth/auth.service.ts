@@ -38,6 +38,7 @@ export class AuthService {
         email: user.email,
         role: user.role,
         modulos: user.modulos,
+        minhaArea: user.minhaArea,
         perfil,
         permissoes,
       },
