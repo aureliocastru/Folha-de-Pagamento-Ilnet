@@ -244,4 +244,57 @@ describe('ProdutosService.darEntrada', () => {
     );
     expect(ixc.create).toHaveBeenCalledTimes(1);
   });
+
+  /** As compras recentes do IXC, e a compra relida depois de fechar. */
+  function comComprasNoIxc(
+    ixc: ReturnType<typeof montar>['ixc'],
+    statusDepois: string,
+  ) {
+    ixc.list.mockImplementation((async (tabela: string) =>
+      tabela === 'entrada'
+        ? {
+            total: 5,
+            page: 1,
+            registros: [{ status: 'A' }, { status: 'F' }, { status: 'F' }, { status: 'C' }, { status: 'F' }],
+          }
+        : { total: 0, page: 1, registros: [] }) as never);
+    ixc.getById.mockImplementation((async (tabela: string) =>
+      tabela === 'entrada' ? { id: '5', status: statusDepois } : PRODUTO) as never);
+  }
+
+  it('fecha a compra com o status que as compras fechadas do IXC têm, e relê', async () => {
+    const { service, ixc } = montar({ saldos: [['1', 10]], saldosDepois: [['1', 15]] });
+    comComprasNoIxc(ixc, 'F');
+    const r = await service.darEntrada(36, entrada, eu);
+    // A compra inteira de novo, com o dinheiro em vírgula — só o status muda.
+    expect(ixc.update).toHaveBeenCalledWith(
+      'entrada',
+      5,
+      expect.objectContaining({ status: 'F', id_fornecedor: '7', valor_total: '10,00', gera_estoque: 'S' }),
+    );
+    expect(r.compraAberta).toBeNull();
+  });
+
+  it('se o IXC não fecha, a entrada vale e a tela recebe o motivo', async () => {
+    const { service, ixc } = montar({ saldos: [['1', 10]], saldosDepois: [['1', 15]] });
+    comComprasNoIxc(ixc, 'F');
+    ixc.update.mockRejectedValueOnce(new Error('compra sem financeiro'));
+    const r = await service.darEntrada(36, entrada, eu);
+    expect(r.entradaId).toBe(5);
+    expect(r.compraAberta).toMatch(/recusou fechar.*compra sem financeiro/);
+  });
+
+  it('se o IXC aceita mas a compra continua aberta, não diz que fechou', async () => {
+    const { service, ixc } = montar({ saldos: [['1', 10]], saldosDepois: [['1', 15]] });
+    comComprasNoIxc(ixc, 'A');
+    const r = await service.darEntrada(36, entrada, eu);
+    expect(r.compraAberta).toMatch(/continua com status "A"/);
+  });
+
+  it('sem compra fechada no IXC para copiar, não inventa o status', async () => {
+    const { service, ixc } = montar({ saldos: [['1', 10]], saldosDepois: [['1', 15]] });
+    const r = await service.darEntrada(36, entrada, eu);
+    expect(ixc.update).not.toHaveBeenCalledWith('entrada', expect.anything(), expect.anything());
+    expect(r.compraAberta).toMatch(/não achei/);
+  });
 });

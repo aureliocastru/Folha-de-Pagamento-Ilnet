@@ -698,7 +698,12 @@ function DarEntrada({
   const lancar = useMutation({
     mutationFn: async () =>
       (
-        await api.post<{ entradaId: number; conferencia: ConferenciaDeSaldo }>(
+        await api.post<{
+          entradaId: number;
+          conferencia: ConferenciaDeSaldo;
+          /** Null = fechada; o texto é o motivo de ter ficado aberta. */
+          compraAberta: string | null;
+        }>(
           `/almoxarifado/produtos/${produto.id}/entrada`,
           {
             almoxId: Number(almoxId),
@@ -713,11 +718,17 @@ function DarEntrada({
       ).data,
     onSuccess: (r) => {
       gravarUltimaEntrada({ tipoDocumentoId, condicaoPagamentoId, fornecedor: fornecedor! });
+      // Duas perguntas, nesta ordem: o saldo subiu? a compra fechou? Qualquer
+      // "não" vira aviso amarelo, com o que falta fazer no IXC.
+      const saldo = r.conferencia.confere
+        ? `${nomeAlmox} ${quantidade(r.conferencia.antes)} → ${quantidade(r.conferencia.depois)}.`
+        : `mas o saldo de ${nomeAlmox} ainda está em ${quantidade(r.conferencia.depois)}.`;
+      const fechamento = r.compraAberta
+        ? ` A compra ficou aberta — ${r.compraAberta}. Feche a #${r.entradaId} no IXC (Entradas › Compras).`
+        : ' Compra já fechada, não precisa mexer no IXC.';
       onMudou(
-        r.conferencia.confere
-          ? `Compra #${r.entradaId} lançada no IXC: ${nomeAlmox} ${quantidade(r.conferencia.antes)} → ${quantidade(r.conferencia.depois)}. Ela fica aberta lá — o financeiro dela sai quando alguém a finalizar no IXC.`
-          : `Compra #${r.entradaId} lançada no IXC, mas o saldo de ${nomeAlmox} ainda está em ${quantidade(r.conferencia.depois)}: o IXC deve somar só quando a compra for finalizada. Abra a compra #${r.entradaId} no IXC (Entradas › Compras) e finalize.`,
-        r.conferencia.confere ? 'pago' : 'atencao',
+        `Compra #${r.entradaId} lançada no IXC: ${saldo}${fechamento}`,
+        r.conferencia.confere && !r.compraAberta ? 'pago' : 'atencao',
       );
       setQtde('');
       setNumeroNota('');
@@ -728,8 +739,8 @@ function DarEntrada({
     <div>
       <p className="mb-3 text-[13px] leading-relaxed text-tinta-500">
         O saldo sobe por uma <strong>compra</strong> no IXC — é o caminho que a API dele
-        documenta. Ela nasce aberta, com o fornecedor, o tipo de documento e a condição
-        de pagamento escolhidos aqui; o financeiro sai quando alguém a finalizar lá.
+        documenta. Ela é lançada com o fornecedor, o tipo de documento e a condição de
+        pagamento escolhidos aqui, e já sai fechada — não precisa fechar no IXC.
       </p>
 
       <div className="grid gap-3 sm:grid-cols-2">

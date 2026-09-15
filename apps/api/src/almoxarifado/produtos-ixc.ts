@@ -398,9 +398,10 @@ export const DOCUMENTO_DO_ACERTO = 'ACERTO DE NEGATIVOS (sistema)';
  * `nfe_emitida: "N"`, `tipo_frete: "9"` (sem frete).
  *
  * A compra nasce **aberta**, como no exemplo. A documentação da API não tem o
- * botão de finalizar compra — é na finalização que o IXC gera o financeiro
- * pela condição de pagamento, e é por isso que ela fica para quem está no
- * IXC: esta tela lança o estoque, e não uma conta a pagar.
+ * botão de finalizar compra; a entrada de produto a fecha em seguida trocando
+ * o `status` na edição (ver `ProdutosService.fecharCompra`). As compras de
+ * acerto e de conferência continuam abertas: o "Desfazer" delas só apaga
+ * compra aberta.
  */
 export function montarEntrada(e: EntradaDeCompra): Record<string, unknown> {
   return {

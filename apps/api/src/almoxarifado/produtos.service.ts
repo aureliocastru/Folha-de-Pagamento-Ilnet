@@ -30,6 +30,9 @@ import {
 /** Teto de movimentos lidos por produto × almoxarifado no rastreio. */
 const MOVIMENTOS_LIDOS = 10_000;
 
+/** Por quanto tempo vale a letra da compra fechada lida do IXC. */
+const STATUS_VALE_MS = 6 * 60 * 60_000;
+
 /** O produto como a janela de edição o mostra. */
 export interface ProdutoNaTela {
   id: number;
@@ -92,6 +95,9 @@ interface Quem {
 @Injectable()
 export class ProdutosService {
   private readonly logger = new Logger(ProdutosService.name);
+
+  /** A letra do status de compra fechada, lida das compras do IXC. */
+  private compraFechada: { em: number; valor: string } | null = null;
 
   constructor(
     private readonly ixc: IxcClient,
@@ -340,8 +346,11 @@ export class ProdutosService {
   /**
    * Põe quantidade no estoque pela entrada de compra do IXC — o caminho que a
    * documentação tem para o saldo subir. A compra nasce aberta (é assim no
-   * exemplo da API, e ela não documenta o botão de finalizar): quem gera o
-   * financeiro dela é o IXC, ao finalizar lá.
+   * exemplo da API) e, com o produto dentro, é fechada logo em seguida: fechar
+   * à mão no IXC depois de cada entrada era o serviço dobrado (15/09/2026).
+   *
+   * Fechar que não dê certo não desfaz a entrada — o produto já está na compra.
+   * A tela recebe o motivo e diz que a compra ficou aberta.
    *
    * A conferência no fim diz se o saldo já subiu. Se o IXC só soma a compra
    * depois de finalizada, a tela avisa com o número dela — em vez de dizer que
@@ -359,7 +368,12 @@ export class ProdutosService {
       numeroNota?: string;
     },
     quem: Quem,
-  ): Promise<{ entradaId: number; conferencia: Conferencia }> {
+  ): Promise<{
+    entradaId: number;
+    conferencia: Conferencia;
+    /** Null = a compra foi fechada; o texto é o motivo de ter ficado aberta. */
+    compraAberta: string | null;
+  }> {
     const [produto, bruto, almoxarifados, unidades] = await Promise.all([
       this.detalhar(produtoId),
       this.lerProduto(produtoId),
@@ -381,20 +395,19 @@ export class ProdutosService {
     const data = hojeParaIxc();
     const valorTotal = Math.round(dados.quantidade * dados.valorUnitario * 100) / 100;
 
+    const compra = {
+      tipoDocumentoId: dados.tipoDocumentoId,
+      fornecedorId: dados.fornecedorId,
+      condicaoPagamentoId: dados.condicaoPagamentoId,
+      filialId: almox.filialId,
+      data,
+      numeroNota: dados.numeroNota?.trim() ?? '',
+      valorTotal,
+    };
+
     let entradaId: number | null;
     try {
-      ({ id: entradaId } = await this.ixc.create(
-        'entrada',
-        montarEntrada({
-          tipoDocumentoId: dados.tipoDocumentoId,
-          fornecedorId: dados.fornecedorId,
-          condicaoPagamentoId: dados.condicaoPagamentoId,
-          filialId: almox.filialId,
-          data,
-          numeroNota: dados.numeroNota?.trim() ?? '',
-          valorTotal,
-        }),
-      ));
+      ({ id: entradaId } = await this.ixc.create('entrada', montarEntrada(compra)));
     } catch (err) {
       // O erro genérico do IXC não diz o campo. O que já o causou aqui foi o
       // tipo de documento: o 35 da lista da API foi recusado (LIXA FERRO 100,
@@ -435,13 +448,16 @@ export class ProdutosService {
       );
     }
 
+    const compraAberta = await this.fecharCompra(entradaId, montarEntrada(compra));
+
     this.estoque.esquecer();
     const depois = await this.estoque.saldosDoProduto(produtoId);
     const saldoDepois = depois?.saldos.find((s) => s.almoxId === almox.id)?.saldo ?? 0;
 
     this.logger.log(
       `${quem.nome} deu entrada de ${dados.quantidade} de "${produto.descricao}" em ` +
-        `${almox.nome} (compra #${entradaId} no IXC, aberta).`,
+        `${almox.nome} (compra #${entradaId} no IXC, ` +
+        `${compraAberta ? `ficou aberta: ${compraAberta}` : 'fechada'}).`,
     );
     return {
       entradaId,
@@ -450,7 +466,79 @@ export class ProdutosService {
         depois: saldoDepois,
         confere: Math.abs(saldoDepois - (saldoAntes + dados.quantidade)) < 1e-6,
       },
+      compraAberta,
     };
+  }
+
+  /**
+   * Fecha a compra que acabou de receber o produto. Devolve null se fechou, ou
+   * o motivo de ter ficado aberta — nunca lança: a entrada já está feita, e
+   * falhar aqui não pode parecer que ela não aconteceu.
+   *
+   * A API não tem o botão de fechar (ver `montarEntrada`); o que ela tem é o
+   * `status` da compra, na edição. Então a compra é regravada inteira — do
+   * mesmo jeito que foi aberta, com o dinheiro em vírgula — trocando só o
+   * status. E depois é relida: "o IXC aceitou" não é "a compra fechou".
+   */
+  private async fecharCompra(
+    entradaId: number,
+    linha: Record<string, unknown>,
+  ): Promise<string | null> {
+    const fechada = await this.statusDeCompraFechada();
+    if (!fechada) {
+      return 'não achei no IXC uma compra fechada para copiar o status de "fechada"';
+    }
+    try {
+      await this.ixc.update('entrada', entradaId, { ...linha, status: fechada });
+    } catch (err) {
+      return `o IXC recusou fechar (${err instanceof Error ? err.message : String(err)})`;
+    }
+    const agora = await this.ixc
+      .getById<Record<string, unknown>>('entrada', 'entrada.id', entradaId)
+      .catch(() => null);
+    const status = String(agora?.status ?? '').trim().toUpperCase();
+    if (status !== fechada) {
+      return `o IXC aceitou, mas a compra continua com status "${status || '?'}"`;
+    }
+    return null;
+  }
+
+  /**
+   * Com que letra o IXC marca a compra fechada — lida das compras dele, e não
+   * adivinhada: a documentação só mostra o "A" da aberta.
+   *
+   * É a letra mais comum entre as compras recentes que não estão abertas. As
+   * canceladas também não são "A", mas são poucas perto das que alguém fechou
+   * — o IXC desta casa tem mais de três mil compras, quase todas fechadas à mão.
+   */
+  private async statusDeCompraFechada(): Promise<string | null> {
+    if (this.compraFechada && Date.now() - this.compraFechada.em < STATUS_VALE_MS) {
+      return this.compraFechada.valor;
+    }
+    const recentes = await this.ixc
+      .list<Record<string, unknown>>('entrada', {
+        qtype: 'entrada.id',
+        query: '0',
+        oper: '>',
+        rp: 300,
+        sortname: 'entrada.id',
+        sortorder: 'desc',
+      })
+      .then((r) => r.registros)
+      .catch(() => []);
+    const contagem = new Map<string, number>();
+    for (const e of recentes) {
+      const s = String(e.status ?? '').trim().toUpperCase();
+      if (s && s !== 'A') contagem.set(s, (contagem.get(s) ?? 0) + 1);
+    }
+    const [valor] = [...contagem].sort((a, b) => b[1] - a[1])[0] ?? [null];
+    this.logger.log(
+      `Status das compras recentes que não estão abertas: ` +
+        `${[...contagem].map(([s, n]) => `${s}=${n}`).join(', ') || 'nenhuma'} — ` +
+        `fechada = ${valor ?? '?'}.`,
+    );
+    if (valor) this.compraFechada = { em: Date.now(), valor };
+    return valor;
   }
 
   // --- Leituras de apoio ---
