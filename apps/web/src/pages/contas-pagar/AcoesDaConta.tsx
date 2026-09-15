@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
+import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
 import { Aviso, CampoDinheiro, Janela } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { formatBRL, formatData, formatNumeroBR } from '../../lib/format';
-import type { ContaAberta } from '../../lib/types';
+import type { CategoriaDespesa, ContaAberta } from '../../lib/types';
 
 /** Uma conta de onde o dinheiro sai, como o IXC a tem. */
 interface ContaDePagamento {
@@ -544,12 +545,20 @@ export function EditarConta({
   const [contaPagamento, setContaPagamento] = useState('');
   const [chavePix, setChavePix] = useState('');
   const [codigoBarras, setCodigoBarras] = useState('');
+  const categoriaAtual = conta.classificacao?.id ?? '';
+  const [categoriaId, setCategoriaId] = useState(categoriaAtual);
 
   const contasIxc = useQuery({
     queryKey: ['contas-pagamento'],
     queryFn: async () =>
       (await api.get<ContaDePagamento[]>('/contas-abertas/contas-pagamento'))
         .data,
+  });
+
+  const categorias = useQuery({
+    queryKey: ['categorias-despesa'],
+    queryFn: async () =>
+      (await api.get<CategoriaDespesa[]>('/categorias-despesa')).data,
   });
 
   /*
@@ -606,10 +615,20 @@ export function EditarConta({
         mudancas.codigoBarras = codigoBarras;
       }
 
-      await api.patch(`/contas-abertas/${conta.idFnApagar}`, mudancas);
+      // A categoria é nossa, não do IXC: vai por outro caminho, e só ela
+      // mudando não há por que mexer no título lá.
+      if (Object.keys(mudancas).length > 0) {
+        await api.patch(`/contas-abertas/${conta.idFnApagar}`, mudancas);
+      }
+      if (categoriaId !== categoriaAtual) {
+        await api.put(`/contas-abertas/${conta.idFnApagar}/categoria`, {
+          categoriaId: categoriaId || null,
+        });
+      }
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['contas-abertas'] });
+      void queryClient.invalidateQueries({ queryKey: ['categorias-despesa'] });
       onFechar();
     },
   });
@@ -743,6 +762,20 @@ export function EditarConta({
             />
           </div>
         )}
+
+        <div className="sm:col-span-2">
+          <label className="rotulo" htmlFor="ed-categoria">
+            Categoria
+          </label>
+          <SeletorDeCategoria
+            id="ed-categoria"
+            categorias={categorias.data}
+            value={categoriaId}
+            vazio="Sem classificação"
+            carregando={categorias.isLoading}
+            onChange={setCategoriaId}
+          />
+        </div>
 
         <div className="sm:col-span-2">
           <label className="rotulo" htmlFor="ed-obs">

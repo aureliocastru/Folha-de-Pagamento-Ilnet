@@ -689,7 +689,7 @@ function Linha({
           )}
           <button
             onClick={onEditar}
-            title="Mudar meio de pagamento, valor, vencimento…"
+            title="Mudar meio de pagamento, valor, vencimento, categoria…"
             className="btn btn-sutil btn-p"
           >
             Editar
