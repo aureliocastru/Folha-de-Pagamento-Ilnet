@@ -807,6 +807,11 @@ function LinhaDoEndereco({
             titulo={`Copiar a conta contrato de ${c.apelido}`}
           />
         </div>
+        {c.observacao && (
+          <p className="mt-1 max-w-[18rem] text-xs text-tinta-500">
+            {c.observacao}
+          </p>
+        )}
         {(!c.ativa || mostrarFornecedor) && (
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
             {!c.ativa && (
