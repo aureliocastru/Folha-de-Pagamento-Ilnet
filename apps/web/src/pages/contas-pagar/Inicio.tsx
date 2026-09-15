@@ -137,6 +137,64 @@ export function Inicio() {
     },
   });
 
+  /**
+   * Marca (ou desmarca) as ocultas direto na lista que já está na tela, em vez
+   * de reler o IXC: esconder uma linha não muda nada lá, e esperar a leitura
+   * inteira para ver a linha sumir seria meio minuto por um clique.
+   */
+  function marcarOcultas(ocultar: (c: ContaAberta) => boolean | undefined) {
+    queryClient.setQueryData<ContasAbertas>(['contas-abertas'], (atual) =>
+      atual
+        ? {
+            ...atual,
+            contas: atual.contas.map((c) => ({ ...c, oculta: ocultar(c) })),
+          }
+        : atual,
+    );
+  }
+
+  const ocultarLote = useMutation({
+    mutationFn: async (ids: number[]) => {
+      await api.post('/contas-abertas/ocultar-lote', { idsFnApagar: ids });
+      return ids;
+    },
+    onSuccess: (ids) => {
+      const escondidas = new Set(ids);
+      marcarOcultas((c) => c.oculta || escondidas.has(c.idFnApagar));
+      setMarcados(new Set());
+    },
+  });
+
+  const mostrarOcultas = useMutation({
+    mutationFn: async () => {
+      await api.post('/contas-abertas/mostrar-ocultas');
+    },
+    onSuccess: () => marcarOcultas(() => false),
+  });
+
+  const ocultas = (consulta.data?.contas ?? []).filter((c) => c.oculta);
+
+  /*
+   * O aviso de que há contas fora da lista, que é também o botão de trazê-las
+   * de volta. Mora no cabeçalho da tabela, e no lugar do "nenhuma conta aqui"
+   * quando tudo o que sobrou está oculto — senão não haveria como desfazer.
+   */
+  const botaoOcultas =
+    ocultas.length > 0 ? (
+      <button
+        onClick={() => mostrarOcultas.mutate()}
+        disabled={mostrarOcultas.isPending}
+        title="Trazer de volta para a lista todas as contas ocultas"
+        className="btn btn-p bg-amber-100 normal-case tracking-normal text-amber-800 hover:bg-amber-200"
+      >
+        {mostrarOcultas.isPending
+          ? 'Voltando…'
+          : `${ocultas.length} conta(s) oculta(s) · ${formatBRL(
+              ocultas.reduce((s, c) => s + c.valorAberto, 0),
+            )} — mostrar`}
+      </button>
+    ) : null;
+
   function alternarMarcado(idFnApagar: number) {
     setMarcados((atual) => {
       const proximo = new Set(atual);
@@ -167,7 +225,7 @@ export function Inicio() {
   }
 
   const semCategoria = (consulta.data?.contas ?? []).filter(
-    (c) => !estaClassificado(c),
+    (c) => !c.oculta && !estaClassificado(c),
   ).length;
 
   const resumo = consulta.data?.resumo;
@@ -397,6 +455,16 @@ export function Inicio() {
           >
             {excluirLote.isPending ? 'Apagando…' : 'Excluir'}
           </button>
+          {/* Tira da lista, sem tocar no IXC: a conta continua devida e nos
+              totais. O botão amarelo no cabeçalho da tabela traz de volta. */}
+          <button
+            onClick={() => ocultarLote.mutate([...marcados])}
+            disabled={ocultarLote.isPending}
+            title="Tirar da lista. No IXC nada muda, e a conta continua nos totais."
+            className="btn btn-p border border-white/15 text-white/80 hover:bg-white/10 hover:text-white"
+          >
+            {ocultarLote.isPending ? 'Ocultando…' : 'Ocultar'}
+          </button>
           <button
             onClick={() => setMarcados(new Set())}
             className="btn btn-p text-white/60 hover:bg-white/10 hover:text-white"
@@ -406,6 +474,11 @@ export function Inicio() {
           {classificarLote.isError && (
             <span className="w-full text-sm text-rose-700">
               {mensagemErro(classificarLote.error)}
+            </span>
+          )}
+          {ocultarLote.isError && (
+            <span className="w-full text-sm text-rose-300">
+              Não deu para ocultar: {mensagemErro(ocultarLote.error)}
             </span>
           )}
         </div>
@@ -431,9 +504,12 @@ export function Inicio() {
           )
         ) : contas.length === 0 ? (
           <Vazio titulo="Nenhuma conta aqui">
-            {consulta.data.contas.length
+            {consulta.data.contas.length > ocultas.length
               ? 'Nenhuma conta bate com o filtro. Tente "Ver todas".'
-              : 'Não há conta em aberto no IXC neste momento.'}
+              : ocultas.length
+                ? 'As contas que sobraram estão ocultas.'
+                : 'Não há conta em aberto no IXC neste momento.'}
+            {botaoOcultas && <div className="mt-3">{botaoOcultas}</div>}
           </Vazio>
         ) : (
           <div className="overflow-x-auto rolagem-fina">
@@ -455,7 +531,14 @@ export function Inicio() {
                       documento dividem uma linha sem rótulo — tudo aqui é
                       conta em aberto, o cartão não precisa dizer. */}
                   <th className="th" data-celular="sem-rotulo">Vencimento</th>
-                  <th className="th">Fornecedor</th>
+                  <th className="th">
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                      {/* No celular o cabeçalho só aparece por causa do botão, e
+                          o nome da coluna ali não rotula nada. */}
+                      <span className="hidden md:inline">Fornecedor</span>
+                      {botaoOcultas}
+                    </div>
+                  </th>
                   <th className="th" data-celular="sem-rotulo">Documento</th>
                   <th className="th text-right" data-celular="ao-lado">Em aberto</th>
                   <th className="th text-right">Pagar</th>
@@ -776,6 +859,7 @@ function filtrar(
   const termo = semAcento(busca.trim());
 
   return contas.filter((c) => {
+    if (c.oculta) return false;
     if (soSemCategoria && estaClassificado(c)) return false;
     const dias = c.diasParaVencer;
     const passaRecorte =

@@ -260,6 +260,7 @@ export class ContasAbertasService {
     await this.completarCategorias(contas);
     await this.aplicarClassificacoes(contas);
     await this.marcarOrigemNaFolha(contas);
+    await this.marcarOcultas(contas);
 
     return {
       contas: ordenarPorUrgencia(contas),
@@ -632,6 +633,49 @@ export class ContasAbertasService {
       const rateio = rateios.get(conta.idFnApagar);
       if (rateio) conta.rateio = rateio;
     }
+  }
+
+  /**
+   * Marca os títulos que alguém tirou da lista. Eles vêm na resposta mesmo
+   * assim: o resumo continua contando com eles, e é a tela que decide não os
+   * mostrar.
+   */
+  private async marcarOcultas(contas: ContaAberta[]): Promise<void> {
+    const ids = contas.map((c) => c.idFnApagar);
+    if (ids.length === 0) return;
+
+    const ocultas = await this.prisma.contaOculta.findMany({
+      where: { idFnApagar: { in: ids } },
+      select: { idFnApagar: true },
+    });
+    const conjunto = new Set(ocultas.map((o) => o.idFnApagar));
+    for (const conta of contas) {
+      if (conjunto.has(conta.idFnApagar)) conta.oculta = true;
+    }
+  }
+
+  /** Tira os títulos da lista de contas em aberto. Devolve quantos. */
+  async ocultar(idsFnApagar: number[], usuarioId?: string): Promise<number> {
+    const ids = [...new Set(idsFnApagar)];
+    if (ids.length === 0) return 0;
+    await this.prisma.contaOculta.createMany({
+      data: ids.map((idFnApagar) => ({
+        idFnApagar,
+        ocultadoPor: usuarioId ?? null,
+      })),
+      skipDuplicates: true,
+    });
+    return ids.length;
+  }
+
+  /**
+   * Devolve à lista tudo o que foi ocultado. Apaga a tabela inteira, e não só
+   * os títulos em aberto: os que já foram pagos não aparecem mais em lugar
+   * nenhum, e a linha deles aqui não serve para nada.
+   */
+  async mostrarOcultas(): Promise<number> {
+    const { count } = await this.prisma.contaOculta.deleteMany({});
+    return count;
   }
 
   /**

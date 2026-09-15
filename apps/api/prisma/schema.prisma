@@ -1524,6 +1524,21 @@ model ClassificacaoConta {
   @@map("classificacoes_conta")
 }
 
+/// Um título do IXC que alguém tirou da lista de contas em aberto.
+///
+/// Só some da lista: a conta continua devida e continua somada nos totais. O
+/// IXC não sabe disso — é preferência de tela, guardada aqui para valer no
+/// celular e no computador. Título pago some da lista sozinho, e a linha daqui
+/// fica sem efeito.
+model ContaOculta {
+  /// `fn_apagar.id` no IXC
+  idFnApagar Int      @id @map("id_fn_apagar")
+  ocultadoPor String? @map("ocultado_por")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("contas_ocultas")
+}
+
 // ---------------------------------------------------------------------------
 // Fechamento de caixa: conferir, no fim do período, o dinheiro em mãos.
 //

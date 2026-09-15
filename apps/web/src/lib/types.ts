@@ -743,6 +743,8 @@ export interface ContaAberta {
    */
   rateio?: FatiaDoRateio[];
   origem: OrigemNaFolha | null;
+  /** Tirada da lista por alguém. Continua devida e somada no resumo. */
+  oculta?: boolean;
 }
 
 /** Um pedaço de título que se divide entre categorias (a fatura do cartão). */

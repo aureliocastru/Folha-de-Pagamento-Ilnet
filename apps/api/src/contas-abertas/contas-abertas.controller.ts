@@ -1,5 +1,17 @@
-import { Controller, Get, Param, ParseIntPipe, Query } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  ParseIntPipe,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common';
+import type { Request } from 'express';
 import { ContasAbertasService } from './contas-abertas.service';
+import { ExcluirLoteDto } from './dto/despesa.dto';
 import { ParcelasService } from './parcelas.service';
 
 /**
@@ -57,6 +69,28 @@ export class ContasAbertasController {
   @Get('parcelas')
   parcelasDosTitulos(@Query('fornecedores') fornecedores?: string) {
     return this.parcelas.doFornecedores(lerIds(fornecedores));
+  }
+
+  /**
+   * Tira títulos da lista de contas em aberto. No IXC nada muda — a conta
+   * continua devida e somada nos totais.
+   */
+  @Post('ocultar-lote')
+  @HttpCode(200)
+  async ocultar(@Body() dto: ExcluirLoteDto, @Req() req: Request) {
+    const ocultadas = await this.service.ocultar(
+      dto.idsFnApagar,
+      (req.user as { id?: string } | undefined)?.id,
+    );
+    return { ok: true, ocultadas };
+  }
+
+  /** Devolve à lista tudo o que foi ocultado. */
+  @Post('mostrar-ocultas')
+  @HttpCode(200)
+  async mostrarOcultas() {
+    const devolvidas = await this.service.mostrarOcultas();
+    return { ok: true, devolvidas };
   }
 
   /**

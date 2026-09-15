@@ -148,6 +148,11 @@ export interface ContaAberta {
   }>;
   /** Preenchido depois, cruzando com o que a folha lançou */
   origem: OrigemNaFolha | null;
+  /**
+   * Alguém tirou este título da lista. Continua devido e somado no resumo — a
+   * tela só não o mostra até pedirem as ocultas de volta.
+   */
+  oculta?: boolean;
 }
 
 /** De onde a conta veio, quando quem a criou foi esta aplicação. */
