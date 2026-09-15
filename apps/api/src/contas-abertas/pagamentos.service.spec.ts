@@ -69,6 +69,7 @@ function montarServico(
           : { id: '23', conta: 'CX - Werick', id_planejamento: '12833' };
       }
       if (recurso === 'filial') return { id: '1', filial: 'Matriz' };
+      if (recurso === 'fornecedor') return { id: '7', razao: 'Banco Bradesco S/A' };
 
       leituras += 1;
       // A segunda leitura é a conferência de depois da baixa: por padrão o IXC
@@ -119,6 +120,35 @@ function montarServico(
   );
   return { service, ixc, criados, prisma, contasPagar };
 }
+
+describe('PagamentosService.pagar — a conta do título', () => {
+  it('sem conta escolhida, baixa na conta que está no título, e não na padrão', async () => {
+    // O caso de 31/08/2026: a parcela da Hilux, lançada no IXC para sair do
+    // Bradesco (15), foi baixada na ModoBank (18) porque a tela mandava a
+    // padrão. Sem escolha, quem manda é o título.
+    const { service, criados } = montarServico({
+      titulo: {
+        id: '31646',
+        status: 'A',
+        valor: '8217.95',
+        valor_aberto: '8217.95',
+        id_contas: '15',
+        id_conta: '2468',
+        id_fornecedor: '7',
+        filial_id: '1',
+        tipo_pagamento: 'Boleto',
+      },
+    });
+
+    const r = await service.pagar(31646, { data: '2026-08-31', desconto: 856.78 }, 'Aurelio');
+
+    expect(r).toMatchObject({ paga: true, contaPagamento: 15, valorPago: 7361.17 });
+    const baixa = criados.find((c) => c.recurso === 'botao_pagar_26409')!.payload;
+    expect(baixa.conta_).toBe(15);
+    // Título lançado no IXC não tem cópia daqui: o nome vem do cadastro do fornecedor.
+    expect(baixa.historico).toBe('Pag. Banco Bradesco S/A');
+  });
+});
 
 describe('PagamentosService.pagar', () => {
   it('pela conta do ModoBank: só aprova, sem baixa', async () => {

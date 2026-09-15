@@ -720,7 +720,22 @@ export class PagamentosService {
       orderBy: { createdAt: 'desc' },
     });
     if (local?.beneficiarioNome) return local.beneficiarioNome;
-    return textoOuNull(raw.fornecedor ?? raw.razao_social ?? raw.nome);
+    const noTitulo = textoOuNull(raw.fornecedor ?? raw.razao_social ?? raw.nome);
+    if (noTitulo) return noTitulo;
+
+    /*
+     * Título lançado na tela do IXC não tem cópia daqui, e o `fn_apagar` só
+     * traz o código do fornecedor. Sem este passo a baixa saía com o histórico
+     * "Pag." e mais nada (título 31646, 31/08/2026) — onde a tela do IXC
+     * escreve "Pag. Banco Bradesco S/A - doc.: …". Falhar aqui não impede a
+     * baixa: o histórico curto é feio, não errado.
+     */
+    const idFornecedor = parseIxcId(raw.id_fornecedor);
+    if (!idFornecedor) return null;
+    const fornecedor = await this.ixc
+      .getById<Record<string, unknown>>('fornecedor', 'fornecedor.id', idFornecedor)
+      .catch(() => null);
+    return textoOuNull(fornecedor?.razao ?? fornecedor?.fantasia);
   }
 
   /** Um passo de auditoria no IXC: aprovar ou reprovar com o motivo. */

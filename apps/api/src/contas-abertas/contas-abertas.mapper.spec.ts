@@ -163,6 +163,12 @@ describe('a parcela que vem escrita no título', () => {
     expect(c.parcela).toEqual({ posicao: 3, total: 6, fonte: 'observacao' });
   });
 
+  it('traz a conta de onde o título foi lançado para sair', () => {
+    // É ela que a janela de pagar abre marcada — ver `ContaAberta.contaPagamento`.
+    expect(mapContaAberta(bruto({ id_contas: '15' }), HOJE)!.contaPagamento).toBe(15);
+    expect(mapContaAberta(bruto({ id_contas: '0' }), HOJE)!.contaPagamento).toBeNull();
+  });
+
   it('título sem marca nenhuma não inventa parcela', () => {
     const c = mapContaAberta(bruto({ obs: 'Parcela Hilux' }), HOJE)!;
     expect(c.parcela).toBeNull();
@@ -189,6 +195,7 @@ describe('resumo', () => {
       observacao: null,
       parcela: null,
       statusAuditoria: null,
+      contaPagamento: null,
       categoria: { id: null, nome: null },
       classificacao: null,
       origem: null,

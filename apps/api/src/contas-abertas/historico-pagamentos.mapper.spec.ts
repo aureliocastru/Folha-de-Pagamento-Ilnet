@@ -368,6 +368,21 @@ describe('a data que a baixa corrige', () => {
     expect(p.diasDeAtraso).toBeNull();
   });
 
+  it('"de onde saiu" é a conta da baixa, e não a do título', () => {
+    // A parcela da Hilux: lançada para o Bradesco (15), baixada na ModoBank
+    // (18). A ficha dizia Bradesco, lendo o título, e o engano passou.
+    const p = mapPagamento(pago({ id_contas: '15' }))!;
+    expect(p.caixa.id).toBe(15);
+    aplicarBaixa(p, {
+      id: 1733094,
+      idFnApagar: p.idFnApagar,
+      data: new Date(Date.UTC(2026, 7, 31)),
+      campo: 'data',
+      contaPagamento: 18,
+    });
+    expect(p.caixa).toEqual({ id: 18, nome: null });
+  });
+
   it('sem baixa lida, a data é a do título e a ficha diz isso', () => {
     const p = mapPagamento(lancadoNoDiaSeguinte)!;
     expect(p.fonteDaData).toBe('titulo');

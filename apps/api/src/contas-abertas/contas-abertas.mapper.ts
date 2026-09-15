@@ -115,6 +115,13 @@ export interface ContaAberta {
   parcela: MarcacaoDeParcela | null;
   statusAuditoria: StatusAuditoriaIxc | null;
   /**
+   * De onde o título foi lançado para sair (`id_contas`): o Bradesco da parcela
+   * da Hilux, o ModoBank do PIX. É a conta que a janela de pagar abre marcada —
+   * abrir na padrão da configuração baixou um boleto do Bradesco na ModoBank
+   * (título 31646, 31/08/2026), e a conciliação dos dois bancos deixou de fechar.
+   */
+  contaPagamento: number | null;
+  /**
    * A conta de despesa do IXC — terreno, veículo, equipamento, energia. É o
    * que responde "com o que a empresa está devendo", e não só "para quem".
    * O nome pode vir vazio quando o registro só traz o código.
@@ -565,6 +572,7 @@ export function mapContaAberta(
     observacao: primeiroTexto(raw, ['obs', 'observacao', 'historico']),
     parcela: marcacaoDeParcela(raw),
     statusAuditoria: lerStatusAuditoria(raw),
+    contaPagamento: parseIxcId(raw.id_contas),
     categoria: {
       id: parseIxcId(raw.id_conta ?? raw.id_conta_despesa ?? raw.conta_despesa),
       nome: primeiroTexto(raw, [

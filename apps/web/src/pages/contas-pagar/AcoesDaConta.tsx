@@ -131,10 +131,37 @@ export function PagarEmMaos({
 
   /** A do banco que paga sozinho: é a padrão da configuração (ModoBank). */
   const contaDoBanco = config.data?.contaPagamentoId;
-  const contaAtual = Number(contaEscolhida) || contaDoBanco;
+  /**
+   * De onde cada título sai sem ninguém escolher: a conta que está nele, e na
+   * falta dela a padrão. É a mesma regra do servidor.
+   *
+   * A janela abria na padrão (ModoBank) e mandava ela ao IXC, por cima da conta
+   * do título. Um boleto do Bradesco foi baixado assim na ModoBank — título
+   * 31646, 31/08/2026 —, e a conciliação dos dois bancos parou de fechar.
+   */
+  const contaDe = (c: ContaAberta) => c.contaPagamento ?? contaDoBanco ?? null;
+  const contasDosTitulos = [...new Set(contas.map(contaDe))];
+  /** A conta dos títulos, quando todos saem da mesma. */
+  const contaDosTitulos = contasDosTitulos.length === 1 ? contasDosTitulos[0] : null;
+  /** Lote com títulos de contas diferentes: cada um sai pela sua. */
+  const misturadas = !contaEscolhida && contasDosTitulos.length > 1;
+  const contaAtual = Number(contaEscolhida) || contaDosTitulos || undefined;
   const escolhida = contasIxc.data?.find((c) => c.id === contaAtual);
+  const nomeDaConta = (id: number | null | undefined) =>
+    contasIxc.data?.find((c) => c.id === id)?.nome ?? (id ? `conta ${id}` : '');
   /** A conta escolhida é a do banco que paga sozinho (ModoBank). */
   const contaDoBancoEscolhida = !!contaDoBanco && contaAtual === contaDoBanco;
+  /** No lote misturado, algum título sai pelo ModoBank. */
+  const algumPeloBanco =
+    misturadas && !!contaDoBanco && contas.some((c) => contaDe(c) === contaDoBanco);
+  /**
+   * Escolheu uma conta diferente da que está no título. Pode ser o certo — o
+   * dinheiro saiu de outro banco —, mas é o engano que desencontra a
+   * conciliação, então a tela diz antes de confirmar.
+   */
+  const trocouDaDoTitulo =
+    !!contaEscolhida &&
+    contas.some((c) => c.contaPagamento != null && c.contaPagamento !== Number(contaEscolhida));
   /**
    * Só aprova, sem baixar: a conta do banco **e** ninguém tendo dito que o
    * dinheiro já saiu. Dizer que saiu desfaz a única razão de não baixar aqui —
@@ -187,7 +214,9 @@ export function PagarEmMaos({
         economia: number;
       }>('/contas-abertas/pagar-lote', {
         idsFnApagar: contas.map((c) => c.idFnApagar),
-        contaPagamento: contaAtual,
+        // Sem escolha, vai vazio: o servidor baixa cada título na conta que
+        // está nele. Mandar a padrão aqui era o que trocava o banco.
+        contaPagamento: contaEscolhida ? Number(contaEscolhida) : undefined,
         data,
         jaSaiu,
         // Para a API vai o desconto, que é o campo que o IXC entende na baixa;
@@ -245,7 +274,7 @@ export function PagarEmMaos({
             ? 'Nenhum dinheiro saiu e nada foi baixado no IXC. O motivo está abaixo — corrija e tente de novo.'
             : resultado.aguardandoBanco
               ? `Estão liberadas no IXC para o ${escolhida?.nome ?? 'banco'} pagar — é lá que o pagamento sai.`
-              : `Saiu de ${escolhida?.nome ?? 'conta escolhida'}. No IXC as contas constam quitadas; estornar, se precisar, é por lá.`}
+              : `Saiu de ${escolhida?.nome ?? 'a conta de cada título'}. No IXC as contas constam quitadas; estornar, se precisar, é por lá.`}
         </p>
 
         {/* A economia fica na tela do "pronto", e não só no painel do mês:
@@ -319,9 +348,11 @@ export function PagarEmMaos({
               disabled={contasIxc.isLoading}
             >
               <option value="">
-                {contaDoBanco
-                  ? `Padrão — ${contasIxc.data?.find((c) => c.id === contaDoBanco)?.nome ?? contaDoBanco}`
-                  : 'Padrão das Configurações'}
+                {contaDosTitulos
+                  ? `${contas.length === 1 ? 'Do título' : 'Dos títulos'} — ${nomeDaConta(contaDosTitulos)}`
+                  : contasDosTitulos.length > 1
+                    ? `A de cada título (${contasDosTitulos.length} contas)`
+                    : 'Padrão das Configurações'}
               </option>
               {(contasIxc.data ?? [])
                 .filter((c) => c.usual || c.ativa)
@@ -334,7 +365,7 @@ export function PagarEmMaos({
           </div>
         </div>
 
-        {contaDoBancoEscolhida && (
+        {(contaDoBancoEscolhida || algumPeloBanco) && (
           <label className="mt-3 flex w-fit flex-wrap items-center gap-2 text-sm text-tinta-600">
             <input
               type="checkbox"
@@ -342,25 +373,45 @@ export function PagarEmMaos({
               checked={jaSaiu}
               onChange={(e) => setJaSaiu(e.target.checked)}
             />
-            Já foi paga — o dinheiro já saiu desta conta
+            {algumPeloBanco
+              ? `Já foram pagas — o dinheiro das do ${nomeDaConta(contaDoBanco)} já saiu`
+              : 'Já foi paga — o dinheiro já saiu desta conta'}
           </label>
         )}
 
         {/* O que vai acontecer, em uma linha, antes de confirmar. */}
         <p
           className={`mt-3 text-sm ${
-            soAprova
+            soAprova || (algumPeloBanco && !jaSaiu)
               ? 'text-amber-700 dark:text-amber-300'
               : 'text-emerald-700 dark:text-emerald-300'
           }`}
         >
-          {soAprova
-            ? `Pelo ${escolhida?.nome ?? 'ModoBank'} a conta só é aprovada aqui — o pagamento sai na tela dele, no IXC. Marque acima se ela já foi paga.`
-            : `Aprova e dá baixa no IXC: a conta fica paga, saindo de ${escolhida?.nome ?? 'conta escolhida'}. Não precisa repetir lá.`}
+          {misturadas
+            ? `Cada título dá baixa na conta que está nele${
+                algumPeloBanco && !jaSaiu
+                  ? ` — os do ${nomeDaConta(contaDoBanco)} só são aprovados, o pagamento deles sai na tela do banco.`
+                  : '.'
+              }`
+            : soAprova
+              ? `Pelo ${escolhida?.nome ?? 'ModoBank'} a conta só é aprovada aqui — o pagamento sai na tela dele, no IXC. Marque acima se ela já foi paga.`
+              : `Aprova e dá baixa no IXC: a conta fica paga, saindo de ${escolhida?.nome ?? 'conta escolhida'}. Não precisa repetir lá.`}
         </p>
       </div>
 
-      {contaDoBancoEscolhida && jaSaiu && (
+      {/* A conta do título é onde o pagamento foi combinado. Trocar pode ser o
+          certo, mas é o engano que baixa num banco o que saiu de outro. */}
+      {trocouDaDoTitulo && (
+        <Aviso tom="atencao">
+          {contas.length === 1
+            ? `Este título foi lançado para sair de ${nomeDaConta(contas[0].contaPagamento)}, e a baixa vai para ${nomeDaConta(Number(contaEscolhida))}.`
+            : `Há títulos lançados para sair de outra conta, e a baixa de todos vai para ${nomeDaConta(Number(contaEscolhida))}.`}{' '}
+          Confira no extrato de qual banco o dinheiro saiu — baixar na conta
+          errada desencontra a conciliação dos dois bancos.
+        </Aviso>
+      )}
+
+      {(contaDoBancoEscolhida || algumPeloBanco) && jaSaiu && (
         <Aviso tom="atencao">
           Isto registra um pagamento que já aconteceu — não move dinheiro
           nenhum. Confira no extrato antes: dar por paga uma conta que o banco

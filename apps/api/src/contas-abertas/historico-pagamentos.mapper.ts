@@ -430,6 +430,10 @@ export function aplicarBaixa(
   pagamento.pagoEm = baixa.data;
   pagamento.fonteDaData = 'baixa';
   pagamento.baixaNoIxc = baixa.id;
+  // A conta que pagou é a da baixa. O nome se preenche depois, com os demais.
+  if (baixa.contaPagamento != null && baixa.contaPagamento !== pagamento.caixa.id) {
+    pagamento.caixa = { id: baixa.contaPagamento, nome: null };
+  }
   pagamento.campoDoDia = null;
   pagamento.diasDeAtraso =
     pagamento.vencimento === null

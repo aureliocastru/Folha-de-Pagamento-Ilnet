@@ -730,6 +730,8 @@ export interface ContaAberta {
   /** A parcela escrita no título, quando há uma. Null = não está escrita. */
   parcela: MarcacaoDeParcela | null;
   statusAuditoria: 'A' | 'R' | 'C' | null;
+  /** De onde o título foi lançado para sair (`id_contas`). Null = não tem. */
+  contaPagamento: number | null;
   /** A conta de despesa do IXC: terreno, veículo, equipamento, energia… */
   categoria: { id: number | null; nome: string | null };
   /**

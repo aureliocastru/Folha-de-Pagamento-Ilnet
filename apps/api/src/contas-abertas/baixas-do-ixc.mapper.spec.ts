@@ -33,7 +33,13 @@ describe('a linha de baixa do IXC', () => {
       idFnApagar: 36949,
       data: new Date(Date.UTC(2026, 7, 15)),
       campo: 'data',
+      contaPagamento: null,
     });
+  });
+
+  it('lê a conta que pagou, e não a do razão', () => {
+    // `id_conta` na movimentação é o plano de contas (12833); o banco é `id_contas`.
+    expect(mapBaixa(baixa({ id_contas: '18', id_conta: '12833' }))?.contaPagamento).toBe(18);
   });
 
   it('reconhece os outros nomes da coluna do título', () => {

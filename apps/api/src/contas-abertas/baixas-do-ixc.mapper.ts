@@ -26,6 +26,15 @@ export interface BaixaNoIxc {
   data: Date;
   /** A coluna de onde a data saiu, para a ficha poder mostrar de onde ela veio */
   campo: string;
+  /**
+   * A conta de onde o dinheiro saiu nesta baixa, quando a linha a traz.
+   *
+   * O título guarda a conta em que foi **lançado**; a baixa, a que de fato
+   * pagou — e as duas nem sempre são a mesma. A ficha dizia "saiu do Bradesco"
+   * lendo o título, de uma baixa feita na ModoBank (título 31646, 31/08/2026),
+   * e foi isso que escondeu o engano até a conciliação.
+   */
+  contaPagamento?: number | null;
 }
 
 /**
@@ -85,6 +94,10 @@ export function mapBaixa(
         idFnApagar,
         data,
         campo,
+        // `id_contas` é a conta de pagamento, como no título. `id_conta` não:
+        // na movimentação ele é a conta do razão, e trocar uma pela outra
+        // mostraria um código de plano de contas como se fosse o banco.
+        contaPagamento: parseIxcId(raw.id_contas),
       };
     }
   }
