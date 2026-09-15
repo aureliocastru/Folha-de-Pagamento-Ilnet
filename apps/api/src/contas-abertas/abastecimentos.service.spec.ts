@@ -1,13 +1,14 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { AbastecimentosService, resumirCombustivel } from './abastecimentos.service';
 
 /**
- * O abastecimento entra pelo portal do CPF, sem login. O que se protege aqui:
+ * O abastecimento entra pelo portal do CPF, sem login, só com o km e a foto; o
+ * valor é o administrador quem põe, na conferência. O que se protege aqui:
  *
  *  - só o responsável lança, e só no veículo que está no nome dele;
  *  - sem a foto da nota não entra;
  *  - o km não anda para trás — é o erro de digitação mais comum no posto;
- *  - o custo por km não conta o combustível do primeiro abastecimento.
+ *  - o que está na fila não entra no total, e não deixa sair custo por km errado.
  */
 
 const CPF = '529.982.247-25';
@@ -30,8 +31,19 @@ function montar(opts: { responsavelId?: string; ultimoKm?: number | null } = {})
     },
     abastecimento: {
       aggregate: jest.fn(async () => ({ _max: { km: opts.ultimoKm ?? null } })),
+      findUnique: jest.fn(async () => ({ id: 'a1' })),
       create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
         id: 'a1',
+        valor: null,
+        conferidoPor: null,
+        ...data,
+        foto: { id: 'foto1' },
+      })),
+      update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+        id: 'a1',
+        km: 12_500,
+        data: new Date(),
+        lancadoPor: 'Anderson',
         ...data,
         foto: { id: 'foto1' },
       })),
@@ -40,25 +52,22 @@ function montar(opts: { responsavelId?: string; ultimoKm?: number | null } = {})
   return { service: new AbastecimentosService(prisma as never), prisma };
 }
 
-const PEDIDO = { veiculoId: 'v1', valor: 35.5, km: 12_500, foto: FOTO };
+const PEDIDO = { veiculoId: 'v1', km: 12_500, foto: FOTO };
 
 describe('AbastecimentosService.lancarPeloPortal', () => {
-  it('grava valor, km, foto e quem lançou', async () => {
+  it('grava km, foto e quem lançou — sem valor, que é da conferência', async () => {
     const { service, prisma } = montar({ ultimoKm: 12_300 });
     const r = await service.lancarPeloPortal(CPF, PEDIDO);
-    expect(prisma.abastecimento.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          veiculoId: 'v1',
-          valor: 35.5,
-          km: 12_500,
-          funcionarioId: 'f1',
-          lancadoPor: 'Anderson',
-          foto: { create: { foto: FOTO } },
-        }),
-      }),
-    );
-    expect(r).toMatchObject({ valor: 35.5, km: 12_500, temFoto: true });
+    const dados = prisma.abastecimento.create.mock.calls[0][0].data;
+    expect(dados).toMatchObject({
+      veiculoId: 'v1',
+      km: 12_500,
+      funcionarioId: 'f1',
+      lancadoPor: 'Anderson',
+      foto: { create: { foto: FOTO } },
+    });
+    expect(dados).not.toHaveProperty('valor');
+    expect(r).toMatchObject({ valor: null, km: 12_500, temFoto: true });
   });
 
   it('só no veículo que está no nome de quem lança', async () => {
@@ -82,10 +91,32 @@ describe('AbastecimentosService.lancarPeloPortal', () => {
     const { service } = montar();
     await expect(service.lancarPeloPortal('111.444.777-35', PEDIDO)).rejects.toThrow(NotFoundException);
   });
+});
 
-  it('valor zerado não entra', async () => {
+describe('a conferência', () => {
+  it('põe o valor lido na nota e diz quem conferiu', async () => {
+    const { service, prisma } = montar();
+    const r = await service.conferir('a1', 45.5, 'Administrador');
+    expect(prisma.abastecimento.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ valor: 45.5, conferidoPor: 'Administrador' }),
+      }),
+    );
+    expect(r).toMatchObject({ valor: 45.5, conferidoPor: 'Administrador' });
+  });
+
+  it('valor zerado não confere', async () => {
     const { service } = montar();
-    await expect(service.lancarPeloPortal(CPF, { ...PEDIDO, valor: 0 })).rejects.toThrow(BadRequestException);
+    await expect(service.conferir('a1', 0, 'Administrador')).rejects.toThrow(/valor da nota/);
+  });
+
+  it('lançado pela ficha com o valor já nasce conferido', async () => {
+    const { service, prisma } = montar();
+    await service.lancarPeloSistema('v1', { km: 12_500, foto: FOTO, valor: 50 }, { nome: 'Administrador' });
+    expect(prisma.abastecimento.create.mock.calls[0][0].data).toMatchObject({
+      valor: 50,
+      conferidoPor: 'Administrador',
+    });
   });
 });
 
@@ -96,7 +127,23 @@ describe('resumirCombustivel', () => {
       { valor: 40, km: 1200 },
       { valor: 20, km: 1400 },
     ]);
-    expect(r).toEqual({ total: 110, quantidade: 3, ultimoKm: 1400, kmRodados: 400, custoPorKm: 0.15 });
+    expect(r).toEqual({
+      total: 110,
+      quantidade: 3,
+      aConferir: 0,
+      ultimoKm: 1400,
+      kmRodados: 400,
+      custoPorKm: 0.15,
+    });
+  });
+
+  it('com nota na fila: fora do total, e sem custo por km', () => {
+    const r = resumirCombustivel([
+      { valor: 50, km: 1000 },
+      { valor: null, km: 1200 },
+      { valor: 20, km: 1400 },
+    ]);
+    expect(r).toMatchObject({ total: 70, aConferir: 1, kmRodados: 400, custoPorKm: null });
   });
 
   it('um abastecimento só ainda não diz quanto custa o km', () => {

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type ChangeEvent } from 'react';
-import { Aviso, CampoDinheiro, Carregando } from '../../components/ui';
+import { Aviso, Carregando } from '../../components/ui';
 import { mensagemErro } from '../../lib/api';
 import { formatBRL } from '../../lib/format';
 import { reduzirFoto } from '../../lib/foto';
@@ -15,7 +15,8 @@ export interface VeiculoDoPortal {
   ultimoKm: number | null;
   ultimos: Array<{
     id: string;
-    valor: number;
+    /** Null = o administrador ainda não conferiu a nota. */
+    valor: number | null;
     km: number;
     data: string;
     lancadoPor: string;
@@ -44,9 +45,10 @@ const km = (n: number) => `${n.toLocaleString('pt-BR')} km`;
 /**
  * O abastecimento, lançado por quem anda com o veículo, na hora, no posto.
  *
- * Três coisas e só: o valor da nota, o km do painel e a foto da nota. O
- * veículo já vem escolhido quando é um só — e quase sempre é. Tudo grande,
- * para o dedo e para a luz do sol: é uma tela de posto de gasolina.
+ * Duas coisas e só: o km do painel e a foto da nota. O valor não se digita
+ * aqui — o administrador o lê na nota, na conferência. O veículo já vem
+ * escolhido quando é um só, e quase sempre é. Tudo grande, para o dedo e para
+ * a luz do sol: é uma tela de posto de gasolina.
  */
 export function TelaDeAbastecimento({ cpf }: { cpf: string }) {
   const qc = useQueryClient();
@@ -54,7 +56,6 @@ export function TelaDeAbastecimento({ cpf }: { cpf: string }) {
   const veiculos = consulta.data?.veiculos ?? [];
 
   const [veiculoId, setVeiculoId] = useState('');
-  const [valor, setValor] = useState('');
   const [kmDigitado, setKmDigitado] = useState('');
   const [foto, setFoto] = useState<string | null>(null);
   const [preparandoFoto, setPreparandoFoto] = useState(false);
@@ -94,16 +95,14 @@ export function TelaDeAbastecimento({ cpf }: { cpf: string }) {
         await apiPontos.post('/pontos/abastecimento', {
           cpf,
           veiculoId,
-          valor: Number(valor),
           km: kmNumero,
           foto,
         })
       ).data,
     onSuccess: () => {
       setFeito(
-        `Abastecimento de ${formatBRL(Number(valor))} lançado em ${veiculo?.apelido} com ${km(kmNumero ?? 0)}.`,
+        `Abastecimento lançado em ${veiculo?.apelido} com ${km(kmNumero ?? 0)}. A nota vai para a conferência.`,
       );
-      setValor('');
       setKmDigitado('');
       setFoto(null);
       void qc.invalidateQueries({ queryKey: ['pontos', 'abastecimento', cpf] });
@@ -121,7 +120,7 @@ export function TelaDeAbastecimento({ cpf }: { cpf: string }) {
     );
   }
 
-  const valido = !!veiculo && Number(valor) > 0 && kmNumero != null && !kmAtras && !!foto;
+  const valido = !!veiculo && kmNumero != null && !kmAtras && !!foto;
 
   return (
     <div className="space-y-4">
@@ -181,18 +180,7 @@ export function TelaDeAbastecimento({ cpf }: { cpf: string }) {
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <label className="rotulo" htmlFor="abast-valor">
-              Valor da nota
-            </label>
-            <CampoDinheiro
-              id="abast-valor"
-              valor={valor}
-              onChange={setValor}
-              className="campo num h-12 text-lg"
-            />
-          </div>
+        <div>
           <div>
             <label className="rotulo" htmlFor="abast-km">
               Km do painel
@@ -269,13 +257,11 @@ export function TelaDeAbastecimento({ cpf }: { cpf: string }) {
             ? 'Enviando…'
             : !veiculo
               ? 'Escolha o veículo'
-              : !(Number(valor) > 0)
-                ? 'Digite o valor'
-                : kmNumero == null
-                  ? 'Digite o km'
-                  : !foto
-                    ? 'Tire a foto da nota'
-                    : 'Lançar abastecimento'}
+              : kmNumero == null
+                ? 'Digite o km'
+                : !foto
+                  ? 'Tire a foto da nota'
+                  : 'Lançar abastecimento'}
         </button>
       </div>
 
@@ -286,7 +272,12 @@ export function TelaDeAbastecimento({ cpf }: { cpf: string }) {
             {veiculo.ultimos.map((a) => (
               <li key={a.id} className="px-4 py-3">
                 <span className="block text-sm text-tinta-800">
-                  <span className="valor">{formatBRL(a.valor)}</span> · {km(a.km)}
+                  {km(a.km)} ·{' '}
+                  {a.valor != null ? (
+                    <span className="valor">{formatBRL(a.valor)}</span>
+                  ) : (
+                    <span className="text-amber-600 dark:text-amber-300">na conferência</span>
+                  )}
                 </span>
                 <span className="block text-[11px] text-tinta-400">
                   {new Date(a.data).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })} ·{' '}

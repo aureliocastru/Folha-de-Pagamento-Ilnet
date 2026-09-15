@@ -36,6 +36,8 @@ export interface VeiculoNaLista {
   /** O que se abasteceu nele — controle, fora das contas a pagar. */
   combustivel: number;
   abastecimentos: number;
+  /** Quantos esperam o administrador pôr o valor da nota. */
+  abastecimentosAConferir: number;
   ultimoKm: number | null;
 }
 
@@ -92,7 +94,8 @@ export class VeiculosService {
       this.prisma.abastecimento.groupBy({
         by: ['veiculoId'],
         _sum: { valor: true },
-        _count: { _all: true },
+        // `valor` conta só os que têm valor: a diferença é a fila da conferência.
+        _count: { _all: true, valor: true },
         _max: { km: true },
       }),
     ]);
@@ -102,6 +105,7 @@ export class VeiculosService {
         {
           total: Number(c._sum.valor ?? 0),
           quantidade: c._count._all,
+          aConferir: c._count._all - c._count.valor,
           ultimoKm: c._max.km ?? null,
         },
       ]),
@@ -303,7 +307,12 @@ export function resumir(
     'id' | 'apelido' | 'tipo' | 'placa' | 'modelo' | 'ano' | 'observacao' | 'ativo'
   > & { responsavel?: { id: string; nome: string; apelido: string | null } | null },
   contas: ContaResumida[],
-  combustivel?: { total: number; quantidade: number; ultimoKm: number | null },
+  combustivel?: {
+    total: number;
+    quantidade: number;
+    aConferir?: number;
+    ultimoKm: number | null;
+  },
 ): VeiculoNaLista {
   let gasto = 0;
   let emAberto = 0;
@@ -336,6 +345,7 @@ export function resumir(
     ultimoGasto: ultimo ? ultimo.toISOString().slice(0, 10) : null,
     combustivel: centavos(combustivel?.total ?? 0),
     abastecimentos: combustivel?.quantidade ?? 0,
+    abastecimentosAConferir: combustivel?.aConferir ?? 0,
     ultimoKm: combustivel?.ultimoKm ?? null,
   };
 }

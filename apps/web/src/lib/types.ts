@@ -10,13 +10,35 @@ export interface Usuario {
    * **Vazio = todos** — é lista de restrição, não de permissão.
    */
   modulos?: string[];
+  /** O perfil criado pelo administrador, quando o login tem um. */
+  perfil?: { id: string; nome: string } | null;
+  /**
+   * O que o perfil criado permite em cada módulo. Presente, é ele que manda —
+   * a lista `modulos` deixa de valer. Null = perfil fixo de sempre.
+   */
+  permissoes?: Record<string, NivelDeAcesso> | null;
 }
+
+/** Num módulo, um perfil criado: não abre, só vê, ou mexe. */
+export type NivelDeAcesso = 'nao' | 'ver' | 'mexer';
 
 /** Login como aparece na tela de gerenciamento (só para ADMIN). */
 export interface UsuarioAdmin extends Usuario {
   ativo: boolean;
+  /** A senha pode ser vista (foi gravada depois de o sistema passar a guardá-las). */
+  senhaVisivel: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+/** Um perfil de acesso montado pelo administrador. */
+export interface PerfilDeAcesso {
+  id: string;
+  nome: string;
+  descricao: string | null;
+  permissoes: Record<string, NivelDeAcesso>;
+  /** Quantos logins usam este perfil. */
+  usuarios: number;
 }
 
 export interface Funcionario {

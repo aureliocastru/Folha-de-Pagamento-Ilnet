@@ -74,16 +74,11 @@ export class VeiculosDoCpfDto {
   @IsString() @MaxLength(20) cpf!: string;
 }
 
-/** O abastecimento lançado pelo portal. */
+/** O abastecimento lançado pelo portal: o km e a foto. O valor é da conferência. */
 export class LancarAbastecimentoDto {
   @IsString() @MaxLength(20) cpf!: string;
 
   @IsUUID() veiculoId!: string;
-
-  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
-  @IsNumber()
-  @Min(0.01)
-  valor!: number;
 
   @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
   @IsInt()
@@ -92,4 +87,28 @@ export class LancarAbastecimentoDto {
 
   /** A foto da nota, em data URL. O teto de tamanho de verdade é o do service. */
   @IsString() @MaxLength(5_000_000) foto!: string;
+}
+
+/** O abastecimento lançado por dentro, na ficha do veículo. O valor é opcional. */
+export class LancarAbastecimentoNoSistemaDto {
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsInt()
+  @Min(0)
+  km!: number;
+
+  @IsString() @MaxLength(5_000_000) foto!: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsNumber()
+  @Min(0.01)
+  valor?: number;
+}
+
+/** O valor que o administrador leu na nota. */
+export class ConferirAbastecimentoDto {
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsNumber()
+  @Min(0.01)
+  valor!: number;
 }

@@ -12,11 +12,20 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { AbastecimentosService } from './abastecimentos.service';
-import { AtualizarVeiculoDto, CriarVeiculoDto } from './dto/veiculo.dto';
+import {
+  AtualizarVeiculoDto,
+  ConferirAbastecimentoDto,
+  CriarVeiculoDto,
+  LancarAbastecimentoNoSistemaDto,
+} from './dto/veiculo.dto';
 import { VeiculosService } from './veiculos.service';
 
 function usuarioId(req: Request): string | undefined {
   return (req.user as { id?: string } | undefined)?.id;
+}
+
+function nomeDe(req: Request): string {
+  return (req.user as { nome?: string } | undefined)?.nome ?? 'Sistema';
 }
 
 /** Os veículos da frota, o que cada um já custou e os abastecimentos. */
@@ -39,10 +48,40 @@ export class VeiculosController {
     return this.service.responsaveis();
   }
 
+  /** A fila da conferência: abastecimentos de todos os veículos sem valor. */
+  @Get('abastecimentos/a-conferir')
+  aConferir() {
+    return this.abastecimentos.aConferir();
+  }
+
   /** A foto da nota de um abastecimento. Antes do `:id`. */
   @Get('abastecimentos/:id/foto')
   fotoDoAbastecimento(@Param('id') id: string) {
     return this.abastecimentos.foto(id);
+  }
+
+  /** O valor lido na nota. Só controle: nada se paga por aqui. */
+  @Patch('abastecimentos/:id')
+  conferir(
+    @Param('id') id: string,
+    @Body() dto: ConferirAbastecimentoDto,
+    @Req() req: Request,
+  ) {
+    return this.abastecimentos.conferir(id, dto.valor, nomeDe(req));
+  }
+
+  /** Lançar um abastecimento pela ficha do veículo. */
+  @Post(':id/abastecimentos')
+  @HttpCode(201)
+  lancarAbastecimento(
+    @Param('id') id: string,
+    @Body() dto: LancarAbastecimentoNoSistemaDto,
+    @Req() req: Request,
+  ) {
+    return this.abastecimentos.lancarPeloSistema(id, dto, {
+      id: usuarioId(req),
+      nome: nomeDe(req),
+    });
   }
 
   @Delete('abastecimentos/:id')

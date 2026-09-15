@@ -110,11 +110,13 @@ export function MinhaConta() {
               <p className="eyebrow mb-1.5">Perfil</p>
               {usuario && (
                 <>
-                  <Selo tom={PERFIL_TOM[usuario.role]}>
-                    {PERFIL_LABEL[usuario.role]}
+                  <Selo tom={usuario.perfil ? 'marca' : PERFIL_TOM[usuario.role]}>
+                    {usuario.perfil?.nome ?? PERFIL_LABEL[usuario.role]}
                   </Selo>
                   <p className="mt-2 text-sm leading-relaxed text-tinta-500">
-                    {PERFIL_DESCRICAO[usuario.role]}
+                    {usuario.perfil
+                      ? 'Perfil montado pelo administrador: ele decide, módulo por módulo, o que você vê e o que altera.'
+                      : PERFIL_DESCRICAO[usuario.role]}
                   </p>
                 </>
               )}

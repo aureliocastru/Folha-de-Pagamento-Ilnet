@@ -12,12 +12,17 @@ import { moduloDaRota, ModulosGuard } from './modulos.guard';
  * tela não denuncia nada: ela simplesmente não mostra o que deveria.
  */
 function contexto(
-  usuario: { role: UserRole; modulos?: string[] } | null,
+  usuario: {
+    role: UserRole;
+    modulos?: string[];
+    permissoes?: Record<string, 'nao' | 'ver' | 'mexer'> | null;
+  } | null,
   path: string,
+  method = 'GET',
 ): ExecutionContext {
   return {
     switchToHttp: () => ({
-      getRequest: () => ({ user: usuario ?? undefined, path }),
+      getRequest: () => ({ user: usuario ?? undefined, path, method }),
     }),
   } as unknown as ExecutionContext;
 }
@@ -104,5 +109,40 @@ describe('quem abre qual módulo', () => {
       true,
     );
     expect(guard.canActivate(contexto(usuario, '/api/auth/me'))).toBe(true);
+  });
+});
+
+describe('login com perfil criado', () => {
+  // "Almoxarife": mexe no almoxarifado, só vê as contas, não abre o resto.
+  const almoxarife = {
+    role: UserRole.RH,
+    modulos: [],
+    permissoes: {
+      folha: 'nao',
+      'contas-pagar': 'ver',
+      rh: 'nao',
+      seguranca: 'nao',
+      almoxarifado: 'mexer',
+    } as Record<string, 'nao' | 'ver' | 'mexer'>,
+  };
+
+  it('mexe onde o perfil diz mexe', () => {
+    expect(guard.canActivate(contexto(almoxarife, '/api/almoxarifado/produtos', 'POST'))).toBe(true);
+  });
+
+  it('só vê: lê, mas não escreve', () => {
+    expect(guard.canActivate(contexto(almoxarife, '/api/contas-abertas'))).toBe(true);
+    expect(() =>
+      guard.canActivate(contexto(almoxarife, '/api/contas-abertas/pagar-lote', 'POST')),
+    ).toThrow(/só vê/);
+  });
+
+  /* Com perfil não existe "vazio = todos": a lista antiga vazia não abre nada. */
+  it('não abre o que o perfil não marcou, mesmo com a lista antiga vazia', () => {
+    expect(() => guard.canActivate(contexto(almoxarife, '/api/funcionarios'))).toThrow(/não abre/);
+  });
+
+  it('as contas de luz são do Contas a Pagar', () => {
+    expect(moduloDaRota('/api/contas-contrato')).toEqual(['contas-pagar']);
   });
 });

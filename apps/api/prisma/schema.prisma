@@ -46,6 +46,19 @@ model User {
   /// acesso, e trancar a si mesmo não teria conserto pela tela.
   modulos String[] @default([])
 
+  /// O perfil criado pelo administrador, quando o login tem um. Com ele, é o
+  /// perfil que diz o que se abre e o que só se vê, módulo por módulo — o
+  /// `role` fica RH e a lista `modulos` deixa de valer. Sem ele, vale o
+  /// `role` de sempre (ADMIN, RH, VISUALIZADOR, TECNICO).
+  perfil   PerfilDeAcesso? @relation(fields: [perfilId], references: [id], onDelete: Restrict)
+  perfilId String?         @map("perfil_id")
+
+  /// A senha cifrada, para o administrador poder vê-la (pedido do dono, em
+  /// 15/09/2026). Quem entra continua sendo conferido pelo `senhaHash`; esta
+  /// coluna só existe para ser mostrada. Vazia nos logins de antes dela: a
+  /// senha deles não tem como ser recuperada, só trocada.
+  senhaCifrada String? @map("senha_cifrada")
+
   /// O bloco de notas deste login. Ver o modelo `Agenda`.
   agenda Agenda?
 
@@ -53,6 +66,26 @@ model User {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("users")
+}
+
+/// Um perfil de acesso montado pelo administrador: "Financeiro", "Almoxarife".
+///
+/// Em cada módulo, um de três: não abre, só vê, ou mexe. Mudar o perfil muda
+/// todos os logins que o usam, no clique seguinte deles.
+model PerfilDeAcesso {
+  id        String  @id @default(uuid())
+  nome      String  @unique
+  descricao String?
+
+  /// { "folha": "mexer", "contas-pagar": "ver" }. Módulo ausente = não abre.
+  permissoes Json @default("{}")
+
+  usuarios User[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("perfis_de_acesso")
 }
 
 // ---------------------------------------------------------------------------
@@ -1325,12 +1358,18 @@ model Abastecimento {
   veiculo   Veiculo @relation(fields: [veiculoId], references: [id], onDelete: Restrict)
   veiculoId String  @map("veiculo_id")
 
-  /// O valor da nota, antes do desconto da fatura.
-  valor Decimal @db.Decimal(14, 2)
+  /// O valor da nota, antes do desconto da fatura. Vazio até o administrador
+  /// conferir: quem abastece lança só o km e a foto, e o valor sai da nota,
+  /// lido na conferência (pedido do dono, 15/09/2026).
+  valor Decimal? @db.Decimal(14, 2)
   /// O km do painel na hora de abastecer.
   km    Int
   /// Quando abasteceu.
   data  DateTime
+
+  /// Quem pôs o valor, e quando. Vazio = ainda na fila da conferência.
+  conferidoPor String?   @map("conferido_por")
+  conferidoEm  DateTime? @map("conferido_em")
 
   /// Quem lançou: o funcionário do portal, ou um login do sistema.
   funcionario   Funcionario? @relation(fields: [funcionarioId], references: [id], onDelete: SetNull)

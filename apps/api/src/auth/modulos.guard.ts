@@ -28,6 +28,9 @@ export type ModuloId = (typeof MODULOS)[number];
  */
 const MODULO_DO_TECNICO: ModuloId[] = ['seguranca'];
 
+/** Métodos que mudam alguma coisa — com perfil criado, pedem "mexe". */
+const ESCRITA = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
 /**
  * De que módulo é cada rota, pelo primeiro pedaço do caminho.
  *
@@ -61,6 +64,9 @@ const MODULO_DA_ROTA: Array<[string, ModuloId[]]> = [
   ['recorrentes', ['contas-pagar']],
   ['cartoes-credito', ['contas-pagar']],
   ['veiculos', ['contas-pagar']],
+  // Estava de fora da tabela, e por isso aberto a qualquer login: com perfil
+  // de "não abre Contas a Pagar", as contas de luz continuavam acessíveis.
+  ['contas-contrato', ['contas-pagar']],
   ['transferencias', ['contas-pagar']],
   ['caixa', ['contas-pagar']],
 
@@ -96,13 +102,41 @@ export class ModulosGuard implements CanActivate {
   canActivate(context: ExecutionContext): boolean {
     const req = context.switchToHttp().getRequest<Request>();
     const usuario = req.user as
-      | { role?: UserRole; modulos?: string[] }
+      | {
+          role?: UserRole;
+          modulos?: string[];
+          permissoes?: Partial<Record<ModuloId, 'nao' | 'ver' | 'mexer'>> | null;
+        }
       | undefined;
 
     // Rota pública: o JwtAuthGuard já deixou passar.
     if (!usuario?.role) return true;
     // ADMIN distribui o acesso; ele não se restringe.
     if (usuario.role === UserRole.ADMIN) return true;
+
+    /*
+     * Login com perfil criado: o perfil manda, e a lista `modulos` não conta.
+     *
+     * Aqui não há "vazio = todos": módulo que o perfil não marcou não abre.
+     * E escrever pede "mexe" — o "só vê" é o Visualizador de um módulo só, e é
+     * o que deixa, por exemplo, o almoxarife consultar uma conta sem pagá-la.
+     */
+    if (usuario.permissoes) {
+      const exigidos = moduloDaRota(req.path);
+      if (!exigidos) return true;
+      const niveis = exigidos.map((m) => usuario.permissoes?.[m] ?? 'nao');
+      if (!niveis.some((n) => n === 'ver' || n === 'mexer')) {
+        throw new ForbiddenException(
+          'Seu perfil não abre este módulo. Peça a um administrador para liberar.',
+        );
+      }
+      if (ESCRITA.has(req.method) && !niveis.includes('mexer')) {
+        throw new ForbiddenException(
+          'Seu perfil só vê este módulo, não altera. Peça a um administrador para liberar.',
+        );
+      }
+      return true;
+    }
 
     /*
      * O técnico de campo não tem lista: ele tem a Segurança do Trabalho, e é

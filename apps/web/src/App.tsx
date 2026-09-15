@@ -17,6 +17,7 @@ import { Formularios } from './pages/apr/Formularios';
 import { Assinar } from './pages/Assinar';
 import { Login } from './pages/Login';
 import { Modulos } from './pages/Modulos';
+import { TelaDeFora } from './components/TelaDeFora';
 import { Inicio as ContasPagarInicio } from './pages/contas-pagar/Inicio';
 import { Estoque } from './pages/almoxarifado/Estoque';
 import { Conferencia } from './pages/almoxarifado/Conferencia';
@@ -80,7 +81,7 @@ function SomenteAdmin({ children }: { children: ReactNode }) {
   return usuario?.role === 'ADMIN' ? (
     <>{children}</>
   ) : (
-    <Navigate to="/folha/dashboard" replace />
+    <Navigate to={destinoDepoisDoLogin(usuario)} replace />
   );
 }
 
@@ -121,6 +122,20 @@ export default function App() {
           </Protegida>
         }
       />
+      {/* Os logins: fora dos módulos, porque dar acesso não é assunto de
+          nenhum deles. Botão no alto da tela de módulos, só para ADMIN. */}
+      <Route
+        path="/usuarios"
+        element={
+          <Protegida>
+            <SomenteAdmin>
+              <TelaDeFora>
+                <Usuarios />
+              </TelaDeFora>
+            </SomenteAdmin>
+          </Protegida>
+        }
+      />
 
       <Route
         path="/folha"
@@ -143,14 +158,8 @@ export default function App() {
         <Route path="impostos" element={<Impostos />} />
         <Route path="configuracoes" element={<Configuracoes />} />
         <Route path="minha-conta" element={<MinhaConta />} />
-        <Route
-          path="usuarios"
-          element={
-            <SomenteAdmin>
-              <Usuarios />
-            </SomenteAdmin>
-          }
-        />
+        {/* O caminho antigo continua valendo: Usuários agora é de fora. */}
+        <Route path="usuarios" element={<Navigate to="/usuarios" replace />} />
       </Route>
 
       <Route

@@ -1,11 +1,7 @@
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
+import { CabecalhoDeFora } from '../components/TelaDeFora';
 import { useAuth } from '../lib/auth';
-import {
-  caminhoDaConta,
-  caminhoInicial,
-  modulosDoUsuario,
-  TELA_DO_CAMPO,
-} from '../lib/modulos';
+import { caminhoInicial, modulosDoUsuario, TELA_DO_CAMPO } from '../lib/modulos';
 
 /**
  * A primeira tela depois do login: escolher em qual módulo trabalhar. Fundo
@@ -13,13 +9,7 @@ import {
  * abrir, chegar como clareira.
  */
 export function Modulos() {
-  const { usuario, logout } = useAuth();
-  const navigate = useNavigate();
-
-  function sair() {
-    logout();
-    navigate('/login');
-  }
+  const { usuario } = useAuth();
 
   // O técnico de campo não escolhe módulo: ele tem uma tela, e é esta. Chegar
   // aqui (pelo endereço, ou vindo de um módulo que ele não abre) é ser levado
@@ -39,43 +29,9 @@ export function Modulos() {
         }}
       />
 
-      {/* pr generoso: o bloco de notas mora encostado nesta quina, e sem
-          folga o "Sair" ficava debaixo dele. */}
-      <header className="relative flex flex-wrap items-center justify-between gap-3 border-b border-white/10 py-4 pl-4 pr-14 sm:gap-4 sm:py-5 sm:pl-10 sm:pr-20">
-        <div className="flex items-center gap-3.5">
-          <img
-            src="/logo-ilnet.png"
-            alt="ilnet"
-            width={110}
-            height={68}
-            className="h-auto w-[92px]"
-          />
-          <span className="text-[10px] font-medium uppercase tracking-[0.22em] text-white/45">
-            Finance
-          </span>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <Link
-            to={caminhoDaConta(usuario)}
-            className="flex items-center gap-2.5 rounded-xl px-2 py-1.5 transition hover:bg-white/5"
-            title="Minha conta"
-          >
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-500/20 font-display text-xs font-semibold text-brand-300">
-              {(usuario?.nome ?? '?').slice(0, 2).toUpperCase()}
-            </span>
-            <span className="hidden text-[13px] font-medium text-white sm:block">
-              {usuario?.nome}
-            </span>
-          </Link>
-          <button
-            onClick={sair}
-            className="rounded-lg border border-white/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-white/70 transition hover:border-white/20 hover:bg-white/5 hover:text-white"
-          >
-            Sair
-          </button>
-        </div>
-      </header>
+      <div className="relative [&>header]:bg-transparent">
+        <CabecalhoDeFora />
+      </div>
 
       <main className="relative mx-auto w-full max-w-[900px] px-4 py-9 sm:px-10 sm:py-14">
         <p className="eyebrow mb-2 text-brand-300">Módulos</p>

@@ -14,9 +14,120 @@ import { useAuth } from '../../lib/auth';
 import { formatData } from '../../lib/format';
 import { MODULOS_DISTRIBUIVEIS as MODULOS } from '../../lib/modulos';
 import { PERFIL_DESCRICAO, PERFIL_LABEL, PERFIL_TOM } from '../../lib/status';
-import type { PerfilUsuario, UsuarioAdmin } from '../../lib/types';
+import type {
+  NivelDeAcesso,
+  PerfilDeAcesso,
+  PerfilUsuario,
+  UsuarioAdmin,
+} from '../../lib/types';
 
 const PERFIS: PerfilUsuario[] = ['ADMIN', 'RH', 'VISUALIZADOR', 'TECNICO'];
+
+/*
+ * O acesso de um login cabe num valor só, para o mesmo seletor servir aos
+ * perfis fixos e aos criados: "RH", ou "perfil:<id>".
+ */
+const PREFIXO_PERFIL = 'perfil:';
+
+function valorDoAcesso(u: { role: PerfilUsuario; perfil?: { id: string } | null }): string {
+  return u.perfil ? `${PREFIXO_PERFIL}${u.perfil.id}` : u.role;
+}
+
+/** O que mandar à API para um valor do seletor. */
+function dadosDoAcesso(valor: string): { role?: PerfilUsuario; perfilId: string | null } {
+  return valor.startsWith(PREFIXO_PERFIL)
+    ? { perfilId: valor.slice(PREFIXO_PERFIL.length) }
+    : { role: valor as PerfilUsuario, perfilId: null };
+}
+
+const NIVEIS: Array<{ valor: NivelDeAcesso; rotulo: string }> = [
+  { valor: 'nao', rotulo: 'Não abre' },
+  { valor: 'ver', rotulo: 'Só vê' },
+  { valor: 'mexer', rotulo: 'Mexe' },
+];
+
+function usePerfis() {
+  return useQuery({
+    queryKey: ['usuarios', 'perfis'],
+    queryFn: async () => (await api.get<PerfilDeAcesso[]>('/usuarios/perfis')).data,
+  });
+}
+
+/** O seletor de acesso: os perfis fixos, e embaixo os que o administrador criou. */
+function SeletorDeAcesso({
+  id,
+  valor,
+  perfis,
+  disabled,
+  className = 'campo',
+  onChange,
+}: {
+  id?: string;
+  valor: string;
+  perfis: PerfilDeAcesso[];
+  disabled?: boolean;
+  className?: string;
+  onChange: (valor: string) => void;
+}) {
+  return (
+    <select
+      id={id}
+      value={valor}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value)}
+      className={className}
+    >
+      <optgroup label="Perfis fixos">
+        {PERFIS.map((p) => (
+          <option key={p} value={p}>
+            {PERFIL_LABEL[p]}
+          </option>
+        ))}
+      </optgroup>
+      {perfis.length > 0 && (
+        <optgroup label="Perfis criados">
+          {perfis.map((p) => (
+            <option key={p.id} value={`${PREFIXO_PERFIL}${p.id}`}>
+              {p.nome}
+            </option>
+          ))}
+        </optgroup>
+      )}
+    </select>
+  );
+}
+
+/**
+ * O que um perfil criado permite, módulo por módulo, de relance: verde mexe,
+ * azul só vê, e o que não abre nem aparece — a linha fica curta.
+ */
+function NiveisDoPerfil({ permissoes }: { permissoes: Record<string, NivelDeAcesso> }) {
+  const abertos = MODULOS.filter((m) => permissoes[m.id] === 'ver' || permissoes[m.id] === 'mexer');
+  if (abertos.length === 0) {
+    return <span className="text-xs text-rose-500">não abre nenhum módulo</span>;
+  }
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {abertos.map((m) => {
+        const mexe = permissoes[m.id] === 'mexer';
+        return (
+          <span
+            key={m.id}
+            title={mexe ? `Mexe em ${m.nome}` : `Só vê ${m.nome}`}
+            className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${
+              mexe
+                ? 'border-emerald-300 bg-emerald-500/10 text-emerald-700 dark:border-emerald-500/40 dark:text-emerald-300'
+                : 'border-sky-300 bg-sky-500/10 text-sky-700 dark:border-sky-500/40 dark:text-sky-300'
+            }`}
+          >
+            {m.nome}
+            {!mexe && ' · só vê'}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
 
 /**
  * O que dizer no lugar dos módulos quando o perfil não os escolhe.
@@ -112,11 +223,13 @@ export function Usuarios() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [erro, setErro] = useState(false);
   const [editando, setEditando] = useState<UsuarioAdmin | null>(null);
+  const [vendoSenha, setVendoSenha] = useState<UsuarioAdmin | null>(null);
 
   const lista = useQuery({
     queryKey: ['usuarios'],
     queryFn: async () => (await api.get<UsuarioAdmin[]>('/usuarios')).data,
   });
+  const perfis = usePerfis();
 
   function avisar(texto: string, falhou = false) {
     setErro(falhou);
@@ -151,18 +264,6 @@ export function Usuarios() {
     onError: (err) => avisar(mensagemErro(err), true),
   });
 
-  function novaSenha(u: UsuarioAdmin) {
-    const senha = prompt(
-      `Nova senha para ${u.nome} (mínimo 8 caracteres).\nAnote: você não verá de novo.`,
-    );
-    if (!senha) return;
-    if (senha.length < 8) {
-      avisar('A senha precisa de pelo menos 8 caracteres.', true);
-      return;
-    }
-    alterar.mutate({ id: u.id, dados: { senha } });
-  }
-
   return (
     <Pagina>
       <CabecalhoPagina
@@ -174,6 +275,7 @@ export function Usuarios() {
       {feedback && <Aviso tom={erro ? 'erro' : 'marca'}>{feedback}</Aviso>}
 
       <NovoUsuario
+        perfis={perfis.data ?? []}
         onCriado={(nome) => {
           avisar(`Login de ${nome} criado. Passe a senha para a pessoa.`);
           invalidar();
@@ -219,33 +321,32 @@ export function Usuarios() {
                         <div className="text-xs text-tinta-400">{u.email}</div>
                       </td>
                       <td className="td">
-                        <select
-                          value={u.role}
+                        <SeletorDeAcesso
+                          valor={valorDoAcesso(u)}
+                          perfis={perfis.data ?? []}
                           disabled={souEu || alterar.isPending}
-                          onChange={(e) =>
-                            alterar.mutate({
-                              id: u.id,
-                              dados: { role: e.target.value },
-                            })
+                          onChange={(valor) =>
+                            alterar.mutate({ id: u.id, dados: dadosDoAcesso(valor) })
                           }
                           className="campo w-auto py-1.5 text-xs disabled:opacity-60"
-                          title={PERFIL_DESCRICAO[u.role]}
-                        >
-                          {PERFIS.map((p) => (
-                            <option key={p} value={p}>
-                              {PERFIL_LABEL[p]}
-                            </option>
-                          ))}
-                        </select>
+                        />
                       </td>
                       <td className="td">
-                        <ModulosDoLogin
-                          usuario={u}
-                          pendente={alterar.isPending}
-                          onMudar={(modulos) =>
-                            alterar.mutate({ id: u.id, dados: { modulos } })
-                          }
-                        />
+                        {u.perfil ? (
+                          <NiveisDoPerfil
+                            permissoes={
+                              perfis.data?.find((p) => p.id === u.perfil?.id)?.permissoes ?? {}
+                            }
+                          />
+                        ) : (
+                          <ModulosDoLogin
+                            usuario={u}
+                            pendente={alterar.isPending}
+                            onMudar={(modulos) =>
+                              alterar.mutate({ id: u.id, dados: { modulos } })
+                            }
+                          />
+                        )}
                       </td>
                       <td className="td num text-tinta-500">
                         {formatData(u.createdAt)}
@@ -279,15 +380,20 @@ export function Usuarios() {
                         <div className="flex justify-end gap-3 text-xs font-semibold">
                           <button
                             onClick={() => setEditando(u)}
-                            className="text-brand-700 hover:underline"
+                            className="text-brand-600 hover:underline dark:text-brand-300"
                           >
                             editar
                           </button>
                           <button
-                            onClick={() => novaSenha(u)}
-                            className="text-brand-700 hover:underline"
+                            onClick={() => setVendoSenha(u)}
+                            className="text-brand-600 hover:underline dark:text-brand-300"
+                            title={
+                              u.senhaVisivel
+                                ? 'Ver, copiar ou trocar a senha'
+                                : 'A senha deste login é de antes — gere uma nova para poder vê-la'
+                            }
                           >
-                            trocar senha
+                            senha
                           </button>
                           {!souEu && (
                             <button
@@ -322,6 +428,7 @@ export function Usuarios() {
         >
           <EditarLogin
             usuario={editando}
+            perfis={perfis.data ?? []}
             souEu={editando.id === eu?.id}
             pendente={alterar.isPending}
             onSalvar={(dados) => {
@@ -330,9 +437,23 @@ export function Usuarios() {
                 { onSuccess: () => setEditando(null) },
               );
             }}
+            onSenha={() => {
+              setVendoSenha(editando);
+              setEditando(null);
+            }}
           />
         </Janela>
       )}
+
+      {vendoSenha && (
+        <SenhaDoLogin
+          usuario={vendoSenha}
+          onFechar={() => setVendoSenha(null)}
+          onMudou={invalidar}
+        />
+      )}
+
+      <PerfisDeAcesso perfis={perfis.data} carregando={perfis.isLoading} />
 
       <div className="surgir surgir-3 mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {PERFIS.map((p) => (
@@ -349,18 +470,25 @@ export function Usuarios() {
 }
 
 function NovoUsuario({
+  perfis,
   onCriado,
   onErro,
 }: {
+  perfis: PerfilDeAcesso[];
   onCriado: (nome: string) => void;
   onErro: (mensagem: string) => void;
 }) {
   const [nome, setNome] = useState('');
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
-  const [role, setRole] = useState<PerfilUsuario>('RH');
+  /** "RH", ou "perfil:<id>" — ver `valorDoAcesso`. */
+  const [acesso, setAcesso] = useState('RH');
   /** Vazio = todos, que é o que a API entende e o que a tela mostra ligado. */
   const [modulos, setModulos] = useState<string[]>([]);
+
+  const { role: roleFixo, perfilId } = dadosDoAcesso(acesso);
+  const role: PerfilUsuario = roleFixo ?? 'RH';
+  const perfilEscolhido = perfis.find((p) => p.id === perfilId) ?? null;
 
   const criar = useMutation({
     mutationFn: async () =>
@@ -369,15 +497,14 @@ function NovoUsuario({
           nome,
           email,
           senha,
-          role,
-          modulos,
+          ...(perfilId ? { perfilId } : { role, modulos }),
         })
       ).data,
     onSuccess: (u) => {
       setNome('');
       setEmail('');
       setSenha('');
-      setRole('RH');
+      setAcesso('RH');
       setModulos([]);
       onCriado(u.nome);
     },
@@ -419,42 +546,43 @@ function NovoUsuario({
         </div>
         <div>
           <label className="rotulo" htmlFor="u-senha">
-            Senha provisória
+            Senha
           </label>
-          <input
-            id="u-senha"
-            type="text"
-            value={senha}
-            onChange={(e) => setSenha(e.target.value)}
-            className="campo"
-            placeholder="mínimo 8 caracteres"
-            autoComplete="new-password"
-          />
+          <div className="flex gap-2">
+            <input
+              id="u-senha"
+              type="text"
+              value={senha}
+              onChange={(e) => setSenha(e.target.value)}
+              className="campo min-w-0 flex-1"
+              placeholder="mínimo 8 caracteres"
+              autoComplete="new-password"
+            />
+            <button
+              type="button"
+              onClick={() => setSenha(senhaAleatoria())}
+              className="btn btn-neutro shrink-0"
+              title="Gerar uma senha de dez letras e números"
+            >
+              Gerar
+            </button>
+          </div>
         </div>
         <div>
           <label className="rotulo" htmlFor="u-perfil">
             Perfil
           </label>
-          <select
-            id="u-perfil"
-            value={role}
-            onChange={(e) => setRole(e.target.value as PerfilUsuario)}
-            className="campo"
-          >
-            {PERFIS.map((p) => (
-              <option key={p} value={p}>
-                {PERFIL_LABEL[p]}
-              </option>
-            ))}
-          </select>
+          <SeletorDeAcesso id="u-perfil" valor={acesso} perfis={perfis} onChange={setAcesso} />
         </div>
       </div>
 
-      {/* Onde este login trabalha. Nada marcado = todos os módulos que o
-          perfil permite, que é o padrão de sempre. */}
+      {/* Onde este login trabalha. Com perfil criado, é ele que diz; com perfil
+          fixo, nada marcado = todos os módulos que o perfil permite. */}
       <div className="mt-4">
         <span className="rotulo">Módulos</span>
-        {role === 'TECNICO' ? (
+        {perfilEscolhido ? (
+          <NiveisDoPerfil permissoes={perfilEscolhido.permissoes} />
+        ) : role === 'TECNICO' ? (
           <SemEscolhaDeModulo />
         ) : (
           <ChipsDeModulo role={role} modulos={modulos} onMudar={setModulos} />
@@ -470,8 +598,10 @@ function NovoUsuario({
           {criar.isPending ? 'Criando…' : 'Criar login'}
         </button>
         <p className="text-xs text-tinta-500">
-          {PERFIL_DESCRICAO[role]} A pessoa troca a senha depois, em Minha
-          conta.
+          {perfilEscolhido
+            ? perfilEscolhido.descricao || `Perfil ${perfilEscolhido.nome}.`
+            : PERFIL_DESCRICAO[role]}{' '}
+          A senha fica guardada: dá para vê-la depois, em "senha".
         </p>
       </div>
     </Bloco>
@@ -530,30 +660,35 @@ function ModulosDoLogin({
  */
 function EditarLogin({
   usuario,
+  perfis,
   souEu,
   pendente,
   onSalvar,
+  onSenha,
 }: {
   usuario: UsuarioAdmin;
+  perfis: PerfilDeAcesso[];
   /** O próprio administrador logado: a API não o deixa rebaixar-se. */
   souEu: boolean;
   pendente: boolean;
-  onSalvar: (dados: {
-    nome: string;
-    email: string;
-    role: PerfilUsuario;
-    modulos?: string[];
-  }) => void;
+  onSalvar: (dados: Record<string, unknown>) => void;
+  /** Abre a janela da senha deste login. */
+  onSenha: () => void;
 }) {
   const [nome, setNome] = useState(usuario.nome);
   const [email, setEmail] = useState(usuario.email);
-  const [role, setRole] = useState<PerfilUsuario>(usuario.role);
+  const [acesso, setAcesso] = useState(valorDoAcesso(usuario));
   const [modulos, setModulos] = useState<string[]>(usuario.modulos ?? []);
+  const [ativo, setAtivo] = useState(usuario.ativo);
+
+  const { role: roleFixo, perfilId } = dadosDoAcesso(acesso);
+  const role: PerfilUsuario = roleFixo ?? 'RH';
+  const perfilEscolhido = perfis.find((p) => p.id === perfilId) ?? null;
 
   const valido = nome.trim().length >= 2 && email.includes('@');
-  /* ADMIN abre tudo e TECNICO abre a tela dele: nos dois não há lista para
-     mandar, e mandá-la escreveria uma escolha que o sistema não usa. */
-  const escolheModulos = role !== 'ADMIN' && role !== 'TECNICO';
+  /* ADMIN abre tudo, TECNICO abre a tela dele e o perfil criado traz os seus:
+     nos três não há lista para mandar. */
+  const escolheModulos = !perfilId && role !== 'ADMIN' && role !== 'TECNICO';
 
   return (
     <form
@@ -563,8 +698,9 @@ function EditarLogin({
           onSalvar({
             nome: nome.trim(),
             email: email.trim(),
-            role,
+            ...(perfilId ? { perfilId } : { role, perfilId: null }),
             modulos: escolheModulos ? modulos : undefined,
+            ...(souEu ? {} : { ativo }),
           });
         }
       }}
@@ -604,30 +740,48 @@ function EditarLogin({
           <label className="rotulo" htmlFor="editar-perfil">
             Perfil
           </label>
-          <select
+          <SeletorDeAcesso
             id="editar-perfil"
-            value={role}
+            valor={acesso}
+            perfis={perfis}
             disabled={souEu}
-            onChange={(e) => setRole(e.target.value as PerfilUsuario)}
+            onChange={setAcesso}
             className="campo disabled:opacity-60"
-          >
-            {PERFIS.map((x) => (
-              <option key={x} value={x}>
-                {PERFIL_LABEL[x]}
-              </option>
-            ))}
-          </select>
+          />
           <p className="ajuda">
             {souEu
               ? 'É o seu próprio login: o perfil não se rebaixa por aqui.'
-              : PERFIL_DESCRICAO[role]}
+              : perfilEscolhido
+                ? perfilEscolhido.descricao || `Perfil ${perfilEscolhido.nome}, montado aqui embaixo.`
+                : PERFIL_DESCRICAO[role]}
           </p>
+        </div>
+        <div>
+          <span className="rotulo">Acesso e senha</span>
+          <div className="flex flex-wrap items-center gap-2">
+            {!souEu && (
+              <label className="opcao">
+                <input
+                  type="checkbox"
+                  className="marcador"
+                  checked={ativo}
+                  onChange={(e) => setAtivo(e.target.checked)}
+                />
+                Pode entrar
+              </label>
+            )}
+            <button type="button" onClick={onSenha} className="btn btn-neutro btn-p">
+              Ver ou trocar a senha
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="mt-4">
         <span className="rotulo">Módulos</span>
-        {role === 'ADMIN' ? (
+        {perfilEscolhido ? (
+          <NiveisDoPerfil permissoes={perfilEscolhido.permissoes} />
+        ) : role === 'ADMIN' ? (
           <p className="ajuda mt-1">
             Administrador abre todos os módulos — é ele quem distribui o acesso
             dos outros. Para limitar onde esta pessoa entra, troque o perfil.
@@ -649,6 +803,363 @@ function EditarLogin({
         </button>
       </div>
     </form>
+  );
+}
+
+/** Dez letras e números, sem os que se confundem — o mesmo desenho da do servidor. */
+function senhaAleatoria(): string {
+  const letras = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  const sorteio = crypto.getRandomValues(new Uint32Array(10));
+  return Array.from(sorteio, (n) => letras[n % letras.length]).join('');
+}
+
+/**
+ * A senha de um login: ver, copiar, gerar uma nova ou digitar uma.
+ *
+ * A senha só é pedida ao servidor quando se clica em "Mostrar" — cada leitura
+ * fica no log de quem viu —, e some da tela ao fechar a janela.
+ */
+function SenhaDoLogin({
+  usuario,
+  onFechar,
+  onMudou,
+}: {
+  usuario: UsuarioAdmin;
+  onFechar: () => void;
+  onMudou: () => void;
+}) {
+  const [senha, setSenha] = useState<string | null>(null);
+  const [copiada, setCopiada] = useState(false);
+  const [digitada, setDigitada] = useState('');
+  const [aviso, setAviso] = useState<string | null>(null);
+
+  const mostrar = useMutation({
+    mutationFn: async () =>
+      (await api.get<{ senha: string }>(`/usuarios/${usuario.id}/senha`)).data.senha,
+    onSuccess: setSenha,
+  });
+
+  const gerar = useMutation({
+    mutationFn: async () =>
+      (await api.post<{ senha: string }>(`/usuarios/${usuario.id}/gerar-senha`)).data.senha,
+    onSuccess: (s) => {
+      setSenha(s);
+      setAviso('Senha nova gravada. A antiga não entra mais — passe esta para a pessoa.');
+      onMudou();
+    },
+  });
+
+  const definir = useMutation({
+    mutationFn: async () => {
+      await api.patch(`/usuarios/${usuario.id}`, { senha: digitada });
+      return digitada;
+    },
+    onSuccess: (s) => {
+      setSenha(s);
+      setDigitada('');
+      setAviso('Senha trocada. A antiga não entra mais.');
+      onMudou();
+    },
+  });
+
+  async function copiar() {
+    if (!senha) return;
+    try {
+      await navigator.clipboard.writeText(senha);
+      setCopiada(true);
+      setTimeout(() => setCopiada(false), 2000);
+    } catch {
+      // Navegador que recusa a área de transferência: a senha está na tela.
+    }
+  }
+
+  const erro = mostrar.error ?? gerar.error ?? definir.error;
+
+  return (
+    <Janela titulo={`Senha — ${usuario.nome}`} onFechar={onFechar}>
+      <p className="mb-4 text-sm text-tinta-500">
+        Entra com <strong className="text-tinta-800">{usuario.email}</strong>.
+      </p>
+
+      <div className="rounded-2xl bg-tinta-50 p-4">
+        <p className="eyebrow mb-2">Senha atual</p>
+        {senha ? (
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="num select-all rounded-lg border border-tinta-200 bg-papel px-3 py-2 font-mono text-lg font-semibold tracking-wide text-tinta-900">
+              {senha}
+            </span>
+            <button type="button" onClick={copiar} className="btn btn-neutro btn-p">
+              {copiada ? 'Copiada!' : 'Copiar'}
+            </button>
+          </div>
+        ) : usuario.senhaVisivel ? (
+          <button
+            type="button"
+            onClick={() => mostrar.mutate()}
+            disabled={mostrar.isPending}
+            className="btn btn-primario"
+          >
+            {mostrar.isPending ? 'Buscando…' : 'Mostrar a senha'}
+          </button>
+        ) : (
+          <p className="text-sm text-tinta-600">
+            Esta senha é de antes de o sistema passar a guardá-las, e não tem como
+            ser lida. Gere uma nova aqui embaixo — a partir dela, dá para ver sempre.
+          </p>
+        )}
+        {aviso && <p className="mt-2 text-sm text-emerald-700 dark:text-emerald-300">{aviso}</p>}
+      </div>
+
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <div>
+          <p className="rotulo">Senha nova, sorteada</p>
+          <button
+            type="button"
+            onClick={() => {
+              if (confirm(`Gerar uma senha nova para ${usuario.nome}? A atual deixa de entrar.`)) {
+                gerar.mutate();
+              }
+            }}
+            disabled={gerar.isPending}
+            className="btn btn-neutro w-full"
+          >
+            {gerar.isPending ? 'Gerando…' : 'Gerar senha nova'}
+          </button>
+        </div>
+        <div>
+          <label className="rotulo" htmlFor="senha-digitada">
+            Ou digite uma
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="senha-digitada"
+              type="text"
+              value={digitada}
+              onChange={(e) => setDigitada(e.target.value)}
+              className="campo min-w-0 flex-1"
+              placeholder="mínimo 8 caracteres"
+              autoComplete="new-password"
+            />
+            <button
+              type="button"
+              onClick={() => definir.mutate()}
+              disabled={digitada.length < 8 || definir.isPending}
+              className="btn btn-primario shrink-0"
+            >
+              Salvar
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {erro && <Aviso tom="erro">{mensagemErro(erro)}</Aviso>}
+    </Janela>
+  );
+}
+
+/**
+ * Os perfis que o administrador monta. Cada um diz, módulo por módulo, se não
+ * abre, se só vê ou se mexe — e vale para todos os logins que o usam.
+ */
+function PerfisDeAcesso({
+  perfis,
+  carregando,
+}: {
+  perfis: PerfilDeAcesso[] | undefined;
+  carregando: boolean;
+}) {
+  const [editando, setEditando] = useState<PerfilDeAcesso | 'novo' | null>(null);
+
+  return (
+    <div className="surgir surgir-3 mt-6">
+      <Bloco
+        titulo="Perfis de acesso"
+        acao={
+          <button onClick={() => setEditando('novo')} className="btn btn-primario btn-p">
+            Criar perfil
+          </button>
+        }
+      >
+        {carregando ? (
+          <Carregando />
+        ) : !perfis?.length ? (
+          <p className="text-sm text-tinta-500">
+            Nenhum perfil criado ainda. Crie um — "Financeiro", "Almoxarife" — e
+            marque em cada módulo se ele não abre, só vê ou mexe. Depois é só
+            escolher o perfil no login de cada pessoa.
+          </p>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {perfis.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setEditando(p)}
+                className="rounded-2xl border border-tinta-200 p-4 text-left transition hover:border-brand-300 hover:bg-brand-500/5"
+              >
+                <span className="flex items-center justify-between gap-2">
+                  <span className="font-display text-base font-semibold text-tinta-900">{p.nome}</span>
+                  <span className="text-xs text-tinta-400">{p.usuarios} login(s)</span>
+                </span>
+                {p.descricao && <span className="mt-1 block text-xs text-tinta-500">{p.descricao}</span>}
+                <span className="mt-2 block">
+                  <NiveisDoPerfil permissoes={p.permissoes} />
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </Bloco>
+
+      {editando && (
+        <FormularioDePerfil
+          perfil={editando === 'novo' ? null : editando}
+          onFechar={() => setEditando(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+function FormularioDePerfil({
+  perfil,
+  onFechar,
+}: {
+  perfil: PerfilDeAcesso | null;
+  onFechar: () => void;
+}) {
+  const qc = useQueryClient();
+  const [nome, setNome] = useState(perfil?.nome ?? '');
+  const [descricao, setDescricao] = useState(perfil?.descricao ?? '');
+  const [permissoes, setPermissoes] = useState<Record<string, NivelDeAcesso>>(
+    () => Object.fromEntries(MODULOS.map((m) => [m.id, perfil?.permissoes[m.id] ?? 'nao'])),
+  );
+
+  function recarregar() {
+    void qc.invalidateQueries({ queryKey: ['usuarios'] });
+  }
+
+  const salvar = useMutation({
+    mutationFn: async () => {
+      const dados = { nome: nome.trim(), descricao: descricao.trim() || null, permissoes };
+      if (perfil) await api.patch(`/usuarios/perfis/${perfil.id}`, dados);
+      else await api.post('/usuarios/perfis', { ...dados, descricao: dados.descricao ?? undefined });
+    },
+    onSuccess: () => {
+      recarregar();
+      onFechar();
+    },
+  });
+
+  const apagar = useMutation({
+    mutationFn: async () => {
+      await api.delete(`/usuarios/perfis/${perfil!.id}`);
+    },
+    onSuccess: () => {
+      recarregar();
+      onFechar();
+    },
+  });
+
+  const erro = salvar.error ?? apagar.error;
+
+  return (
+    <Janela titulo={perfil ? `Perfil — ${perfil.nome}` : 'Criar perfil'} onFechar={onFechar}>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className="rotulo" htmlFor="perfil-nome">
+            Nome
+          </label>
+          <input
+            id="perfil-nome"
+            value={nome}
+            onChange={(e) => setNome(e.target.value)}
+            className="campo"
+            placeholder="Financeiro, Almoxarife"
+            autoComplete="off"
+            autoFocus
+          />
+        </div>
+        <div>
+          <label className="rotulo" htmlFor="perfil-descricao">
+            Para quem é
+          </label>
+          <input
+            id="perfil-descricao"
+            value={descricao}
+            onChange={(e) => setDescricao(e.target.value)}
+            className="campo"
+            placeholder="opcional"
+            autoComplete="off"
+          />
+        </div>
+      </div>
+
+      <p className="rotulo mt-5">O que abre em cada módulo</p>
+      <ul className="lista-dividida rounded-xl border border-tinta-200">
+        {MODULOS.map((m) => (
+          <li key={m.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5">
+            <span className="text-sm font-medium text-tinta-800">{m.nome}</span>
+            <span className="grid grid-cols-3 gap-1 rounded-lg bg-tinta-100 p-1">
+              {NIVEIS.map((n) => {
+                const escolhido = permissoes[m.id] === n.valor;
+                return (
+                  <button
+                    key={n.valor}
+                    type="button"
+                    onClick={() => setPermissoes((atual) => ({ ...atual, [m.id]: n.valor }))}
+                    aria-pressed={escolhido}
+                    className={`rounded-md px-2.5 py-1 text-xs font-semibold transition ${
+                      escolhido
+                        ? n.valor === 'mexer'
+                          ? 'bg-emerald-600 text-white'
+                          : n.valor === 'ver'
+                            ? 'bg-sky-600 text-white'
+                            : 'bg-papel text-rose-600 shadow-sm'
+                        : 'text-tinta-500 hover:text-tinta-800'
+                    }`}
+                  >
+                    {n.rotulo}
+                  </button>
+                );
+              })}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="ajuda">
+        "Só vê" consulta tudo do módulo, mas não lança, paga, edita nem apaga. Mudar
+        um perfil vale para todos os logins dele, no próximo clique de cada um.
+      </p>
+
+      {erro && <Aviso tom="erro">{mensagemErro(erro)}</Aviso>}
+
+      <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+        {perfil && (
+          <button
+            type="button"
+            onClick={() => {
+              if (confirm(`Apagar o perfil ${perfil.nome}?`)) apagar.mutate();
+            }}
+            disabled={apagar.isPending}
+            className="btn btn-sutil btn-p mr-auto text-rose-600"
+            title={perfil.usuarios > 0 ? 'Troque o perfil dos logins dele antes' : undefined}
+          >
+            Apagar perfil
+          </button>
+        )}
+        <button onClick={onFechar} className="btn btn-neutro">
+          Cancelar
+        </button>
+        <button
+          onClick={() => salvar.mutate()}
+          disabled={nome.trim().length < 2 || salvar.isPending}
+          className="btn btn-primario"
+        >
+          {salvar.isPending ? 'Salvando…' : perfil ? 'Salvar' : 'Criar perfil'}
+        </button>
+      </div>
+    </Janela>
   );
 }
 

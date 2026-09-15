@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { FotoDaNota } from '../../components/FotoDaNota';
 import { FotoDoPonto } from '../../components/PainelDePontos';
 import {
   Aviso,
   Bloco,
   CabecalhoPagina,
+  CampoDinheiro,
   Carregando,
   Indicador,
   Janela,
@@ -45,16 +47,23 @@ interface VeiculoNaLista {
   ultimoGasto: string | null;
   combustivel: number;
   abastecimentos: number;
+  abastecimentosAConferir: number;
   ultimoKm: number | null;
 }
 
 interface Abastecimento {
   id: string;
-  valor: number;
+  /** Null = na conferência: o valor da nota ainda não foi posto. */
+  valor: number | null;
   km: number;
   data: string;
   lancadoPor: string;
   temFoto: boolean;
+  conferidoPor: string | null;
+}
+
+interface AbastecimentoAConferir extends Abastecimento {
+  veiculo: { id: string; apelido: string; placa: string | null };
 }
 
 interface Ficha {
@@ -73,6 +82,7 @@ interface Ficha {
   combustivel: {
     total: number;
     quantidade: number;
+    aConferir: number;
     ultimoKm: number | null;
     kmRodados: number | null;
     custoPorKm: number | null;
@@ -124,6 +134,8 @@ export function Veiculos() {
       />
 
       {lista.isError && <Aviso tom="erro">{mensagemErro(lista.error)}</Aviso>}
+
+      <ConferenciaDeAbastecimentos onAbrirVeiculo={setAbertoId} />
 
       {veiculos.length > 0 && (
         <div className="mb-4 grid grid-cols-2 gap-2.5 sm:gap-4 xl:grid-cols-3">
@@ -216,6 +228,11 @@ export function Veiculos() {
                         {v.abastecimentos} abastecimento(s)
                         {v.ultimoKm != null && ` · ${km(v.ultimoKm)}`}
                       </span>
+                      {v.abastecimentosAConferir > 0 && (
+                        <span className="block text-xs font-semibold text-amber-600 dark:text-amber-300">
+                          {v.abastecimentosAConferir} a conferir
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -232,13 +249,220 @@ export function Veiculos() {
 }
 
 /**
+ * A conferência: os abastecimentos que chegaram só com o km e a foto, de todos
+ * os veículos, esperando o valor da nota.
+ *
+ * Fica no alto da aba, e só aparece quando há o que conferir. Nada aqui paga
+ * nada: o valor é controle — o dinheiro sai pela fatura do posto.
+ */
+function ConferenciaDeAbastecimentos({ onAbrirVeiculo }: { onAbrirVeiculo: (id: string) => void }) {
+  const fila = useQuery({
+    queryKey: ['veiculos', 'a-conferir'],
+    queryFn: async () =>
+      (await api.get<AbastecimentoAConferir[]>('/veiculos/abastecimentos/a-conferir')).data,
+  });
+
+  const itens = fila.data ?? [];
+  if (itens.length === 0) return null;
+
+  return (
+    <div className="mb-4">
+      <Bloco titulo={`Conferência de abastecimentos · ${itens.length}`} semPadding>
+        <p className="px-4 pt-3 text-xs text-tinta-500 sm:px-5">
+          Lançados só com o km e a foto da nota. Abra a foto, leia o valor e salve — é
+          controle, nada é pago por aqui.
+        </p>
+        <ul className="lista-dividida mt-2">
+          {itens.map((a) => (
+            <LinhaAConferir key={a.id} abastecimento={a} onAbrirVeiculo={onAbrirVeiculo} />
+          ))}
+        </ul>
+      </Bloco>
+    </div>
+  );
+}
+
+function LinhaAConferir({
+  abastecimento: a,
+  onAbrirVeiculo,
+}: {
+  abastecimento: AbastecimentoAConferir;
+  onAbrirVeiculo: (id: string) => void;
+}) {
+  return (
+    <li className="flex flex-wrap items-start justify-between gap-3 px-4 py-3 sm:px-5">
+      <span className="min-w-0 flex-1">
+        <button
+          type="button"
+          onClick={() => onAbrirVeiculo(a.veiculo.id)}
+          className="block text-left font-display text-base font-semibold text-tinta-900 hover:text-brand-700 dark:hover:text-brand-300"
+        >
+          {a.veiculo.apelido}
+          {a.veiculo.placa && (
+            <span className="ml-1.5 text-xs font-normal text-tinta-400">{a.veiculo.placa}</span>
+          )}
+        </button>
+        <span className="block text-sm text-tinta-700">{km(a.km)}</span>
+        <span className="block text-[11px] text-tinta-400">
+          {dataEHora(a.data)} · {a.lancadoPor}
+        </span>
+        {a.temFoto && <FotoDoAbastecimento id={a.id} />}
+      </span>
+      <ValorDaNota abastecimento={a} />
+    </li>
+  );
+}
+
+/** O campo de pôr (ou corrigir) o valor lido na nota. */
+function ValorDaNota({ abastecimento }: { abastecimento: Abastecimento }) {
+  const qc = useQueryClient();
+  const [valor, setValor] = useState(
+    abastecimento.valor != null ? abastecimento.valor.toFixed(2) : '',
+  );
+
+  const salvar = useMutation({
+    mutationFn: async () => {
+      await api.patch(`/veiculos/abastecimentos/${abastecimento.id}`, { valor: Number(valor) });
+    },
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['veiculos'] }),
+  });
+
+  return (
+    <span className="flex flex-col items-end gap-1">
+      <span className="flex items-center gap-2">
+        <CampoDinheiro
+          valor={valor}
+          onChange={setValor}
+          className="campo num w-32 py-1.5 text-right"
+          placeholder="valor da nota"
+        />
+        <button
+          type="button"
+          onClick={() => salvar.mutate()}
+          disabled={!(Number(valor) > 0) || salvar.isPending}
+          className="btn btn-primario btn-p"
+        >
+          {salvar.isPending ? 'Salvando…' : 'Salvar'}
+        </button>
+      </span>
+      {salvar.isError && <span className="text-xs text-rose-600">{mensagemErro(salvar.error)}</span>}
+    </span>
+  );
+}
+
+function FotoDoAbastecimento({ id }: { id: string }) {
+  return (
+    <FotoDoPonto
+      chave={['veiculos', 'abastecimento', 'foto', id]}
+      buscar={async () =>
+        (await api.get<{ foto: string }>(`/veiculos/abastecimentos/${id}/foto`)).data.foto
+      }
+    />
+  );
+}
+
+const dataEHora = (iso: string) =>
+  new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+
+/** Lançar um abastecimento pela ficha: o km, a foto e, se já estiver à mão, o valor. */
+function LancarAbastecimento({
+  veiculo,
+  onFechar,
+}: {
+  veiculo: VeiculoNaLista;
+  onFechar: () => void;
+}) {
+  const qc = useQueryClient();
+  const [kmDigitado, setKmDigitado] = useState('');
+  const [foto, setFoto] = useState<string | null>(null);
+  const [valor, setValor] = useState('');
+
+  const kmNumero = kmDigitado ? Number(kmDigitado) : null;
+  const kmAtras = veiculo.ultimoKm != null && kmNumero != null && kmNumero < veiculo.ultimoKm;
+
+  const lancar = useMutation({
+    mutationFn: async () => {
+      await api.post(`/veiculos/${veiculo.id}/abastecimentos`, {
+        km: kmNumero,
+        foto,
+        valor: Number(valor) > 0 ? Number(valor) : undefined,
+      });
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['veiculos'] });
+      onFechar();
+    },
+  });
+
+  const valido = kmNumero != null && !kmAtras && !!foto;
+
+  return (
+    <Janela titulo={`Abastecimento — ${veiculo.apelido}`} onFechar={onFechar}>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div>
+          <label className="rotulo" htmlFor="abast-km-sistema">
+            Km do painel
+          </label>
+          <input
+            id="abast-km-sistema"
+            value={kmDigitado}
+            onChange={(e) => setKmDigitado(e.target.value.replace(/\D/g, '').slice(0, 7))}
+            inputMode="numeric"
+            autoComplete="off"
+            autoFocus
+            placeholder={veiculo.ultimoKm != null ? `último: ${veiculo.ultimoKm}` : 'só os números'}
+            className="campo num"
+          />
+          {kmAtras && veiculo.ultimoKm != null && (
+            <p className="mt-1 text-xs font-semibold text-rose-600">
+              O último abastecimento foi com {km(veiculo.ultimoKm)}. Confira o painel.
+            </p>
+          )}
+        </div>
+        <div>
+          <label className="rotulo" htmlFor="abast-valor-sistema">
+            Valor da nota
+          </label>
+          <CampoDinheiro
+            id="abast-valor-sistema"
+            valor={valor}
+            onChange={setValor}
+            placeholder="opcional"
+          />
+          <p className="ajuda">Em branco, vai para a conferência.</p>
+        </div>
+      </div>
+      <p className="rotulo mt-4">Foto da nota</p>
+      <FotoDaNota foto={foto} onFoto={setFoto} />
+
+      {lancar.isError && <Aviso tom="erro">{mensagemErro(lancar.error)}</Aviso>}
+
+      <div className="mt-5 flex justify-end gap-2">
+        <button onClick={onFechar} className="btn btn-neutro">
+          Cancelar
+        </button>
+        <button
+          onClick={() => lancar.mutate()}
+          disabled={!valido || lancar.isPending}
+          className="btn btn-primario"
+        >
+          {lancar.isPending ? 'Enviando…' : 'Lançar abastecimento'}
+        </button>
+      </div>
+    </Janela>
+  );
+}
+
+/**
  * A ficha de um veículo: as duas somas, o que foi para cada categoria, cada
- * conta e cada abastecimento — e o botão de lançar uma conta nele.
+ * conta e cada abastecimento — e os botões de lançar uma conta ou um
+ * abastecimento nele.
  */
 function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) {
   const qc = useQueryClient();
   const [editando, setEditando] = useState(false);
   const [lancando, setLancando] = useState(false);
+  const [abastecendo, setAbastecendo] = useState(false);
 
   const ficha = useQuery({
     queryKey: ['veiculos', 'ficha', id],
@@ -258,6 +482,11 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
         veiculoInicial={{ id, apelido: ficha.data.veiculo.apelido }}
         onFechar={() => setLancando(false)}
       />
+    );
+  }
+  if (abastecendo && ficha.data) {
+    return (
+      <LancarAbastecimento veiculo={ficha.data.veiculo} onFechar={() => setAbastecendo(false)} />
     );
   }
   if (editando && ficha.data) {
@@ -290,6 +519,11 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
             <button onClick={() => setLancando(true)} className="btn btn-primario">
               Lançar conta neste veículo
             </button>
+            {d?.veiculo.ativo && (
+              <button onClick={() => setAbastecendo(true)} className="btn btn-neutro">
+                Lançar abastecimento
+              </button>
+            )}
             <button onClick={() => setEditando(true)} className="btn btn-neutro">
               Editar
             </button>
@@ -313,6 +547,11 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
                 {d.combustivel.custoPorKm != null &&
                   ` · ${formatBRL(d.combustivel.custoPorKm)} por km`}
               </p>
+              {d.combustivel.aConferir > 0 && (
+                <p className="mt-1 text-xs font-semibold text-amber-600 dark:text-amber-300">
+                  {d.combustivel.aConferir} na conferência, fora do total
+                </p>
+              )}
             </div>
           </div>
 
@@ -381,47 +620,48 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
           <p className="eyebrow mb-2">Abastecimentos</p>
           {d.abastecimentos.length === 0 ? (
             <p className="text-sm text-tinta-400">
+              Nenhum ainda. Use "Lançar abastecimento" aqui em cima
               {d.veiculo.responsavel
-                ? `Nenhum ainda. ${d.veiculo.responsavel.nome} lança pelo portal, com o CPF.`
-                : 'Nenhum ainda. Escolha o responsável em Editar: é ele quem lança pelo portal, com o CPF.'}
+                ? `, ou ${d.veiculo.responsavel.nome} lança pelo portal, com o CPF.`
+                : ' — ou escolha o responsável em Editar, e ele lança pelo portal, com o CPF.'}
             </p>
           ) : (
             <ul className="lista-dividida rounded-xl border border-tinta-200">
               {d.abastecimentos.map((a) => (
-                <li key={a.id} className="flex items-start justify-between gap-3 px-3 py-2.5">
+                <li key={a.id} className="flex flex-wrap items-start justify-between gap-3 px-3 py-2.5">
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm text-tinta-800">
-                      <span className="valor">{formatBRL(a.valor)}</span> · {km(a.km)}
+                      {km(a.km)} ·{' '}
+                      {a.valor != null ? (
+                        <span className="valor">{formatBRL(a.valor)}</span>
+                      ) : (
+                        <span className="font-semibold text-amber-600 dark:text-amber-300">
+                          na conferência
+                        </span>
+                      )}
                     </span>
                     <span className="block text-[11px] text-tinta-400">
-                      {new Date(a.data).toLocaleString('pt-BR', {
-                        dateStyle: 'short',
-                        timeStyle: 'short',
-                      })}{' '}
-                      · {a.lancadoPor}
+                      {dataEHora(a.data)} · {a.lancadoPor}
+                      {a.conferidoPor && a.conferidoPor !== a.lancadoPor && ` · conferido por ${a.conferidoPor}`}
                     </span>
-                    {a.temFoto && (
-                      <FotoDoPonto
-                        chave={['veiculos', 'abastecimento', 'foto', a.id]}
-                        buscar={async () =>
-                          (await api.get<{ foto: string }>(`/veiculos/abastecimentos/${a.id}/foto`))
-                            .data.foto
-                        }
-                      />
-                    )}
+                    {a.temFoto && <FotoDoAbastecimento id={a.id} />}
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (confirm(`Apagar o abastecimento de ${formatBRL(a.valor)} com ${km(a.km)}?`)) {
-                        apagarAbastecimento.mutate(a.id);
-                      }
-                    }}
-                    disabled={apagarAbastecimento.isPending}
-                    className="btn btn-sutil btn-p text-rose-600"
-                  >
-                    Apagar
-                  </button>
+                  <span className="flex flex-col items-end gap-2">
+                    {/* Com valor, dá para corrigir; sem, é a conferência ali mesmo. */}
+                    <ValorDaNota abastecimento={a} />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm(`Apagar o abastecimento com ${km(a.km)}?`)) {
+                          apagarAbastecimento.mutate(a.id);
+                        }
+                      }}
+                      disabled={apagarAbastecimento.isPending}
+                      className="btn btn-sutil btn-p text-rose-600"
+                    >
+                      Apagar
+                    </button>
+                  </span>
                 </li>
               ))}
             </ul>

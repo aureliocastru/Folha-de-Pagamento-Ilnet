@@ -12,6 +12,7 @@ import {
 import { UserRole } from '@prisma/client';
 import type { Request } from 'express';
 import { Roles } from '../auth/roles.decorator';
+import { AtualizarPerfilDto, CriarPerfilDto } from './dto/perfil.dto';
 import {
   AtualizarUsuarioDto,
   CriarUsuarioDto,
@@ -22,6 +23,10 @@ import { UsuariosService } from './usuarios.service';
 /** Id de quem está logado (o JwtStrategy põe o usuário na requisição). */
 function idDoLogado(req: Request): string {
   return (req.user as { id: string }).id;
+}
+
+function nomeDoLogado(req: Request): string {
+  return (req.user as { nome?: string }).nome ?? 'Administrador';
 }
 
 @Controller('usuarios')
@@ -56,6 +61,50 @@ export class UsuariosController {
   @Get()
   listar() {
     return this.usuarios.listar();
+  }
+
+  // --- Perfis de acesso (antes das rotas com `:id`) ---
+
+  @Roles(UserRole.ADMIN)
+  @Get('perfis')
+  listarPerfis() {
+    return this.usuarios.listarPerfis();
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Post('perfis')
+  @HttpCode(201)
+  criarPerfil(@Body() dto: CriarPerfilDto) {
+    return this.usuarios.criarPerfil(dto);
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Patch('perfis/:id')
+  atualizarPerfil(@Param('id') id: string, @Body() dto: AtualizarPerfilDto) {
+    return this.usuarios.atualizarPerfil(id, dto);
+  }
+
+  @Roles(UserRole.ADMIN)
+  @Delete('perfis/:id')
+  @HttpCode(200)
+  async removerPerfil(@Param('id') id: string) {
+    await this.usuarios.removerPerfil(id);
+    return { ok: true };
+  }
+
+  /** A senha de um login, para o administrador passar à pessoa. Fica no log. */
+  @Roles(UserRole.ADMIN)
+  @Get(':id/senha')
+  verSenha(@Param('id') id: string, @Req() req: Request) {
+    return this.usuarios.verSenha(id, nomeDoLogado(req));
+  }
+
+  /** Gera, grava e devolve uma senha nova. */
+  @Roles(UserRole.ADMIN)
+  @Post(':id/gerar-senha')
+  @HttpCode(200)
+  gerarSenha(@Param('id') id: string, @Req() req: Request) {
+    return this.usuarios.gerarSenhaNova(id, nomeDoLogado(req));
   }
 
   @Roles(UserRole.ADMIN)

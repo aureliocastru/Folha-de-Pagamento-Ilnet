@@ -88,12 +88,8 @@ const folha: Modulo = {
     { to: 'avulsos', label: 'Pagamentos Avulsos', icone: IconeRecibo },
     { to: 'impostos', label: 'Impostos', icone: IconeGuia },
     { to: 'configuracoes', label: 'Configurações', icone: IconeEngrenagem },
-    {
-      to: 'usuarios',
-      label: 'Usuários',
-      icone: IconeChave,
-      somenteAdmin: true,
-    },
+    // Usuários saiu daqui: é de fora dos módulos (`/usuarios`), com botão no
+    // alto da tela de módulos. Gerenciar logins não é assunto da folha.
   ],
 };
 
@@ -352,12 +348,22 @@ export const TELA_DO_CAMPO = '/campo';
 export function modulosDoUsuario(usuario?: {
   role: PerfilUsuario;
   modulos?: string[];
+  permissoes?: Record<string, string> | null;
 } | null): Modulo[] {
   if (!usuario) return [];
   // O técnico não tem módulo nenhum: ele tem a tela do campo, e é para lá que
   // o login o manda. Devolver a Segurança do Trabalho aqui lhe daria a barra
   // lateral e a lista de APRs da empresa inteira.
   if (usuario.role === 'TECNICO') return [];
+
+  // Perfil criado: abre o que ele marcou para ver ou mexer, e nada mais — aqui
+  // não existe "vazio = todos". Só os módulos que se distribuem entram.
+  if (usuario.permissoes && usuario.role !== 'ADMIN') {
+    const permissoes = usuario.permissoes;
+    return MODULOS_DISTRIBUIVEIS.filter(
+      (m) => permissoes[m.id] === 'ver' || permissoes[m.id] === 'mexer',
+    );
+  }
 
   const lista = usuario.modulos ?? [];
   const semRestricao = usuario.role === 'ADMIN' || lista.length === 0;
