@@ -325,11 +325,13 @@ export const MODULO_SEGURANCA = seguranca;
 export const MODULO_PONTUACAO = pontuacao;
 
 /**
- * A tela única do técnico de campo.
+ * A tela do colaborador — a pontuação, o abastecimento e a análise de risco de
+ * quem entrou —, e a única que o técnico de campo enxerga.
  *
- * Fica fora de `MODULOS` de propósito: ela não é um módulo, é a única coisa que
- * um perfil inteiro enxerga do sistema. Quem entra como TECNICO não passa pela
- * escolha de módulos nem vê barra lateral — cai direto aqui.
+ * Fica fora de `MODULOS` de propósito: ela não é um módulo, é o que é da
+ * própria pessoa. Quem entra como TECNICO não passa pela escolha de módulos
+ * nem vê barra lateral — cai direto aqui. Os outros perfis chegam pelo cartão
+ * "Minha área".
  */
 export const TELA_DO_CAMPO = '/campo';
 

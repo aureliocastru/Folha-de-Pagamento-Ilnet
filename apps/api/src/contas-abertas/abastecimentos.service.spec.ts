@@ -20,6 +20,10 @@ function montar(opts: { responsavelId?: string; ultimoKm?: number | null } = {})
       findMany: jest.fn(async () => [
         { id: 'f1', nome: 'Anderson Silva', apelido: 'Anderson', cpfCnpj: '529.982.247-25' },
       ]),
+      // O colaborador do login: só o f1 é ativo na casa.
+      findFirst: jest.fn(async ({ where }: { where: { id: string } }) =>
+        where.id === 'f1' ? { id: 'f1', nome: 'Anderson Silva', apelido: 'Anderson' } : null,
+      ),
     },
     veiculo: {
       findUnique: jest.fn(async () => ({
@@ -90,6 +94,40 @@ describe('AbastecimentosService.lancarPeloPortal', () => {
   it('CPF que não é de funcionário não lança', async () => {
     const { service } = montar();
     await expect(service.lancarPeloPortal('111.444.777-35', PEDIDO)).rejects.toThrow(NotFoundException);
+  });
+});
+
+/**
+ * O mesmo lançamento, pelo login do sistema: quem é a pessoa vem do vínculo do
+ * login, e não do CPF — e o login fica gravado junto.
+ */
+describe('AbastecimentosService.lancarPeloColaborador', () => {
+  it('grava o colaborador, o login, o veículo e a hora', async () => {
+    const { service, prisma } = montar({ ultimoKm: 12_300 });
+    const antes = Date.now();
+    await service.lancarPeloColaborador('f1', 'u1', PEDIDO);
+    const dados = prisma.abastecimento.create.mock.calls[0][0].data;
+    expect(dados).toMatchObject({
+      veiculoId: 'v1',
+      km: 12_500,
+      funcionarioId: 'f1',
+      usuarioId: 'u1',
+      lancadoPor: 'Anderson',
+    });
+    expect(dados).not.toHaveProperty('valor');
+    expect((dados.data as Date).getTime()).toBeGreaterThanOrEqual(antes);
+  });
+
+  it('só no veículo que está no nome dele', async () => {
+    const { service, prisma } = montar({ responsavelId: 'outro' });
+    await expect(service.lancarPeloColaborador('f1', 'u1', PEDIDO)).rejects.toThrow(ForbiddenException);
+    expect(prisma.abastecimento.create).not.toHaveBeenCalled();
+  });
+
+  it('quem saiu da casa não lança', async () => {
+    const { service, prisma } = montar();
+    await expect(service.lancarPeloColaborador('f-saiu', 'u1', PEDIDO)).rejects.toThrow(NotFoundException);
+    expect(prisma.abastecimento.create).not.toHaveBeenCalled();
   });
 });
 

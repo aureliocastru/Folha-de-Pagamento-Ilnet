@@ -46,6 +46,11 @@ export class CriarUsuarioDto {
   @IsOptional()
   @IsUUID()
   perfilId?: string;
+
+  /** O colaborador que este login é. Ausente = achar pelo nome. */
+  @IsOptional()
+  @IsUUID()
+  funcionarioId?: string;
 }
 
 export class AtualizarUsuarioDto {
@@ -84,6 +89,11 @@ export class AtualizarUsuarioDto {
   @IsOptional()
   @IsUUID()
   perfilId?: string | null;
+
+  /** O colaborador que este login é; `null` volta a achar pelo nome. */
+  @IsOptional()
+  @IsUUID()
+  funcionarioId?: string | null;
 }
 
 export class TrocarSenhaDto {

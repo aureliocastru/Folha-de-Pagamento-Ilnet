@@ -24,20 +24,57 @@ export interface VeiculoDoPortal {
   }>;
 }
 
+export interface VeiculosDoResponsavel {
+  nome: string;
+  veiculos: VeiculoDoPortal[];
+}
+
+export interface DadosDoAbastecimento {
+  veiculoId: string;
+  km: number;
+  foto: string;
+}
+
+/**
+ * De onde vêm os veículos e para onde vai o lançamento.
+ *
+ * São duas portas para a mesma tela: o portal, que sabe quem é a pessoa pelo
+ * CPF, e a tela do colaborador, que sabe pelo login. A tela não precisa saber
+ * qual das duas a abriu.
+ */
+export interface FonteDoAbastecimento {
+  chave: unknown[];
+  buscar: () => Promise<VeiculosDoResponsavel>;
+  lancar: (dados: DadosDoAbastecimento) => Promise<unknown>;
+}
+
+const chaveDoCpf = (cpf: string) => ['pontos', 'abastecimento', cpf];
+
+async function veiculosDoCpf(cpf: string) {
+  return (
+    await apiPontos.post<VeiculosDoResponsavel>('/pontos/abastecimento/veiculos', { cpf })
+  ).data;
+}
+
 /** Os veículos que estão no nome deste CPF. Vazio = ele não abastece nenhum. */
 export function useVeiculosDoCpf(cpf: string, ativo = true) {
   return useQuery({
-    queryKey: ['pontos', 'abastecimento', cpf],
-    queryFn: async () =>
-      (
-        await apiPontos.post<{ nome: string; veiculos: VeiculoDoPortal[] }>(
-          '/pontos/abastecimento/veiculos',
-          { cpf },
-        )
-      ).data,
+    queryKey: chaveDoCpf(cpf),
+    queryFn: () => veiculosDoCpf(cpf),
     enabled: ativo && cpf.length === 11,
     retry: 0,
   });
+}
+
+/** O abastecimento de quem entrou no portal com o CPF. */
+export function TelaDeAbastecimento({ cpf }: { cpf: string }) {
+  return (
+    <FormularioDeAbastecimento
+      chave={chaveDoCpf(cpf)}
+      buscar={() => veiculosDoCpf(cpf)}
+      lancar={async (dados) => (await apiPontos.post('/pontos/abastecimento', { cpf, ...dados })).data}
+    />
+  );
 }
 
 const km = (n: number) => `${n.toLocaleString('pt-BR')} km`;
@@ -50,9 +87,9 @@ const km = (n: number) => `${n.toLocaleString('pt-BR')} km`;
  * escolhido quando é um só, e quase sempre é. Tudo grande, para o dedo e para
  * a luz do sol: é uma tela de posto de gasolina.
  */
-export function TelaDeAbastecimento({ cpf }: { cpf: string }) {
+export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: FonteDoAbastecimento) {
   const qc = useQueryClient();
-  const consulta = useVeiculosDoCpf(cpf);
+  const consulta = useQuery({ queryKey: chave, queryFn: buscar, retry: 0 });
   const veiculos = consulta.data?.veiculos ?? [];
 
   const [veiculoId, setVeiculoId] = useState('');
@@ -90,22 +127,14 @@ export function TelaDeAbastecimento({ cpf }: { cpf: string }) {
   }
 
   const lancar = useMutation({
-    mutationFn: async () =>
-      (
-        await apiPontos.post('/pontos/abastecimento', {
-          cpf,
-          veiculoId,
-          km: kmNumero,
-          foto,
-        })
-      ).data,
+    mutationFn: () => enviar({ veiculoId, km: kmNumero ?? 0, foto: foto ?? '' }),
     onSuccess: () => {
       setFeito(
         `Abastecimento lançado em ${veiculo?.apelido} com ${km(kmNumero ?? 0)}. A nota vai para a conferência.`,
       );
       setKmDigitado('');
       setFoto(null);
-      void qc.invalidateQueries({ queryKey: ['pontos', 'abastecimento', cpf] });
+      void qc.invalidateQueries({ queryKey: chave });
     },
   });
 

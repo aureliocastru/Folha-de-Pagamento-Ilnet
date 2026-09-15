@@ -1,6 +1,8 @@
 import { Link, Navigate } from 'react-router-dom';
+import { IconeTrofeu } from '../components/icones';
 import { CabecalhoDeFora } from '../components/TelaDeFora';
 import { useAuth } from '../lib/auth';
+import { useInicioDoColaborador } from '../lib/colaborador';
 import { caminhoInicial, modulosDoUsuario, TELA_DO_CAMPO } from '../lib/modulos';
 
 /**
@@ -10,6 +12,11 @@ import { caminhoInicial, modulosDoUsuario, TELA_DO_CAMPO } from '../lib/modulos'
  */
 export function Modulos() {
   const { usuario } = useAuth();
+  // Quem trabalha nos módulos também é colaborador: tem pontos, e pode ter um
+  // veículo no nome. O cartão "Minha área" só aparece para quem o login liga a
+  // um cadastro — para o login genérico ("Administrador") não há o que mostrar.
+  const inicio = useInicioDoColaborador(usuario?.role !== 'TECNICO');
+  const colaborador = inicio.data?.colaborador ?? null;
 
   // O técnico de campo não escolhe módulo: ele tem uma tela, e é esta. Chegar
   // aqui (pelo endereço, ou vindo de um módulo que ele não abre) é ser levado
@@ -61,6 +68,25 @@ export function Modulos() {
               </p>
             </Link>
           ))}
+
+          {colaborador && (
+            <Link
+              to={TELA_DO_CAMPO}
+              className="surgir group rounded-2xl border border-white/10 bg-white/[0.03] p-4 transition sm:p-6 duration-200 hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/[0.06]"
+            >
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-sky-500/15 text-sky-300">
+                <IconeTrofeu />
+              </span>
+              <h2 className="mt-3.5 font-display text-[16px] font-semibold text-white sm:mt-5 sm:text-[17px]">
+                Minha área
+              </h2>
+              <p className="mt-1.5 text-[13px] leading-relaxed text-white/45">
+                {inicio.data?.veiculos
+                  ? 'Sua pontuação e o abastecimento do veículo que está com você'
+                  : 'Sua pontuação do mês e em que lugar você está'}
+              </p>
+            </Link>
+          )}
         </div>
       </main>
     </div>

@@ -2,7 +2,9 @@ import {
   pedacosDoNome,
   planejarLogins,
   quemTemLogin,
+  vincularLogins,
   type LoginExistente,
+  type LoginParaVinculo,
   type PessoaParaLogin,
 } from './login-de-campo';
 
@@ -175,5 +177,105 @@ describe('quem já entra no app', () => {
   it('sem login nenhum aberto, não mostra ninguém', () => {
     const equipe = [pessoa('Adailton Vieira Pereira'), pessoa('Luzimeire')];
     expect(quemTemLogin(equipe, []).size).toBe(0);
+  });
+});
+
+/**
+ * O login ligado à pessoa, e não um segundo login para ela.
+ *
+ * A tela do colaborador mostra a pontuação e o veículo "dele": errar o vínculo
+ * é mostrar os pontos de um colega, ou deixar lançar abastecimento no carro de
+ * outro. Por isso, na dúvida, ninguém. Nomes inventados — o repositório é
+ * público.
+ */
+describe('que colaborador é cada login', () => {
+  const login = (
+    id: string,
+    nome: string,
+    email: string,
+    funcionarioId: string | null = null,
+  ): LoginParaVinculo => ({ id, nome, email, funcionarioId });
+
+  const CASA = [
+    { id: 'f-tadeu', nome: 'Tadeu Fonseca Lima', email: null },
+    { id: 'f-otavio1', nome: 'Otavio Rangel Prado', email: null },
+    { id: 'f-otavio2', nome: 'Otavio Brandao Leme', email: null },
+    { id: 'f-quiteria', nome: 'Quitéria Nunes da Mata', email: 'quiteria.casa@exemplo.com' },
+  ];
+
+  it('acha pelo nome curto do login', () => {
+    const v = vincularLogins([login('u1', 'Tadeu Fonseca', 'tadeu@ilnet.com.br')], CASA);
+    expect(v.get('u1')).toEqual({ funcionarioId: 'f-tadeu', automatico: true });
+  });
+
+  it('acha pelo endereço da casa quando o primeiro nome é de um só', () => {
+    const v = vincularLogins([login('u1', 'Técnico 3', 'tadeu@ilnet.com.br')], CASA);
+    expect(v.get('u1')?.funcionarioId).toBe('f-tadeu');
+  });
+
+  it('acha pelo e-mail do cadastro, mesmo com o nome do login diferente', () => {
+    const v = vincularLogins([login('u1', 'Quite', 'quiteria.casa@exemplo.com')], CASA);
+    expect(v.get('u1')?.funcionarioId).toBe('f-quiteria');
+  });
+
+  it('não chuta entre dois xarás', () => {
+    const v = vincularLogins([login('u1', 'Otavio', 'otavio@ilnet.com.br')], CASA);
+    expect(v.has('u1')).toBe(false);
+  });
+
+  it('dois logins para a mesma pessoa: nenhum dos dois leva', () => {
+    const v = vincularLogins(
+      [
+        login('u1', 'Tadeu', 'tadeu@ilnet.com.br'),
+        login('u2', 'Tadeu Fonseca Lima', 'tadeu.fonseca@ilnet.com.br'),
+      ],
+      CASA,
+    );
+    expect(v.size).toBe(0);
+  });
+
+  it('o que o administrador ligou vale mais que o nome, e sai da procura', () => {
+    const v = vincularLogins(
+      [
+        // Ligado à mão a um dos Otavios, com um nome que não diz nada.
+        login('u1', 'Almoxarife', 'almox@ilnet.com.br', 'f-otavio2'),
+        // Sobrou um Otavio só para achar pelo nome.
+        login('u2', 'Otavio', 'otavio@ilnet.com.br'),
+        // O nome aponta para o Tadeu, mas quem ligou disse outra pessoa.
+        login('u3', 'Tadeu Fonseca', 'tf@ilnet.com.br', 'f-quiteria'),
+      ],
+      CASA,
+    );
+    expect(v.get('u1')).toEqual({ funcionarioId: 'f-otavio2', automatico: false });
+    expect(v.get('u2')).toEqual({ funcionarioId: 'f-otavio1', automatico: true });
+    expect(v.get('u3')).toEqual({ funcionarioId: 'f-quiteria', automatico: false });
+  });
+
+  it('ligado a quem saiu da casa fica sem vínculo, e não é procurado pelo nome', () => {
+    const v = vincularLogins([login('u1', 'Tadeu Fonseca', 'tadeu@ilnet.com.br', 'f-saiu')], CASA);
+    expect(v.has('u1')).toBe(false);
+  });
+
+  it('login de nome genérico não é de ninguém', () => {
+    const v = vincularLogins([login('u1', 'Administrador', 'admin@ilnet.com.br')], CASA);
+    expect(v.has('u1')).toBe(false);
+  });
+
+  it('com o vínculo, o abridor não dá um segundo login a quem já tem', () => {
+    const plano = planejarLogins(
+      [pessoa('Tadeu Fonseca Lima'), pessoa('Tadeu Prado')],
+      // O login de nome esquisito é do primeiro Tadeu, ligado à mão.
+      [{ nome: 'Encarregado', email: 'encarregado@ilnet.com.br', funcionarioId: 'Tadeu Fonseca Lima' }],
+    );
+    expect(plano[0]).toMatchObject({ criar: false, email: 'encarregado@ilnet.com.br' });
+    expect(plano[1]).toMatchObject({ criar: true });
+  });
+
+  it('login ligado a uma pessoa não serve de "já tem" para o xará', () => {
+    const tem = quemTemLogin(
+      [pessoa('Tadeu Fonseca Lima'), pessoa('Tadeu Fonseca Prado')],
+      [{ nome: 'Tadeu Fonseca', email: 'tadeu@ilnet.com.br', funcionarioId: 'Tadeu Fonseca Prado' }],
+    );
+    expect([...tem]).toEqual(['Tadeu Fonseca Prado']);
   });
 });

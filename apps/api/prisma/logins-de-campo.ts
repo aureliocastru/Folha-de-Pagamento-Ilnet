@@ -70,7 +70,7 @@ async function main() {
       select: { id: true, nome: true, ativo: true },
       orderBy: { nome: 'asc' },
     }),
-    prisma.user.findMany({ select: { nome: true, email: true } }),
+    prisma.user.findMany({ select: { nome: true, email: true, funcionarioId: true } }),
   ]);
 
   const ativos = funcionarios.filter((f) => f.ativo);
@@ -112,6 +112,9 @@ async function main() {
           email: pessoa.email,
           senhaHash: await bcrypt.hash(SENHA_INICIAL, CUSTO_HASH),
           role: PERFIL,
+          // Já nasce ligado à pessoa: é o que a tela do colaborador usa para
+          // mostrar a pontuação e o veículo dela, sem depender do nome.
+          funcionarioId: pessoa.id,
           // Vazio de propósito: o TECNICO não tem lista de módulos, tem a
           // Segurança do Trabalho — ver `MODULO_DO_TECNICO` no `ModulosGuard`.
           modulos: [],

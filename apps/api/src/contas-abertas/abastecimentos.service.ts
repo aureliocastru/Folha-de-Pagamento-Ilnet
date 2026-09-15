@@ -99,7 +99,47 @@ export class AbastecimentosService {
 
   /** Os veículos deste CPF, com o último km e os abastecimentos recentes. */
   async doPortal(cpf: string): Promise<{ nome: string; veiculos: VeiculoDoPortal[] }> {
-    const funcionario = await this.funcionarioPeloCpf(cpf);
+    return this.doResponsavel(await this.funcionarioPeloCpf(cpf));
+  }
+
+  /** O abastecimento que o responsável fez agora, pelo portal do CPF. */
+  async lancarPeloPortal(
+    cpf: string,
+    dados: { veiculoId: string; km: number; foto: string },
+  ): Promise<AbastecimentoNaTela> {
+    return this.lancarPeloResponsavel(await this.funcionarioPeloCpf(cpf), dados);
+  }
+
+  // --- A tela do colaborador (o login do sistema) ---
+
+  /**
+   * Os veículos do colaborador que entrou com o próprio login. É a mesma tela
+   * do portal; muda só como se sabe quem é a pessoa — lá pelo CPF, aqui pelo
+   * vínculo do login.
+   */
+  async doColaborador(funcionarioId: string): Promise<{ nome: string; veiculos: VeiculoDoPortal[] }> {
+    return this.doResponsavel(await this.colaboradorAtivo(funcionarioId));
+  }
+
+  /** O abastecimento lançado pelo login do colaborador: fica o login também. */
+  async lancarPeloColaborador(
+    funcionarioId: string,
+    usuarioId: string,
+    dados: { veiculoId: string; km: number; foto: string },
+  ): Promise<AbastecimentoNaTela> {
+    return this.lancarPeloResponsavel(await this.colaboradorAtivo(funcionarioId), dados, usuarioId);
+  }
+
+  /** Quantos veículos ativos estão no nome desta pessoa. */
+  quantosVeiculos(funcionarioId: string): Promise<number> {
+    return this.prisma.veiculo.count({ where: { responsavelId: funcionarioId, ativo: true } });
+  }
+
+  private async doResponsavel(funcionario: {
+    id: string;
+    nome: string;
+    apelido: string | null;
+  }): Promise<{ nome: string; veiculos: VeiculoDoPortal[] }> {
     const veiculos = await this.prisma.veiculo.findMany({
       where: { responsavelId: funcionario.id, ativo: true },
       orderBy: { apelido: 'asc' },
@@ -127,12 +167,16 @@ export class AbastecimentosService {
     };
   }
 
-  /** O abastecimento que o responsável fez agora: o km e a foto da nota. */
-  async lancarPeloPortal(
-    cpf: string,
+  /**
+   * O abastecimento que o responsável fez agora: o km e a foto da nota. A data
+   * e a hora são as do servidor, e não as do celular — relógio de celular
+   * atrasado não muda a ordem dos abastecimentos.
+   */
+  private async lancarPeloResponsavel(
+    funcionario: { id: string; nome: string; apelido: string | null },
     dados: { veiculoId: string; km: number; foto: string },
+    usuarioId?: string,
   ): Promise<AbastecimentoNaTela> {
-    const funcionario = await this.funcionarioPeloCpf(cpf);
     conferirFoto(dados.foto);
     const km = kmValido(dados.km);
 
@@ -150,6 +194,7 @@ export class AbastecimentosService {
         km,
         data: new Date(),
         funcionarioId: funcionario.id,
+        usuarioId: usuarioId ?? null,
         lancadoPor: funcionario.apelido || funcionario.nome,
         foto: { create: { foto: dados.foto } },
       },
@@ -282,6 +327,20 @@ export class AbastecimentosService {
       _max: { km: true },
     });
     return r._max.km ?? null;
+  }
+
+  /** O colaborador do login, ainda ativo na casa — a mesma régua do portal. */
+  private async colaboradorAtivo(
+    funcionarioId: string,
+  ): Promise<{ id: string; nome: string; apelido: string | null }> {
+    const achado = await this.prisma.funcionario.findFirst({
+      where: { id: funcionarioId, ativo: true, isentoIcms: true },
+      select: { id: true, nome: true, apelido: true },
+    });
+    if (!achado) {
+      throw new NotFoundException('Seu cadastro não está entre os funcionários ativos da empresa.');
+    }
+    return achado;
   }
 
   /**

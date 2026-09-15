@@ -22,11 +22,23 @@ export interface Usuario {
 /** Num módulo, um perfil criado: não abre, só vê, ou mexe. */
 export type NivelDeAcesso = 'nao' | 'ver' | 'mexer';
 
+/** O colaborador (o cadastro de funcionário) que um login é. */
+export interface ColaboradorDoLogin {
+  id: string;
+  /** Como a pessoa é chamada: o apelido, quando há. */
+  nome: string;
+  nomeCompleto: string;
+  /** Achado pelo nome ou pelo e-mail; falso = ligado pelo administrador. */
+  automatico: boolean;
+}
+
 /** Login como aparece na tela de gerenciamento (só para ADMIN). */
 export interface UsuarioAdmin extends Usuario {
   ativo: boolean;
   /** A senha pode ser vista (foi gravada depois de o sistema passar a guardá-las). */
   senhaVisivel: boolean;
+  /** Quem este login é no cadastro. Null = ninguém ligado nem achado. */
+  colaborador: ColaboradorDoLogin | null;
   createdAt: string;
   updatedAt: string;
 }

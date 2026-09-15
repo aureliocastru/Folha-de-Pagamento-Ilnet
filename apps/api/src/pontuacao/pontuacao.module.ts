@@ -31,5 +31,7 @@ import { PontuacaoService } from './pontuacao.service';
   ],
   controllers: [PontosPortalController, PontuacaoController],
   providers: [PontuacaoService, CoordenadorGuard],
+  // A tela do colaborador mostra a mesma pontuação, pelo login.
+  exports: [PontuacaoService],
 })
 export class PontuacaoModule {}

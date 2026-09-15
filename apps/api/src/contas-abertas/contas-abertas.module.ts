@@ -81,6 +81,8 @@ import { VeiculosService } from './veiculos.service';
   // `PagamentosService` vai junto porque desfazer um acerto da rua apaga no
   // IXC o título que ele criou: sem isso a saída ficaria viva lá, descontando
   // um dinheiro que ninguém compensa deste lado.
-  exports: [DespesasService, PagamentosService],
+  // `AbastecimentosService` vai para a tela do colaborador, que lança o
+  // abastecimento pelo login em vez do CPF — a mesma regra, outra porta.
+  exports: [DespesasService, PagamentosService, AbastecimentosService],
 })
 export class ContasAbertasModule {}

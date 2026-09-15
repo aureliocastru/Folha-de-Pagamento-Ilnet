@@ -58,6 +58,8 @@ describe('de que módulo é cada rota', () => {
   it('o que não é de módulo nenhum fica de fora do mapa', () => {
     expect(moduloDaRota('/api/auth/login')).toBeNull();
     expect(moduloDaRota('/api/usuarios')).toBeNull();
+    // A tela do colaborador: a pontuação e o carro de quem entrou, de qualquer perfil.
+    expect(moduloDaRota('/api/colaborador/abastecimento')).toBeNull();
     expect(moduloDaRota('/api/health')).toBeNull();
     expect(moduloDaRota('/api/assinaturas/abc123')).toBeNull();
   });

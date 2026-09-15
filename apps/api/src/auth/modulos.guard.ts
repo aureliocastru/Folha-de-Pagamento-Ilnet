@@ -44,8 +44,9 @@ const ESCRITA = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
  *   isso passam para quem tiver qualquer um deles.
  *
  * O que não está aqui é livre: login, saúde, gerenciamento de usuários, o
- * bloco de notas (`agenda`, que abre em qualquer tela e é de quem escreveu) e
- * a assinatura pública do recibo não pertencem a módulo nenhum.
+ * bloco de notas (`agenda`, que abre em qualquer tela e é de quem escreveu), a
+ * tela do colaborador (`colaborador`, que só devolve o que é de quem entrou)
+ * e a assinatura pública do recibo não pertencem a módulo nenhum.
  */
 const MODULO_DA_ROTA: Array<[string, ModuloId[]]> = [
   ['rh', ['rh']],

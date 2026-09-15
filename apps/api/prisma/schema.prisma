@@ -59,6 +59,16 @@ model User {
   /// senha deles não tem como ser recuperada, só trocada.
   senhaCifrada String? @map("senha_cifrada")
 
+  /// O colaborador que este login é: é por ele que a tela do colaborador
+  /// mostra a pontuação da pessoa e o veículo que está no nome dela.
+  ///
+  /// Vazio = o sistema acha pelo nome, com a mesma regra que abre os logins de
+  /// campo (ver `usuarios/login-de-campo.ts`). Preenchido é o administrador
+  /// quem ligou, e vale mais que o nome. Único: uma pessoa, um login — é o que
+  /// impede o segundo login para a mesma pessoa.
+  funcionario   Funcionario? @relation(fields: [funcionarioId], references: [id], onDelete: SetNull)
+  funcionarioId String?      @unique @map("funcionario_id")
+
   /// O bloco de notas deste login. Ver o modelo `Agenda`.
   agenda Agenda?
 
@@ -167,6 +177,9 @@ model Funcionario {
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
+
+  /// O login desta pessoa no sistema, quando o administrador o ligou.
+  login User?
 
   adiantamentos Adiantamento[]
   faltas        FaltaFuncionario[]

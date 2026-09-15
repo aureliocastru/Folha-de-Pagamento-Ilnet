@@ -204,7 +204,7 @@ export class AprService {
           funcao: true,
         },
       }),
-      this.prisma.user.findMany({ select: { nome: true, email: true } }),
+      this.prisma.user.findMany({ select: { nome: true, email: true, funcionarioId: true } }),
     ]);
 
     const temLogin = quemTemLogin(pessoas, logins);

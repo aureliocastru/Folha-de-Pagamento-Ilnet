@@ -63,6 +63,13 @@ export class UsuariosController {
     return this.usuarios.listar();
   }
 
+  /** Os colaboradores da casa, para ligar a um login. */
+  @Roles(UserRole.ADMIN)
+  @Get('colaboradores')
+  colaboradores() {
+    return this.usuarios.colaboradores();
+  }
+
   // --- Perfis de acesso (antes das rotas com `:id`) ---
 
   @Roles(UserRole.ADMIN)

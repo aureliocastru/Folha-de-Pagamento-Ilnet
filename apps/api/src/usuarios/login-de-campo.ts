@@ -51,6 +51,11 @@ export interface PessoaParaLogin {
 export interface LoginExistente {
   nome: string;
   email: string;
+  /**
+   * O colaborador a que o administrador ligou este login. Ligado, é ele quem
+   * diz de quem é o login — o nome deixa de contar, para os dois lados.
+   */
+  funcionarioId?: string | null;
 }
 
 export interface PlanoDeLogin {
@@ -79,10 +84,19 @@ export function planejarLogins(
   const ocupados = new Set(
     existentes.map((l) => l.email.trim().toLowerCase()),
   );
-  const logins = existentes.map((l) => ({
+  // O login ligado pelo administrador é daquela pessoa, e só dela: não serve
+  // de "já tem login" para um xará pelo nome nem pelo endereço.
+  const ligados = new Map(
+    existentes
+      .filter((l) => l.funcionarioId)
+      .map((l) => [l.funcionarioId as string, l.email.trim().toLowerCase()]),
+  );
+  const soltos = existentes.filter((l) => !l.funcionarioId);
+  const logins = soltos.map((l) => ({
     email: l.email.trim().toLowerCase(),
     pedacos: pedacosDoNome(l.nome),
   }));
+  const enderecosSoltos = new Set(logins.map((l) => l.email));
 
   // Quantos dividem o primeiro nome: é o que decide se ele basta sozinho.
   const quantos = new Map<string, number>();
@@ -95,6 +109,12 @@ export function planejarLogins(
   const plano: PlanoDeLogin[] = [];
 
   for (const pessoa of pessoas) {
+    const ligado = ligados.get(pessoa.id);
+    if (ligado) {
+      plano.push({ ...pessoa, email: ligado, criar: false, motivo: 'já tem login' });
+      continue;
+    }
+
     const pedacos = pedacosDoNome(pessoa.nome);
     const primeiro = pedacos[0];
     if (!primeiro) {
@@ -134,7 +154,7 @@ export function planejarLogins(
      * Costa" são a mesma pessoa escrita de dois jeitos).
      */
     const simplesEmail = `${primeiro}@${dominio}`;
-    if ((quantos.get(primeiro) ?? 1) === 1 && ocupados.has(simplesEmail)) {
+    if ((quantos.get(primeiro) ?? 1) === 1 && enderecosSoltos.has(simplesEmail)) {
       plano.push({
         ...pessoa,
         email: simplesEmail,
@@ -221,4 +241,111 @@ export function quemTemLogin(
       .filter((p) => !p.criar && p.email !== '')
       .map((p) => p.id),
   );
+}
+
+export interface LoginParaVinculo {
+  id: string;
+  nome: string;
+  email: string;
+  /** Ligado pelo administrador. Vazio = achar pelo nome. */
+  funcionarioId: string | null;
+}
+
+export interface PessoaParaVinculo extends PessoaParaLogin {
+  email?: string | null;
+}
+
+export interface Vinculo {
+  funcionarioId: string;
+  /** Achado pelo nome ou pelo e-mail, e não ligado pelo administrador. */
+  automatico: boolean;
+}
+
+/**
+ * Que colaborador é cada login.
+ *
+ * É o que deixa a tela do colaborador mostrar "a pontuação dele" e "o veículo
+ * dele" sem abrir um segundo login só para isso. Quem responde primeiro é o
+ * administrador, que liga o login à pessoa na tela de Usuários. Sem isso, a
+ * pessoa é achada:
+ *
+ * - pelo e-mail do cadastro, igual ao do login — é o sinal mais forte;
+ * - pelo nome, com a mesma identidade do abridor de logins: "Marco Antonio" é
+ *   o começo de "Marco Antonio Castro";
+ * - pelo endereço da casa, quando o primeiro nome é de uma pessoa só
+ *   (`werick@` é do único Werick).
+ *
+ * Na dúvida, ninguém. Dois candidatos para um login, ou dois logins disputando
+ * a mesma pessoa, não viram palpite: mostrar a pontuação de um colega, ou
+ * deixar lançar abastecimento no carro dele, é pior que pedir ao administrador
+ * para ligar à mão. Quem já está ligado a um login não é achado por outro.
+ *
+ * `pessoas` são os colaboradores que valem (os ativos da casa); um login
+ * ligado a alguém fora dela fica sem vínculo.
+ */
+export function vincularLogins(
+  logins: LoginParaVinculo[],
+  pessoas: PessoaParaVinculo[],
+  dominio: string = DOMINIO_DA_CASA,
+): Map<string, Vinculo> {
+  const vinculos = new Map<string, Vinculo>();
+  const existe = new Set(pessoas.map((p) => p.id));
+
+  const tomadas = new Set<string>();
+  for (const login of logins) {
+    if (login.funcionarioId && existe.has(login.funcionarioId)) {
+      vinculos.set(login.id, { funcionarioId: login.funcionarioId, automatico: false });
+      tomadas.add(login.funcionarioId);
+    }
+  }
+
+  const livres = pessoas
+    .filter((p) => !tomadas.has(p.id))
+    .map((p) => ({ ...p, pedacos: pedacosDoNome(p.nome) }));
+
+  const quantos = new Map<string, number>();
+  for (const p of livres) {
+    const primeiro = p.pedacos[0];
+    if (primeiro) quantos.set(primeiro, (quantos.get(primeiro) ?? 0) + 1);
+  }
+
+  // Login → a pessoa achada. Quem ficou em dúvida nem entra.
+  const achados = new Map<string, string>();
+  for (const login of logins) {
+    // Ligado pelo administrador (mesmo que a alguém que saiu) não se procura.
+    if (login.funcionarioId) continue;
+
+    const email = login.email.trim().toLowerCase();
+    const peloEmail = livres.filter(
+      (p) => !!p.email && p.email.trim().toLowerCase() === email,
+    );
+    if (peloEmail.length === 1) {
+      achados.set(login.id, peloEmail[0].id);
+      continue;
+    }
+    if (peloEmail.length > 1) continue;
+
+    const nomeDoLogin = pedacosDoNome(login.nome);
+    const candidatos = livres.filter((p) => {
+      if (comecaCom(p.pedacos, nomeDoLogin)) return true;
+      const primeiro = p.pedacos[0];
+      return (
+        !!primeiro &&
+        quantos.get(primeiro) === 1 &&
+        email === `${primeiro}@${dominio}`
+      );
+    });
+    if (candidatos.length === 1) achados.set(login.id, candidatos[0].id);
+  }
+
+  // A mesma pessoa achada por dois logins: nenhum dos dois leva.
+  const disputa = new Map<string, number>();
+  for (const id of achados.values()) disputa.set(id, (disputa.get(id) ?? 0) + 1);
+  for (const [loginId, funcionarioId] of achados) {
+    if (disputa.get(funcionarioId) === 1) {
+      vinculos.set(loginId, { funcionarioId, automatico: true });
+    }
+  }
+
+  return vinculos;
 }

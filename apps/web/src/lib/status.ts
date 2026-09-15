@@ -83,7 +83,8 @@ export const PERFIL_DESCRICAO: Record<PerfilUsuario, string> = {
   RH: 'Usa o app inteiro: folha, vales, contas a pagar. Não mexe em logins.',
   VISUALIZADOR: 'Só consulta. Não gera folha nem altera cadastro.',
   TECNICO:
-    'Abre uma tela só: a análise de risco do serviço dele. Não enxerga folha, ' +
+    'Abre uma tela só, a do colaborador: a pontuação dele, o abastecimento do ' +
+    'veículo que está no nome dele e a análise de risco. Não enxerga folha, ' +
     'caixa nem documentos de ninguém.',
 };
 

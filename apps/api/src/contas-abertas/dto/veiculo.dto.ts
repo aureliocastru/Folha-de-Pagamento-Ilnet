@@ -89,6 +89,18 @@ export class LancarAbastecimentoDto {
   @IsString() @MaxLength(5_000_000) foto!: string;
 }
 
+/** O mesmo lançamento, pela tela do colaborador: quem é a pessoa vem do login. */
+export class LancarMeuAbastecimentoDto {
+  @IsUUID() veiculoId!: string;
+
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsInt()
+  @Min(0)
+  km!: number;
+
+  @IsString() @MaxLength(5_000_000) foto!: string;
+}
+
 /** O abastecimento lançado por dentro, na ficha do veículo. O valor é opcional. */
 export class LancarAbastecimentoNoSistemaDto {
   @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))

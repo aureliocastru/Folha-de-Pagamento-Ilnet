@@ -24,6 +24,7 @@ import { AprModule } from './apr/apr.module';
 import { CotacoesModule } from './cotacoes/cotacoes.module';
 import { AlmoxarifadoModule } from './almoxarifado/almoxarifado.module';
 import { PontuacaoModule } from './pontuacao/pontuacao.module';
+import { ColaboradorModule } from './colaborador/colaborador.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { ModulosGuard } from './auth/modulos.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -58,6 +59,7 @@ import { HealthController } from './health/health.controller';
     CotacoesModule,
     AlmoxarifadoModule,
     PontuacaoModule,
+    ColaboradorModule,
   ],
   controllers: [HealthController],
   providers: [

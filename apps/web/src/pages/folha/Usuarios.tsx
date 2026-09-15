@@ -53,6 +53,53 @@ function usePerfis() {
   });
 }
 
+/** Um colaborador ativo da casa, para ligar a um login. */
+interface ColaboradorParaLigar {
+  id: string;
+  nome: string;
+  apelido: string | null;
+}
+
+function useColaboradores() {
+  return useQuery({
+    queryKey: ['usuarios', 'colaboradores'],
+    queryFn: async () =>
+      (await api.get<ColaboradorParaLigar[]>('/usuarios/colaboradores')).data,
+  });
+}
+
+/**
+ * De quem é o login, no cadastro de funcionários.
+ *
+ * É por aqui que a tela do colaborador sabe de quem são os pontos e o veículo
+ * — sem um segundo login para isso. Vazio é "achar pelo nome", e é assim que
+ * nascem os logins: só se escolhe à mão quando o nome não basta (dois xarás,
+ * um login com nome de cargo).
+ */
+function SeletorDeColaborador({
+  id,
+  valor,
+  colaboradores,
+  onChange,
+}: {
+  id?: string;
+  valor: string;
+  colaboradores: ColaboradorParaLigar[];
+  onChange: (valor: string) => void;
+}) {
+  return (
+    <select id={id} value={valor} onChange={(e) => onChange(e.target.value)} className="campo">
+      <option value="">Achar pelo nome</option>
+      {colaboradores.map((c) => (
+        <option key={c.id} value={c.id}>
+          {c.nome}
+          {c.apelido ? ` (${c.apelido})` : ''}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 /** O seletor de acesso: os perfis fixos, e embaixo os que o administrador criou. */
 function SeletorDeAcesso({
   id,
@@ -140,8 +187,8 @@ function SemEscolhaDeModulo({ longo = false }: { longo?: boolean }) {
   if (longo) {
     return (
       <p className="ajuda mt-1">
-        O técnico de campo abre uma tela só — a análise de risco — e não tem
-        módulos para distribuir. Para dar um módulo a esta pessoa, troque o
+        O técnico de campo abre uma tela só — a do colaborador: pontuação,
+        abastecimento e análise de risco — e não tem módulos para distribuir. Para dar um módulo a esta pessoa, troque o
         perfil aqui em cima: os módulos aparecem para escolher.
       </p>
     );
@@ -151,7 +198,7 @@ function SemEscolhaDeModulo({ longo = false }: { longo?: boolean }) {
       className="text-xs text-tinta-400"
       title="O técnico de campo abre uma tela só, e é sempre a mesma"
     >
-      só a análise de risco
+      só a tela do colaborador
     </span>
   );
 }
@@ -230,6 +277,7 @@ export function Usuarios() {
     queryFn: async () => (await api.get<UsuarioAdmin[]>('/usuarios')).data,
   });
   const perfis = usePerfis();
+  const colaboradores = useColaboradores();
 
   function avisar(texto: string, falhou = false) {
     setErro(falhou);
@@ -276,6 +324,8 @@ export function Usuarios() {
 
       <NovoUsuario
         perfis={perfis.data ?? []}
+        colaboradores={colaboradores.data ?? []}
+        logins={lista.data ?? []}
         onCriado={(nome) => {
           avisar(`Login de ${nome} criado. Passe a senha para a pessoa.`);
           invalidar();
@@ -319,6 +369,7 @@ export function Usuarios() {
                           )}
                         </div>
                         <div className="text-xs text-tinta-400">{u.email}</div>
+                        <ColaboradorDoLogin usuario={u} />
                       </td>
                       <td className="td">
                         <SeletorDeAcesso
@@ -429,6 +480,7 @@ export function Usuarios() {
           <EditarLogin
             usuario={editando}
             perfis={perfis.data ?? []}
+            colaboradores={colaboradores.data ?? []}
             souEu={editando.id === eu?.id}
             pendente={alterar.isPending}
             onSalvar={(dados) => {
@@ -469,16 +521,54 @@ export function Usuarios() {
   );
 }
 
+/**
+ * Quem este login é no cadastro, embaixo do nome, na lista.
+ *
+ * O técnico sem ninguém ligado ganha o aviso: é ele quem usa a tela do
+ * colaborador, e sem o vínculo ela não mostra pontuação nem abastecimento. O
+ * login genérico de escritório ("Administrador") não precisa de aviso nenhum.
+ */
+function ColaboradorDoLogin({ usuario }: { usuario: UsuarioAdmin }) {
+  const c = usuario.colaborador;
+  if (!c) {
+    return usuario.role === 'TECNICO' ? (
+      <div className="mt-0.5 text-[11px] font-medium text-amber-600 dark:text-amber-300">
+        sem cadastro ligado — editar para ligar
+      </div>
+    ) : null;
+  }
+  return (
+    <div
+      className="mt-0.5 text-[11px] text-tinta-500"
+      title={
+        c.automatico
+          ? 'Achado pelo nome. Se estiver errado, escolha a pessoa em "editar".'
+          : 'Ligado pelo administrador.'
+      }
+    >
+      é {c.nomeCompleto}
+      {c.automatico && <span className="text-tinta-400"> · pelo nome</span>}
+    </div>
+  );
+}
+
 function NovoUsuario({
   perfis,
+  colaboradores,
+  logins,
   onCriado,
   onErro,
 }: {
   perfis: PerfilDeAcesso[];
+  colaboradores: ColaboradorParaLigar[];
+  /** Os logins que já existem: é por eles que se sabe se a pessoa já entra. */
+  logins: UsuarioAdmin[];
   onCriado: (nome: string) => void;
   onErro: (mensagem: string) => void;
 }) {
   const [nome, setNome] = useState('');
+  /** Vazio = achar pelo nome depois de criado. */
+  const [funcionarioId, setFuncionarioId] = useState('');
   const [email, setEmail] = useState('');
   const [senha, setSenha] = useState('');
   /** "RH", ou "perfil:<id>" — ver `valorDoAcesso`. */
@@ -498,10 +588,12 @@ function NovoUsuario({
           email,
           senha,
           ...(perfilId ? { perfilId } : { role, modulos }),
+          ...(funcionarioId ? { funcionarioId } : {}),
         })
       ).data,
     onSuccess: (u) => {
       setNome('');
+      setFuncionarioId('');
       setEmail('');
       setSenha('');
       setAcesso('RH');
@@ -511,8 +603,13 @@ function NovoUsuario({
     onError: (err) => onErro(mensagemErro(err)),
   });
 
+  // Uma pessoa, um login: a escolhida já entrando por outro, não se cria.
+  const jaEntra = funcionarioId
+    ? logins.find((l) => l.colaborador?.id === funcionarioId) ?? null
+    : null;
+
   const valido =
-    nome.trim().length >= 2 && email.includes('@') && senha.length >= 8;
+    nome.trim().length >= 2 && email.includes('@') && senha.length >= 8 && !jaEntra;
 
   return (
     <Bloco titulo="Criar login" className="surgir surgir-1">
@@ -573,6 +670,38 @@ function NovoUsuario({
             Perfil
           </label>
           <SeletorDeAcesso id="u-perfil" valor={acesso} perfis={perfis} onChange={setAcesso} />
+        </div>
+      </div>
+
+      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div>
+          <label className="rotulo" htmlFor="u-colaborador">
+            Colaborador
+          </label>
+          <SeletorDeColaborador
+            id="u-colaborador"
+            valor={funcionarioId}
+            colaboradores={colaboradores}
+            onChange={(id) => {
+              setFuncionarioId(id);
+              // O nome do login sai do cadastro, se ainda não foi digitado (ou se
+              // o que está lá é o de outra pessoa escolhida antes).
+              const escolhido = colaboradores.find((c) => c.id === id);
+              const nomeDoCadastro = colaboradores.some((c) => c.nome === nome);
+              if (escolhido && (!nome.trim() || nomeDoCadastro)) setNome(escolhido.nome);
+            }}
+          />
+          {jaEntra ? (
+            <p className="mt-1 text-xs font-semibold text-rose-600">
+              Essa pessoa já entra pelo login de {jaEntra.nome} ({jaEntra.email}). Uma
+              pessoa, um login: use aquele.
+            </p>
+          ) : (
+            <p className="ajuda">
+              Quem é esta pessoa no cadastro — é o que mostra a pontuação e o veículo dela
+              na tela do colaborador.
+            </p>
+          )}
         </div>
       </div>
 
@@ -661,6 +790,7 @@ function ModulosDoLogin({
 function EditarLogin({
   usuario,
   perfis,
+  colaboradores,
   souEu,
   pendente,
   onSalvar,
@@ -668,6 +798,7 @@ function EditarLogin({
 }: {
   usuario: UsuarioAdmin;
   perfis: PerfilDeAcesso[];
+  colaboradores: ColaboradorParaLigar[];
   /** O próprio administrador logado: a API não o deixa rebaixar-se. */
   souEu: boolean;
   pendente: boolean;
@@ -680,6 +811,10 @@ function EditarLogin({
   const [acesso, setAcesso] = useState(valorDoAcesso(usuario));
   const [modulos, setModulos] = useState<string[]>(usuario.modulos ?? []);
   const [ativo, setAtivo] = useState(usuario.ativo);
+  /** Só o ligado à mão vem escolhido; o achado pelo nome é o "vazio". */
+  const [funcionarioId, setFuncionarioId] = useState(
+    usuario.colaborador && !usuario.colaborador.automatico ? usuario.colaborador.id : '',
+  );
 
   const { role: roleFixo, perfilId } = dadosDoAcesso(acesso);
   const role: PerfilUsuario = roleFixo ?? 'RH';
@@ -700,6 +835,7 @@ function EditarLogin({
             email: email.trim(),
             ...(perfilId ? { perfilId } : { role, perfilId: null }),
             modulos: escolheModulos ? modulos : undefined,
+            funcionarioId: funcionarioId || null,
             ...(souEu ? {} : { ativo }),
           });
         }
@@ -774,6 +910,24 @@ function EditarLogin({
               Ver ou trocar a senha
             </button>
           </div>
+        </div>
+        <div className="sm:col-span-2">
+          <label className="rotulo" htmlFor="editar-colaborador">
+            Colaborador
+          </label>
+          <SeletorDeColaborador
+            id="editar-colaborador"
+            valor={funcionarioId}
+            colaboradores={colaboradores}
+            onChange={setFuncionarioId}
+          />
+          <p className="ajuda">
+            {funcionarioId
+              ? 'Ligado à mão: a pontuação e o veículo desta pessoa aparecem na tela do colaborador deste login.'
+              : usuario.colaborador?.automatico
+                ? `Achado pelo nome: ${usuario.colaborador.nomeCompleto}. Se não for esta pessoa, escolha a certa.`
+                : 'Pelo nome, não se achou ninguém (ou há dois parecidos). Escolha a pessoa para ligar.'}
+          </p>
         </div>
       </div>
 

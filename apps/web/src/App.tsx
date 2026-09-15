@@ -12,7 +12,15 @@ import {
 } from './lib/modulos';
 import { useTabelasNoCelular } from './lib/tabela-no-celular';
 import { Aprs, AprAberta, AprNova } from './pages/apr/Aprs';
-import { Campo, CampoApr, CampoInicio, CampoNova } from './pages/apr/Campo';
+import {
+  Campo,
+  CampoAbastecimento,
+  CampoApr,
+  CampoAprs,
+  CampoInicio,
+  CampoNova,
+  CampoPontuacao,
+} from './pages/apr/Campo';
 import { Formularios } from './pages/apr/Formularios';
 import { Assinar } from './pages/Assinar';
 import { Login } from './pages/Login';
@@ -292,9 +300,11 @@ export default function App() {
         <Route path="minha-conta" element={<MinhaConta />} />
       </Route>
 
-      {/* A tela do técnico de campo, e a única que ele vê do sistema.
-          Sem barra lateral, sem escolha de módulo: ele entra e já está no
-          lugar onde tem o que fazer. Quem recusa o resto é a API. */}
+      {/* A tela do colaborador: a pontuação dele, o abastecimento do veículo
+          que está no nome dele e a análise de risco. Para o técnico de campo é
+          a única tela do sistema — sem barra lateral, sem escolha de módulo.
+          Os outros perfis chegam pelo cartão "Minha área". Quem recusa o resto
+          é a API. */}
       <Route
         path="/campo"
         element={
@@ -304,6 +314,9 @@ export default function App() {
         }
       >
         <Route index element={<CampoInicio />} />
+        <Route path="pontuacao" element={<CampoPontuacao />} />
+        <Route path="abastecimento" element={<CampoAbastecimento />} />
+        <Route path="aprs" element={<CampoAprs />} />
         <Route path="nova" element={<CampoNova />} />
         <Route path="minha-conta" element={<MinhaConta />} />
         <Route path=":id" element={<CampoApr />} />

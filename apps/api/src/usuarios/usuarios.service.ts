@@ -17,6 +17,7 @@ import {
   CriarPerfilDto,
 } from './dto/perfil.dto';
 import { AtualizarUsuarioDto, CriarUsuarioDto } from './dto/usuario.dto';
+import { type ColaboradorDoLogin, VinculoDoLoginService } from './vinculo-do-login.service';
 
 /** Nunca devolva o hash nem a senha cifrada na lista. */
 const CAMPOS = {
@@ -35,9 +36,15 @@ const CAMPOS = {
 
 type LinhaDoUsuario = Prisma.UserGetPayload<{ select: typeof CAMPOS }>;
 
-/** O login como a tela o recebe: sem a cifra, com o aviso de que dá para ver a senha. */
-function paraTela({ senhaCifrada, ...resto }: LinhaDoUsuario) {
-  return { ...resto, senhaVisivel: !!senhaCifrada };
+/**
+ * O login como a tela o recebe: sem a cifra, com o aviso de que dá para ver a
+ * senha, e com o colaborador que ele é — ligado à mão ou achado pelo nome.
+ */
+function paraTela(
+  { senhaCifrada, ...resto }: LinhaDoUsuario,
+  colaborador: ColaboradorDoLogin | null = null,
+) {
+  return { ...resto, senhaVisivel: !!senhaCifrada, colaborador };
 }
 
 const CUSTO_HASH = 10;
@@ -49,6 +56,7 @@ export class UsuariosService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly vinculos: VinculoDoLoginService,
   ) {}
 
   /** A chave da cifra: um segredo próprio, ou o do JWT na falta dele. */
@@ -68,15 +76,63 @@ export class UsuariosService {
   }
 
   async listar() {
-    const linhas = await this.prisma.user.findMany({
-      select: CAMPOS,
-      orderBy: [{ ativo: 'desc' }, { nome: 'asc' }],
+    const [linhas, vinculos] = await Promise.all([
+      this.prisma.user.findMany({
+        select: CAMPOS,
+        orderBy: [{ ativo: 'desc' }, { nome: 'asc' }],
+      }),
+      this.vinculos.todos(),
+    ]);
+    return linhas.map((l) => paraTela(l, vinculos.get(l.id)));
+  }
+
+  /** Os colaboradores ativos da casa, para escolher de quem é um login. */
+  colaboradores() {
+    return this.prisma.funcionario.findMany({
+      where: { ativo: true, isentoIcms: true },
+      select: { id: true, nome: true, apelido: true },
+      orderBy: { nome: 'asc' },
     });
-    return linhas.map(paraTela);
+  }
+
+  /** Com o colaborador que ele passou a ser, depois de gravar. */
+  private async comVinculo(linha: LinhaDoUsuario) {
+    return paraTela(linha, await this.vinculos.doLogin(linha.id));
+  }
+
+  /**
+   * O colaborador pedido existe, ainda é da casa, e não entra por outro login.
+   *
+   * Uma pessoa, um login. O banco só garante isso para o vínculo feito à mão
+   * (a coluna é única); o achado pelo nome se confere aqui — sem isso, criar
+   * "Tadeu Fonseca" para quem já entra como "Tadeu" daria duas senhas à mesma
+   * pessoa, e a tela do colaborador deixaria de saber qual das duas é ela.
+   */
+  private async assertColaborador(funcionarioId: string | null | undefined, loginId?: string) {
+    if (!funcionarioId) return;
+    const existe = await this.prisma.funcionario.findFirst({
+      where: { id: funcionarioId, ativo: true, isentoIcms: true },
+      select: { id: true },
+    });
+    if (!existe) {
+      throw new BadRequestException('Esse colaborador não está entre os funcionários ativos.');
+    }
+    for (const [outroId, colaborador] of await this.vinculos.todos()) {
+      if (outroId === loginId || colaborador.id !== funcionarioId) continue;
+      const dono = await this.prisma.user.findUnique({
+        where: { id: outroId },
+        select: { nome: true, email: true },
+      });
+      throw new ConflictException(
+        `${colaborador.nomeCompleto} já entra no sistema pelo login de ${dono?.nome} (${dono?.email}). ` +
+          'Uma pessoa, um login: use aquele.',
+      );
+    }
   }
 
   async criar(dto: CriarUsuarioDto) {
     const acesso = await this.acessoPedido(dto.role, dto.perfilId);
+    await this.assertColaborador(dto.funcionarioId);
     try {
       const criado = await this.prisma.user.create({
         data: {
@@ -87,12 +143,13 @@ export class UsuariosService {
           perfilId: acesso.perfilId ?? null,
           // Vazio = todos. Ver o comentário da coluna no schema.
           modulos: acesso.perfilId ? [] : (dto.modulos ?? []),
+          funcionarioId: dto.funcionarioId ?? null,
         },
         select: CAMPOS,
       });
-      return paraTela(criado);
+      return this.comVinculo(criado);
     } catch (err) {
-      throw this.traduzirErro(err);
+      throw await this.traduzirErro(err, dto.funcionarioId);
     }
   }
 
@@ -113,6 +170,7 @@ export class UsuariosService {
     if (dto.ativo === false || (acesso.role && acesso.role !== UserRole.ADMIN)) {
       await this.assertNaoDeixaSemAdmin(id);
     }
+    await this.assertColaborador(dto.funcionarioId, id);
 
     try {
       const atualizado = await this.prisma.user.update({
@@ -124,13 +182,14 @@ export class UsuariosService {
           perfilId: acesso.perfilId,
           modulos: acesso.perfilId ? [] : dto.modulos,
           ativo: dto.ativo,
+          funcionarioId: dto.funcionarioId,
           ...(dto.senha ? await this.gravacaoDaSenha(dto.senha) : {}),
         },
         select: CAMPOS,
       });
-      return paraTela(atualizado);
+      return this.comVinculo(atualizado);
     } catch (err) {
-      throw this.traduzirErro(err);
+      throw await this.traduzirErro(err, dto.funcionarioId);
     }
   }
 
@@ -296,11 +355,25 @@ export class UsuariosService {
     if (!existe) throw new NotFoundException('Usuário não encontrado');
   }
 
-  private traduzirErro(err: unknown): Error {
+  private async traduzirErro(err: unknown, funcionarioId?: string | null): Promise<Error> {
     if (
       err instanceof Prisma.PrismaClientKnownRequestError &&
       err.code === 'P2002'
     ) {
+      // Duas colunas únicas: o e-mail e o colaborador. O alvo diz qual foi.
+      const alvo = JSON.stringify(err.meta?.target ?? '');
+      if (funcionarioId && alvo.includes('funcionario')) {
+        const dono = await this.prisma.user.findUnique({
+          where: { funcionarioId },
+          select: { nome: true, email: true },
+        });
+        return new ConflictException(
+          dono
+            ? `Esse colaborador já é o login de ${dono.nome} (${dono.email}). Uma pessoa, um login: ` +
+                'use aquele, ou tire o vínculo dele antes.'
+            : 'Esse colaborador já está ligado a outro login.',
+        );
+      }
       return new ConflictException('Já existe um login com esse e-mail');
     }
     return err as Error;

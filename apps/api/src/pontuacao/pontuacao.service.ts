@@ -68,6 +68,17 @@ export interface LancamentoNaTela {
   podeApagar: boolean;
 }
 
+/** A tela de quem é pontuado: só os pontos dele, e em que lugar ele está. */
+export interface MinhaPontuacao {
+  nome: string;
+  competencia: string;
+  pontos: number;
+  posicao: number;
+  de: number;
+  lancamentos: Array<Omit<LancamentoNaTela, 'podeApagar'>>;
+  meses: Array<{ competencia: string; pontos: number }>;
+}
+
 /**
  * A pontuação dos funcionários.
  *
@@ -205,25 +216,37 @@ export class PontuacaoService {
    * A tela do funcionário: os pontos do mês, a posição dele e cada lançamento
    * com o motivo. Não mostra os pontos dos colegas — só em que lugar ele está.
    */
-  async visaoDoFuncionario(
-    cpf: string,
-    competencia?: string,
-  ): Promise<{
-    nome: string;
-    competencia: string;
-    pontos: number;
-    posicao: number;
-    de: number;
-    lancamentos: Array<Omit<LancamentoNaTela, 'podeApagar'>>;
-    meses: Array<{ competencia: string; pontos: number }>;
-  }> {
-    const alvo = validarCompetencia(competencia ?? mesAtual());
+  async visaoDoFuncionario(cpf: string, competencia?: string): Promise<MinhaPontuacao> {
     const funcionario = await this.funcionarioPeloCpf(somenteDigitos(cpf));
     if (!funcionario) {
       throw new NotFoundException(
         'Este CPF não está entre os funcionários da empresa. Confira os números.',
       );
     }
+    return this.pontuacaoDe(funcionario, competencia);
+  }
+
+  /**
+   * A mesma tela, de quem entrou com o próprio login no sistema — a tela do
+   * colaborador. Quem é a pessoa já veio resolvido pelo login; aqui só se
+   * confere que ela ainda é da casa.
+   */
+  async visaoDoColaborador(funcionarioId: string, competencia?: string): Promise<MinhaPontuacao> {
+    const funcionario = await this.prisma.funcionario.findFirst({
+      where: { id: funcionarioId, ativo: true, isentoIcms: true },
+      select: { id: true, nome: true, apelido: true },
+    });
+    if (!funcionario) {
+      throw new NotFoundException('Seu cadastro não está entre os funcionários ativos da empresa.');
+    }
+    return this.pontuacaoDe(funcionario, competencia);
+  }
+
+  private async pontuacaoDe(
+    funcionario: { id: string; nome: string; apelido: string | null },
+    competencia?: string,
+  ): Promise<MinhaPontuacao> {
+    const alvo = validarCompetencia(competencia ?? mesAtual());
 
     const painel = await this.painel(alvo);
     const eu = painel.funcionarios.find((f) => f.id === funcionario.id);
