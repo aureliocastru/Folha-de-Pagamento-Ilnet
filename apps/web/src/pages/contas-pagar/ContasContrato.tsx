@@ -203,6 +203,30 @@ const CATEGORIA_DA_LUZ = /energia|luz/i;
  * Sem máscara, porque o destino dele é um campo que se formata sozinho.
  */
 function CnpjDaEmpresa() {
+  return (
+    <span className="mt-0.5 inline-flex">
+      <NumeroDeCopiar rotulo="CNPJ" numero={EMPRESA.cnpj} titulo="Copiar o CNPJ" />
+    </span>
+  );
+}
+
+/**
+ * Um número que se clica para copiar — o CNPJ da casa, a conta contrato de cada
+ * endereço. O portal da concessionária pede os dois, um atrás do outro, para
+ * baixar a segunda via.
+ */
+function NumeroDeCopiar({
+  rotulo,
+  numero,
+  titulo,
+  pequeno = false,
+}: {
+  rotulo: string;
+  numero: string;
+  titulo: string;
+  /** Na linha da tabela, embaixo do nome do endereço. */
+  pequeno?: boolean;
+}) {
   const [estado, setEstado] = useState<'parado' | 'copiado' | 'selecionado'>(
     'parado',
   );
@@ -210,7 +234,7 @@ function CnpjDaEmpresa() {
 
   async function copiar() {
     try {
-      await navigator.clipboard.writeText(EMPRESA.cnpj);
+      await navigator.clipboard.writeText(numero);
       setEstado('copiado');
     } catch {
       /*
@@ -235,16 +259,22 @@ function CnpjDaEmpresa() {
   }
 
   return (
-    <span className="mt-0.5 inline-flex items-center gap-2">
-      <span className="text-[13px] text-tinta-500">CNPJ</span>
+    <span className="inline-flex items-center gap-2">
+      <span
+        className={`${pequeno ? 'text-xs' : 'text-[13px]'} text-tinta-500`}
+      >
+        {rotulo}
+      </span>
       <button
         ref={numeroRef}
         type="button"
         onClick={copiar}
-        title="Copiar o CNPJ"
-        className="num rounded-lg border border-tinta-200 bg-papel px-2.5 py-1 text-[15px] font-semibold tracking-wide text-tinta-800 transition hover:border-brand-300 hover:bg-brand-500/5 hover:text-brand-700"
+        title={titulo}
+        className={`num rounded-lg border border-tinta-200 bg-papel font-semibold tracking-wide text-tinta-800 transition hover:border-brand-300 hover:bg-brand-500/5 hover:text-brand-700 ${
+          pequeno ? 'px-2 py-0.5 text-[13px]' : 'px-2.5 py-1 text-[15px]'
+        }`}
       >
-        {EMPRESA.cnpj}
+        {numero}
       </button>
       <span
         aria-live="polite"
@@ -767,10 +797,16 @@ function LinhaDoEndereco({
               &rsaquo;
             </span>
           </span>
-          <span className="num block text-xs text-tinta-400">
-            conta contrato {c.numero}
-          </span>
         </button>
+        {/* Fora do botão do nome: clicar no número copia, e não abre o cartão. */}
+        <div className="mt-1">
+          <NumeroDeCopiar
+            pequeno
+            rotulo="CC:"
+            numero={c.numero}
+            titulo={`Copiar a conta contrato de ${c.apelido}`}
+          />
+        </div>
         {(!c.ativa || mostrarFornecedor) && (
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
             {!c.ativa && (
@@ -1056,7 +1092,7 @@ function CartaoDoEndereco({
   return (
     <Janela titulo={contrato.apelido} onFechar={onFechar}>
       <p className="num mb-4 text-[13px] text-tinta-500">
-        conta contrato {contrato.numero} · {contrato.fornecedorNome}
+        CC: {contrato.numero} · {contrato.fornecedorNome}
         {!contrato.ativa && ' · desligado'}
       </p>
 
