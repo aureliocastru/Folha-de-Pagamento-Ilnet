@@ -30,17 +30,33 @@ export const AREAS_PADRAO = ['pontuacao', 'abastecimento'];
  * Que cartões este login vê. Marcado não basta: a pontuação é da pessoa, e
  * sem o login ligado ao cadastro não há de quem mostrar; o abastecimento, sem
  * veículo no nome dela, não tem onde lançar.
+ *
+ * O Pontuar tem mais uma conta: quem abre o módulo Pontuação já entra na mesma
+ * tela por lá — é a primeira dele, com os motivos e os coordenadores em volta.
+ * Dois cartões para o mesmo lugar não é escolha, é dúvida. Some o da Minha
+ * área, que é o mais pobre dos dois.
+ *
+ * Coordenar, porém, continua valendo o que valia: `coordena` diz o que foi
+ * marcado, e é dele que sai a regra da análise de risco — some o cartão, não
+ * o fato.
  */
-export function cartoesDoColaborador(inicio?: InicioDoColaborador | null) {
+export function cartoesDoColaborador(
+  inicio?: InicioDoColaborador | null,
+  usuario?: Usuario | null,
+) {
   const areas = inicio?.areas ?? [];
   const ligado = !!inicio?.colaborador;
   const pontuacao = ligado && areas.includes('pontuacao');
   const abastecimento = ligado && areas.includes('abastecimento') && (inicio?.veiculos ?? 0) > 0;
-  const pontuar = areas.includes('pontuar');
+  const coordena = areas.includes('pontuar');
+  const noModulo = !!usuario && modulosDoUsuario(usuario).some((m) => m.id === 'pontuacao');
+  const pontuar = coordena && !noModulo;
   return {
     pontuacao,
     abastecimento,
     pontuar,
+    /** Este login pontua os outros, com cartão ou pelo módulo. */
+    coordena,
     algum: pontuacao || abastecimento || pontuar,
     /** Marcou algo que é da pessoa, mas o login não está ligado a ela. */
     faltaLigar: !ligado && (areas.includes('pontuacao') || areas.includes('abastecimento')),

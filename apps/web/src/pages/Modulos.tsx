@@ -16,7 +16,7 @@ export function Modulos() {
   // veículo no nome, e pode coordenar. Cada um é um cartão, ao lado dos
   // módulos, quando o administrador marcou — e quando há o que mostrar.
   const inicio = useInicioDoColaborador(usuario?.role !== 'TECNICO');
-  const cartoes = cartoesDoColaborador(inicio.data);
+  const cartoes = cartoesDoColaborador(inicio.data, usuario);
   const daArea: Array<{ para: string; nome: string; descricao: string; icone: Icone; tom: string }> = [
     ...(cartoes.pontuacao
       ? [{

@@ -128,8 +128,11 @@ export function CampoInicio() {
   const { usuario } = useAuth();
   const inicio = useInicioDoColaborador();
   const colaborador = inicio.data?.colaborador ?? null;
-  const cartoes = cartoesDoColaborador(inicio.data);
-  const apr = abreAnaliseDeRisco(usuario) && !cartoes.pontuar;
+  const cartoes = cartoesDoColaborador(inicio.data, usuario);
+  // Quem coordena não vê a APR mesmo quando o cartão de pontuar não
+  // aparece aqui — ele some por estar repetido no módulo, e não por a
+  // pessoa ter deixado de pontuar.
+  const apr = abreAnaliseDeRisco(usuario) && !cartoes.coordena;
 
   const nome = colaborador?.nome ?? usuario?.nome.split(' ')[0] ?? '';
 

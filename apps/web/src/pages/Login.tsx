@@ -40,7 +40,7 @@ export function Login() {
         .get<InicioDoColaborador>('/colaborador')
         .then((r) => r.data)
         .catch(() => null);
-      const temMinhaArea = cartoesDoColaborador(inicio).algum;
+      const temMinhaArea = cartoesDoColaborador(inicio, usuario).algum;
       navigate(destinoDepoisDoLogin(usuario, temMinhaArea));
     } catch (err) {
       setErro(mensagemErro(err));
