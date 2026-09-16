@@ -387,6 +387,27 @@ export class RecorrentesService {
       });
     }
 
+    /*
+     * Prende a conta ao contrato.
+     *
+     * Ela nasceu pela tela de lançar despesa, que não sabe de recorrente
+     * nenhuma. Com o vínculo, ela passa a contar como conta deste contrato —
+     * no histórico, na contagem de geradas, e em qualquer lugar que pergunte o
+     * que este financiamento já produziu. Falhar aqui não desfaz nada: o
+     * registro da parcela já está gravado, e o histórico a acha pelo id.
+     */
+    if (dados.contaId) {
+      await this.prisma.contaPagar
+        .update({ where: { id: dados.contaId }, data: { recorrenteId: id } })
+        .catch((err: unknown) => {
+          this.logger.warn(
+            `A conta ${dados.contaId} não ficou ligada ao contrato: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        });
+    }
+
     this.logger.log(
       `Parcela ${dados.numero}/${total} de ${r.fornecedorNome} ` +
         `${antecipando ? 'antecipada' : 'registrada'} por ` +
@@ -408,25 +429,40 @@ export class RecorrentesService {
    */
   async historico(id: string) {
     const r = await this.buscar(id);
-    const [contas, antecipadas] = await Promise.all([
-      this.prisma.contaPagar.findMany({
-        where: { recorrenteId: id },
-        select: {
-          id: true,
-          idFnApagarIxc: true,
-          valor: true,
-          dataVencimento: true,
-          observacao: true,
-          status: true,
-          pagoEm: true,
-        },
-        orderBy: { dataVencimento: 'desc' },
-      }),
-      this.prisma.parcelaAntecipada.findMany({
-        where: { recorrenteId: id },
-        orderBy: { numero: 'desc' },
-      }),
-    ]);
+    const antecipadas = await this.prisma.parcelaAntecipada.findMany({
+      where: { recorrenteId: id },
+      orderBy: { numero: 'desc' },
+    });
+
+    /*
+     * As contas deste contrato são de duas procedências.
+     *
+     * As que a rotina gerou trazem o vínculo (`recorrenteId`) desde que
+     * nasceram. As da parcela antecipada nasceram pela tela de lançar conta,
+     * que é a mesma de qualquer despesa avulsa e não sabe de contrato nenhum —
+     * o que as prende aqui é o registro da antecipação, que guardou o id
+     * delas. Procurar só pelo vínculo deixava essas de fora, e a parcela
+     * aparecia paga e sem valor: o desconto que se ganhou sumia da tela.
+     */
+    const contasDasAntecipadas = antecipadas
+      .map((a) => a.contaId)
+      .filter((x): x is string => !!x);
+
+    const contas = await this.prisma.contaPagar.findMany({
+      where: {
+        OR: [{ recorrenteId: id }, { id: { in: contasDasAntecipadas } }],
+      },
+      select: {
+        id: true,
+        idFnApagarIxc: true,
+        valor: true,
+        dataVencimento: true,
+        observacao: true,
+        status: true,
+        pagoEm: true,
+      },
+      orderBy: { dataVencimento: 'desc' },
+    });
 
     const porConta = new Map(
       antecipadas.filter((a) => a.contaId).map((a) => [a.contaId as string, a]),
@@ -438,9 +474,10 @@ export class RecorrentesService {
         return {
           contaId: c.id,
           antecipacaoId: antecipada?.id ?? null,
-          // O número vem da observação, que é onde a rotina o escreve: o
-          // "(12/60)" é o mesmo que a lista de contas lê como parcela.
-          numero: numeroDaParcela(c.observacao),
+          // O número do registro manda, quando há um: ele é o que foi
+          // escolhido na tela. Sem registro, vale o "(12/60)" da observação —
+          // é onde a rotina o escreve, e o mesmo que a lista de contas lê.
+          numero: antecipada?.numero ?? numeroDaParcela(c.observacao),
           valor: c.valor.toString(),
           valorDeTabela: (antecipada?.valorDeTabela ?? r.valor).toString(),
           data: c.dataVencimento,
@@ -450,10 +487,10 @@ export class RecorrentesService {
           antecipada: !!antecipada,
         };
       }),
-      // As antecipadas sem conta: as que foram pagas por fora, antes de o
-      // contrato entrar aqui.
+      // As antecipadas sem conta: as pagas por fora, antes de o contrato
+      // entrar aqui — e as cuja conta sumiu do IXC.
       ...antecipadas
-        .filter((a) => !a.contaId)
+        .filter((a) => !a.contaId || !contas.some((c) => c.id === a.contaId))
         .map((a) => ({
           contaId: null,
           antecipacaoId: a.id,

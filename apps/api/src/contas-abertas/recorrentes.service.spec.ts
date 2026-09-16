@@ -60,6 +60,10 @@ function montarServico(
     registro?: unknown;
     /** O que o `findUnique` de uma antecipação devolve. */
     antecipada?: unknown;
+    /** As contas a pagar que a busca do histórico encontra. */
+    contas?: unknown[];
+    /** As antecipações gravadas deste contrato. */
+    antecipadasSalvas?: unknown[];
   } = {},
 ) {
   const atualizacoes: Array<Record<string, unknown>> = [];
@@ -79,7 +83,12 @@ function montarServico(
       create: jest.fn(async ({ data }: { data: unknown }) => data),
       delete: jest.fn(),
     },
+    contaPagar: {
+      findMany: jest.fn(async () => opts.contas ?? []),
+      update: jest.fn(async ({ data }: { data: unknown }) => data),
+    },
     parcelaAntecipada: {
+      findMany: jest.fn(async () => opts.antecipadasSalvas ?? []),
       create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
         antecipadas.push(data);
         return { id: 'a1', ...data };
@@ -556,5 +565,94 @@ describe('RecorrentesService — parcela antecipada', () => {
     await expect(service.desfazerAntecipacao('r1', 'a1')).rejects.toThrow(
       /não encontrada/,
     );
+  });
+});
+
+/**
+ * O histórico — e a conta que a parcela antecipada gera.
+ *
+ * Ela nasce pela tela de lançar despesa, a mesma de qualquer conta avulsa, e
+ * por isso não traz o vínculo com o contrato. O que a prende aqui é o id
+ * guardado no registro da antecipação: sem procurá-la por ele, a parcela
+ * aparecia paga e sem valor, e o desconto que se ganhou sumia da tela.
+ */
+describe('RecorrentesService.historico', () => {
+  it('acha a conta da antecipada pelo id, mesmo sem o vínculo com o contrato', async () => {
+    const conta = {
+      id: 'c-antecipada',
+      idFnApagarIxc: 9123,
+      valor: 2107.36,
+      dataVencimento: new Date(Date.UTC(2026, 8, 16)),
+      observacao: 'Financiamento STRADA (31/36) antecipada',
+      status: 'PAGO',
+      pagoEm: new Date(Date.UTC(2026, 8, 16)),
+    };
+    const { service, prisma } = montarServico({
+      registro: {
+        id: 'r1',
+        valor: 3712.25,
+        totalParcelas: 36,
+        parcelasLancadas: 7,
+        parcelasAntecipadas: 6,
+      },
+      antecipadasSalvas: [
+        {
+          id: 'a1',
+          numero: 31,
+          valor: 2107.36,
+          valorDeTabela: 3712.25,
+          contaId: 'c-antecipada',
+          idFnApagarIxc: 9123,
+          data: new Date(Date.UTC(2026, 8, 16)),
+        },
+      ],
+      contas: [conta],
+    });
+
+    const { linhas } = await service.historico('r1');
+
+    // A busca não se contenta com o vínculo: pergunta também pelos ids das
+    // contas que as antecipações guardaram.
+    expect(prisma.contaPagar.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          OR: [{ recorrenteId: 'r1' }, { id: { in: ['c-antecipada'] } }],
+        },
+      }),
+    );
+    // Uma linha só, com o valor que de fato saiu e o que a parcela valia.
+    expect(linhas).toHaveLength(1);
+    expect(linhas[0]).toMatchObject({
+      numero: 31,
+      valor: '2107.36',
+      valorDeTabela: '3712.25',
+      antecipada: true,
+      idFnApagarIxc: 9123,
+    });
+  });
+
+  it('a conta da antecipada fica presa ao contrato dali em diante', async () => {
+    const { service, prisma } = montarServico({
+      registro: {
+        id: 'r1',
+        valor: 3712.25,
+        totalParcelas: 36,
+        parcelasLancadas: 7,
+        parcelasAntecipadas: 0,
+        antecipadas: [],
+      },
+    });
+
+    await service.antecipar('r1', {
+      numero: 30,
+      valor: 2107.36,
+      contaId: 'c-nova',
+      idFnApagarIxc: 9124,
+    });
+
+    expect(prisma.contaPagar.update).toHaveBeenCalledWith({
+      where: { id: 'c-nova' },
+      data: { recorrenteId: 'r1' },
+    });
   });
 });

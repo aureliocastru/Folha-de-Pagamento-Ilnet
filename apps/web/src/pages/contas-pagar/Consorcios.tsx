@@ -691,10 +691,19 @@ function parcelasDoContrato(r: Recorrente, linhas: LinhaDoHistorico[]): ParcelaN
         r.diaDoVencimento,
       );
 
-    const situacao: ParcelaNaTela['situacao'] = linha?.antecipada
-      ? 'antecipada'
-      : !saiu
-        ? 'aberta'
+    /*
+     * As que o cadastro contou como antecipadas também são antecipadas, mesmo
+     * sem registro: a contagem cega diz que as últimas do contrato já foram
+     * pagas adiantadas — é disso que ela é a contagem.
+     */
+    const doContador =
+      (r.parcelasAntecipadas ?? 0) > 0 &&
+      numero > a.total - (r.parcelasAntecipadas ?? 0);
+
+    const situacao: ParcelaNaTela['situacao'] = !saiu
+      ? 'aberta'
+      : linha?.antecipada || (!linha && doContador)
+        ? 'antecipada'
         : linha == null || linha.status === 'PAGO' || linha.status === null
           ? 'paga'
           : 'esperando';
