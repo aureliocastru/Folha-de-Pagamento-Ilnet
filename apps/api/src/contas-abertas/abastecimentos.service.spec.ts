@@ -14,7 +14,18 @@ import { AbastecimentosService, resumirCombustivel } from './abastecimentos.serv
 const CPF = '529.982.247-25';
 const FOTO = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==';
 
-function montar(opts: { responsavelId?: string; ultimoKm?: number | null } = {}) {
+function montar(
+  opts: {
+    responsavelId?: string;
+    ultimoKm?: number | null;
+    ultimoHorimetro?: number | null;
+    /** O que o `findUnique` de veículo devolve, por id. */
+    veiculos?: Record<string, Record<string, unknown>>;
+    /** Litros comprados, litros já conferidos e o que se pagou por eles. */
+    galao?: { entrou?: number; litrosPagos?: number; pago?: number; saiu?: number };
+  } = {},
+) {
+  const g = opts.galao;
   const prisma = {
     funcionario: {
       findMany: jest.fn(async () => [
@@ -26,15 +37,36 @@ function montar(opts: { responsavelId?: string; ultimoKm?: number | null } = {})
       ),
     },
     veiculo: {
-      findUnique: jest.fn(async () => ({
-        id: 'v1',
-        apelido: 'Moto do almoxarifado',
-        ativo: true,
-        responsavelId: opts.responsavelId ?? 'f1',
-      })),
+      findUnique: jest.fn(async ({ where }: { where: { id: string } }) => {
+        const padrao = {
+          id: 'v1',
+          apelido: 'Moto do almoxarifado',
+          tipo: 'MOTO',
+          ativo: true,
+          responsavelId: opts.responsavelId ?? 'f1',
+        };
+        return opts.veiculos?.[where.id] ?? (where.id === 'v1' ? padrao : null);
+      }),
+      findMany: jest.fn(async () => [
+        { id: 'm1', apelido: 'Retroescavadeira', tipo: 'MAQUINA', placa: null },
+      ]),
     },
     abastecimento: {
-      aggregate: jest.fn(async () => ({ _max: { km: opts.ultimoKm ?? null } })),
+      groupBy: jest.fn(async () =>
+        g?.litrosPagos
+          ? [{ veiculoId: 'g1', _sum: { valor: g.pago ?? 0, litros: g.litrosPagos } }]
+          : [],
+      ),
+      aggregate: jest.fn(async ({ where }: { where: Record<string, unknown> }) => ({
+        _max: { km: opts.ultimoKm ?? null, horimetro: opts.ultimoHorimetro ?? null },
+        // O estoque pergunta três vezes: o que entrou, o que entrou já
+        // conferido, e o que saiu para as máquinas.
+        _sum: where.galaoId
+          ? { litros: g?.saiu ?? 0 }
+          : where.valor
+            ? { litros: g?.litrosPagos ?? 0, valor: g?.pago ?? 0 }
+            : { litros: g?.entrou ?? 0 },
+      })),
       findUnique: jest.fn(async () => ({ id: 'a1' })),
       create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
         id: 'a1',
@@ -158,6 +190,158 @@ describe('a conferência', () => {
   });
 });
 
+/**
+ * O galão de 200 litros: a máquina não vai ao posto, o galão é que vai.
+ *
+ * São dois lançamentos bem diferentes com a mesma cara. **Encher o galão** é
+ * uma compra: tem nota, tem foto, e o valor sai na conferência. **Pôr na
+ * máquina** é uma saída: tem litros e horímetro, não tem nota nenhuma, e o que
+ * ela custou vem do preço do litro que está dentro do galão.
+ */
+describe('o galão de combustível', () => {
+  const GALAO = {
+    id: 'g1',
+    apelido: 'Galão do S10',
+    tipo: 'GALAO',
+    ativo: true,
+    responsavelId: 'f1',
+  };
+  const MAQUINA = {
+    id: 'm1',
+    apelido: 'Retroescavadeira',
+    tipo: 'MAQUINA',
+    ativo: true,
+    responsavelId: 'outro',
+  };
+
+  function comGalao(extra: Record<string, unknown> = {}) {
+    return montar({
+      veiculos: { g1: GALAO, m1: MAQUINA },
+      ...extra,
+    });
+  }
+
+  it('encher no posto grava os litros e a foto, e não pede km', async () => {
+    const { service, prisma } = comGalao();
+
+    await service.lancarPeloPortal(CPF, { veiculoId: 'g1', litros: 200, foto: FOTO });
+
+    expect(prisma.abastecimento.create.mock.calls[0][0].data).toMatchObject({
+      veiculoId: 'g1',
+      litros: 200,
+      km: null,
+      horimetro: null,
+      foto: { create: { foto: FOTO } },
+    });
+  });
+
+  it('galão sem litros não entra: é o estoque que se está lançando', async () => {
+    const { service } = comGalao();
+
+    await expect(
+      service.lancarPeloPortal(CPF, { veiculoId: 'g1', foto: FOTO }),
+    ).rejects.toThrow(/quantos litros/);
+  });
+
+  it('o que sai do galão vai para a máquina com horímetro, e sem foto', async () => {
+    const { service, prisma } = comGalao({ galao: { entrou: 200, litrosPagos: 200, pago: 1200 } });
+
+    const r = await service.lancarPeloPortal(CPF, {
+      veiculoId: 'm1',
+      galaoId: 'g1',
+      litros: 50,
+      horimetro: 1320,
+    });
+
+    const dados = prisma.abastecimento.create.mock.calls[0][0].data;
+    expect(dados).toMatchObject({
+      veiculoId: 'm1',
+      galaoId: 'g1',
+      litros: 50,
+      horimetro: 1320,
+      km: null,
+    });
+    expect(dados).not.toHaveProperty('foto');
+    // 1200 por 200 litros dá 6 o litro: 50 litros são 300 reais de máquina.
+    expect(r).toMatchObject({ valor: 300, litros: 50, horimetro: 1320 });
+  });
+
+  it('não sai mais litro do que há dentro', async () => {
+    const { service } = comGalao({ galao: { entrou: 200, litrosPagos: 200, pago: 1200, saiu: 180 } });
+
+    await expect(
+      service.lancarPeloPortal(CPF, {
+        veiculoId: 'm1',
+        galaoId: 'g1',
+        litros: 50,
+        horimetro: 1320,
+      }),
+    ).rejects.toThrow(/há 20 L/);
+  });
+
+  it('a máquina cobra o horímetro, e não o km', async () => {
+    const { service } = comGalao({ galao: { entrou: 200, litrosPagos: 200, pago: 1200 } });
+
+    await expect(
+      service.lancarPeloPortal(CPF, { veiculoId: 'm1', galaoId: 'g1', litros: 50, km: 1320 }),
+    ).rejects.toThrow(/horímetro/);
+  });
+
+  it('o horímetro não anda para trás', async () => {
+    const { service } = comGalao({
+      galao: { entrou: 200, litrosPagos: 200, pago: 1200 },
+      ultimoHorimetro: 1400,
+    });
+
+    await expect(
+      service.lancarPeloPortal(CPF, {
+        veiculoId: 'm1',
+        galaoId: 'g1',
+        litros: 50,
+        horimetro: 1320,
+      }),
+    ).rejects.toThrow(/1.400 horas/);
+  });
+
+  it('o galão não abastece a si mesmo', async () => {
+    const { service } = comGalao({ galao: { entrou: 200, litrosPagos: 200, pago: 1200 } });
+
+    await expect(
+      service.lancarPeloPortal(CPF, { veiculoId: 'g1', galaoId: 'g1', litros: 50 }),
+    ).rejects.toThrow(/a si mesmo/);
+  });
+
+  it('só tira do galão quem o tem no nome', async () => {
+    const { service } = montar({
+      veiculos: { g1: { ...GALAO, responsavelId: 'outro' }, m1: MAQUINA },
+      galao: { entrou: 200, litrosPagos: 200, pago: 1200 },
+    });
+
+    await expect(
+      service.lancarPeloPortal(CPF, {
+        veiculoId: 'm1',
+        galaoId: 'g1',
+        litros: 50,
+        horimetro: 1320,
+      }),
+    ).rejects.toThrow(/não está com você/);
+  });
+
+  it('o estoque é o que entrou menos o que saiu, ao preço das notas conferidas', async () => {
+    const { service } = comGalao({
+      galao: { entrou: 200, litrosPagos: 150, pago: 900, saiu: 50 },
+    });
+
+    // 900 por 150 litros dá 6 o litro; sobraram 150 dentro.
+    expect(await service.estoqueDoGalao('g1')).toEqual({
+      litros: 150,
+      precoPorLitro: 6,
+      valor: 900,
+      litrosSemValor: 50,
+    });
+  });
+});
+
 describe('resumirCombustivel', () => {
   it('custo por km sem o combustível do primeiro abastecimento', () => {
     const r = resumirCombustivel([
@@ -165,13 +349,36 @@ describe('resumirCombustivel', () => {
       { valor: 40, km: 1200 },
       { valor: 20, km: 1400 },
     ]);
-    expect(r).toEqual({
+    expect(r).toMatchObject({
       total: 110,
       quantidade: 3,
       aConferir: 0,
       ultimoKm: 1400,
       kmRodados: 400,
       custoPorKm: 0.15,
+      horasTrabalhadas: null,
+      custoPorHora: null,
+    });
+  });
+
+  it('na máquina a conta é por hora de horímetro', () => {
+    const r = resumirCombustivel(
+      [
+        { valor: 300, horimetro: 1000, litros: 50 },
+        { valor: 300, horimetro: 1050, litros: 50 },
+        { valor: 300, horimetro: 1100, litros: 50 },
+      ],
+      'horimetro',
+    );
+    // 600 reais depois da primeira, em 100 horas: 6 reais a hora.
+    expect(r).toMatchObject({
+      total: 900,
+      litros: 150,
+      ultimoHorimetro: 1100,
+      horasTrabalhadas: 100,
+      custoPorHora: 6,
+      kmRodados: null,
+      custoPorKm: null,
     });
   });
 

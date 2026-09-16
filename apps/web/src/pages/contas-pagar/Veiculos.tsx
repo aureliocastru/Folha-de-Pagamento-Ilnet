@@ -18,16 +18,45 @@ import { api, mensagemErro } from '../../lib/api';
 import { formatBRL, formatData } from '../../lib/format';
 import { NovaDespesa } from './NovaDespesa';
 
-type TipoVeiculo = 'MOTO' | 'CARRO' | 'CAMINHONETE' | 'CAMINHAO' | 'MAQUINA' | 'OUTRO';
+type TipoVeiculo =
+  | 'MOTO'
+  | 'CARRO'
+  | 'CAMINHONETE'
+  | 'CAMINHAO'
+  | 'MAQUINA'
+  | 'GALAO'
+  | 'OUTRO';
 
 const TIPOS: Array<{ valor: TipoVeiculo; rotulo: string }> = [
   { valor: 'MOTO', rotulo: 'Moto' },
   { valor: 'CARRO', rotulo: 'Carro' },
   { valor: 'CAMINHONETE', rotulo: 'Caminhonete' },
   { valor: 'CAMINHAO', rotulo: 'Caminhão' },
-  { valor: 'MAQUINA', rotulo: 'Máquina' },
+  { valor: 'MAQUINA', rotulo: 'Máquina (horímetro)' },
+  { valor: 'GALAO', rotulo: 'Galão de combustível' },
   { valor: 'OUTRO', rotulo: 'Outro' },
 ];
+
+type Combustivel = 'DIESEL_S500' | 'DIESEL_S10' | 'GASOLINA' | 'ETANOL' | 'ARLA';
+
+const COMBUSTIVEIS: Array<{ valor: Combustivel; rotulo: string }> = [
+  { valor: 'DIESEL_S500', rotulo: 'Diesel S500' },
+  { valor: 'DIESEL_S10', rotulo: 'Diesel S10' },
+  { valor: 'GASOLINA', rotulo: 'Gasolina' },
+  { valor: 'ETANOL', rotulo: 'Etanol' },
+  { valor: 'ARLA', rotulo: 'Arla' },
+];
+
+const rotuloDoCombustivel = (c: Combustivel | null) =>
+  COMBUSTIVEIS.find((x) => x.valor === c)?.rotulo ?? null;
+
+/** O que há dentro de um galão, e por quanto saiu o litro. */
+interface EstoqueDoGalao {
+  litros: number;
+  precoPorLitro: number | null;
+  valor: number | null;
+  litrosSemValor: number;
+}
 
 const rotuloDoTipo = (t: TipoVeiculo) => TIPOS.find((x) => x.valor === t)?.rotulo ?? t;
 
@@ -48,14 +77,25 @@ interface VeiculoNaLista {
   combustivel: number;
   abastecimentos: number;
   abastecimentosAConferir: number;
+  /** O que ele põe no tanque; no galão, o que ele carrega. */
+  tipoCombustivel: Combustivel | null;
+  capacidadeLitros: number | null;
+  /** Só os galões têm. */
+  estoque: EstoqueDoGalao | null;
   ultimoKm: number | null;
+  ultimoHorimetro: number | null;
 }
 
 interface Abastecimento {
   id: string;
   /** Null = na conferência: o valor da nota ainda não foi posto. */
   valor: number | null;
-  km: number;
+  km: number | null;
+  /** As horas do horímetro, nas máquinas. */
+  horimetro: number | null;
+  litros: number | null;
+  /** De qual galão saíram estes litros. Null = veio do posto, com nota. */
+  galao: { id: string; apelido: string } | null;
   data: string;
   lancadoPor: string;
   temFoto: boolean;
@@ -83,17 +123,58 @@ interface Ficha {
     total: number;
     quantidade: number;
     aConferir: number;
+    litros: number;
     ultimoKm: number | null;
     kmRodados: number | null;
     custoPorKm: number | null;
+    ultimoHorimetro: number | null;
+    horasTrabalhadas: number | null;
+    custoPorHora: number | null;
   };
   abastecimentos: Abastecimento[];
 }
 
 const km = (n: number) => `${n.toLocaleString('pt-BR')} km`;
+const horas = (n: number) => `${n.toLocaleString('pt-BR')} h`;
+
+/**
+ * O que se sabe deste lançamento: os litros, o km, as horas — o que houver.
+ *
+ * Nem todo abastecimento tem as três coisas: o galão não tem painel, a máquina
+ * conta horas e o carro conta km. Escrever só o que existe é o que faz a linha
+ * do galão não dizer "0 km".
+ */
+function medida(a: Pick<Abastecimento, 'km' | 'horimetro' | 'litros'>): string {
+  return (
+    [
+      a.litros != null ? litros(a.litros) : null,
+      a.km != null ? km(a.km) : null,
+      a.horimetro != null ? horas(a.horimetro) : null,
+    ]
+      .filter(Boolean)
+      .join(' · ') || '—'
+  );
+}
+const litros = (n: number) =>
+  `${n.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} L`;
 
 /** "Honda CG 160 · 2022 · ABC1D23" — o que distingue duas motos iguais. */
-function identificacao(v: Pick<VeiculoNaLista, 'tipo' | 'modelo' | 'ano' | 'placa'>): string {
+function identificacao(
+  v: Pick<
+    VeiculoNaLista,
+    'tipo' | 'modelo' | 'ano' | 'placa' | 'tipoCombustivel' | 'capacidadeLitros'
+  >,
+): string {
+  // No galão a placa não existe: o que o distingue é o que ele carrega.
+  if (v.tipo === 'GALAO') {
+    return [
+      'Galão',
+      rotuloDoCombustivel(v.tipoCombustivel),
+      v.capacidadeLitros ? `${v.capacidadeLitros} L` : null,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+  }
   return [rotuloDoTipo(v.tipo), v.modelo, v.ano, v.placa].filter(Boolean).join(' · ');
 }
 
@@ -223,11 +304,31 @@ export function Veiculos() {
                       </span>
                     </td>
                     <td className="td whitespace-nowrap text-right">
-                      <span className="valor">{formatBRL(v.combustivel)}</span>
-                      <span className="block text-xs text-tinta-400">
-                        {v.abastecimentos} abastecimento(s)
-                        {v.ultimoKm != null && ` · ${km(v.ultimoKm)}`}
-                      </span>
+                      {/* No galão o número que importa não é o gasto, é o que
+                          ainda está lá dentro: o gasto acontece quando o
+                          combustível entra na máquina. */}
+                      {v.estoque ? (
+                        <>
+                          <span className="valor">{litros(v.estoque.litros)}</span>
+                          <span className="block text-xs text-tinta-400">
+                            no galão
+                            {v.estoque.precoPorLitro != null &&
+                              ` · ${formatBRL(v.estoque.precoPorLitro)} o litro`}
+                          </span>
+                          <span className="block text-xs text-tinta-400">
+                            {formatBRL(v.combustivel)} comprados
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="valor">{formatBRL(v.combustivel)}</span>
+                          <span className="block text-xs text-tinta-400">
+                            {v.abastecimentos} abastecimento(s)
+                            {v.ultimoKm != null && ` · ${km(v.ultimoKm)}`}
+                            {v.ultimoHorimetro != null && ` · ${horas(v.ultimoHorimetro)}`}
+                          </span>
+                        </>
+                      )}
                       {v.abastecimentosAConferir > 0 && (
                         <span className="block text-xs font-semibold text-amber-600 dark:text-amber-300">
                           {v.abastecimentosAConferir} a conferir
@@ -302,7 +403,7 @@ function LinhaAConferir({
             <span className="ml-1.5 text-xs font-normal text-tinta-400">{a.veiculo.placa}</span>
           )}
         </button>
-        <span className="block text-sm text-tinta-700">{km(a.km)}</span>
+        <span className="block text-sm text-tinta-700">{medida(a)}</span>
         <span className="block text-[11px] text-tinta-400">
           {dataEHora(a.data)} · {a.lancadoPor}
         </span>
@@ -373,17 +474,25 @@ function LancarAbastecimento({
   onFechar: () => void;
 }) {
   const qc = useQueryClient();
-  const [kmDigitado, setKmDigitado] = useState('');
+  const [medidorDigitado, setMedidorDigitado] = useState('');
+  const [litrosDigitados, setLitrosDigitados] = useState('');
   const [foto, setFoto] = useState<string | null>(null);
   const [valor, setValor] = useState('');
 
-  const kmNumero = kmDigitado ? Number(kmDigitado) : null;
-  const kmAtras = veiculo.ultimoKm != null && kmNumero != null && kmNumero < veiculo.ultimoKm;
+  // O galão não tem painel; a máquina conta horas; o resto conta km.
+  const ehGalao = veiculo.tipo === 'GALAO';
+  const ehMaquina = veiculo.tipo === 'MAQUINA';
+  const anterior = ehMaquina ? veiculo.ultimoHorimetro : veiculo.ultimoKm;
+
+  const medidorNumero = medidorDigitado ? Number(medidorDigitado) : null;
+  const medidorAtras = anterior != null && medidorNumero != null && medidorNumero < anterior;
+  const litrosNumero = litrosDigitados ? Number(litrosDigitados.replace(',', '.')) : null;
 
   const lancar = useMutation({
     mutationFn: async () => {
       await api.post(`/veiculos/${veiculo.id}/abastecimentos`, {
-        km: kmNumero,
+        ...(ehGalao ? {} : ehMaquina ? { horimetro: medidorNumero } : { km: medidorNumero }),
+        ...(litrosNumero ? { litros: litrosNumero } : {}),
         foto,
         valor: Number(valor) > 0 ? Number(valor) : undefined,
       });
@@ -394,29 +503,62 @@ function LancarAbastecimento({
     },
   });
 
-  const valido = kmNumero != null && !kmAtras && !!foto;
+  const valido =
+    (ehGalao || (medidorNumero != null && !medidorAtras)) &&
+    (!ehGalao || (litrosNumero != null && litrosNumero > 0)) &&
+    !!foto;
 
   return (
     <Janela titulo={`Abastecimento — ${veiculo.apelido}`} onFechar={onFechar}>
       <div className="grid gap-4 sm:grid-cols-2">
+        {!ehGalao && (
+          <div>
+            <label className="rotulo" htmlFor="abast-km-sistema">
+              {ehMaquina ? 'Horímetro da máquina' : 'Km do painel'}
+            </label>
+            <input
+              id="abast-km-sistema"
+              value={medidorDigitado}
+              onChange={(e) => setMedidorDigitado(e.target.value.replace(/\D/g, '').slice(0, 7))}
+              inputMode="numeric"
+              autoComplete="off"
+              autoFocus
+              placeholder={anterior != null ? `último: ${anterior}` : 'só os números'}
+              className="campo num"
+            />
+            {medidorAtras && anterior != null && (
+              <p className="mt-1 text-xs font-semibold text-rose-600">
+                O último abastecimento foi com {ehMaquina ? horas(anterior) : km(anterior)}.
+                Confira o painel.
+              </p>
+            )}
+          </div>
+        )}
+
         <div>
-          <label className="rotulo" htmlFor="abast-km-sistema">
-            Km do painel
+          <label className="rotulo" htmlFor="abast-litros-sistema">
+            Litros
           </label>
           <input
-            id="abast-km-sistema"
-            value={kmDigitado}
-            onChange={(e) => setKmDigitado(e.target.value.replace(/\D/g, '').slice(0, 7))}
-            inputMode="numeric"
+            id="abast-litros-sistema"
+            value={litrosDigitados}
+            onChange={(e) =>
+              setLitrosDigitados(e.target.value.replace(/[^\d,.]/g, '').replace('.', ',').slice(0, 7))
+            }
+            inputMode="decimal"
             autoComplete="off"
-            autoFocus
-            placeholder={veiculo.ultimoKm != null ? `último: ${veiculo.ultimoKm}` : 'só os números'}
+            autoFocus={ehGalao}
+            placeholder={
+              ehGalao
+                ? veiculo.capacidadeLitros
+                  ? `cabe ${veiculo.capacidadeLitros} L`
+                  : 'quantos litros'
+                : 'opcional'
+            }
             className="campo num"
           />
-          {kmAtras && veiculo.ultimoKm != null && (
-            <p className="mt-1 text-xs font-semibold text-rose-600">
-              O último abastecimento foi com {km(veiculo.ultimoKm)}. Confira o painel.
-            </p>
+          {ehGalao && (
+            <p className="ajuda">É o estoque do galão: sem isto não há de onde tirar.</p>
           )}
         </div>
         <div>
@@ -538,21 +680,52 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
                 {d.veiculo.emAberto > 0 && ` · ${formatBRL(d.veiculo.emAberto)} ainda em aberto`}
               </p>
             </div>
-            <div className="rounded-2xl bg-tinta-50 p-4">
-              <p className="eyebrow">Combustível</p>
-              <p className="valor mt-1 text-2xl">{formatBRL(d.combustivel.total)}</p>
-              <p className="mt-0.5 text-xs text-tinta-500">
-                {d.combustivel.quantidade} abastecimento(s)
-                {d.combustivel.ultimoKm != null && ` · último com ${km(d.combustivel.ultimoKm)}`}
-                {d.combustivel.custoPorKm != null &&
-                  ` · ${formatBRL(d.combustivel.custoPorKm)} por km`}
-              </p>
-              {d.combustivel.aConferir > 0 && (
-                <p className="mt-1 text-xs font-semibold text-amber-600 dark:text-amber-300">
-                  {d.combustivel.aConferir} na conferência, fora do total
+            {/*
+             * No galão a pergunta é outra: não é quanto ele gastou, é quanto
+             * ainda há dentro dele e por quanto saiu o litro — o gasto só
+             * acontece quando o combustível entra numa máquina.
+             */}
+            {d.veiculo.estoque ? (
+              <div className="rounded-2xl bg-tinta-50 p-4">
+                <p className="eyebrow">No galão</p>
+                <p className="valor mt-1 text-2xl">{litros(d.veiculo.estoque.litros)}</p>
+                <p className="mt-0.5 text-xs text-tinta-500">
+                  {d.veiculo.estoque.precoPorLitro != null
+                    ? `${formatBRL(d.veiculo.estoque.precoPorLitro)} o litro · ${formatBRL(d.veiculo.estoque.valor ?? 0)} parados aí`
+                    : 'sem nota conferida ainda: o preço do litro não dá para saber'}
                 </p>
-              )}
-            </div>
+                <p className="mt-0.5 text-xs text-tinta-500">
+                  {formatBRL(d.combustivel.total)} comprados em{' '}
+                  {d.combustivel.quantidade} ida(s) ao posto
+                </p>
+                {d.veiculo.estoque.litrosSemValor > 0 && (
+                  <p className="mt-1 text-xs font-semibold text-amber-600 dark:text-amber-300">
+                    {litros(d.veiculo.estoque.litrosSemValor)} com a nota na conferência
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="rounded-2xl bg-tinta-50 p-4">
+                <p className="eyebrow">Combustível</p>
+                <p className="valor mt-1 text-2xl">{formatBRL(d.combustivel.total)}</p>
+                <p className="mt-0.5 text-xs text-tinta-500">
+                  {d.combustivel.quantidade} abastecimento(s)
+                  {d.combustivel.litros > 0 && ` · ${litros(d.combustivel.litros)}`}
+                  {d.combustivel.ultimoKm != null && ` · último com ${km(d.combustivel.ultimoKm)}`}
+                  {d.combustivel.ultimoHorimetro != null &&
+                    ` · último com ${horas(d.combustivel.ultimoHorimetro)}`}
+                  {d.combustivel.custoPorKm != null &&
+                    ` · ${formatBRL(d.combustivel.custoPorKm)} por km`}
+                  {d.combustivel.custoPorHora != null &&
+                    ` · ${formatBRL(d.combustivel.custoPorHora)} por hora`}
+                </p>
+                {d.combustivel.aConferir > 0 && (
+                  <p className="mt-1 text-xs font-semibold text-amber-600 dark:text-amber-300">
+                    {d.combustivel.aConferir} na conferência, fora do total
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
           {d.porCategoria.length > 0 && (
@@ -631,7 +804,7 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
                 <li key={a.id} className="flex flex-wrap items-start justify-between gap-3 px-3 py-2.5">
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm text-tinta-800">
-                      {km(a.km)} ·{' '}
+                      {medida(a)} ·{' '}
                       {a.valor != null ? (
                         <span className="valor">{formatBRL(a.valor)}</span>
                       ) : (
@@ -652,7 +825,7 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
                     <button
                       type="button"
                       onClick={() => {
-                        if (confirm(`Apagar o abastecimento com ${km(a.km)}?`)) {
+                        if (confirm(`Apagar o abastecimento de ${medida(a)}?`)) {
                           apagarAbastecimento.mutate(a.id);
                         }
                       }}
@@ -691,6 +864,12 @@ function FormularioDoVeiculo({
   const [placa, setPlaca] = useState(veiculo?.placa ?? '');
   const [modelo, setModelo] = useState(veiculo?.modelo ?? '');
   const [ano, setAno] = useState(veiculo?.ano ? String(veiculo.ano) : '');
+  const [combustivel, setCombustivel] = useState<Combustivel | ''>(
+    veiculo?.tipoCombustivel ?? '',
+  );
+  const [capacidade, setCapacidade] = useState(
+    veiculo?.capacidadeLitros ? String(veiculo.capacidadeLitros) : '',
+  );
   const [responsavelId, setResponsavelId] = useState(veiculo?.responsavel?.id ?? '');
   const [observacao, setObservacao] = useState(veiculo?.observacao ?? '');
 
@@ -716,6 +895,12 @@ function FormularioDoVeiculo({
         placa: placa.trim() || (veiculo ? null : undefined),
         modelo: modelo.trim() || (veiculo ? null : undefined),
         ano: ano ? Number(ano) : veiculo ? null : undefined,
+        combustivel: combustivel || (veiculo ? null : undefined),
+        capacidadeLitros: capacidade
+          ? Number(capacidade)
+          : veiculo
+            ? null
+            : undefined,
         responsavelId: responsavelId || (veiculo ? null : undefined),
         observacao: observacao.trim() || (veiculo ? null : undefined),
       };
@@ -749,6 +934,7 @@ function FormularioDoVeiculo({
     },
   });
 
+  const ehGalao = tipo === 'GALAO';
   const valido = apelido.trim().length >= 2 && (!ano || /^\d{4}$/.test(ano));
   const erro = salvar.error ?? ligar.error ?? apagar.error;
 
@@ -786,18 +972,64 @@ function FormularioDoVeiculo({
             ))}
           </select>
         </div>
+        {/*
+         * O galão não tem placa nem modelo: o que ele tem é o que carrega e
+         * quanto cabe. São esses dois campos que ocupam o lugar.
+         */}
+        {ehGalao ? (
+          <div>
+            <label className="rotulo" htmlFor="vei-capacidade">
+              Cabem quantos litros
+            </label>
+            <input
+              id="vei-capacidade"
+              value={capacidade}
+              onChange={(e) => setCapacidade(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              className="campo num"
+              inputMode="numeric"
+              placeholder="200"
+              autoComplete="off"
+            />
+          </div>
+        ) : (
+          <div>
+            <label className="rotulo" htmlFor="vei-placa">
+              Placa
+            </label>
+            <input
+              id="vei-placa"
+              value={placa}
+              onChange={(e) => setPlaca(e.target.value.toUpperCase().slice(0, 8))}
+              className="campo num uppercase"
+              placeholder="opcional"
+              autoComplete="off"
+            />
+          </div>
+        )}
+
         <div>
-          <label className="rotulo" htmlFor="vei-placa">
-            Placa
+          <label className="rotulo" htmlFor="vei-combustivel">
+            {ehGalao ? 'O que ele carrega' : 'Combustível'}
           </label>
-          <input
-            id="vei-placa"
-            value={placa}
-            onChange={(e) => setPlaca(e.target.value.toUpperCase().slice(0, 8))}
-            className="campo num uppercase"
-            placeholder="opcional"
-            autoComplete="off"
-          />
+          <select
+            id="vei-combustivel"
+            value={combustivel}
+            onChange={(e) => setCombustivel(e.target.value as Combustivel | '')}
+            className="campo"
+          >
+            <option value="">{ehGalao ? 'Escolha…' : 'Não informado'}</option>
+            {COMBUSTIVEIS.map((c) => (
+              <option key={c.valor} value={c.valor}>
+                {c.rotulo}
+              </option>
+            ))}
+          </select>
+          {ehGalao && (
+            <p className="ajuda">
+              Um galão, um combustível: é dele que sai o preço do litro que a máquina
+              consome.
+            </p>
+          )}
         </div>
         <div>
           <label className="rotulo" htmlFor="vei-modelo">

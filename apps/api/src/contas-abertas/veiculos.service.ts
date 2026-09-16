@@ -4,11 +4,17 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { StatusContaPagar, type TipoVeiculo, type Veiculo } from '@prisma/client';
+import {
+  StatusContaPagar,
+  type Combustivel,
+  type TipoVeiculo,
+  type Veiculo,
+} from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   AbastecimentosService,
   type AbastecimentoNaTela,
+  type EstoqueDoGalao,
   type ResumoDoCombustivel,
 } from './abastecimentos.service';
 import { CategoriasService, type EtiquetaDoTitulo } from './categorias.service';
@@ -33,12 +39,26 @@ export interface VeiculoNaLista {
   quantidade: number;
   /** O vencimento do lançamento mais recente, "AAAA-MM-DD". */
   ultimoGasto: string | null;
-  /** O que se abasteceu nele — controle, fora das contas a pagar. */
+  /**
+   * O que se abasteceu nele — controle, fora das contas a pagar.
+   *
+   * Soma as idas ao posto e o que veio de um galão, cada litro pelo preço do
+   * galão de onde saiu. No galão, este número é o que ele **comprou**, e não o
+   * que gastou: o gasto acontece quando o combustível entra na máquina.
+   */
   combustivel: number;
   abastecimentos: number;
   /** Quantos esperam o administrador pôr o valor da nota. */
   abastecimentosAConferir: number;
+  /** O que ele põe no tanque, e o que o galão carrega. */
+  tipoCombustivel: Combustivel | null;
+  /** Quanto cabe no galão. */
+  capacidadeLitros: number | null;
+  /** Quantos litros ainda há dentro do galão, e por quanto saiu o litro. */
+  estoque: EstoqueDoGalao | null;
   ultimoKm: number | null;
+  /** O horímetro da última vez, nas máquinas. */
+  ultimoHorimetro: number | null;
 }
 
 /** Um gasto do veículo, como a ficha dele mostra. */
@@ -82,7 +102,7 @@ export class VeiculosService {
   ) {}
 
   async listar(incluirDesligados = true): Promise<VeiculoNaLista[]> {
-    const [veiculos, combustivel] = await Promise.all([
+    const [veiculos, compras, saidas, precos] = await Promise.all([
       this.prisma.veiculo.findMany({
         where: incluirDesligados ? undefined : { ativo: true },
         orderBy: [{ ativo: 'desc' }, { apelido: 'asc' }],
@@ -91,26 +111,88 @@ export class VeiculosService {
           responsavel: { select: RESPONSAVEL },
         },
       }),
+      // As idas ao posto: têm nota, e é a nota que vira dinheiro.
       this.prisma.abastecimento.groupBy({
         by: ['veiculoId'],
+        where: { galaoId: null },
         _sum: { valor: true },
         // `valor` conta só os que têm valor: a diferença é a fila da conferência.
         _count: { _all: true, valor: true },
-        _max: { km: true },
+        _max: { km: true, horimetro: true },
       }),
+      // O que veio de um galão: vale os litros pelo preço daquele galão.
+      this.prisma.abastecimento.groupBy({
+        by: ['veiculoId', 'galaoId'],
+        where: { galaoId: { not: null } },
+        _sum: { litros: true },
+        _count: { _all: true },
+        _max: { km: true, horimetro: true },
+      }),
+      this.abastecimentos.precosDosGaloes(),
     ]);
-    const porVeiculo = new Map(
-      combustivel.map((c) => [
+
+    const porVeiculo = new Map<
+      string,
+      {
+        total: number;
+        quantidade: number;
+        aConferir: number;
+        ultimoKm: number | null;
+        ultimoHorimetro: number | null;
+      }
+    >();
+    const juntar = (
+      id: string,
+      total: number,
+      quantidade: number,
+      aConferir: number,
+      km: number | null,
+      horimetro: number | null,
+    ) => {
+      const atual = porVeiculo.get(id);
+      porVeiculo.set(id, {
+        total: (atual?.total ?? 0) + total,
+        quantidade: (atual?.quantidade ?? 0) + quantidade,
+        aConferir: (atual?.aConferir ?? 0) + aConferir,
+        ultimoKm: maior(atual?.ultimoKm ?? null, km),
+        ultimoHorimetro: maior(atual?.ultimoHorimetro ?? null, horimetro),
+      });
+    };
+
+    for (const c of compras) {
+      juntar(
         c.veiculoId,
-        {
-          total: Number(c._sum.valor ?? 0),
-          quantidade: c._count._all,
-          aConferir: c._count._all - c._count.valor,
-          ultimoKm: c._max.km ?? null,
-        },
-      ]),
+        Number(c._sum.valor ?? 0),
+        c._count._all,
+        c._count._all - c._count.valor,
+        c._max.km ?? null,
+        c._max.horimetro ?? null,
+      );
+    }
+    for (const s of saidas) {
+      const preco = s.galaoId ? precos.get(s.galaoId) : undefined;
+      const litros = Number(s._sum.litros ?? 0);
+      juntar(
+        s.veiculoId,
+        preco == null ? 0 : litros * preco,
+        s._count._all,
+        // A saída não espera conferência nenhuma: o preço dela já existe.
+        0,
+        s._max.km ?? null,
+        s._max.horimetro ?? null,
+      );
+    }
+
+    // O estoque é pergunta de galão, e galão a casa tem dois ou três.
+    const estoques = new Map<string, EstoqueDoGalao>();
+    for (const v of veiculos) {
+      if (v.tipo !== 'GALAO') continue;
+      estoques.set(v.id, await this.abastecimentos.estoqueDoGalao(v.id));
+    }
+
+    return veiculos.map((v) =>
+      resumir(v, v.contas, porVeiculo.get(v.id), estoques.get(v.id) ?? null),
     );
-    return veiculos.map((v) => resumir(v, v.contas, porVeiculo.get(v.id)));
   }
 
   /**
@@ -305,14 +387,20 @@ export function resumir(
   v: Pick<
     Veiculo,
     'id' | 'apelido' | 'tipo' | 'placa' | 'modelo' | 'ano' | 'observacao' | 'ativo'
-  > & { responsavel?: { id: string; nome: string; apelido: string | null } | null },
+  > & {
+    combustivel?: Combustivel | null;
+    capacidadeLitros?: number | null;
+    responsavel?: { id: string; nome: string; apelido: string | null } | null;
+  },
   contas: ContaResumida[],
   combustivel?: {
     total: number;
     quantidade: number;
     aConferir?: number;
     ultimoKm: number | null;
+    ultimoHorimetro?: number | null;
   },
+  estoque: EstoqueDoGalao | null = null,
 ): VeiculoNaLista {
   let gasto = 0;
   let emAberto = 0;
@@ -346,8 +434,19 @@ export function resumir(
     combustivel: centavos(combustivel?.total ?? 0),
     abastecimentos: combustivel?.quantidade ?? 0,
     abastecimentosAConferir: combustivel?.aConferir ?? 0,
+    tipoCombustivel: v.combustivel ?? null,
+    capacidadeLitros: v.capacidadeLitros ?? null,
+    estoque,
     ultimoKm: combustivel?.ultimoKm ?? null,
+    ultimoHorimetro: combustivel?.ultimoHorimetro ?? null,
   };
+}
+
+/** O maior dos dois medidores, ignorando o que não veio. */
+function maior(a: number | null, b: number | null): number | null {
+  if (a == null) return b;
+  if (b == null) return a;
+  return Math.max(a, b);
 }
 
 /** "abc-1d23" → "ABC1D23": a placa se compara e se procura sem traço. */

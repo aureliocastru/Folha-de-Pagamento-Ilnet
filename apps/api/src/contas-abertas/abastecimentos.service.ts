@@ -5,7 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import type { TipoVeiculo } from '@prisma/client';
+import type { Combustivel, TipoVeiculo } from '@prisma/client';
 import { conferirArquivo, lerDataUrl } from '../arquivos/data-url';
 import { somenteDigitos } from '../pontuacao/cpf';
 import { PrismaService } from '../prisma/prisma.service';
@@ -23,9 +23,21 @@ const ULTIMOS_NO_PORTAL = 5;
 /** Um abastecimento, como as telas o mostram. A foto se pede à parte. */
 export interface AbastecimentoNaTela {
   id: string;
-  /** Null = ainda na conferência: o administrador não pôs o valor da nota. */
+  /**
+   * Null = ainda na conferência: o administrador não pôs o valor da nota.
+   *
+   * Na saída de um galão o valor não vem da nota, e sim do preço do litro que
+   * está lá dentro — por isso ele chega preenchido mesmo sem conferência
+   * nenhuma.
+   */
   valor: number | null;
-  km: number;
+  km: number | null;
+  /** O horímetro da máquina, quando é uma. */
+  horimetro: number | null;
+  /** Quantos litros entraram. */
+  litros: number | null;
+  /** De qual galão saiu. Null = veio do posto, com nota. */
+  galao: { id: string; apelido: string } | null;
   /** ISO */
   data: string;
   lancadoPor: string;
@@ -38,6 +50,26 @@ export interface AbastecimentoAConferir extends AbastecimentoNaTela {
   veiculo: { id: string; apelido: string; placa: string | null };
 }
 
+/** O que o portal precisa saber para lançar — a ida ao posto ou a saída do galão. */
+export interface DadosDoLancamento {
+  veiculoId: string;
+  km?: number | null;
+  horimetro?: number | null;
+  litros?: number | null;
+  /** Preenchido, estes litros saem deste galão e não do posto. */
+  galaoId?: string | null;
+  /** A foto da nota. Obrigatória na ida ao posto; a saída do galão não tem. */
+  foto?: string;
+}
+
+/** O que o portal e a Minha área mostram a quem abastece. */
+export interface RespostaDoPortal {
+  nome: string;
+  veiculos: VeiculoDoPortal[];
+  /** Para onde os litros do galão podem ir. Vazio para quem não tem galão. */
+  destinos: DestinoDoGalao[];
+}
+
 /** O veículo como o portal o mostra a quem o abastece. */
 export interface VeiculoDoPortal {
   id: string;
@@ -45,9 +77,39 @@ export interface VeiculoDoPortal {
   tipo: TipoVeiculo;
   placa: string | null;
   modelo: string | null;
+  combustivel: Combustivel | null;
+  /** Quanto cabe, em litros. Só o galão tem. */
+  capacidadeLitros: number | null;
   /** O km do último abastecimento — o menor que o próximo pode ter. */
   ultimoKm: number | null;
+  /** O horímetro do último abastecimento, para as máquinas. */
+  ultimoHorimetro: number | null;
+  /** Quantos litros ainda há dentro do galão, e por quanto saiu o litro. */
+  estoque: EstoqueDoGalao | null;
   ultimos: AbastecimentoNaTela[];
+}
+
+/** O que há dentro de um galão, e quanto custou. */
+export interface EstoqueDoGalao {
+  /** Litros que entraram menos os que saíram. */
+  litros: number;
+  /** A média do que se pagou pelo litro nas compras já conferidas. */
+  precoPorLitro: number | null;
+  /** O que está parado ali dentro, em dinheiro. */
+  valor: number | null;
+  /** Litros comprados cuja nota ainda não foi conferida. */
+  litrosSemValor: number;
+}
+
+/** Para onde os litros de um galão podem ir: a frota inteira que está ligada. */
+export interface DestinoDoGalao {
+  id: string;
+  apelido: string;
+  tipo: TipoVeiculo;
+  placa: string | null;
+  /** O último medidor lançado — o menor que o próximo pode ter. */
+  ultimoKm: number | null;
+  ultimoHorimetro: number | null;
 }
 
 /** O combustível de um veículo, somado para a ficha. */
@@ -57,7 +119,15 @@ export interface ResumoDoCombustivel {
   quantidade: number;
   /** Quantos esperam o administrador pôr o valor. */
   aConferir: number;
+  /** Quantos litros entraram neste veículo, do posto ou do galão. */
+  litros: number;
   ultimoKm: number | null;
+  /** O horímetro da última vez, nas máquinas. */
+  ultimoHorimetro: number | null;
+  /** As horas trabalhadas entre o primeiro e o último abastecimento. */
+  horasTrabalhadas: number | null;
+  /** Quanto custou cada hora de máquina. */
+  custoPorHora: number | null;
   /** Do primeiro ao último abastecimento. */
   kmRodados: number | null;
   /**
@@ -72,7 +142,11 @@ export interface ResumoDoCombustivel {
 type AbastecimentoCru = {
   id: string;
   valor: { toString(): string } | number | null;
-  km: number;
+  km: number | null;
+  horimetro: number | null;
+  litros: { toString(): string } | number | null;
+  galaoId?: string | null;
+  galao?: { id: string; apelido: string } | null;
   data: Date;
   lancadoPor: string;
   conferidoPor: string | null;
@@ -98,14 +172,14 @@ export class AbastecimentosService {
   // --- O portal ---
 
   /** Os veículos deste CPF, com o último km e os abastecimentos recentes. */
-  async doPortal(cpf: string): Promise<{ nome: string; veiculos: VeiculoDoPortal[] }> {
+  async doPortal(cpf: string): Promise<RespostaDoPortal> {
     return this.doResponsavel(await this.funcionarioPeloCpf(cpf));
   }
 
   /** O abastecimento que o responsável fez agora, pelo portal do CPF. */
   async lancarPeloPortal(
     cpf: string,
-    dados: { veiculoId: string; km: number; foto: string },
+    dados: DadosDoLancamento,
   ): Promise<AbastecimentoNaTela> {
     return this.lancarPeloResponsavel(await this.funcionarioPeloCpf(cpf), dados);
   }
@@ -117,7 +191,7 @@ export class AbastecimentosService {
    * do portal; muda só como se sabe quem é a pessoa — lá pelo CPF, aqui pelo
    * vínculo do login.
    */
-  async doColaborador(funcionarioId: string): Promise<{ nome: string; veiculos: VeiculoDoPortal[] }> {
+  async doColaborador(funcionarioId: string): Promise<RespostaDoPortal> {
     return this.doResponsavel(await this.colaboradorAtivo(funcionarioId));
   }
 
@@ -125,7 +199,7 @@ export class AbastecimentosService {
   async lancarPeloColaborador(
     funcionarioId: string,
     usuarioId: string,
-    dados: { veiculoId: string; km: number; foto: string },
+    dados: DadosDoLancamento,
   ): Promise<AbastecimentoNaTela> {
     return this.lancarPeloResponsavel(await this.colaboradorAtivo(funcionarioId), dados, usuarioId);
   }
@@ -139,7 +213,7 @@ export class AbastecimentosService {
     id: string;
     nome: string;
     apelido: string | null;
-  }): Promise<{ nome: string; veiculos: VeiculoDoPortal[] }> {
+  }): Promise<RespostaDoPortal> {
     const veiculos = await this.prisma.veiculo.findMany({
       where: { responsavelId: funcionario.id, ativo: true },
       orderBy: { apelido: 'asc' },
@@ -147,61 +221,186 @@ export class AbastecimentosService {
         abastecimentos: {
           orderBy: [{ data: 'desc' }, { createdAt: 'desc' }],
           take: ULTIMOS_NO_PORTAL,
-          include: { foto: { select: { id: true } } },
+          include: {
+            foto: { select: { id: true } },
+            galao: { select: { id: true, apelido: true } },
+          },
         },
       },
     });
-    return {
-      nome: funcionario.apelido || funcionario.nome,
-      veiculos: await Promise.all(
-        veiculos.map(async (v) => ({
-          id: v.id,
-          apelido: v.apelido,
-          tipo: v.tipo,
-          placa: v.placa,
-          modelo: v.modelo,
-          ultimoKm: await this.ultimoKm(v.id),
-          ultimos: v.abastecimentos.map(naTela),
-        })),
-      ),
-    };
+
+    const noPortal = await Promise.all(
+      veiculos.map(async (v) => ({
+        id: v.id,
+        apelido: v.apelido,
+        tipo: v.tipo,
+        placa: v.placa,
+        modelo: v.modelo,
+        combustivel: v.combustivel,
+        capacidadeLitros: v.capacidadeLitros,
+        ultimoKm: await this.ultimoMedidor(v.id, 'km'),
+        ultimoHorimetro: await this.ultimoMedidor(v.id, 'horimetro'),
+        estoque: v.tipo === 'GALAO' ? await this.estoqueDoGalao(v.id) : null,
+        ultimos: v.abastecimentos.map(naTela),
+      })),
+    );
+
+    /*
+     * Quem tem galão no nome precisa da frota inteira à mão.
+     *
+     * O galão não abastece a si mesmo: ele enche no posto e depois despeja na
+     * máquina que estiver precisando — e a máquina quase nunca está no nome de
+     * quem carrega o galão. Sem esta lista, o combustível entraria e nunca
+     * teria como sair.
+     */
+    const destinos = noPortal.some((v) => v.tipo === 'GALAO')
+      ? await this.destinosPossiveis()
+      : [];
+
+    return { nome: funcionario.apelido || funcionario.nome, veiculos: noPortal, destinos };
+  }
+
+  /** A frota ligada, tirando os galões: é onde o combustível de fato acaba. */
+  private async destinosPossiveis(): Promise<DestinoDoGalao[]> {
+    const lista = await this.prisma.veiculo.findMany({
+      where: { ativo: true, tipo: { not: 'GALAO' } },
+      orderBy: [{ tipo: 'asc' }, { apelido: 'asc' }],
+      select: { id: true, apelido: true, tipo: true, placa: true },
+    });
+    return Promise.all(
+      lista.map(async (v) => ({
+        ...v,
+        ultimoKm: await this.ultimoMedidor(v.id, 'km'),
+        ultimoHorimetro: await this.ultimoMedidor(v.id, 'horimetro'),
+      })),
+    );
   }
 
   /**
-   * O abastecimento que o responsável fez agora: o km e a foto da nota. A data
-   * e a hora são as do servidor, e não as do celular — relógio de celular
-   * atrasado não muda a ordem dos abastecimentos.
+   * O que o responsável lançou agora. Dois caminhos, e o galão é quem separa.
+   *
+   * **Sem galão** é a ida ao posto: a nota, os litros e o medidor do que foi
+   * abastecido. O valor não se digita — sai da nota, na conferência.
+   *
+   * **Com galão** é o combustível saindo dele para uma máquina: litros e
+   * horímetro, e nada de nota — aquele dinheiro já saiu no dia em que o galão
+   * foi enchido, e cobrá-lo de novo contaria o mesmo diesel duas vezes.
+   *
+   * A data e a hora são as do servidor, e não as do celular — relógio de
+   * celular atrasado não muda a ordem dos abastecimentos.
    */
   private async lancarPeloResponsavel(
     funcionario: { id: string; nome: string; apelido: string | null },
-    dados: { veiculoId: string; km: number; foto: string },
+    dados: DadosDoLancamento,
     usuarioId?: string,
   ): Promise<AbastecimentoNaTela> {
-    conferirFoto(dados.foto);
-    const km = kmValido(dados.km);
+    const destino = await this.veiculoAtivo(dados.veiculoId);
+    const quem = funcionario.apelido || funcionario.nome;
 
-    const veiculo = await this.veiculoAtivo(dados.veiculoId);
-    if (veiculo.responsavelId !== funcionario.id) {
+    if (dados.galaoId) {
+      const galao = await this.veiculoAtivo(dados.galaoId);
+      if (galao.tipo !== 'GALAO') {
+        throw new BadRequestException(`${galao.apelido} não é um galão.`);
+      }
+      if (galao.responsavelId !== funcionario.id) {
+        throw new ForbiddenException(
+          'Este galão não está com você. Peça ao administrador para colocá-lo no seu nome.',
+        );
+      }
+      if (galao.id === destino.id) {
+        throw new BadRequestException('O galão não abastece a si mesmo.');
+      }
+
+      const litros = litrosValidos(dados.litros);
+      const estoque = await this.estoqueDoGalao(galao.id);
+      if (litros > estoque.litros + 0.001) {
+        throw new BadRequestException(
+          `No ${galao.apelido} há ${litrosEscritos(estoque.litros)} — não dá para tirar ${litrosEscritos(litros)}.`,
+        );
+      }
+
+      const medidor = await this.medidorDoDestino(destino, dados);
+      const criado = await this.prisma.abastecimento.create({
+        data: {
+          veiculoId: destino.id,
+          galaoId: galao.id,
+          litros,
+          ...medidor,
+          data: new Date(),
+          funcionarioId: funcionario.id,
+          usuarioId: usuarioId ?? null,
+          lancadoPor: quem,
+        },
+        include: {
+          foto: { select: { id: true } },
+          galao: { select: { id: true, apelido: true } },
+        },
+      });
+      this.logger.log(
+        `${funcionario.nome} pôs ${litrosEscritos(litros)} do ${galao.apelido} em ${destino.apelido}.`,
+      );
+      return this.valorizada(criado);
+    }
+
+    // A ida ao posto: só quem tem a coisa no nome é que a abastece.
+    if (destino.responsavelId !== funcionario.id) {
       throw new ForbiddenException(
         'Este veículo não está com você. Peça ao administrador para colocá-lo no seu nome.',
       );
     }
-    await this.conferirKm(veiculo, km);
+    const foto = conferirFoto(dados.foto);
+    // No galão os litros são o estoque: sem eles não há de onde tirar depois.
+    const litros =
+      destino.tipo === 'GALAO' ? litrosValidos(dados.litros) : litrosSeVierem(dados.litros);
+    const medidor = await this.medidorDoDestino(destino, dados);
 
     const criado = await this.prisma.abastecimento.create({
       data: {
-        veiculoId: veiculo.id,
-        km,
+        veiculoId: destino.id,
+        litros,
+        ...medidor,
         data: new Date(),
         funcionarioId: funcionario.id,
         usuarioId: usuarioId ?? null,
-        lancadoPor: funcionario.apelido || funcionario.nome,
-        foto: { create: { foto: dados.foto } },
+        lancadoPor: quem,
+        foto: { create: { foto } },
       },
-      include: { foto: { select: { id: true } } },
+      include: {
+        foto: { select: { id: true } },
+        galao: { select: { id: true, apelido: true } },
+      },
     });
-    this.logger.log(`${funcionario.nome} abasteceu ${veiculo.apelido} com ${km} km (a conferir).`);
+    this.logger.log(
+      `${funcionario.nome} abasteceu ${destino.apelido} (a conferir).`,
+    );
     return naTela(criado);
+  }
+
+  /**
+   * O medidor de quem recebeu o combustível.
+   *
+   * A máquina conta horas — o horímetro é o painel dela —, o carro conta km, e
+   * o galão não conta nada: ele não anda, só guarda. Nenhum dos dois volta
+   * para trás, que é o erro de digitação de sempre no posto.
+   */
+  private async medidorDoDestino(
+    veiculo: { id: string; apelido: string; tipo: TipoVeiculo },
+    dados: { km?: number | null; horimetro?: number | null },
+  ): Promise<{ km: number | null; horimetro: number | null }> {
+    if (veiculo.tipo === 'GALAO') return { km: null, horimetro: null };
+
+    if (veiculo.tipo === 'MAQUINA') {
+      const horimetro = medidorValido(
+        dados.horimetro,
+        'Digite o horímetro da máquina, só os números.',
+      );
+      await this.conferirMedidor(veiculo, 'horimetro', horimetro);
+      return { km: null, horimetro };
+    }
+
+    const km = medidorValido(dados.km, 'Digite o km do painel, só os números.');
+    await this.conferirMedidor(veiculo, 'km', km);
+    return { km, horimetro: null };
   }
 
   // --- O sistema ---
@@ -213,19 +412,21 @@ export class AbastecimentosService {
    */
   async lancarPeloSistema(
     veiculoId: string,
-    dados: { km: number; foto: string; valor?: number | null },
+    dados: { km?: number | null; horimetro?: number | null; litros?: number | null; foto: string; valor?: number | null },
     quem: { id?: string; nome: string },
   ): Promise<AbastecimentoNaTela> {
     conferirFoto(dados.foto);
-    const km = kmValido(dados.km);
     const valor = dados.valor == null ? null : valorValido(dados.valor);
     const veiculo = await this.veiculoAtivo(veiculoId);
-    await this.conferirKm(veiculo, km);
+    const litros =
+      veiculo.tipo === 'GALAO' ? litrosValidos(dados.litros) : litrosSeVierem(dados.litros);
+    const medidor = await this.medidorDoDestino(veiculo, dados);
 
     const criado = await this.prisma.abastecimento.create({
       data: {
         veiculoId: veiculo.id,
-        km,
+        litros,
+        ...medidor,
         valor,
         data: new Date(),
         usuarioId: quem.id ?? null,
@@ -233,9 +434,12 @@ export class AbastecimentosService {
         ...(valor != null ? { conferidoPor: quem.nome, conferidoEm: new Date() } : {}),
         foto: { create: { foto: dados.foto } },
       },
-      include: { foto: { select: { id: true } } },
+      include: {
+        foto: { select: { id: true } },
+        galao: { select: { id: true, apelido: true } },
+      },
     });
-    this.logger.log(`${quem.nome} lançou abastecimento em ${veiculo.apelido} com ${km} km.`);
+    this.logger.log(`${quem.nome} lançou abastecimento em ${veiculo.apelido}.`);
     return naTela(criado);
   }
 
@@ -251,13 +455,20 @@ export class AbastecimentosService {
     return naTela(atualizado);
   }
 
-  /** A fila da conferência: os abastecimentos de todos os veículos ainda sem valor. */
+  /**
+   * A fila da conferência: as idas ao posto que esperam o valor da nota.
+   *
+   * A saída de um galão não entra aqui. Não há nota para ler: o valor dela sai
+   * do preço do litro que está no galão, e pedir que alguém o digite seria
+   * pedir para inventar um número que já existe.
+   */
   async aConferir(): Promise<AbastecimentoAConferir[]> {
     const lista = await this.prisma.abastecimento.findMany({
-      where: { valor: null },
+      where: { valor: null, galaoId: null },
       orderBy: [{ data: 'asc' }],
       include: {
         foto: { select: { id: true } },
+        galao: { select: { id: true, apelido: true } },
         veiculo: { select: { id: true, apelido: true, placa: true } },
       },
     });
@@ -268,20 +479,125 @@ export class AbastecimentosService {
     const lista = await this.prisma.abastecimento.findMany({
       where: { veiculoId },
       orderBy: [{ data: 'desc' }, { createdAt: 'desc' }],
-      include: { foto: { select: { id: true } } },
+      include: {
+        foto: { select: { id: true } },
+        galao: { select: { id: true, apelido: true } },
+      },
     });
-    return lista.map(naTela);
+    const precos = await this.precosDosGaloes();
+    return lista.map((a) => valorizar(naTela(a), a.galaoId, precos));
+  }
+
+  /** O que já saiu deste galão, e para onde foi. */
+  async saidasDoGalao(galaoId: string): Promise<AbastecimentoAConferir[]> {
+    const lista = await this.prisma.abastecimento.findMany({
+      where: { galaoId },
+      orderBy: [{ data: 'desc' }, { createdAt: 'desc' }],
+      include: {
+        foto: { select: { id: true } },
+        galao: { select: { id: true, apelido: true } },
+        veiculo: { select: { id: true, apelido: true, placa: true } },
+      },
+    });
+    const precos = await this.precosDosGaloes();
+    return lista.map((a) => ({
+      ...valorizar(naTela(a), a.galaoId, precos),
+      veiculo: a.veiculo,
+    }));
   }
 
   async resumo(veiculoId: string): Promise<ResumoDoCombustivel> {
-    const lista = await this.prisma.abastecimento.findMany({
-      where: { veiculoId },
-      orderBy: [{ km: 'asc' }, { data: 'asc' }],
-      select: { valor: true, km: true },
-    });
+    const [veiculo, lista, precos] = await Promise.all([
+      this.prisma.veiculo.findUnique({ where: { id: veiculoId }, select: { tipo: true } }),
+      this.prisma.abastecimento.findMany({
+        where: { veiculoId },
+        orderBy: [{ data: 'asc' }, { createdAt: 'asc' }],
+        select: { valor: true, km: true, horimetro: true, litros: true, galaoId: true },
+      }),
+      this.precosDosGaloes(),
+    ]);
+
     return resumirCombustivel(
-      lista.map((a) => ({ valor: a.valor == null ? null : Number(a.valor), km: a.km })),
+      lista.map((a) => ({
+        valor: valorDoAbastecimento(a, precos),
+        km: a.km,
+        horimetro: a.horimetro,
+        litros: a.litros == null ? null : Number(a.litros),
+      })),
+      veiculo?.tipo === 'MAQUINA' ? 'horimetro' : 'km',
     );
+  }
+
+  /**
+   * O que há dentro de um galão: os litros que entraram menos os que saíram, e
+   * por quanto saiu o litro.
+   *
+   * O preço é a média do que se pagou nas compras **já conferidas** — a nota
+   * que ainda não foi lida não tem valor, e entrar na média com zero faria o
+   * diesel parecer de graça. Os litros dessa nota contam no estoque de
+   * qualquer forma: eles estão lá dentro, conferidos ou não.
+   */
+  async estoqueDoGalao(galaoId: string): Promise<EstoqueDoGalao> {
+    const [compras, conferidas, saidas] = await Promise.all([
+      this.prisma.abastecimento.aggregate({
+        where: { veiculoId: galaoId, galaoId: null },
+        _sum: { litros: true },
+      }),
+      this.prisma.abastecimento.aggregate({
+        where: { veiculoId: galaoId, galaoId: null, valor: { not: null } },
+        _sum: { litros: true, valor: true },
+      }),
+      this.prisma.abastecimento.aggregate({
+        where: { galaoId },
+        _sum: { litros: true },
+      }),
+    ]);
+
+    const entrou = Number(compras._sum.litros ?? 0);
+    const saiu = Number(saidas._sum.litros ?? 0);
+    const litrosPagos = Number(conferidas._sum.litros ?? 0);
+    const pago = Number(conferidas._sum.valor ?? 0);
+    const precoPorLitro = litrosPagos > 0 ? pago / litrosPagos : null;
+    const litros = centavos(entrou - saiu);
+
+    return {
+      litros,
+      precoPorLitro: precoPorLitro == null ? null : Math.round(precoPorLitro * 1e4) / 1e4,
+      valor: precoPorLitro == null ? null : centavos(litros * precoPorLitro),
+      litrosSemValor: centavos(entrou - litrosPagos),
+    };
+  }
+
+  /**
+   * Quanto custou o litro em cada galão, de uma vez só.
+   *
+   * As saídas não guardam valor: elas valem o preço do galão de onde vieram, e
+   * esse preço muda quando uma nota atrasada é conferida. Calcular na hora de
+   * mostrar é o que faz o custo da máquina se corrigir sozinho quando a nota
+   * chega.
+   */
+  async precosDosGaloes(): Promise<Map<string, number>> {
+    const compras = await this.prisma.abastecimento.groupBy({
+      by: ['veiculoId'],
+      where: {
+        galaoId: null,
+        valor: { not: null },
+        litros: { not: null },
+        veiculo: { tipo: 'GALAO' },
+      },
+      _sum: { valor: true, litros: true },
+    });
+    const precos = new Map<string, number>();
+    for (const c of compras) {
+      const litros = Number(c._sum.litros ?? 0);
+      if (litros > 0) precos.set(c.veiculoId, Number(c._sum.valor ?? 0) / litros);
+    }
+    return precos;
+  }
+
+  /** Um lançamento só, com o valor da saída já calculado. */
+  private async valorizada(a: AbastecimentoCru & { galaoId: string | null }) {
+    return valorizar(naTela(a), a.galaoId, await this.precosDosGaloes());
   }
 
   async foto(id: string): Promise<{ foto: string }> {
@@ -302,7 +618,13 @@ export class AbastecimentosService {
   private async veiculoAtivo(id: string) {
     const veiculo = await this.prisma.veiculo.findUnique({
       where: { id },
-      select: { id: true, apelido: true, ativo: true, responsavelId: true },
+      select: {
+        id: true,
+        apelido: true,
+        tipo: true,
+        ativo: true,
+        responsavelId: true,
+      },
     });
     if (!veiculo || !veiculo.ativo) {
       throw new NotFoundException('Este veículo não está mais na frota.');
@@ -310,23 +632,31 @@ export class AbastecimentosService {
     return veiculo;
   }
 
-  /** O km não anda para trás — é o erro de digitação mais comum no posto. */
-  private async conferirKm(veiculo: { id: string; apelido: string }, km: number) {
-    const anterior = await this.ultimoKm(veiculo.id);
-    if (anterior != null && km < anterior) {
+  /** O medidor não anda para trás — é o erro de digitação mais comum no posto. */
+  private async conferirMedidor(
+    veiculo: { id: string; apelido: string },
+    campo: 'km' | 'horimetro',
+    valor: number,
+  ) {
+    const anterior = await this.ultimoMedidor(veiculo.id, campo);
+    if (anterior != null && valor < anterior) {
+      const unidade = campo === 'km' ? 'km' : 'horas';
       throw new BadRequestException(
-        `O último abastecimento de ${veiculo.apelido} foi com ${anterior.toLocaleString('pt-BR')} km. ` +
-          'O km de agora não pode ser menor — confira o painel.',
+        `O último abastecimento de ${veiculo.apelido} foi com ${anterior.toLocaleString('pt-BR')} ${unidade}. ` +
+          `O de agora não pode ser menor — confira o painel.`,
       );
     }
   }
 
-  private async ultimoKm(veiculoId: string): Promise<number | null> {
+  private async ultimoMedidor(
+    veiculoId: string,
+    campo: 'km' | 'horimetro',
+  ): Promise<number | null> {
     const r = await this.prisma.abastecimento.aggregate({
       where: { veiculoId },
-      _max: { km: true },
+      _max: { km: true, horimetro: true },
     });
-    return r._max.km ?? null;
+    return (campo === 'km' ? r._max.km : r._max.horimetro) ?? null;
   }
 
   /** O colaborador do login, ainda ativo na casa — a mesma régua do portal. */
@@ -368,17 +698,75 @@ export class AbastecimentosService {
   }
 }
 
-function conferirFoto(foto: string) {
+/** A nota do posto, que é o que prova a compra. Devolve a foto conferida. */
+function conferirFoto(foto: string | undefined): string {
   if (!foto) throw new BadRequestException('Tire ou anexe a foto da nota do posto.');
   conferirArquivo(lerDataUrl(foto), FOTO_ACEITA, FOTO_MAXIMA, 'A foto precisa ser JPEG, PNG ou WebP.');
+  return foto;
 }
 
-function kmValido(km: number): number {
-  const n = Number(km);
+/** O km do painel ou as horas do horímetro: inteiro, e nunca negativo. */
+function medidorValido(valor: number | null | undefined, reclamacao: string): number {
+  const n = Number(valor);
   if (!Number.isInteger(n) || n < 0 || n > 9_999_999) {
-    throw new BadRequestException('Digite o km do painel, só os números.');
+    throw new BadRequestException(reclamacao);
   }
   return n;
+}
+
+/** Nenhum galão da casa passa disto; acima é dedo escorregado no zero. */
+const LITROS_MAXIMOS = 5_000;
+
+function litrosValidos(litros: number | null | undefined): number {
+  const n = Math.round(Number(litros) * 100) / 100;
+  if (!(n > 0) || n > LITROS_MAXIMOS) {
+    throw new BadRequestException('Digite quantos litros, só os números.');
+  }
+  return n;
+}
+
+/** Os litros do carro são bem-vindos, mas ninguém é obrigado a olhar a bomba. */
+function litrosSeVierem(litros: number | null | undefined): number | null {
+  if (litros == null || Number(litros) === 0) return null;
+  return litrosValidos(litros);
+}
+
+/** "12,5 L" — para as mensagens de erro, que são lidas no posto. */
+function litrosEscritos(litros: number): string {
+  return `${litros.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} L`;
+}
+
+/** Duas casas, que é o que o dinheiro e o litro têm. */
+function centavos(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+/**
+ * O que este lançamento custou.
+ *
+ * A compra vale a nota. A saída de um galão vale os litros pelo preço daquele
+ * galão — e enquanto nenhuma nota dele tiver sido conferida, não vale nada
+ * ainda: o preço não existe para ser inventado.
+ */
+function valorDoAbastecimento(
+  a: { valor: unknown; litros: unknown; galaoId: string | null },
+  precos: Map<string, number>,
+): number | null {
+  if (a.valor != null) return Number(a.valor);
+  if (!a.galaoId || a.litros == null) return null;
+  const preco = precos.get(a.galaoId);
+  return preco == null ? null : centavos(Number(a.litros) * preco);
+}
+
+/** O mesmo, já no formato da tela. */
+function valorizar(
+  base: AbastecimentoNaTela,
+  galaoId: string | null | undefined,
+  precos: Map<string, number>,
+): AbastecimentoNaTela {
+  if (base.valor != null || !galaoId || base.litros == null) return base;
+  const preco = precos.get(galaoId);
+  return preco == null ? base : { ...base, valor: centavos(base.litros * preco) };
 }
 
 function valorValido(valor: number): number {
@@ -394,6 +782,9 @@ function naTela(a: AbastecimentoCru): AbastecimentoNaTela {
     id: a.id,
     valor: a.valor == null ? null : Number(a.valor),
     km: a.km,
+    horimetro: a.horimetro,
+    litros: a.litros == null ? null : Number(a.litros),
+    galao: a.galao ?? null,
     data: a.data.toISOString(),
     lancadoPor: a.lancadoPor,
     temFoto: !!a.foto,
@@ -401,26 +792,54 @@ function naTela(a: AbastecimentoCru): AbastecimentoNaTela {
   };
 }
 
-/** Recebe os abastecimentos em ordem de km. */
+/**
+ * O combustível de um veículo somado, em ordem de data.
+ *
+ * `medidor` diz em que unidade este veículo anda: o carro conta km, a máquina
+ * conta as horas do horímetro. A conta é a mesma dos dois lados — quanto
+ * custou cada km, quanto custou cada hora —, e o primeiro abastecimento fica
+ * de fora dela: o combustível dele foi gasto antes do primeiro km registrado.
+ */
 export function resumirCombustivel(
-  lista: Array<{ valor: number | null; km: number }>,
+  lista: Array<{
+    valor: number | null;
+    km?: number | null;
+    horimetro?: number | null;
+    litros?: number | null;
+  }>,
+  medidor: 'km' | 'horimetro' = 'km',
 ): ResumoDoCombustivel {
   const total = lista.reduce((s, a) => s + (a.valor ?? 0), 0);
-  const primeiro = lista[0];
-  const ultimo = lista[lista.length - 1];
-  const kmRodados = lista.length > 1 ? ultimo.km - primeiro.km : null;
+  const litros = lista.reduce((s, a) => s + (a.litros ?? 0), 0);
+
+  // Só os que trouxeram medidor entram na conta de rodagem: a saída de um
+  // galão para um carro pode vir sem km, e o galão nunca tem nenhum.
+  const comMedidor = lista
+    .map((a) => (medidor === 'km' ? a.km : a.horimetro))
+    .filter((n): n is number => n != null);
+  const primeiro = comMedidor[0];
+  const ultimo = comMedidor[comMedidor.length - 1];
+  const andados =
+    comMedidor.length > 1 ? Math.max(...comMedidor) - Math.min(...comMedidor) : null;
+
   const depoisDoPrimeiro = lista.slice(1);
   const todosComValor = depoisDoPrimeiro.every((a) => a.valor != null);
   const gastoDepois = depoisDoPrimeiro.reduce((s, a) => s + (a.valor ?? 0), 0);
+  const porUnidade =
+    andados && andados > 0 && todosComValor
+      ? Math.round((gastoDepois / andados) * 100) / 100
+      : null;
+
   return {
     total: Math.round(total * 100) / 100,
     quantidade: lista.length,
     aConferir: lista.filter((a) => a.valor == null).length,
-    ultimoKm: ultimo?.km ?? null,
-    kmRodados,
-    custoPorKm:
-      kmRodados && kmRodados > 0 && todosComValor
-        ? Math.round((gastoDepois / kmRodados) * 100) / 100
-        : null,
+    litros: Math.round(litros * 100) / 100,
+    ultimoKm: medidor === 'km' ? (ultimo ?? primeiro ?? null) : null,
+    ultimoHorimetro: medidor === 'horimetro' ? (ultimo ?? primeiro ?? null) : null,
+    kmRodados: medidor === 'km' ? andados : null,
+    custoPorKm: medidor === 'km' ? porUnidade : null,
+    horasTrabalhadas: medidor === 'horimetro' ? andados : null,
+    custoPorHora: medidor === 'horimetro' ? porUnidade : null,
   };
 }

@@ -1391,7 +1391,20 @@ enum TipoVeiculo {
   CAMINHONETE
   CAMINHAO
   MAQUINA
+  /// O galão de 200 litros que abastece as máquinas. Não anda: enche-se no
+  /// posto e leva-se até onde a máquina está.
+  GALAO
   OUTRO
+}
+
+/// O que se põe no tanque. O galão é de um só — "o galão do S10" —, e é dele
+/// que sai o preço do litro que a máquina consome.
+enum Combustivel {
+  DIESEL_S500
+  DIESEL_S10
+  GASOLINA
+  ETANOL
+  ARLA
 }
 
 /// Um veículo da frota.
@@ -1408,6 +1421,12 @@ model Veiculo {
 
   observacao String?
 
+  /// O combustível deste veículo — e, no galão, o que ele carrega.
+  combustivel Combustivel?
+
+  /// Quanto cabe no galão, em litros. Só os galões têm.
+  capacidadeLitros Int? @map("capacidade_litros")
+
   /// Desligado (vendido, baixado) sai da escolha no lançamento. O que já se
   /// gastou nele continua de pé.
   ativo Boolean @default(true)
@@ -1419,6 +1438,8 @@ model Veiculo {
 
   contas         ContaPagar[]
   abastecimentos Abastecimento[]
+  /// O que saiu deste galão para as máquinas.
+  saidas         Abastecimento[] @relation("saidas_do_galao")
 
   criadoPor String?  @map("criado_por")
   createdAt DateTime @default(now()) @map("created_at")
@@ -1442,11 +1463,29 @@ model Abastecimento {
   /// O valor da nota, antes do desconto da fatura. Vazio até o administrador
   /// conferir: quem abastece lança só o km e a foto, e o valor sai da nota,
   /// lido na conferência (pedido do dono, 15/09/2026).
+  ///
+  /// Na saída de um galão não há nota nem valor a conferir: o que aquele
+  /// litro custou já se sabe do dia em que o galão foi enchido, e o valor da
+  /// saída é contado de lá.
   valor Decimal? @db.Decimal(14, 2)
-  /// O km do painel na hora de abastecer.
-  km    Int
+  /// O km do painel na hora de abastecer. O galão não tem painel, e a máquina
+  /// conta horas.
+  km    Int?
+  /// O horímetro da máquina — as horas que ela já trabalhou.
+  horimetro Int?
+  /// Quantos litros entraram. No galão é o que se comprou; na máquina, o que
+  /// se despejou nela.
+  litros Decimal? @db.Decimal(10, 2)
   /// Quando abasteceu.
   data  DateTime
+
+  /// De qual galão saíram estes litros. Vazio = veio do posto, com nota.
+  ///
+  /// É o que separa as duas metades do controle: a **compra**, que tem nota,
+  /// valor e vai para a conferência, e a **saída**, que não tem nota nenhuma
+  /// — o dinheiro dela já saiu quando o galão foi enchido.
+  galao   Veiculo? @relation("saidas_do_galao", fields: [galaoId], references: [id], onDelete: Restrict)
+  galaoId String?  @map("galao_id")
 
   /// Quem pôs o valor, e quando. Vazio = ainda na fila da conferência.
   conferidoPor String?   @map("conferido_por")
@@ -1464,6 +1503,7 @@ model Abastecimento {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([veiculoId, data])
+  @@index([galaoId, data])
   @@map("abastecimentos")
 }
 
