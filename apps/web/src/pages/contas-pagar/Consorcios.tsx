@@ -678,12 +678,16 @@ function parcelasDoContrato(r: Recorrente, linhas: LinhaDoHistorico[]): ParcelaN
      * antes de o contrato entrar aqui.
      */
     /*
-     * O vencimento, e não o dia do pagamento: a parcela 45 vence em 11/2027
-     * mesmo tendo sido paga em setembro. Quando há conta a pagar, a data dela
-     * é a verdadeira; quando não há, vale a previsão.
+     * O vencimento da parcela, e nunca o dia em que ela foi paga.
+     *
+     * Na parcela que a rotina gerou, a data da conta é o vencimento dela —
+     * vale essa. Na antecipada, não: a conta que se lança tem o vencimento do
+     * boleto de antecipação, que é o dia em que se pagou. A parcela 31
+     * continua vencendo em 09/2028 mesmo tendo sido paga hoje, e é essa data
+     * que diz de que parcela se está falando.
      */
     const vencimento =
-      (linha?.contaId ? linha.data : null) ??
+      (linha?.contaId && !linha.antecipada ? linha.data : null) ??
       previsto.get(numero) ??
       somarMeses(
         iso,
