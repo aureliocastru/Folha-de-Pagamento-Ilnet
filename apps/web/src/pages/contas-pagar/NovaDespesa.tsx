@@ -42,7 +42,7 @@ interface FornecedorComBanco extends FornecedorIxc {
   tipoChavePix: string | null;
 }
 
-interface DespesaLancada {
+export interface DespesaLancada {
   conta: { id: string; idFnApagarIxc: number | null; status: string };
   contas: Array<{ id: string; idFnApagarIxc: number | null }>;
   avisoCategoria: string | null;
@@ -116,26 +116,52 @@ interface Parcela {
 export function NovaDespesa({
   onFechar,
   veiculoInicial,
+  inicial,
+  onLancada,
 }: {
   onFechar: () => void;
   /** Lançada de dentro da ficha de um veículo: ele já vem escolhido. */
   veiculoInicial?: { id: string; apelido: string };
+  /**
+   * Aberta por outra tela, que já sabe quase tudo — a parcela antecipada de um
+   * financiamento, por exemplo. O que ela preenche vem pronto; o que ela não
+   * tem como saber (o valor do boleto com desconto, a forma de pagar) fica em
+   * branco para quem lança.
+   */
+  inicial?: {
+    fornecedor?: { idFornecedor: number; nome: string };
+    valor?: string;
+    observacao?: string;
+    categoriaId?: string | null;
+    veiculoId?: string | null;
+    tipoPagamento?: string;
+    /** "AAAA-MM-DD" */
+    vencimento?: string;
+  };
+  /** A conta nasceu: quem abriu fica sabendo, e com que valor ela saiu. */
+  onLancada?: (dados: DespesaLancada, valorLancado: number) => void;
 }) {
   const queryClient = useQueryClient();
 
   const [termo, setTermo] = useState('');
-  const [fornecedor, setFornecedor] = useState<FornecedorIxc | null>(null);
-  const [valor, setValor] = useState('');
+  const [fornecedor, setFornecedor] = useState<FornecedorIxc | null>(
+    inicial?.fornecedor
+      ? { ...inicial.fornecedor, nomeFantasia: null, cpfCnpj: null }
+      : null,
+  );
+  const [valor, setValor] = useState(inicial?.valor ?? '');
   const [emissao, setEmissao] = useState(hoje);
-  const [vencimento, setVencimento] = useState(hoje);
-  const [categoriaId, setCategoriaId] = useState('');
+  const [vencimento, setVencimento] = useState(inicial?.vencimento ?? hoje);
+  const [categoriaId, setCategoriaId] = useState(inicial?.categoriaId ?? '');
   /**
    * Em qual veículo da frota foi o gasto. Não depende da categoria: ela diz com
    * o que (peça, mão de obra do mecânico), o veículo diz em qual.
    */
-  const [veiculoId, setVeiculoId] = useState(veiculoInicial?.id ?? '');
-  const [tipoPagamento, setTipoPagamento] = useState('');
-  const [observacao, setObservacao] = useState('');
+  const [veiculoId, setVeiculoId] = useState(
+    veiculoInicial?.id ?? inicial?.veiculoId ?? '',
+  );
+  const [tipoPagamento, setTipoPagamento] = useState(inicial?.tipoPagamento ?? '');
+  const [observacao, setObservacao] = useState(inicial?.observacao ?? '');
   const [codigoBarras, setCodigoBarras] = useState('');
   const [documento, setDocumento] = useState('');
   const [numeroNota, setNumeroNota] = useState('');
@@ -372,6 +398,10 @@ export function NovaDespesa({
     },
     onSuccess: (data) => {
       setLancada(data);
+      // Quem abriu a tela precisa saber por quanto a conta saiu: numa parcela
+      // antecipada, é esse valor — o do boleto com desconto — que fica
+      // registrado como o que se pagou por ela.
+      onLancada?.(data, Number(valor));
       void queryClient.invalidateQueries({ queryKey: ['contas-abertas'] });
       void queryClient.invalidateQueries({ queryKey: ['categorias-despesa'] });
       void queryClient.invalidateQueries({ queryKey: ['recorrentes'] });

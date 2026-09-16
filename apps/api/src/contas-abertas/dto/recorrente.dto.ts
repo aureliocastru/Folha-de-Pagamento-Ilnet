@@ -102,8 +102,9 @@ export class CriarRecorrenteDto {
   parcelasPorMes?: number;
 
   /**
-   * Quantas já foram quitadas contando do fim do contrato. Num consórcio de 50
-   * com 5 antecipadas, a próxima do fim é a 45.
+   * Quantas já tinham sido antecipadas, contadas do fim, quando o contrato
+   * entrou aqui. Num consórcio de 50 com 5 antecipadas, a próxima do fim é a
+   * 45. As daqui para a frente são lançadas uma a uma, pelo botão Antecipar.
    */
   @IsOptional()
   @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
@@ -111,21 +112,6 @@ export class CriarRecorrenteDto {
   @Min(0)
   @Max(360)
   parcelasAntecipadas?: number;
-
-  /** Quantas das parcelas do mês são contadas do fim. */
-  @IsOptional()
-  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
-  @IsInt()
-  @Min(0)
-  @Max(12)
-  antecipadasPorMes?: number;
-
-  /** O que se paga pela antecipada, já com o desconto. */
-  @IsOptional()
-  @Transform(({ value }) => (value === '' || value == null ? null : Number(value)))
-  @IsNumber()
-  @Min(0.01)
-  valorDaAntecipada?: number | null;
 
   /** O veículo que este financiamento paga. */
   @IsOptional() @IsUUID() veiculoId?: string | null;
@@ -201,8 +187,9 @@ export class AtualizarRecorrenteDto {
   parcelasPorMes?: number;
 
   /**
-   * Quantas já foram quitadas contando do fim do contrato. Num consórcio de 50
-   * com 5 antecipadas, a próxima do fim é a 45.
+   * Quantas já tinham sido antecipadas, contadas do fim, quando o contrato
+   * entrou aqui. Num consórcio de 50 com 5 antecipadas, a próxima do fim é a
+   * 45. As daqui para a frente são lançadas uma a uma, pelo botão Antecipar.
    */
   @IsOptional()
   @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
@@ -211,21 +198,42 @@ export class AtualizarRecorrenteDto {
   @Max(360)
   parcelasAntecipadas?: number;
 
-  /** Quantas das parcelas do mês são contadas do fim. */
+  /** O veículo que este financiamento paga. */
+  @IsOptional() @IsUUID() veiculoId?: string | null;
+}
+
+/**
+ * Uma parcela paga fora da ordem, registrada depois que a conta já nasceu no
+ * IXC. O valor é o do boleto — com o desconto já dentro.
+ */
+export class AnteciparParcelaDto {
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsInt()
+  @Min(1)
+  @Max(360)
+  numero!: number;
+
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsNumber()
+  @Min(0.01)
+  valor!: number;
+
+  /** Quanto ela valeria no vencimento — a diferença é a economia. */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsNumber()
+  @Min(0.01)
+  valorDeTabela?: number;
+
+  /** A conta a pagar que nasceu disto, nesta base e no IXC. */
+  @IsOptional() @IsUUID() contaId?: string | null;
+
   @IsOptional()
   @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
   @IsInt()
-  @Min(0)
-  @Max(12)
-  antecipadasPorMes?: number;
+  @Min(1)
+  idFnApagarIxc?: number | null;
 
-  /** O que se paga pela antecipada, já com o desconto. */
-  @IsOptional()
-  @Transform(({ value }) => (value === '' || value == null ? null : Number(value)))
-  @IsNumber()
-  @Min(0.01)
-  valorDaAntecipada?: number | null;
-
-  /** O veículo que este financiamento paga. */
-  @IsOptional() @IsUUID() veiculoId?: string | null;
+  /** O dia em que foi antecipada. Sem ele, hoje. */
+  @IsOptional() @IsISO8601() data?: string;
 }

@@ -6,7 +6,11 @@ import { api, mensagemErro } from '../../lib/api';
 import { useTermoAdiado } from '../../lib/busca';
 import { formatBRL, formatData } from '../../lib/format';
 import type { CategoriaDespesa } from '../../lib/types';
-import type { Recorrente, RecorrenteComResumo } from './Recorrentes';
+import type {
+  ParcelaAntecipada,
+  Recorrente,
+  RecorrenteComResumo,
+} from './Recorrentes';
 
 /** O veículo da frota que o financiamento está pagando. */
 interface VeiculoDaFrota {
@@ -33,54 +37,78 @@ const TIPOS_DE_PAGAMENTO = [
 ];
 
 /**
- * O que falta de um consórcio, contado do jeito que a rotina vai gerar.
+ * Os números de parcela que já saíram deste contrato.
  *
- * As parcelas caminham de duas pontas: as da frente, uma atrás da outra, e as
- * antecipadas, do fim para trás — num contrato de 50 com 5 antecipadas, as
- * parcelas 50 a 46 já foram, e a próxima do fim é a 45. Elas se encontram no
- * meio, e é aí que o contrato acaba.
+ * As que a rotina gerou pela frente, as que já estavam antecipadas quando o
+ * contrato entrou aqui (as últimas, contadas do fim) e as que foram
+ * antecipadas uma a uma. É a mesma conta do servidor — e é um conjunto, e não
+ * uma soma, porque as duas pontas podem se encontrar.
+ */
+function numerosJaSaidos(r: Recorrente): Set<number> {
+  const total = r.totalParcelas ?? 0;
+  const usados = new Set<number>();
+  for (let n = 1; n <= r.parcelasLancadas; n += 1) usados.add(n);
+  for (let i = 0; i < (r.parcelasAntecipadas ?? 0); i += 1) {
+    const n = total - i;
+    if (n >= 1) usados.add(n);
+  }
+  for (const a of r.antecipadas ?? []) usados.add(a.numero);
+  return usados;
+}
+
+/**
+ * O que falta de um consórcio ou financiamento, contado do jeito que a rotina
+ * vai gerar.
+ *
+ * A dívida pode andar por duas pontas: a rotina paga as da frente, uma atrás
+ * da outra, e quem antecipa paga as do fim, que saem mais baratas porque o
+ * juro que ainda ia correr é descontado. O que fica em aberto é o vão do meio,
+ * e cada uma dessas parcelas tem um mês previsto — o mês em que a rotina a
+ * geraria se ninguém a antecipasse.
  */
 export function andamento(r: Recorrente) {
   const total = r.totalParcelas ?? 0;
   const porMes = Math.max(1, r.parcelasPorMes);
-  const antecipadas = r.parcelasAntecipadas ?? 0;
-  const faltam = Math.max(0, total - r.parcelasLancadas - antecipadas);
-  // As que ainda cabem no vencimento de agora (uma das duas pode já ter saído).
-  const noProximo = Math.min(porMes - r.lancadasNoMes, faltam);
-  // Quantas das do mês vêm do fim. As da frente saem primeiro — a mesma ordem
-  // do servidor, senão a tela anunciaria um número e nasceria outro.
-  const doFimNoMes = Math.min(r.antecipadasPorMes ?? 0, porMes);
-  const daFrenteNoMes = porMes - doFimNoMes;
+  const jaSairam = numerosJaSaidos(r);
+  const antecipadas = (r.parcelasAntecipadas ?? 0) + (r.antecipadas?.length ?? 0);
 
-  const parcelas: Array<{ numero: number; doFim: boolean }> = [];
-  let daFrente = r.parcelasLancadas;
-  let doFim = antecipadas;
-  for (let i = 0; i < noProximo; i += 1) {
-    const dessaVezDoFim = r.lancadasNoMes + i >= daFrenteNoMes;
-    parcelas.push({
-      numero: dessaVezDoFim ? total - doFim : daFrente + 1,
-      doFim: dessaVezDoFim,
-    });
-    if (dessaVezDoFim) doFim += 1;
-    else daFrente += 1;
+  const iso = String(r.proximoVencimento).slice(0, 10);
+  /*
+   * As que ainda faltam, na ordem, com o mês de cada uma.
+   *
+   * O mês sai da fila: as do próximo vencimento são as que ainda cabem nele
+   * (uma das duas do mês pode já ter nascido), e daí em diante andam de
+   * `porMes` em `porMes`.
+   */
+  const emAberto: Array<{ numero: number; vencimento: string }> = [];
+  for (let n = 1; n <= total; n += 1) {
+    if (jaSairam.has(n)) continue;
+    const mes = Math.floor((emAberto.length + r.lancadasNoMes) / porMes);
+    emAberto.push({ numero: n, vencimento: somarMeses(iso, mes, r.diaDoVencimento) });
   }
 
-  const mesesDepois = Math.ceil((faltam - noProximo) / porMes);
-  const iso = String(r.proximoVencimento).slice(0, 10);
+  const faltam = emAberto.length;
+  // As que nascem no próximo vencimento: as primeiras da fila que ainda cabem
+  // no mês.
+  const parcelas = emAberto.slice(0, Math.max(0, porMes - r.lancadasNoMes));
+
   return {
     total,
     porMes,
-    /** Quantas do mês saem pela frente, e quantas do fim. */
-    daFrenteNoMes,
-    doFimNoMes,
     faltam,
     antecipadas,
     /** Quantas já foram, pelos dois lados. */
-    pagas: r.parcelasLancadas + antecipadas,
-    quitado: faltam === 0,
+    pagas: total - faltam,
+    quitado: total > 0 && faltam === 0,
+    emAberto,
     parcelas,
     numeros: parcelas.map((p) => p.numero),
-    ultimaEm: faltam > 0 ? somarMeses(iso, mesesDepois, r.diaDoVencimento) : null,
+    ultimaEm: faltam > 0 ? emAberto[emAberto.length - 1].vencimento : null,
+    /** O que se economizou antecipando: o de tabela menos o que se pagou. */
+    economia: (r.antecipadas ?? []).reduce(
+      (s, a) => s + (Number(a.valorDeTabela) - Number(a.valor)),
+      0,
+    ),
   };
 }
 
@@ -91,9 +119,9 @@ export function andamento(r: Recorrente) {
  * Cartão em vez de tabela: o que importa aqui é quanto falta, e uma barra diz
  * isso num relance — e cartão cabe na tela do celular sem rolar de lado.
  *
- * A barra tem duas pontas porque a dívida também tem: as parcelas pagas
- * crescem da esquerda, as antecipadas do fim do contrato crescem da direita, e
- * o vão do meio é o que ainda falta.
+ * A barra é uma só, de uma cor só, e ao lado dela a porcentagem paga: pagar a
+ * parcela do mês ou antecipar a do fim é a mesma coisa para quem olha daqui —
+ * o que se quer saber é quanto do contrato já foi.
  */
 export function ListaDeConsorcios({
   itens,
@@ -102,6 +130,7 @@ export function ListaDeConsorcios({
   onEditar,
   onLigar,
   onApagar,
+  onAntecipar,
 }: {
   itens: RecorrenteComResumo[];
   ocupado: boolean;
@@ -110,6 +139,7 @@ export function ListaDeConsorcios({
   onEditar: (r: Recorrente) => void;
   onLigar: (r: Recorrente) => void;
   onApagar: (r: Recorrente) => void;
+  onAntecipar: (r: Recorrente) => void;
 }) {
   if (itens.length === 0) {
     return (
@@ -124,13 +154,7 @@ export function ListaDeConsorcios({
     <div className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2 md:p-4">
       {itens.map(({ recorrente: r, diasParaGerar }) => {
         const a = andamento(r);
-        const pct = (n: number) => (a.total ? (n / a.total) * 100 : 0);
-        const valorAntecipada =
-          r.valorDaAntecipada == null ? Number(r.valor) : Number(r.valorDaAntecipada);
-        // O que sai do caixa no mês: a da frente pelo valor cheio, a do fim
-        // pelo valor com desconto.
-        const porMesEmDinheiro =
-          Number(r.valor) * a.daFrenteNoMes + valorAntecipada * a.doFimNoMes;
+        const pago = a.total ? (a.pagas / a.total) * 100 : 0;
         return (
           <div
             key={r.id}
@@ -148,12 +172,10 @@ export function ListaDeConsorcios({
                 <div className="valor">{formatBRL(Number(r.valor))}</div>
                 {a.porMes > 1 && (
                   <div className="text-[11px] text-tinta-500">
-                    {a.doFimNoMes > 0 && valorAntecipada !== Number(r.valor) ? (
-                      <>+ {formatBRL(valorAntecipada)} antecipada</>
-                    ) : (
-                      <>× {a.porMes}</>
-                    )}{' '}
-                    = <span className="valor">{formatBRL(porMesEmDinheiro)}</span>
+                    × {a.porMes} ={' '}
+                    <span className="valor">
+                      {formatBRL(Number(r.valor) * a.porMes)}
+                    </span>
                     /mês
                   </div>
                 )}
@@ -179,21 +201,26 @@ export function ListaDeConsorcios({
                 .join(' · ')}
             </div>
 
-            {/* Quanto já foi pelas duas pontas, quanto falta no meio. */}
+            {/* Quanto já foi, quanto falta — e a porcentagem no fim. */}
             <div className="mt-3">
-              <div className="relative h-2 overflow-hidden rounded-full bg-tinta-100">
-                <div
-                  className={`absolute inset-y-0 left-0 ${
-                    a.quitado ? 'bg-emerald-500' : 'bg-brand-500'
+              <div className="flex items-center gap-2">
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-tinta-100">
+                  <div
+                    className={`h-full rounded-full ${
+                      a.quitado ? 'bg-emerald-500' : 'bg-brand-500'
+                    }`}
+                    style={{ width: `${pago}%` }}
+                  />
+                </div>
+                <span
+                  className={`num shrink-0 text-xs font-semibold ${
+                    a.quitado
+                      ? 'text-emerald-700 dark:text-emerald-400'
+                      : 'text-tinta-700'
                   }`}
-                  style={{ width: `${pct(r.parcelasLancadas)}%` }}
-                />
-                {/* As antecipadas são as últimas do contrato: elas pintam a
-                    barra da direita para a esquerda, que é como foram pagas. */}
-                <div
-                  className="absolute inset-y-0 right-0 bg-emerald-500"
-                  style={{ width: `${pct(a.antecipadas)}%` }}
-                />
+                >
+                  {Math.round(pago)}%
+                </span>
               </div>
               <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-xs text-tinta-500">
                 <span>
@@ -204,7 +231,8 @@ export function ListaDeConsorcios({
                     <>
                       {' · '}
                       <span className="text-emerald-700 dark:text-emerald-400">
-                        <strong className="num">{a.antecipadas}</strong> do fim
+                        <strong className="num">{a.antecipadas}</strong>{' '}
+                        antecipada{a.antecipadas > 1 ? 's' : ''}
                       </span>
                     </>
                   )}
@@ -221,14 +249,18 @@ export function ListaDeConsorcios({
                   </span>
                 )}
               </div>
+              {a.economia > 0 && (
+                <div className="mt-1 text-xs text-emerald-700 dark:text-emerald-400">
+                  Antecipando, já se economizou{' '}
+                  <strong className="valor">{formatBRL(a.economia)}</strong>.
+                </div>
+              )}
             </div>
 
             {!a.quitado && (
               <div className="mt-3 rounded-xl bg-tinta-50 px-3 py-2 text-xs text-tinta-600">
                 {a.parcelas.length > 1 ? 'Parcelas ' : 'Parcela '}
-                <strong className="num text-tinta-800">
-                  {juntarParcelas(a.parcelas)}
-                </strong>{' '}
+                <strong className="num text-tinta-800">{juntar(a.numeros)}</strong>{' '}
                 {a.parcelas.length > 1 ? 'vencem' : 'vence'}{' '}
                 <strong className="num text-tinta-800">
                   {formatData(r.proximoVencimento)}
@@ -258,6 +290,15 @@ export function ListaDeConsorcios({
                 </Selo>
               )}
               <div className="ml-auto flex flex-wrap justify-end gap-1.5">
+                {!a.quitado && (
+                  <button
+                    onClick={() => onAntecipar(r)}
+                    className="btn btn-primario btn-p"
+                    title="Escolher uma parcela lá do fim e pagá-la adiantada, com desconto"
+                  >
+                    Antecipar
+                  </button>
+                )}
                 <button onClick={() => onEditar(r)} className="btn btn-neutro btn-p">
                   Editar
                 </button>
@@ -284,6 +325,153 @@ export function ListaDeConsorcios({
         );
       })}
     </div>
+  );
+}
+
+/**
+ * Escolher a parcela que se vai antecipar.
+ *
+ * As parcelas em aberto, na ordem, cada uma com o mês em que ela venceria. A
+ * do fim é a que costuma valer a pena: é a que tem mais juro para descontar, e
+ * é por isso que a lista começa por ela — o dedo cai primeiro na última.
+ *
+ * Escolhida, o caminho é o mesmo de qualquer conta: a tela de lançar, já
+ * preenchida, esperando o valor do boleto com desconto e a forma de pagar.
+ */
+export function JanelaDeAntecipacao({
+  item,
+  onFechar,
+  onPagar,
+  onDesfazer,
+}: {
+  item: RecorrenteComResumo;
+  onFechar: () => void;
+  onPagar: (parcela: { numero: number; vencimento: string }) => void;
+  onDesfazer: (antecipada: ParcelaAntecipada) => void;
+}) {
+  const r = item.recorrente;
+  const a = andamento(r);
+  const [escolhida, setEscolhida] = useState<number | null>(
+    // A última em aberto: a de maior desconto, e a que quase sempre se
+    // antecipa. Vem marcada — "nem me pergunta".
+    a.emAberto.length ? a.emAberto[a.emAberto.length - 1].numero : null,
+  );
+  const [verTodas, setVerTodas] = useState(false);
+
+  const daVez = a.emAberto.find((p) => p.numero === escolhida) ?? null;
+  // Do fim para a frente: a primeira da lista é a última do contrato.
+  const doFimParaAFrente = [...a.emAberto].reverse();
+  const mostradas = verTodas ? doFimParaAFrente : doFimParaAFrente.slice(0, 24);
+
+  return (
+    <Janela
+      titulo={`Antecipar parcela — ${r.veiculo?.apelido ?? r.fornecedorNome}`}
+      onFechar={onFechar}
+    >
+      <p className="text-sm text-tinta-600">
+        Escolha a parcela que você vai pagar adiantada. Ela sai da fila da
+        rotina: não vai nascer de novo no mês dela.
+      </p>
+
+      <div className="mt-3 max-h-[280px] overflow-y-auto rolagem-fina rounded-xl border border-tinta-100 p-2">
+        <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-4">
+          {mostradas.map((p) => {
+            const marcada = p.numero === escolhida;
+            return (
+              <button
+                key={p.numero}
+                onClick={() => setEscolhida(p.numero)}
+                aria-pressed={marcada}
+                className={`rounded-xl border px-2 py-2 text-center transition ${
+                  marcada
+                    ? 'border-brand-500 bg-brand-500/10'
+                    : 'border-tinta-100 hover:border-tinta-300'
+                }`}
+              >
+                <div className="num text-sm font-semibold text-tinta-900">
+                  {p.numero}
+                  <span className="text-[11px] font-normal text-tinta-400">
+                    /{a.total}
+                  </span>
+                </div>
+                <div className="num text-[11px] text-tinta-500">
+                  {mesAno(p.vencimento)}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        {!verTodas && doFimParaAFrente.length > mostradas.length && (
+          <button
+            onClick={() => setVerTodas(true)}
+            className="btn btn-sutil btn-p mt-2 w-full"
+          >
+            Ver as outras {doFimParaAFrente.length - mostradas.length} em aberto
+          </button>
+        )}
+      </div>
+
+      {daVez && (
+        <div className="mt-4 rounded-2xl bg-tinta-50 p-4 text-sm text-tinta-600">
+          A parcela <strong className="num text-tinta-900">{daVez.numero}</strong>{' '}
+          de {a.total} venceria em{' '}
+          <strong className="num text-tinta-900">{mesAno(daVez.vencimento)}</strong>{' '}
+          e vale{' '}
+          <strong className="valor text-tinta-900">
+            {formatBRL(Number(r.valor))}
+          </strong>
+          . Pagando agora ela sai por menos — o valor do boleto com desconto é o
+          que você vai digitar na conta.
+        </div>
+      )}
+
+      {/* O que já foi antecipado, e a saída para quando o número saiu errado. */}
+      {r.antecipadas.length > 0 && (
+        <div className="mt-4">
+          <p className="rotulo">Já antecipadas</p>
+          <div className="mt-1 space-y-1">
+            {r.antecipadas.map((x) => (
+              <div
+                key={x.id}
+                className="flex flex-wrap items-center gap-2 rounded-xl bg-tinta-50 px-3 py-2 text-xs text-tinta-600"
+              >
+                <span className="num font-semibold text-tinta-800">
+                  {x.numero}/{a.total}
+                </span>
+                <span className="valor">{formatBRL(Number(x.valor))}</span>
+                {Number(x.valorDeTabela) > Number(x.valor) && (
+                  <span className="text-emerald-700 dark:text-emerald-400">
+                    economia de{' '}
+                    {formatBRL(Number(x.valorDeTabela) - Number(x.valor))}
+                  </span>
+                )}
+                <span className="num text-tinta-400">{formatData(x.data)}</span>
+                <button
+                  onClick={() => onDesfazer(x)}
+                  className="btn btn-sutil btn-p ml-auto"
+                  title="A parcela volta para a fila da rotina. A conta no IXC não é mexida."
+                >
+                  Desfazer
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="mt-5 flex justify-end gap-2">
+        <button onClick={onFechar} className="btn btn-neutro">
+          Cancelar
+        </button>
+        <button
+          onClick={() => daVez && onPagar(daVez)}
+          disabled={!daVez}
+          className="btn btn-primario"
+        >
+          Pagar esta parcela
+        </button>
+      </div>
+    </Janela>
   );
 }
 
@@ -344,12 +532,7 @@ export function CadastroDoConsorcio({
   const [antecipadas, setAntecipadas] = useState(
     editando ? String(base.parcelasAntecipadas) : '',
   );
-  const [antecipadasMes, setAntecipadasMes] = useState(
-    String(editando ? base.antecipadasPorMes : 0),
-  );
-  const [valorAntecipada, setValorAntecipada] = useState(
-    base?.valorDaAntecipada ? String(Number(base.valorDaAntecipada)) : '',
-  );
+
   const [categoriaId, setCategoriaId] = useState(base?.categoriaId ?? '');
   const [tipoPagamento, setTipoPagamento] = useState(base?.tipoPagamentoIxc ?? 'Boleto');
   const [soDiasUteis, setSoDiasUteis] = useState(base?.apenasDiasUteis ?? true);
@@ -389,8 +572,7 @@ export function CadastroDoConsorcio({
   const nLancadas = Number(lancadas || 0);
   const nPorMes = Number(porMes);
   const nAntecipadas = Number(antecipadas || 0);
-  const nAntecipadasMes = Number(antecipadasMes || 0);
-  /** A próxima a pagar do fim para trás — a que vai nascer com esse número. */
+  /** A próxima a pagar do fim para trás, se ele antecipar de novo. */
   const proximaDoFim = nTotal - nAntecipadas;
 
   /*
@@ -416,11 +598,11 @@ export function CadastroDoConsorcio({
     nTotal >= 2 && nLancadas >= 0 && nLancadas <= nTotal && nPorMes >= 1 && vencimento
       ? andamento({
           ...(base ?? ({} as Recorrente)),
+          antecipadas: base?.antecipadas ?? [],
           totalParcelas: nTotal,
           parcelasLancadas: nLancadas,
           parcelasPorMes: nPorMes,
           parcelasAntecipadas: nAntecipadas,
-          antecipadasPorMes: Math.min(nAntecipadasMes, nPorMes),
           // Se a contagem e a data ficaram como estavam, vale o que já nasceu
           // no mês; mexer nelas recomeça o mês (é o que o servidor faz).
           lancadasNoMes:
@@ -448,7 +630,6 @@ export function CadastroDoConsorcio({
     // As duas pontas não se ultrapassam: juntas, nunca passam do contrato.
     nLancadas + nAntecipadas <= nTotal &&
     nPorMes >= 1 &&
-    nAntecipadasMes <= nPorMes &&
     (!financiamento || !!veiculoId) &&
     !!vencimento;
 
@@ -465,8 +646,6 @@ export function CadastroDoConsorcio({
         parcelasLancadas: nLancadas,
         parcelasPorMes: nPorMes,
         parcelasAntecipadas: nAntecipadas,
-        antecipadasPorMes: Math.min(nAntecipadasMes, nPorMes),
-        valorDaAntecipada: Number(valorAntecipada) > 0 ? Number(valorAntecipada) : null,
         veiculoId: financiamento ? veiculoId : null,
         categoriaId: categoriaId || null,
         tipoPagamentoIxc: tipoPagamento.trim() || undefined,
@@ -768,50 +947,10 @@ export function CadastroDoConsorcio({
           <p className="ajuda">
             {nTotal >= 2 && nAntecipadas > 0
               ? `Contadas do fim: a ${nTotal} até a ${proximaDoFim + 1} já foram, e a próxima do fim é a ${proximaDoFim}.`
-              : 'As pagas do fim para trás. Sem antecipação, deixe zero.'}
+              : 'As que já tinham sido pagas adiantadas, do fim para trás, antes de entrar aqui. As próximas você lança pelo botão Antecipar.'}
           </p>
         </div>
 
-        <div>
-          <label className="rotulo" htmlFor="co-antecipadas-mes">
-            Dessas do mês, quantas do fim
-          </label>
-          <select
-            id="co-antecipadas-mes"
-            value={antecipadasMes}
-            onChange={(e) => setAntecipadasMes(e.target.value)}
-            className="campo"
-          >
-            {Array.from({ length: Math.max(1, nPorMes) + 1 }, (_, n) => n).map(
-              (n) => (
-                <option key={n} value={n}>
-                  {n === 0 ? 'nenhuma — só as da frente' : `${n} do fim`}
-                </option>
-              ),
-            )}
-          </select>
-          <p className="ajuda">
-            Quem paga duas por mês costuma pagar a da frente e antecipar uma do
-            fim — as duas contas nascem no mesmo dia, cada uma com o seu número.
-          </p>
-        </div>
-
-        {(nAntecipadasMes > 0 || nAntecipadas > 0) && (
-          <div>
-            <label className="rotulo" htmlFor="co-valor-antecipada">
-              Valor da parcela antecipada
-            </label>
-            <CampoDinheiro
-              id="co-valor-antecipada"
-              valor={valorAntecipada}
-              onChange={setValorAntecipada}
-            />
-            <p className="ajuda">
-              Antecipar desconta o juro que ainda ia correr, e ela sai menor.
-              Vazio, a do fim sai pelo valor de sempre.
-            </p>
-          </div>
-        )}
 
         <div>
           <label className="rotulo" htmlFor="co-tipo">
@@ -868,7 +1007,7 @@ export function CadastroDoConsorcio({
             <>
               {previa.numeros.length > 1 ? 'As parcelas ' : 'A parcela '}
               <strong className="num text-tinta-900">
-                {juntarParcelas(previa.parcelas)}
+                {juntar(previa.numeros)}
               </strong>{' '}
               de {previa.total} {previa.numeros.length > 1 ? 'vencem' : 'vence'}{' '}
               <strong className="num text-tinta-900">
@@ -881,7 +1020,7 @@ export function CadastroDoConsorcio({
               {nAntecipadas > 0 && (
                 <>
                   {' '}
-                  Do fim já foram {nAntecipadas}: a próxima antecipada é a{' '}
+                  Do fim já foram {nAntecipadas}: a próxima a antecipar é a{' '}
                   <strong className="num text-tinta-900">{proximaDoFim}</strong>.
                 </>
               )}
@@ -991,20 +1130,3 @@ function juntar(itens: Array<string | number>): string {
   return `${itens.slice(0, -1).join(', ')} e ${itens[itens.length - 1]}`;
 }
 
-/**
- * Os números do mês com o lado de cada um — "13 (da frente) e 45 (do fim)".
- *
- * O lado só aparece quando há os dois: é ele que diz qual boleto é qual na
- * hora de pagar. Num consórcio que só anda para a frente, o número basta.
- */
-function juntarParcelas(parcelas: Array<{ numero: number; doFim: boolean }>): string {
-  const dosDoisLados =
-    parcelas.some((p) => p.doFim) && parcelas.some((p) => !p.doFim);
-  const texto = juntar(
-    parcelas.map((p) =>
-      dosDoisLados ? `${p.numero} (${p.doFim ? 'do fim' : 'da frente'})` : p.numero,
-    ),
-  );
-  const todasDoFim = parcelas.length > 0 && parcelas.every((p) => p.doFim);
-  return todasDoFim ? `${texto} (do fim)` : texto;
-}

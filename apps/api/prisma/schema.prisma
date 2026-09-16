@@ -991,18 +991,15 @@ model DespesaRecorrente {
   /// a próxima rodada gera só a que faltou, e não as duas de novo.
   lancadasNoMes    Int  @default(0) @map("lancadas_no_mes")
 
-  // --- Antecipação: as parcelas que se pagam do fim para trás ---
-  /// Quantas parcelas já foram quitadas contando do fim do contrato. Num
-  /// consórcio de 50 com 5 antecipadas, as parcelas 50, 49, 48, 47 e 46 já
-  /// foram: a próxima do fim é a 45, e faltam as do meio.
+  // --- Antecipação: as parcelas que se pagam fora da ordem ---
+  /// Quantas parcelas já tinham sido antecipadas quando o contrato entrou
+  /// aqui, contadas do fim. Num consórcio de 50 com 5 antecipadas, as parcelas
+  /// 50, 49, 48, 47 e 46 já foram. As antecipadas daqui para a frente são
+  /// lançadas uma a uma, e cada uma vira uma linha em `antecipadas`.
   parcelasAntecipadas Int @default(0) @map("parcelas_antecipadas")
-  /// Quantas das parcelas do mês são contadas do fim. Quem paga duas por mês
-  /// costuma pagar uma da frente e antecipar uma do fim — é isso que faz a
-  /// conta nascer no IXC com o número certo em cima.
-  antecipadasPorMes   Int @default(0) @map("antecipadas_por_mes")
-  /// O que se paga pela parcela antecipada — menor que a normal, porque
-  /// antecipar desconta juros. Vazio: sai pelo valor de sempre.
-  valorDaAntecipada   Decimal? @db.Decimal(14, 2) @map("valor_da_antecipada")
+
+  /// As parcelas antecipadas por esta tela, cada uma com o seu número.
+  antecipadas ParcelaAntecipada[]
 
   /// O veículo que este financiamento está pagando. Preenchido, a repetição é
   /// um financiamento de veículo: sai da aba de consórcios e vai para a de
@@ -1036,6 +1033,45 @@ model DespesaRecorrente {
   @@index([ativa, proximoVencimento])
   @@index([veiculoId])
   @@map("despesas_recorrentes")
+}
+
+/// Uma parcela paga fora da ordem — a do fim do contrato, quase sempre.
+///
+/// Antecipar desconta o juro que ainda ia correr: o boleto da parcela 45 sai
+/// hoje por menos do que ela vale no vencimento dela. A conta a pagar nasce
+/// **já com o valor do boleto**, e não com o valor cheio e um desconto por
+/// cima — o IXC não precisa saber que houve desconto nenhum, e é o que impede
+/// o título de chegar lá com valor aberto que não bate com o pago.
+///
+/// O que fica guardado aqui é qual parcela saiu (para a rotina mensal não
+/// gerá-la de novo) e por quanto — a diferença para o valor de tabela é a
+/// economia.
+model ParcelaAntecipada {
+  id String @id @default(uuid())
+
+  recorrente   DespesaRecorrente @relation(fields: [recorrenteId], references: [id], onDelete: Cascade)
+  recorrenteId String            @map("recorrente_id")
+
+  /// O número da parcela no contrato ("a 45 de 50")
+  numero Int
+
+  /// O que se pagou por ela, já com o desconto
+  valor Decimal @db.Decimal(14, 2)
+  /// Quanto ela valeria no vencimento. A diferença é o que se economizou.
+  valorDeTabela Decimal @db.Decimal(14, 2) @map("valor_de_tabela")
+
+  /// A conta a pagar que nasceu disto, desta base e do IXC
+  contaId         String? @map("conta_id")
+  idFnApagarIxc   Int?    @map("id_fn_apagar_ixc")
+
+  /// O dia em que foi antecipada
+  data DateTime
+
+  criadoPor String?  @map("criado_por")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([recorrenteId, numero])
+  @@map("parcelas_antecipadas")
 }
 
 // ---------------------------------------------------------------------------

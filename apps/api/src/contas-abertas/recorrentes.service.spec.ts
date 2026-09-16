@@ -32,8 +32,7 @@ function recorrente(over: Record<string, unknown> = {}) {
     parcelasPorMes: 1,
     lancadasNoMes: 0,
     parcelasAntecipadas: 0,
-    antecipadasPorMes: 0,
-    valorDaAntecipada: null,
+    antecipadas: [],
     veiculoId: null,
     ...over,
   };
@@ -54,19 +53,38 @@ function consorcio(over: Record<string, unknown> = {}) {
 }
 
 function montarServico(
-  opts: { lista?: unknown[]; erroAoCriar?: string } = {},
+  opts: {
+    lista?: unknown[];
+    erroAoCriar?: string;
+    /** O que o `findUnique` de uma recorrente devolve. */
+    registro?: unknown;
+    /** O que o `findUnique` de uma antecipação devolve. */
+    antecipada?: unknown;
+  } = {},
 ) {
   const atualizacoes: Array<Record<string, unknown>> = [];
+
+  const antecipadas: Array<Record<string, unknown>> = [];
 
   const prisma = {
     despesaRecorrente: {
       findMany: jest.fn().mockResolvedValue(opts.lista ?? [recorrente()]),
-      findUnique: jest.fn().mockResolvedValue(recorrente()),
+      findUnique: jest
+        .fn()
+        .mockResolvedValue(opts.registro ?? recorrente()),
       update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
         atualizacoes.push(data);
         return data;
       }),
       create: jest.fn(async ({ data }: { data: unknown }) => data),
+      delete: jest.fn(),
+    },
+    parcelaAntecipada: {
+      create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        antecipadas.push(data);
+        return { id: 'a1', ...data };
+      }),
+      findUnique: jest.fn(async () => opts.antecipada ?? null),
       delete: jest.fn(),
     },
   };
@@ -85,7 +103,7 @@ function montarServico(
     contasPagar as never,
     categorias as never,
   );
-  return { service, prisma, contasPagar, categorias, atualizacoes };
+  return { service, prisma, contasPagar, categorias, atualizacoes, antecipadas };
 }
 
 describe('mesSeguinte', () => {
@@ -334,14 +352,15 @@ describe('RecorrentesService.gerarPendentes — consórcio', () => {
 });
 
 /**
- * O financiamento do veículo — e o consórcio que se paga dos dois lados.
+ * A antecipação — a parcela paga fora da ordem.
  *
- * Quem paga duas por mês costuma pagar a da frente e antecipar uma do fim, que
- * sai mais barata porque o juro que ainda ia correr é descontado. As duas
- * contas nascem no mesmo dia, cada uma com o seu número em cima: é por ele que
- * se sabe qual boleto é qual na hora de pagar.
+ * Ela não nasce sozinha: quem antecipa escolhe a parcela na tela, lança a
+ * conta com o valor do boleto (que já vem com o desconto do juro que ainda ia
+ * correr) e só então ela é registrada aqui. O que este arquivo protege é o
+ * essencial disso: a rotina mensal não pode gerar de novo uma parcela que já
+ * foi paga adiantada, e a mesma parcela não pode ser antecipada duas vezes.
  */
-describe('RecorrentesService.gerarPendentes — antecipação do fim', () => {
+describe('RecorrentesService — parcela antecipada', () => {
   beforeAll(() => {
     jest.useFakeTimers().setSystemTime(HOJE);
   });
@@ -349,7 +368,7 @@ describe('RecorrentesService.gerarPendentes — antecipação do fim', () => {
     jest.useRealTimers();
   });
 
-  /** 50 parcelas, duas por mês: uma da frente e uma do fim, com 5 antecipadas. */
+  /** 50 parcelas, duas por mês, 12 pagas e 5 antecipadas do fim no cadastro. */
   function financiamento(over: Record<string, unknown> = {}) {
     return consorcio({
       fornecedorNome: 'Banco do Carro',
@@ -359,124 +378,155 @@ describe('RecorrentesService.gerarPendentes — antecipação do fim', () => {
       parcelasLancadas: 12,
       parcelasPorMes: 2,
       parcelasAntecipadas: 5,
-      antecipadasPorMes: 1,
-      valorDaAntecipada: 1500,
       veiculoId: 'v1',
       ...over,
     });
   }
 
-  it('a da frente e a do fim saem no mesmo dia, cada uma com o seu número', async () => {
-    const { service, contasPagar } = montarServico({ lista: [financiamento()] });
+  it('a rotina gera as da frente e pula a que já foi antecipada', async () => {
+    // A 13 foi paga adiantada: o mês que vem é 14 e 15.
+    const { service, contasPagar } = montarServico({
+      lista: [financiamento({ antecipadas: [{ numero: 13 }] })],
+    });
 
     const r = await service.gerarPendentes();
 
     expect(r.geradas).toBe(2);
     expect(contasPagar.criarDespesa).toHaveBeenNthCalledWith(
       1,
-      expect.objectContaining({
-        observacao: 'Financiamento Hilux (13/50)',
-        valor: 2000,
-      }),
+      expect.objectContaining({ observacao: 'Financiamento Hilux (14/50)' }),
       undefined,
     );
-    // 50 menos as 5 já antecipadas: a próxima do fim é a 45, e mais barata.
     expect(contasPagar.criarDespesa).toHaveBeenNthCalledWith(
       2,
-      expect.objectContaining({
-        observacao: 'Financiamento Hilux (45/50)',
-        valor: 1500,
-      }),
+      expect.objectContaining({ observacao: 'Financiamento Hilux (15/50)' }),
       undefined,
     );
   });
 
-  it('cada lado anda no seu contador', async () => {
-    const { service, atualizacoes } = montarServico({ lista: [financiamento()] });
+  it('a parcela sai sempre pelo valor de sempre — o desconto é do boleto, não da regra', async () => {
+    const { service, contasPagar } = montarServico({ lista: [financiamento()] });
 
     await service.gerarPendentes();
 
-    expect(atualizacoes[0]).toMatchObject({
-      parcelasLancadas: 13,
-      parcelasAntecipadas: 5,
-      lancadasNoMes: 1,
-    });
-    expect(atualizacoes[1]).toMatchObject({
-      parcelasLancadas: 13,
-      parcelasAntecipadas: 6,
-      lancadasNoMes: 0,
-      proximoVencimento: new Date(Date.UTC(2026, 8, 20)),
-    });
-  });
-
-  it('se a do fim falhou, a rodada seguinte gera só ela', async () => {
-    const { service, contasPagar } = montarServico({
-      lista: [financiamento({ parcelasLancadas: 13, lancadasNoMes: 1 })],
-    });
-
-    expect((await service.gerarPendentes()).geradas).toBe(1);
-    expect(contasPagar.criarDespesa).toHaveBeenCalledWith(
-      expect.objectContaining({ observacao: 'Financiamento Hilux (45/50)' }),
+    expect(contasPagar.criarDespesa).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ valor: 2000 }),
       undefined,
     );
   });
 
-  it('as duas pontas se encontram: a última que falta sai uma vez só', async () => {
-    // 24 pagas da frente e 25 do fim: falta a 25, e o mês pagaria duas.
+  it('as antecipadas do fim não são geradas, e o contrato acaba quando as pontas se encontram', async () => {
+    // 44 pela frente e as 6 do fim: falta só a 45.
     const { service, contasPagar, atualizacoes } = montarServico({
-      lista: [financiamento({ parcelasLancadas: 24, parcelasAntecipadas: 25 })],
+      lista: [
+        financiamento({ parcelasLancadas: 44, parcelasAntecipadas: 5 }),
+      ],
     });
 
     const r = await service.gerarPendentes();
 
     expect(r.geradas).toBe(1);
     expect(contasPagar.criarDespesa).toHaveBeenCalledWith(
-      expect.objectContaining({ observacao: 'Financiamento Hilux (25/50)' }),
+      expect.objectContaining({ observacao: 'Financiamento Hilux (45/50)' }),
       undefined,
     );
-    expect(atualizacoes[0]).toMatchObject({ parcelasLancadas: 25, ativa: false });
+    expect(atualizacoes[0]).toMatchObject({ parcelasLancadas: 45, ativa: false });
   });
 
   it('quitado pelos dois lados não gera mais nada', async () => {
     const { service, contasPagar } = montarServico({
-      lista: [financiamento({ parcelasLancadas: 30, parcelasAntecipadas: 20 })],
+      lista: [financiamento({ parcelasLancadas: 45, parcelasAntecipadas: 5 })],
     });
 
     expect((await service.gerarPendentes()).geradas).toBe(0);
     expect(contasPagar.criarDespesa).not.toHaveBeenCalled();
   });
 
-  it('recusa quando as antecipadas e as pagas passam do total', async () => {
-    const { service } = montarServico();
+  it('registra a antecipada com o valor do boleto e o de tabela', async () => {
+    const { service, antecipadas } = montarServico({
+      registro: financiamento({ antecipadas: [] }),
+    });
 
-    await expect(
-      service.criar({
-        idFornecedorIxc: 196,
-        fornecedorNome: 'Banco do Carro',
-        valor: 2000,
-        observacao: 'Financiamento Hilux',
-        proximoVencimento: '2026-09-20',
-        totalParcelas: 50,
-        parcelasLancadas: 30,
-        parcelasAntecipadas: 25,
-      }),
-    ).rejects.toThrow(/25 antecipadas/);
+    await service.antecipar(
+      'r1',
+      { numero: 45, valor: 1712.4, idFnApagarIxc: 9001 },
+      'u1',
+    );
+
+    expect(antecipadas[0]).toMatchObject({
+      numero: 45,
+      idFnApagarIxc: 9001,
+      criadoPor: 'u1',
+    });
+    // O que se pagou e o que ela valia: a diferença é o que se economizou.
+    expect(Number(antecipadas[0].valor)).toBe(1712.4);
+    expect(Number(antecipadas[0].valorDeTabela)).toBe(2000);
   });
 
-  it('recusa antecipar mais por mês do que se paga por mês', async () => {
-    const { service } = montarServico();
+  it('recusa antecipar uma parcela que já saiu', async () => {
+    const { service } = montarServico({
+      registro: financiamento({ antecipadas: [{ numero: 44 }] }),
+    });
 
-    await expect(
-      service.criar({
-        idFornecedorIxc: 196,
-        fornecedorNome: 'Banco do Carro',
-        valor: 2000,
-        observacao: 'Financiamento Hilux',
-        proximoVencimento: '2026-09-20',
-        totalParcelas: 50,
-        parcelasPorMes: 2,
-        antecipadasPorMes: 3,
-      }),
-    ).rejects.toThrow(/2 parcela\(s\) por mês/);
+    // A 10 já foi gerada pela rotina; a 44, antecipada; a 48, do fim.
+    await expect(service.antecipar('r1', { numero: 10, valor: 1 })).rejects.toThrow(
+      /já saiu/,
+    );
+    await expect(service.antecipar('r1', { numero: 44, valor: 1 })).rejects.toThrow(
+      /já saiu/,
+    );
+    await expect(service.antecipar('r1', { numero: 48, valor: 1 })).rejects.toThrow(
+      /já saiu/,
+    );
+  });
+
+  it('recusa um número que não existe no contrato', async () => {
+    const { service } = montarServico({ registro: financiamento() });
+
+    await expect(service.antecipar('r1', { numero: 51, valor: 1 })).rejects.toThrow(
+      /não existe/,
+    );
+  });
+
+  it('recusa antecipar num gasto mensal sem fim marcado', async () => {
+    const { service } = montarServico({ registro: recorrente() });
+
+    await expect(service.antecipar('r1', { numero: 2, valor: 1 })).rejects.toThrow(
+      /sem fim marcado/,
+    );
+  });
+
+  it('antecipar a última que faltava encerra o contrato', async () => {
+    // 44 pela frente, 5 do fim e a 45 agora: não sobra nenhuma.
+    const { service, atualizacoes } = montarServico({
+      registro: financiamento({ parcelasLancadas: 44, parcelasAntecipadas: 5 }),
+    });
+
+    await service.antecipar('r1', { numero: 45, valor: 1712.4 });
+
+    expect(atualizacoes[0]).toMatchObject({ ativa: false });
+  });
+
+  it('desfazer devolve a parcela para a fila', async () => {
+    const { service, prisma } = montarServico({
+      antecipada: { id: 'a1', recorrenteId: 'r1', numero: 45 },
+    });
+
+    await service.desfazerAntecipacao('r1', 'a1');
+
+    expect(prisma.parcelaAntecipada.delete).toHaveBeenCalledWith({
+      where: { id: 'a1' },
+    });
+  });
+
+  it('não desfaz a antecipação de outro contrato', async () => {
+    const { service } = montarServico({
+      antecipada: { id: 'a1', recorrenteId: 'outro', numero: 45 },
+    });
+
+    await expect(service.desfazerAntecipacao('r1', 'a1')).rejects.toThrow(
+      /não encontrada/,
+    );
   });
 });

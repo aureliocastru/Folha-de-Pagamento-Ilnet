@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import {
+  AnteciparParcelaDto,
   AtualizarRecorrenteDto,
   CriarRecorrenteDto,
 } from './dto/recorrente.dto';
@@ -40,6 +41,31 @@ export class RecorrentesController {
   @Patch(':id')
   atualizar(@Param('id') id: string, @Body() dto: AtualizarRecorrenteDto) {
     return this.service.atualizar(id, dto);
+  }
+
+  /**
+   * Registra a parcela que foi paga adiantada. A conta a pagar já nasceu — o
+   * que entra aqui é qual parcela ela era e por quanto saiu.
+   */
+  @Post(':id/antecipacoes')
+  @HttpCode(201)
+  antecipar(
+    @Param('id') id: string,
+    @Body() dto: AnteciparParcelaDto,
+    @Req() req: Request,
+  ) {
+    return this.service.antecipar(id, dto, usuarioId(req));
+  }
+
+  /** Desfaz o registro — a parcela volta para a fila da rotina mensal. */
+  @Delete(':id/antecipacoes/:antecipacaoId')
+  @HttpCode(200)
+  async desfazerAntecipacao(
+    @Param('id') id: string,
+    @Param('antecipacaoId') antecipacaoId: string,
+  ) {
+    await this.service.desfazerAntecipacao(id, antecipacaoId);
+    return { ok: true };
   }
 
   @Delete(':id')

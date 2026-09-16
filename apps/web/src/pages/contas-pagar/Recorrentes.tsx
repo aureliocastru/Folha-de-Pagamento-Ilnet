@@ -12,7 +12,12 @@ import {
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { formatBRL, formatData } from '../../lib/format';
-import { CadastroDoConsorcio, ListaDeConsorcios } from './Consorcios';
+import {
+  CadastroDoConsorcio,
+  JanelaDeAntecipacao,
+  ListaDeConsorcios,
+} from './Consorcios';
+import { NovaDespesa } from './NovaDespesa';
 
 /** Uma despesa que se repete todo mês, como a API a devolve. */
 export interface Recorrente {
@@ -35,15 +40,23 @@ export interface Recorrente {
   parcelasLancadas: number;
   parcelasPorMes: number;
   lancadasNoMes: number;
-  /** Quantas já foram quitadas contando do fim do contrato. */
+  /** Quantas já tinham sido antecipadas, do fim, quando o contrato entrou. */
   parcelasAntecipadas: number;
-  /** Quantas das do mês vêm do fim: em geral uma da frente e uma do fim. */
-  antecipadasPorMes: number;
-  /** O que se paga pela antecipada, já com o desconto. */
-  valorDaAntecipada: string | null;
+  /** As parcelas pagas fora da ordem, cada uma com o seu número. */
+  antecipadas: ParcelaAntecipada[];
   /** Preenchido, é financiamento de veículo — e mora na aba dele. */
   veiculoId: string | null;
   veiculo: { id: string; apelido: string; placa: string | null } | null;
+}
+
+/** Uma parcela paga adiantada: qual era, por quanto saiu e o que ela valia. */
+export interface ParcelaAntecipada {
+  id: string;
+  numero: number;
+  valor: string;
+  valorDeTabela: string;
+  idFnApagarIxc: number | null;
+  data: string;
 }
 
 export interface RecorrenteComResumo {
@@ -78,6 +91,16 @@ export function Recorrentes() {
     base: Recorrente | null;
     modo: 'consorcio' | 'financiamento';
   } | null>(null);
+  /** O contrato cuja parcela se está escolhendo para antecipar. */
+  const [antecipando, setAntecipando] = useState<string | null>(null);
+  /**
+   * A parcela escolhida, esperando virar conta a pagar. Enquanto isto existe,
+   * a tela de lançar está aberta com tudo preenchido menos o valor do boleto.
+   */
+  const [aLancar, setALancar] = useState<{
+    recorrente: Recorrente;
+    numero: number;
+  } | null>(null);
 
   const lista = useQuery({
     queryKey: ['recorrentes'],
@@ -111,6 +134,69 @@ export function Recorrentes() {
     onSuccess: () => {
       setErro(false);
       setAviso('Repetição apagada. As contas que ela já gerou continuam lá.');
+      invalidar();
+    },
+    onError: (err) => {
+      setErro(true);
+      setAviso(mensagemErro(err));
+    },
+  });
+
+  /**
+   * Registra a parcela antecipada — depois que a conta já nasceu no IXC.
+   *
+   * O valor que fica guardado é o que foi lançado: o do boleto, com o desconto
+   * já dentro. O IXC não vê desconto nenhum, vê uma despesa de um valor só, e
+   * é isso que faz o título fechar lá sem sobra nem falta.
+   */
+  const registrarAntecipada = useMutation({
+    mutationFn: async (dados: {
+      id: string;
+      numero: number;
+      valor: number;
+      valorDeTabela: number;
+      contaId?: string | null;
+      idFnApagarIxc?: number | null;
+    }) => {
+      await api.post(`/recorrentes/${dados.id}/antecipacoes`, {
+        numero: dados.numero,
+        valor: dados.valor,
+        valorDeTabela: dados.valorDeTabela,
+        contaId: dados.contaId ?? undefined,
+        idFnApagarIxc: dados.idFnApagarIxc ?? undefined,
+      });
+    },
+    onSuccess: (_, dados) => {
+      setErro(false);
+      setAviso(
+        `Parcela ${dados.numero} antecipada por ${formatBRL(dados.valor)}. ` +
+          'Ela saiu da fila: não vai nascer de novo no mês dela.',
+      );
+      invalidar();
+    },
+    onError: (err) => {
+      setErro(true);
+      setAviso(
+        'A conta foi lançada no IXC, mas o registro da antecipação falhou: ' +
+          `${mensagemErro(err)}. Abra "Antecipar" e escolha a parcela de novo — ` +
+          'sem isso a rotina vai gerá-la outra vez no mês dela.',
+      );
+      invalidar();
+    },
+  });
+
+  const desfazerAntecipada = useMutation({
+    mutationFn: async (dados: { id: string; antecipacaoId: string }) => {
+      await api.delete(
+        `/recorrentes/${dados.id}/antecipacoes/${dados.antecipacaoId}`,
+      );
+    },
+    onSuccess: () => {
+      setErro(false);
+      setAviso(
+        'Antecipação desfeita: a parcela voltou para a fila. A conta que ' +
+          'nasceu no IXC continua lá — se ela não vale mais, cancele-a por lá.',
+      );
       invalidar();
     },
     onError: (err) => {
@@ -156,17 +242,15 @@ export function Recorrentes() {
   const ativas = itens.filter((i) => i.recorrente.ativa);
   const porMes = ativas.reduce((s, i) => s + Number(i.recorrente.valor), 0);
 
-  /** O que sai do caixa por mês: a do fim entra pelo valor com desconto. */
+  /** O que sai do caixa por mês em parcelas que nascem sozinhas. */
   function somaPorMes(itens: RecorrenteComResumo[]): number {
     return itens
       .filter((i) => i.recorrente.ativa)
-      .reduce((s, { recorrente: r }) => {
-        const total = Math.max(1, r.parcelasPorMes);
-        const doFim = Math.min(r.antecipadasPorMes, total);
-        const antecipada =
-          r.valorDaAntecipada == null ? Number(r.valor) : Number(r.valorDaAntecipada);
-        return s + Number(r.valor) * (total - doFim) + antecipada * doFim;
-      }, 0);
+      .reduce(
+        (s, { recorrente: r }) =>
+          s + Number(r.valor) * Math.max(1, r.parcelasPorMes),
+        0,
+      );
   }
 
   const consorciosAtivos = consorcios.filter((i) => i.recorrente.ativa);
@@ -218,6 +302,71 @@ export function Recorrentes() {
             setAba(veiculo ? 'financiamentos' : 'consorcios');
             invalidar();
           }}
+        />
+      )}
+
+      {/* Escolher qual parcela vai ser paga adiantada. */}
+      {antecipando && (() => {
+        const item = todos.find((i) => i.recorrente.id === antecipando);
+        if (!item) return null;
+        return (
+          <JanelaDeAntecipacao
+            item={item}
+            onFechar={() => setAntecipando(null)}
+            onPagar={(parcela) => {
+              setAntecipando(null);
+              setALancar({ recorrente: item.recorrente, numero: parcela.numero });
+            }}
+            onDesfazer={(antecipada) => {
+              if (
+                confirm(
+                  `Desfazer a antecipação da parcela ${antecipada.numero}? ` +
+                    'Ela volta para a fila e a rotina vai gerá-la no mês dela.',
+                )
+              ) {
+                setAntecipando(null);
+                desfazerAntecipada.mutate({
+                  id: item.recorrente.id,
+                  antecipacaoId: antecipada.id,
+                });
+              }
+            }}
+          />
+        );
+      })()}
+
+      {/*
+       * A conta da parcela antecipada, na mesma tela de sempre.
+       *
+       * Vem pronta: o credor, a descrição com o número da parcela, a categoria
+       * e o veículo. O que fica em branco é o que só o boleto sabe — o valor
+       * com desconto — e a forma de pagar, que é onde entra a linha digitável.
+       */}
+      {aLancar && (
+        <NovaDespesa
+          inicial={{
+            fornecedor: {
+              idFornecedor: aLancar.recorrente.idFornecedorIxc,
+              nome: aLancar.recorrente.fornecedorNome,
+            },
+            observacao:
+              `${aLancar.recorrente.observacao} ` +
+              `(${aLancar.numero}/${aLancar.recorrente.totalParcelas}) antecipada`,
+            categoriaId: aLancar.recorrente.categoriaId,
+            veiculoId: aLancar.recorrente.veiculoId,
+            tipoPagamento: aLancar.recorrente.tipoPagamentoIxc ?? 'Boleto',
+          }}
+          onLancada={(dados, valorLancado) => {
+            registrarAntecipada.mutate({
+              id: aLancar.recorrente.id,
+              numero: aLancar.numero,
+              valor: valorLancado,
+              valorDeTabela: Number(aLancar.recorrente.valor),
+              contaId: dados.conta.id,
+              idFnApagarIxc: dados.conta.idFnApagarIxc,
+            });
+          }}
+          onFechar={() => setALancar(null)}
         />
       )}
 
@@ -273,6 +422,7 @@ export function Recorrentes() {
                 itens={consorcios}
                 ocupado={salvar.isPending}
                 onEditar={(r) => setCadastro({ base: r, modo: 'consorcio' })}
+                onAntecipar={(r) => setAntecipando(r.id)}
                 onLigar={(r) =>
                   salvar.mutate({ id: r.id, dados: { ativa: !r.ativa } })
                 }
@@ -314,6 +464,7 @@ export function Recorrentes() {
                     'Cadastre em "Novo financiamento": escolha o veículo, o banco e em que parcela está. A conta de cada mês passa a nascer sozinha no IXC.',
                 }}
                 onEditar={(r) => setCadastro({ base: r, modo: 'financiamento' })}
+                onAntecipar={(r) => setAntecipando(r.id)}
                 onLigar={(r) =>
                   salvar.mutate({ id: r.id, dados: { ativa: !r.ativa } })
                 }
