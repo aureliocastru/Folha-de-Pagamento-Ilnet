@@ -268,24 +268,22 @@ export class RecorrentesService {
   }
 
   /**
-   * Registra uma parcela paga fora da ordem — a antecipação.
+   * Guarda por quanto saiu uma parcela — a antecipada de hoje e a paga há dois
+   * anos.
    *
-   * Chega aqui **depois** de a conta já ter nascido no IXC, e com o valor que
-   * foi lançado: o do boleto com desconto. O desconto não viaja como desconto
-   * em lugar nenhum — o título nasce valendo o que se vai pagar, e é por isso
-   * que o IXC não tem o que recusar: para ele é uma despesa como outra
-   * qualquer. O que se guarda aqui é qual parcela saiu, para a rotina mensal
-   * não gerá-la de novo, e por quanto, para se saber o que se economizou.
+   * **Antecipar** é o caso principal: a parcela ainda estava em aberto, a
+   * conta nasceu no IXC com o valor do boleto (que já vem com o desconto do
+   * juro que ainda ia correr), e o que entra aqui é qual parcela ela era e por
+   * quanto saiu. Ela deixa a fila: a rotina mensal não vai gerá-la de novo. Se
+   * era a última que faltava, o contrato acaba.
    *
-   * Serve também para o que foi antecipado **antes** de o contrato entrar
-   * aqui, e sem conta nenhuma: o cadastro pergunta quantas já foram, e isso é
-   * uma contagem cega — sabe que a 36 e a 35 saíram, não sabe por quanto.
-   * Informar o valor de uma delas transfere a parcela dessa contagem para um
-   * registro de verdade: o contador desce um, a parcela continua paga, e a
-   * economia dela passa a ser conhecida.
+   * **Informar o valor** é o outro: a parcela já tinha saído — pela rotina,
+   * pela contagem do cadastro ("23 pagas, 6 antecipadas") ou antes de tudo
+   * isso — e só faltava saber quanto custou. Nada muda de lugar; o que se
+   * ganha é a soma do que já se pagou e a economia de cada antecipação.
    *
-   * Antecipar a última que faltava encerra o contrato: ele para de gerar, como
-   * pararia depois da última parcela comum.
+   * Registrar de novo a mesma parcela corrige o valor, e não duplica: é o
+   * caminho do "errei um número".
    */
   async antecipar(
     id: string,
@@ -304,7 +302,7 @@ export class RecorrentesService {
   ) {
     const r = await this.prisma.despesaRecorrente.findUnique({
       where: { id },
-      include: { antecipadas: { select: { numero: true } } },
+      include: { antecipadas: { select: { id: true, numero: true } } },
     });
     if (!r) throw new NotFoundException('Despesa recorrente não encontrada');
 
@@ -320,10 +318,24 @@ export class RecorrentesService {
       );
     }
 
-    if (r.antecipadas.some((a) => a.numero === dados.numero)) {
-      throw new BadRequestException(
-        `A parcela ${dados.numero} já está registrada como antecipada.`,
-      );
+    const registrada = r.antecipadas.find((a) => a.numero === dados.numero);
+    if (registrada) {
+      // Corrigir o valor de uma que já está registrada. Nada sai nem volta
+      // para a fila: ela já estava fora.
+      return this.prisma.parcelaAntecipada.update({
+        where: { id: registrada.id },
+        data: {
+          valor: new Prisma.Decimal(dados.valor),
+          ...(dados.valorDeTabela === undefined
+            ? {}
+            : { valorDeTabela: new Prisma.Decimal(dados.valorDeTabela) }),
+          ...(dados.data ? { data: dataUtc(dados.data) } : {}),
+          ...(dados.contaId === undefined ? {} : { contaId: dados.contaId }),
+          ...(dados.idFnApagarIxc === undefined
+            ? {}
+            : { idFnApagarIxc: dados.idFnApagarIxc }),
+        },
+      });
     }
 
     /*
@@ -333,12 +345,16 @@ export class RecorrentesService {
     const daContagemDoCadastro =
       r.parcelasAntecipadas > 0 && dados.numero > total - r.parcelasAntecipadas;
 
+    /*
+     * Já saiu pela frente: é uma das que a rotina gerou, ou uma das que o
+     * cadastro contou como paga. Guardar o valor dela não a tira de lugar
+     * nenhum — ela já não estava na fila.
+     */
+    const jaSaiuPelaFrente = dados.numero <= r.parcelasLancadas;
+
     const jaSairam = numerosJaSaidos(r);
-    if (jaSairam.has(dados.numero) && !daContagemDoCadastro) {
-      throw new BadRequestException(
-        `A parcela ${dados.numero} já saiu — ou foi paga pela rotina, ou já tinha sido antecipada.`,
-      );
-    }
+    /** Estava em aberto: guardar o valor aqui é antecipá-la de verdade. */
+    const antecipando = !jaSairam.has(dados.numero);
 
     const antecipada = await this.prisma.parcelaAntecipada.create({
       data: {
@@ -353,7 +369,7 @@ export class RecorrentesService {
       },
     });
 
-    if (daContagemDoCadastro) {
+    if (daContagemDoCadastro && !jaSaiuPelaFrente) {
       /*
        * A parcela saiu da contagem e virou registro. O contador desce um para
        * a mesma parcela não valer duas vezes — o que já estava pago continua
@@ -363,7 +379,7 @@ export class RecorrentesService {
         where: { id },
         data: { parcelasAntecipadas: r.parcelasAntecipadas - 1 },
       });
-    } else if (jaSairam.size + 1 >= total && r.ativa) {
+    } else if (antecipando && jaSairam.size + 1 >= total && r.ativa) {
       // Era a que faltava: o contrato acabou e para de gerar sozinho.
       await this.prisma.despesaRecorrente.update({
         where: { id },
@@ -372,7 +388,8 @@ export class RecorrentesService {
     }
 
     this.logger.log(
-      `Parcela ${dados.numero}/${total} de ${r.fornecedorNome} antecipada por ` +
+      `Parcela ${dados.numero}/${total} de ${r.fornecedorNome} ` +
+        `${antecipando ? 'antecipada' : 'registrada'} por ` +
         `${dados.valor} (valia ${Number(r.valor)})` +
         (dados.idFnApagarIxc ? `, título ${dados.idFnApagarIxc}` : '') +
         '.',

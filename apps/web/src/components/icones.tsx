@@ -508,3 +508,51 @@ export function IconeChaveInglesa({ className }: IconeProps) {
     </svg>
   );
 }
+
+/** Visto dentro do círculo: a parcela que já foi paga. */
+export function IconeCheckCirculo({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="m8.5 12 2.4 2.4 4.6-4.8" />
+    </svg>
+  );
+}
+
+/** Relógio: a conta que já nasceu e espera o pagamento. */
+export function IconeRelogio({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5V12l3 1.8" />
+    </svg>
+  );
+}
+
+/** O raio: a parcela paga adiantada, lá da frente do contrato. */
+export function IconeRaio({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M13 2.5 4.5 13.5H11l-.5 8 8.5-11H12.5l.5-8Z" />
+    </svg>
+  );
+}
+
+/** Círculo vazio: a parcela que ainda não saiu. */
+export function IconeCirculo({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <circle cx="12" cy="12" r="8.5" strokeDasharray="2.5 2.5" />
+    </svg>
+  );
+}
+
+/** O lápis: mexer no que já está escrito. */
+export function IconeLapis({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M4 20h4L19 9a2.1 2.1 0 0 0-3-3L5 17v3Z" />
+      <path d="m14.5 7.5 2.5 2.5" />
+    </svg>
+  );
+}

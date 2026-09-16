@@ -1,5 +1,12 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import {
+  IconeCheckCirculo,
+  IconeCirculo,
+  IconeLapis,
+  IconeRaio,
+  IconeRelogio,
+} from '../../components/icones';
 import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
 import {
   Aviso,
@@ -12,7 +19,6 @@ import {
 import { api, mensagemErro } from '../../lib/api';
 import { useTermoAdiado } from '../../lib/busca';
 import { formatBRL, formatData } from '../../lib/format';
-import { STATUS_LABEL, STATUS_TOM } from '../../lib/status';
 import type { CategoriaDespesa, StatusContaPagar } from '../../lib/types';
 import type {
   ParcelaAntecipada,
@@ -614,13 +620,108 @@ interface LinhaDoHistorico {
   antecipada: boolean;
 }
 
+/** Uma parcela do contrato na tela: do número 1 ao último, saiu ou não. */
+interface ParcelaNaTela {
+  numero: number;
+  /** O vencimento real, quando há conta; o previsto, quando não há. */
+  vencimento: string;
+  /** Quanto ela vale pelo contrato. */
+  cheio: number;
+  /** O que saiu por ela. Null = ainda não saiu, ou não se sabe por quanto. */
+  pago: number | null;
+  situacao: 'paga' | 'antecipada' | 'esperando' | 'aberta';
+  status: StatusContaPagar | null;
+  /** O dia em que o dinheiro saiu, quando se sabe. */
+  pagoEm: string | null;
+  idFnApagarIxc: number | null;
+  /** Tem conta a pagar: o valor é o do título, e não se digita aqui. */
+  temConta: boolean;
+}
+
+const ICONE_DA_SITUACAO = {
+  paga: { icone: IconeCheckCirculo, cor: 'text-emerald-600 dark:text-emerald-400', titulo: 'paga' },
+  antecipada: { icone: IconeRaio, cor: 'text-emerald-600 dark:text-emerald-400', titulo: 'antecipada' },
+  esperando: { icone: IconeRelogio, cor: 'text-brand-600 dark:text-brand-300', titulo: 'esperando pagamento' },
+  aberta: { icone: IconeCirculo, cor: 'text-tinta-300', titulo: 'ainda não saiu' },
+} as const;
+
 /**
- * O que já foi pago deste contrato — quanto saiu em cada parcela.
+ * O contrato inteiro, parcela por parcela.
  *
- * Só do dia em que o contrato entrou no sistema para cá: o que se pagou antes
- * é a contagem do cadastro ("23 pagas, 6 antecipadas"), e dela não há papel
- * nenhum guardado. As antecipadas aparecem marcadas, com o que se pagou ao
- * lado do que a parcela valia — que é onde se vê a economia.
+ * Junta três coisas que moram em lugares diferentes: as contas que nasceram no
+ * IXC, os valores informados à mão (as antecipadas e as pagas antes de tudo
+ * isto) e o que ainda falta, com o mês previsto de cada uma. O que não se sabe
+ * fica em branco esperando alguém digitar — e é digitando que a soma do que já
+ * se pagou vira a soma de verdade.
+ */
+function parcelasDoContrato(r: Recorrente, linhas: LinhaDoHistorico[]): ParcelaNaTela[] {
+  const a = andamento(r);
+  const jaSairam = numerosJaSaidos(r);
+  const porNumero = new Map(
+    linhas.filter((l) => l.numero != null).map((l) => [l.numero as number, l]),
+  );
+  const previsto = new Map(a.emAberto.map((p) => [p.numero, p.vencimento]));
+  const iso = String(r.proximoVencimento).slice(0, 10);
+  const primeiraEmAberto = a.emAberto[0]?.numero ?? a.total + 1;
+  const porMes = Math.max(1, r.parcelasPorMes);
+
+  return Array.from({ length: a.total }, (_, i) => {
+    const numero = i + 1;
+    const linha = porNumero.get(numero);
+    const saiu = jaSairam.has(numero);
+
+    /*
+     * O mês de cada uma. As que ainda faltam já vêm calculadas do andamento —
+     * são as mesmas datas que o cartão anuncia. As que ficaram para trás são
+     * contadas de trás para a frente a partir da primeira em aberto: é
+     * estimativa, e é a única coisa que se pode dizer de uma parcela paga
+     * antes de o contrato entrar aqui.
+     */
+    /*
+     * O vencimento, e não o dia do pagamento: a parcela 45 vence em 11/2027
+     * mesmo tendo sido paga em setembro. Quando há conta a pagar, a data dela
+     * é a verdadeira; quando não há, vale a previsão.
+     */
+    const vencimento =
+      (linha?.contaId ? linha.data : null) ??
+      previsto.get(numero) ??
+      somarMeses(
+        iso,
+        Math.floor((numero - primeiraEmAberto + r.lancadasNoMes) / porMes),
+        r.diaDoVencimento,
+      );
+
+    const situacao: ParcelaNaTela['situacao'] = linha?.antecipada
+      ? 'antecipada'
+      : !saiu
+        ? 'aberta'
+        : linha == null || linha.status === 'PAGO' || linha.status === null
+          ? 'paga'
+          : 'esperando';
+
+    return {
+      numero,
+      vencimento,
+      cheio: linha ? Number(linha.valorDeTabela) : Number(r.valor),
+      pago: linha ? Number(linha.valor) : null,
+      situacao,
+      status: linha?.status ?? null,
+      /** Quando saiu o dinheiro, para quem antecipou. */
+      pagoEm: linha?.pagoEm ?? (linha && !linha.contaId ? linha.data : null),
+      idFnApagarIxc: linha?.idFnApagarIxc ?? null,
+      temConta: !!linha?.contaId,
+    };
+  });
+}
+
+/**
+ * O contrato inteiro: o que já foi pago, o que falta e por quanto saiu cada
+ * parcela.
+ *
+ * Uma linha por parcela, do começo ao fim, com o número na frente e um ícone
+ * dizendo em que pé ela está. O valor pago de quem não tem conta a pagar é
+ * digitável: as parcelas pagas antes de o contrato entrar aqui não têm papel
+ * nenhum guardado, e é informando cada uma que o total do contrato fecha.
  */
 export function JanelaDeHistorico({
   item,
@@ -629,8 +730,12 @@ export function JanelaDeHistorico({
   item: RecorrenteComResumo;
   onFechar: () => void;
 }) {
+  const queryClient = useQueryClient();
   const r = item.recorrente;
   const a = andamento(r);
+
+  const [editando, setEditando] = useState<number | null>(null);
+  const [valor, setValor] = useState('');
 
   const historico = useQuery({
     queryKey: ['recorrentes', r.id, 'historico'],
@@ -639,145 +744,191 @@ export function JanelaDeHistorico({
         .data,
   });
 
-  const linhas = historico.data?.linhas ?? [];
-  // Pago de verdade: o que o banco confirmou, mais as antecipadas que foram
-  // pagas por fora (essas não têm status porque nunca viraram conta aqui).
-  const saiuDoCaixa = linhas
-    .filter((l) => l.status === 'PAGO' || l.status === null)
-    .reduce((s, l) => s + Number(l.valor), 0);
-  const emAberto = linhas
-    .filter((l) => l.status !== 'PAGO' && l.status !== null && l.status !== 'CANCELADO')
-    .reduce((s, l) => s + Number(l.valor), 0);
-  // A economia sai das linhas, e não do resumo do cartão: aqui ela tem de
-  // bater com o "a menos" de cada parcela logo abaixo.
-  const economia = linhas.reduce(
-    (s, l) => s + Math.max(0, Number(l.valorDeTabela) - Number(l.valor)),
+  const salvar = useMutation({
+    mutationFn: async (dados: { numero: number; valor: number }) => {
+      await api.post(`/recorrentes/${r.id}/antecipacoes`, {
+        numero: dados.numero,
+        valor: dados.valor,
+        valorDeTabela: Number(r.valor),
+      });
+    },
+    onSuccess: () => {
+      setEditando(null);
+      void queryClient.invalidateQueries({ queryKey: ['recorrentes'] });
+    },
+  });
+
+  const parcelas = parcelasDoContrato(r, historico.data?.linhas ?? []);
+  const pagas = parcelas.filter(
+    (p) => p.situacao === 'paga' || p.situacao === 'antecipada',
+  );
+  const saiuDoCaixa = pagas.reduce((s, p) => s + (p.pago ?? 0), 0);
+  const semValor = pagas.filter((p) => p.pago == null).length;
+  const esperando = parcelas
+    .filter((p) => p.situacao === 'esperando')
+    .reduce((s, p) => s + (p.pago ?? p.cheio), 0);
+  const economia = parcelas.reduce(
+    (s, p) => s + (p.pago != null ? Math.max(0, p.cheio - p.pago) : 0),
     0,
   );
 
   return (
     <Janela
-      titulo={`Histórico — ${r.ehFinanciamento ? r.observacao : r.fornecedorNome}`}
+      titulo={`Parcelas — ${r.ehFinanciamento ? r.observacao : r.fornecedorNome}`}
       onFechar={onFechar}
     >
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <div className="rounded-xl bg-tinta-50 px-3 py-2">
-          <p className="text-[11px] uppercase tracking-wider text-tinta-400">
-            Parcelas
-          </p>
-          <p className="num text-sm font-semibold text-tinta-900">
-            {a.pagas} de {a.total}
-          </p>
-        </div>
-        <div className="rounded-xl bg-tinta-50 px-3 py-2">
-          <p className="text-[11px] uppercase tracking-wider text-tinta-400">
-            Já saiu do caixa
-          </p>
-          <p className="valor text-sm font-semibold text-tinta-900">
-            {formatBRL(saiuDoCaixa)}
-          </p>
-        </div>
-        <div className="rounded-xl bg-tinta-50 px-3 py-2">
-          <p className="text-[11px] uppercase tracking-wider text-tinta-400">
-            Esperando pagamento
-          </p>
-          <p className="valor text-sm font-semibold text-tinta-900">
-            {formatBRL(emAberto)}
-          </p>
-        </div>
-        <div className="rounded-xl bg-tinta-50 px-3 py-2">
-          <p className="text-[11px] uppercase tracking-wider text-tinta-400">
-            Economia
-          </p>
-          <p className="valor text-sm font-semibold text-emerald-700 dark:text-emerald-400">
-            {formatBRL(economia)}
-          </p>
-        </div>
+        <Numero rotulo="Pagas" valor={`${a.pagas} de ${a.total}`} />
+        <Numero
+          rotulo="Já saiu do caixa"
+          valor={formatBRL(saiuDoCaixa)}
+          detalhe={semValor > 0 ? `${semValor} sem valor informado` : undefined}
+        />
+        <Numero rotulo="Esperando pagamento" valor={formatBRL(esperando)} />
+        <Numero rotulo="Economia" valor={formatBRL(economia)} verde />
       </div>
 
-      <div className="mt-4">
-        {historico.isLoading ? (
-          <Carregando />
-        ) : historico.isError ? (
-          <Aviso tom="erro">{mensagemErro(historico.error)}</Aviso>
-        ) : linhas.length === 0 ? (
-          <Vazio titulo="Nada pago por aqui ainda">
-            As contas deste contrato aparecem aqui a partir da primeira que
-            nascer no IXC — e as parcelas antecipadas, assim que forem lançadas.
-          </Vazio>
-        ) : (
-          <div className="overflow-x-auto rolagem-fina">
-            <table className="w-full min-w-[520px] text-sm">
-              <thead>
-                <tr>
-                  <th className="th">Parcela</th>
-                  <th className="th">Data</th>
-                  <th className="th text-right">Saiu por</th>
-                  <th className="th">Situação</th>
-                </tr>
-              </thead>
-              <tbody>
-                {linhas.map((l) => {
-                  const economia = Number(l.valorDeTabela) - Number(l.valor);
-                  return (
-                    <tr key={l.contaId ?? l.antecipacaoId ?? String(l.numero)} className="linha">
-                      <td className="td">
-                        <span className="num font-semibold text-tinta-800">
-                          {l.numero ?? '—'}
-                          {l.numero != null && (
-                            <span className="text-xs font-normal text-tinta-400">
-                              /{a.total}
-                            </span>
-                          )}
-                        </span>
-                        {l.antecipada && (
-                          <Selo pequeno tom="pago">
-                            antecipada
-                          </Selo>
-                        )}
-                      </td>
-                      <td className="td num whitespace-nowrap text-tinta-600">
-                        {formatData(l.pagoEm ?? l.data)}
-                      </td>
-                      <td className="td text-right">
-                        <span className="valor">{formatBRL(Number(l.valor))}</span>
-                        {economia > 0.005 && (
-                          <div className="text-[11px] text-emerald-700 dark:text-emerald-400">
-                            {formatBRL(economia)} a menos
-                          </div>
-                        )}
-                      </td>
-                      <td className="td">
-                        {l.status ? (
-                          <Selo pequeno tom={STATUS_TOM[l.status]}>
-                            {STATUS_LABEL[l.status]}
-                          </Selo>
-                        ) : (
-                          <span className="text-xs text-tinta-500">
-                            paga fora do sistema
-                          </span>
-                        )}
-                        {l.idFnApagarIxc && (
-                          <div className="num text-[11px] text-tinta-400">
-                            título {l.idFnApagarIxc}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      {historico.isError && (
+        <Aviso tom="erro">{mensagemErro(historico.error)}</Aviso>
+      )}
+      {salvar.isError && <Aviso tom="erro">{mensagemErro(salvar.error)}</Aviso>}
 
-      <div className="mt-5 flex justify-end">
+      {historico.isLoading ? (
+        <Carregando />
+      ) : (
+        <div className="mt-3 max-h-[46vh] overflow-y-auto rolagem-fina rounded-xl border border-tinta-100">
+          {/* Uma linha por parcela: número, vencimento, valor cheio e o que
+              saiu de verdade. Compacta de propósito — são dezenas delas. */}
+          {parcelas.map((p) => {
+            const { icone: Icone, cor, titulo } = ICONE_DA_SITUACAO[p.situacao];
+            const emEdicao = editando === p.numero;
+            return (
+              <div
+                key={p.numero}
+                className="item-dividido flex items-center gap-1.5 px-2 py-1.5 text-[12px] sm:gap-2 sm:px-2.5 sm:text-[13px]"
+              >
+                <Icone className={`h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4 ${cor}`} />
+                <span className="num w-9 shrink-0 font-semibold text-tinta-800 sm:w-11">
+                  {p.numero}
+                  <span className="text-[10px] font-normal text-tinta-400">
+                    /{a.total}
+                  </span>
+                </span>
+                <span
+                  className="num w-[62px] shrink-0 text-[11px] text-tinta-500 sm:w-[74px] sm:text-[13px]"
+                  title={
+                    p.pagoEm
+                      ? `${titulo} em ${formatData(p.pagoEm)}`
+                      : `vence ${formatData(p.vencimento)} — ${titulo}`
+                  }
+                >
+                  {formatData(p.vencimento)}
+                </span>
+
+                {emEdicao ? (
+                  <div className="ml-auto flex shrink-0 items-center gap-1">
+                    <CampoDinheiro
+                      valor={valor}
+                      onChange={setValor}
+                      className="campo w-24 py-1 text-right sm:w-28"
+                    />
+                    <button
+                      onClick={() =>
+                        salvar.mutate({ numero: p.numero, valor: Number(valor) })
+                      }
+                      disabled={!(Number(valor) > 0) || salvar.isPending}
+                      className="btn btn-primario btn-p"
+                    >
+                      Salvar
+                    </button>
+                    <button
+                      onClick={() => setEditando(null)}
+                      className="btn btn-sutil btn-p"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <span className="num ml-auto shrink-0 text-right text-[11px] text-tinta-400">
+                      {formatBRL(p.cheio)}
+                    </span>
+                    <span
+                      className={`valor w-[72px] shrink-0 text-right sm:w-24 ${
+                        p.pago == null
+                          ? 'text-tinta-300'
+                          : p.pago < p.cheio
+                            ? 'text-emerald-700 dark:text-emerald-400'
+                            : 'text-tinta-800'
+                      }`}
+                    >
+                      {p.pago == null ? '—' : formatBRL(p.pago)}
+                    </span>
+                    {/* Quem tem conta a pagar não se digita: o valor é o do
+                        título, e mexer nele aqui seria inventar um número que
+                        o IXC não tem. */}
+                    <button
+                      onClick={() => {
+                        setEditando(p.numero);
+                        setValor(p.pago != null ? String(p.pago) : '');
+                      }}
+                      disabled={p.temConta}
+                      className="btn btn-sutil btn-p shrink-0 px-1.5 disabled:opacity-30"
+                      title={
+                        p.temConta
+                          ? `O valor é o da conta no IXC${p.idFnApagarIxc ? ` (título ${p.idFnApagarIxc})` : ''}`
+                          : 'Informar quanto saiu por esta parcela'
+                      }
+                    >
+                      <IconeLapis className="h-3.5 w-3.5" />
+                    </button>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <p className="ajuda">
+        O valor pago das parcelas sem conta a pagar é digitável — as que foram
+        pagas antes de o contrato entrar aqui não têm registro nenhum, e é
+        informando cada uma que a soma fecha.
+      </p>
+
+      <div className="mt-4 flex justify-end">
         <button onClick={onFechar} className="btn btn-neutro">
           Fechar
         </button>
       </div>
     </Janela>
+  );
+}
+
+/** Um número do alto da janela: rótulo pequeno, valor grande. */
+function Numero({
+  rotulo,
+  valor,
+  detalhe,
+  verde,
+}: {
+  rotulo: string;
+  valor: string;
+  detalhe?: string;
+  verde?: boolean;
+}) {
+  return (
+    <div className="rounded-xl bg-tinta-50 px-3 py-2">
+      <p className="text-[11px] uppercase tracking-wider text-tinta-400">{rotulo}</p>
+      <p
+        className={`valor text-sm font-semibold ${
+          verde ? 'text-emerald-700 dark:text-emerald-400' : 'text-tinta-900'
+        }`}
+      >
+        {valor}
+      </p>
+      {detalhe && <p className="text-[11px] text-tinta-400">{detalhe}</p>}
+    </div>
   );
 }
 

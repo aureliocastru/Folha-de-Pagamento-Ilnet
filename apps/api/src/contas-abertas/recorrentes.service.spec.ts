@@ -85,6 +85,7 @@ function montarServico(
         return { id: 'a1', ...data };
       }),
       findUnique: jest.fn(async () => opts.antecipada ?? null),
+      update: jest.fn(async ({ data }: { data: unknown }) => data),
       delete: jest.fn(),
     },
   };
@@ -478,34 +479,40 @@ describe('RecorrentesService — parcela antecipada', () => {
     expect(atualizacoes[0]).toMatchObject({ parcelasAntecipadas: 4 });
   });
 
-  it('não registra duas vezes a mesma parcela', async () => {
-    const { service } = montarServico({
-      registro: financiamento({ antecipadas: [{ numero: 50 }] }),
+  it('registrar de novo a mesma parcela corrige o valor, não duplica', async () => {
+    const { service, prisma, antecipadas } = montarServico({
+      registro: financiamento({ antecipadas: [{ id: 'a9', numero: 50 }] }),
     });
 
-    await expect(service.antecipar('r1', { numero: 50, valor: 1 })).rejects.toThrow(
-      /já está registrada/,
+    await service.antecipar('r1', { numero: 50, valor: 1700 });
+
+    expect(prisma.parcelaAntecipada.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'a9' } }),
     );
+    expect(antecipadas).toHaveLength(0);
   });
 
-  it('recusa antecipar uma parcela que já saiu', async () => {
+  it('guarda o valor de uma parcela que a rotina já gerou, sem mexer na fila', async () => {
+    // A 10 saiu há meses; o que falta é saber por quanto. Nada é antecipado
+    // aqui: o contador da frente e o do fim ficam onde estão.
+    const { service, antecipadas, atualizacoes } = montarServico({
+      registro: financiamento({ antecipadas: [] }),
+    });
+
+    await service.antecipar('r1', { numero: 10, valor: 2000 });
+
+    expect(antecipadas[0]).toMatchObject({ numero: 10 });
+    expect(atualizacoes).toHaveLength(0);
+  });
+
+  it('recusa um número que não existe no contrato', async () => {
     const { service } = montarServico({
       registro: financiamento({ antecipadas: [{ numero: 44 }] }),
     });
 
-    // A 10 já foi gerada pela rotina, e a 44 já está registrada.
-    await expect(service.antecipar('r1', { numero: 10, valor: 1 })).rejects.toThrow(
-      /já saiu/,
-    );
-    await expect(service.antecipar('r1', { numero: 44, valor: 1 })).rejects.toThrow(
-      /já está registrada/,
-    );
-  });
-
-  it('recusa um número que não existe no contrato', async () => {
-    const { service } = montarServico({ registro: financiamento() });
-
-    await expect(service.antecipar('r1', { numero: 51, valor: 1 })).rejects.toThrow(
+    // Fora do contrato é o único número que não existe: o resto é valor de
+    // parcela, e valor sempre se pode corrigir.
+    await expect(service.antecipar('r1', { numero: 0, valor: 1 })).rejects.toThrow(
       /não existe/,
     );
   });
