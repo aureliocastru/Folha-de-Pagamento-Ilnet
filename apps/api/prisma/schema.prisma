@@ -1001,11 +1001,14 @@ model DespesaRecorrente {
   /// As parcelas antecipadas por esta tela, cada uma com o seu número.
   antecipadas ParcelaAntecipada[]
 
-  /// O veículo que este financiamento está pagando. Preenchido, a repetição é
-  /// um financiamento de veículo: sai da aba de consórcios e vai para a de
-  /// financiamentos, onde se vê a evolução de cada carro da frota.
-  veiculo   Veiculo? @relation(fields: [veiculoId], references: [id], onDelete: SetNull)
-  veiculoId String?  @map("veiculo_id")
+  /// É um financiamento: mora na aba dele, e não entre os consórcios.
+  ///
+  /// É uma marca, e não um vínculo com a frota. Nem todo financiamento é de
+  /// carro — há máquina, equipamento, imóvel —, e metade dos carros que a casa
+  /// paga nem está no cadastro da frota: comprado no nome de alguém, ainda não
+  /// emplacado, ou simplesmente nunca cadastrado. O que é fica dito na
+  /// descrição, que é o que vai na conta do IXC e o que o cartão mostra.
+  ehFinanciamento Boolean @default(false) @map("eh_financiamento")
 
   // --- Como a conta sai (o mesmo do lançamento avulso) ---
   contaContabil    Int?    @map("conta_contabil")
@@ -1031,7 +1034,6 @@ model DespesaRecorrente {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@index([ativa, proximoVencimento])
-  @@index([veiculoId])
   @@map("despesas_recorrentes")
 }
 
@@ -1417,8 +1419,6 @@ model Veiculo {
 
   contas         ContaPagar[]
   abastecimentos Abastecimento[]
-  /// O financiamento que está pagando este veículo (quando há um).
-  financiamentos DespesaRecorrente[]
 
   criadoPor String?  @map("criado_por")
   createdAt DateTime @default(now()) @map("created_at")

@@ -1,24 +1,24 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
-import { Aviso, CampoDinheiro, Janela, Selo, Vazio } from '../../components/ui';
+import {
+  Aviso,
+  Carregando,
+  CampoDinheiro,
+  Janela,
+  Selo,
+  Vazio,
+} from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { useTermoAdiado } from '../../lib/busca';
 import { formatBRL, formatData } from '../../lib/format';
-import type { CategoriaDespesa } from '../../lib/types';
+import { STATUS_LABEL, STATUS_TOM } from '../../lib/status';
+import type { CategoriaDespesa, StatusContaPagar } from '../../lib/types';
 import type {
   ParcelaAntecipada,
   Recorrente,
   RecorrenteComResumo,
 } from './Recorrentes';
-
-/** O veículo da frota que o financiamento está pagando. */
-interface VeiculoDaFrota {
-  id: string;
-  apelido: string;
-  placa: string | null;
-  modelo: string | null;
-}
 
 /** Um fornecedor achado no IXC pela busca. */
 interface FornecedorIxc {
@@ -125,21 +125,20 @@ export function andamento(r: Recorrente) {
  */
 export function ListaDeConsorcios({
   itens,
-  ocupado,
   vazio,
   onEditar,
-  onLigar,
   onApagar,
   onAntecipar,
+  onAbrir,
 }: {
   itens: RecorrenteComResumo[];
-  ocupado: boolean;
   /** O que dizer quando não há nenhum — cada aba tem o seu caminho. */
   vazio?: { titulo: string; texto: string };
   onEditar: (r: Recorrente) => void;
-  onLigar: (r: Recorrente) => void;
   onApagar: (r: Recorrente) => void;
   onAntecipar: (r: Recorrente) => void;
+  /** Clicar no cartão abre o que já foi pago deste contrato. */
+  onAbrir: (r: Recorrente) => void;
 }) {
   if (itens.length === 0) {
     return (
@@ -156,17 +155,33 @@ export function ListaDeConsorcios({
         const a = andamento(r);
         const pago = a.total ? (a.pagas / a.total) * 100 : 0;
         return (
+          /*
+           * O cartão todo é a porta do histórico — é onde o dedo cai quando a
+           * pergunta é "o que eu já paguei disto?". Os botões de dentro param
+           * o clique antes de ele subir até aqui.
+           */
           <div
             key={r.id}
-            className={`min-w-0 rounded-2xl border border-tinta-100 bg-papel p-4 ${
+            role="button"
+            tabIndex={0}
+            onClick={() => onAbrir(r)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onAbrir(r);
+              }
+            }}
+            title="Ver o que já foi pago deste contrato"
+            className={`min-w-0 cursor-pointer rounded-2xl border border-tinta-100 bg-papel p-4 transition hover:border-tinta-300 ${
               r.ativa || a.quitado ? '' : 'opacity-60'
             }`}
           >
             <div className="flex items-start justify-between gap-3">
-              {/* No financiamento o que se procura é o carro; o banco vem
-                  embaixo, junto do resto. */}
+              {/* No financiamento o que se procura é o que está sendo pago —
+                  "STRADA NILMA" —, e isso é a descrição; o banco vem embaixo.
+                  No consórcio, quem dá nome é a administradora. */}
               <div className="min-w-0 font-semibold text-tinta-900">
-                {r.veiculo ? r.veiculo.apelido : r.fornecedorNome}
+                {r.ehFinanciamento ? r.observacao : r.fornecedorNome}
               </div>
               <div className="shrink-0 text-right">
                 <div className="valor">{formatBRL(Number(r.valor))}</div>
@@ -192,9 +207,8 @@ export function ListaDeConsorcios({
              */}
             <div className="mt-0.5 text-xs text-tinta-500">
               {[
-                r.veiculo?.placa,
-                r.veiculo ? r.fornecedorNome : null,
-                r.observacao,
+                r.fornecedorNome,
+                r.ehFinanciamento ? null : r.observacao,
                 r.diaDoVencimento ? `todo dia ${r.diaDoVencimento}` : null,
               ]
                 .filter(Boolean)
@@ -289,7 +303,12 @@ export function ListaDeConsorcios({
                   a última falhou
                 </Selo>
               )}
-              <div className="ml-auto flex flex-wrap justify-end gap-1.5">
+              <div
+                className="ml-auto flex flex-wrap justify-end gap-1.5"
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => e.stopPropagation()}
+                role="presentation"
+              >
                 {!a.quitado && (
                   <button
                     onClick={() => onAntecipar(r)}
@@ -302,20 +321,6 @@ export function ListaDeConsorcios({
                 <button onClick={() => onEditar(r)} className="btn btn-neutro btn-p">
                   Editar
                 </button>
-                {!a.quitado && (
-                  <button
-                    onClick={() => onLigar(r)}
-                    disabled={ocupado}
-                    className="btn btn-sutil btn-p"
-                    title={
-                      r.ativa
-                        ? 'Para de gerar; o que já gerou continua lá'
-                        : 'Volta a gerar todo mês'
-                    }
-                  >
-                    {r.ativa ? 'Desligar' : 'Religar'}
-                  </button>
-                )}
                 <button onClick={() => onApagar(r)} className="btn btn-perigo btn-p">
                   Apagar
                 </button>
@@ -342,11 +347,14 @@ export function JanelaDeAntecipacao({
   item,
   onFechar,
   onPagar,
+  onRegistrar,
   onDesfazer,
 }: {
   item: RecorrenteComResumo;
   onFechar: () => void;
   onPagar: (parcela: { numero: number; vencimento: string }) => void;
+  /** Já paguei esta: só registrar, sem gerar conta nenhuma. */
+  onRegistrar: (dados: { numero: number; valor: number; data: string }) => void;
   onDesfazer: (antecipada: ParcelaAntecipada) => void;
 }) {
   const r = item.recorrente;
@@ -357,15 +365,35 @@ export function JanelaDeAntecipacao({
     a.emAberto.length ? a.emAberto[a.emAberto.length - 1].numero : null,
   );
   const [verTodas, setVerTodas] = useState(false);
+  /** Quando se está informando o valor de uma que já foi paga por fora. */
+  const [registrando, setRegistrando] = useState(false);
+  const [valorPago, setValorPago] = useState('');
+  const [dataPaga, setDataPaga] = useState(new Date().toISOString().slice(0, 10));
 
-  const daVez = a.emAberto.find((p) => p.numero === escolhida) ?? null;
+  /*
+   * As que o cadastro contou sem valor.
+   *
+   * "Já foram 6 antecipadas" diz que a 36 até a 31 saíram, e não por quanto.
+   * Informar o valor de cada uma é o que faz a economia aparecer — e é aqui
+   * que elas ficam à mão para isso.
+   */
+  const semValor: number[] = [];
+  for (let n = a.total; n > a.total - (r.parcelasAntecipadas ?? 0); n -= 1) {
+    if (!r.antecipadas.some((x) => x.numero === n)) semValor.push(n);
+  }
+
+  const daVez =
+    a.emAberto.find((p) => p.numero === escolhida) ??
+    (escolhida != null && semValor.includes(escolhida)
+      ? { numero: escolhida, vencimento: '' }
+      : null);
   // Do fim para a frente: a primeira da lista é a última do contrato.
   const doFimParaAFrente = [...a.emAberto].reverse();
   const mostradas = verTodas ? doFimParaAFrente : doFimParaAFrente.slice(0, 24);
 
   return (
     <Janela
-      titulo={`Antecipar parcela — ${r.veiculo?.apelido ?? r.fornecedorNome}`}
+      titulo={`Antecipar parcela — ${r.ehFinanciamento ? r.observacao : r.fornecedorNome}`}
       onFechar={onFechar}
     >
       <p className="text-sm text-tinta-600">
@@ -411,17 +439,80 @@ export function JanelaDeAntecipacao({
         )}
       </div>
 
-      {daVez && (
+      {daVez && !registrando && (
         <div className="mt-4 rounded-2xl bg-tinta-50 p-4 text-sm text-tinta-600">
-          A parcela <strong className="num text-tinta-900">{daVez.numero}</strong>{' '}
-          de {a.total} venceria em{' '}
-          <strong className="num text-tinta-900">{mesAno(daVez.vencimento)}</strong>{' '}
-          e vale{' '}
+          A parcela <strong className="num text-tinta-900">{daVez.numero}</strong> de{' '}
+          {a.total}
+          {daVez.vencimento && (
+            <>
+              {' '}
+              venceria em{' '}
+              <strong className="num text-tinta-900">{mesAno(daVez.vencimento)}</strong>
+            </>
+          )}{' '}
+          vale{' '}
           <strong className="valor text-tinta-900">
             {formatBRL(Number(r.valor))}
           </strong>
           . Pagando agora ela sai por menos — o valor do boleto com desconto é o
           que você vai digitar na conta.
+        </div>
+      )}
+
+      {/* Já paguei esta: nada nasce no IXC, só fica registrado o que saiu. */}
+      {daVez && registrando && (
+        <div className="mt-4 rounded-2xl border border-tinta-100 p-4">
+          <p className="text-sm text-tinta-600">
+            Quanto você pagou pela parcela{' '}
+            <strong className="num text-tinta-900">{daVez.numero}</strong>? Ela
+            vale <strong className="valor">{formatBRL(Number(r.valor))}</strong> —
+            a diferença é a economia. Nada é lançado no IXC: isto é o registro
+            de um pagamento que já aconteceu.
+          </p>
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <label className="rotulo" htmlFor="ant-valor">
+                Valor pago
+              </label>
+              <CampoDinheiro id="ant-valor" valor={valorPago} onChange={setValorPago} />
+            </div>
+            <div>
+              <label className="rotulo" htmlFor="ant-data">
+                Quando foi paga
+              </label>
+              <input
+                id="ant-data"
+                type="date"
+                value={dataPaga}
+                onChange={(e) => setDataPaga(e.target.value)}
+                className="campo"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {semValor.length > 0 && !registrando && (
+        <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm dark:border-amber-500/30 dark:bg-amber-500/10">
+          <p className="text-amber-900 dark:text-amber-200">
+            O cadastro conta {semValor.length} antecipada(s) sem dizer por
+            quanto. Informe o valor de cada uma para a economia aparecer:
+          </p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {semValor.map((n) => (
+              <button
+                key={n}
+                onClick={() => {
+                  setEscolhida(n);
+                  setValorPago('');
+                  setRegistrando(true);
+                }}
+                className="btn btn-sutil btn-p num"
+              >
+                {n}/{a.total}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -459,16 +550,231 @@ export function JanelaDeAntecipacao({
         </div>
       )}
 
-      <div className="mt-5 flex justify-end gap-2">
-        <button onClick={onFechar} className="btn btn-neutro">
-          Cancelar
-        </button>
+      <div className="mt-5 flex flex-wrap justify-end gap-2">
         <button
-          onClick={() => daVez && onPagar(daVez)}
-          disabled={!daVez}
-          className="btn btn-primario"
+          onClick={() => (registrando ? setRegistrando(false) : onFechar())}
+          className="btn btn-neutro"
         >
-          Pagar esta parcela
+          {registrando ? 'Voltar' : 'Cancelar'}
+        </button>
+        {registrando ? (
+          <button
+            onClick={() =>
+              daVez &&
+              onRegistrar({
+                numero: daVez.numero,
+                valor: Number(valorPago),
+                data: dataPaga,
+              })
+            }
+            disabled={!daVez || !(Number(valorPago) > 0) || !dataPaga}
+            className="btn btn-primario"
+          >
+            Registrar o que foi pago
+          </button>
+        ) : (
+          <>
+            <button
+              onClick={() => {
+                setValorPago('');
+                setRegistrando(true);
+              }}
+              disabled={!daVez}
+              className="btn btn-sutil"
+              title="A parcela já foi paga por fora: só registrar o valor"
+            >
+              Já paguei essa
+            </button>
+            <button
+              onClick={() => daVez && daVez.vencimento && onPagar(daVez)}
+              disabled={!daVez || !daVez.vencimento}
+              className="btn btn-primario"
+            >
+              Pagar esta parcela
+            </button>
+          </>
+        )}
+      </div>
+    </Janela>
+  );
+}
+
+/** Uma linha do histórico, como a API a devolve. */
+interface LinhaDoHistorico {
+  contaId: string | null;
+  antecipacaoId: string | null;
+  numero: number | null;
+  valor: string;
+  valorDeTabela: string;
+  /** Vencimento da conta, ou o dia em que a antecipada foi paga. */
+  data: string;
+  status: StatusContaPagar | null;
+  pagoEm: string | null;
+  idFnApagarIxc: number | null;
+  antecipada: boolean;
+}
+
+/**
+ * O que já foi pago deste contrato — quanto saiu em cada parcela.
+ *
+ * Só do dia em que o contrato entrou no sistema para cá: o que se pagou antes
+ * é a contagem do cadastro ("23 pagas, 6 antecipadas"), e dela não há papel
+ * nenhum guardado. As antecipadas aparecem marcadas, com o que se pagou ao
+ * lado do que a parcela valia — que é onde se vê a economia.
+ */
+export function JanelaDeHistorico({
+  item,
+  onFechar,
+}: {
+  item: RecorrenteComResumo;
+  onFechar: () => void;
+}) {
+  const r = item.recorrente;
+  const a = andamento(r);
+
+  const historico = useQuery({
+    queryKey: ['recorrentes', r.id, 'historico'],
+    queryFn: async () =>
+      (await api.get<{ linhas: LinhaDoHistorico[] }>(`/recorrentes/${r.id}/historico`))
+        .data,
+  });
+
+  const linhas = historico.data?.linhas ?? [];
+  // Pago de verdade: o que o banco confirmou, mais as antecipadas que foram
+  // pagas por fora (essas não têm status porque nunca viraram conta aqui).
+  const saiuDoCaixa = linhas
+    .filter((l) => l.status === 'PAGO' || l.status === null)
+    .reduce((s, l) => s + Number(l.valor), 0);
+  const emAberto = linhas
+    .filter((l) => l.status !== 'PAGO' && l.status !== null && l.status !== 'CANCELADO')
+    .reduce((s, l) => s + Number(l.valor), 0);
+  // A economia sai das linhas, e não do resumo do cartão: aqui ela tem de
+  // bater com o "a menos" de cada parcela logo abaixo.
+  const economia = linhas.reduce(
+    (s, l) => s + Math.max(0, Number(l.valorDeTabela) - Number(l.valor)),
+    0,
+  );
+
+  return (
+    <Janela
+      titulo={`Histórico — ${r.ehFinanciamento ? r.observacao : r.fornecedorNome}`}
+      onFechar={onFechar}
+    >
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="rounded-xl bg-tinta-50 px-3 py-2">
+          <p className="text-[11px] uppercase tracking-wider text-tinta-400">
+            Parcelas
+          </p>
+          <p className="num text-sm font-semibold text-tinta-900">
+            {a.pagas} de {a.total}
+          </p>
+        </div>
+        <div className="rounded-xl bg-tinta-50 px-3 py-2">
+          <p className="text-[11px] uppercase tracking-wider text-tinta-400">
+            Já saiu do caixa
+          </p>
+          <p className="valor text-sm font-semibold text-tinta-900">
+            {formatBRL(saiuDoCaixa)}
+          </p>
+        </div>
+        <div className="rounded-xl bg-tinta-50 px-3 py-2">
+          <p className="text-[11px] uppercase tracking-wider text-tinta-400">
+            Esperando pagamento
+          </p>
+          <p className="valor text-sm font-semibold text-tinta-900">
+            {formatBRL(emAberto)}
+          </p>
+        </div>
+        <div className="rounded-xl bg-tinta-50 px-3 py-2">
+          <p className="text-[11px] uppercase tracking-wider text-tinta-400">
+            Economia
+          </p>
+          <p className="valor text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+            {formatBRL(economia)}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        {historico.isLoading ? (
+          <Carregando />
+        ) : historico.isError ? (
+          <Aviso tom="erro">{mensagemErro(historico.error)}</Aviso>
+        ) : linhas.length === 0 ? (
+          <Vazio titulo="Nada pago por aqui ainda">
+            As contas deste contrato aparecem aqui a partir da primeira que
+            nascer no IXC — e as parcelas antecipadas, assim que forem lançadas.
+          </Vazio>
+        ) : (
+          <div className="overflow-x-auto rolagem-fina">
+            <table className="w-full min-w-[520px] text-sm">
+              <thead>
+                <tr>
+                  <th className="th">Parcela</th>
+                  <th className="th">Data</th>
+                  <th className="th text-right">Saiu por</th>
+                  <th className="th">Situação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {linhas.map((l) => {
+                  const economia = Number(l.valorDeTabela) - Number(l.valor);
+                  return (
+                    <tr key={l.contaId ?? l.antecipacaoId ?? String(l.numero)} className="linha">
+                      <td className="td">
+                        <span className="num font-semibold text-tinta-800">
+                          {l.numero ?? '—'}
+                          {l.numero != null && (
+                            <span className="text-xs font-normal text-tinta-400">
+                              /{a.total}
+                            </span>
+                          )}
+                        </span>
+                        {l.antecipada && (
+                          <Selo pequeno tom="pago">
+                            antecipada
+                          </Selo>
+                        )}
+                      </td>
+                      <td className="td num whitespace-nowrap text-tinta-600">
+                        {formatData(l.pagoEm ?? l.data)}
+                      </td>
+                      <td className="td text-right">
+                        <span className="valor">{formatBRL(Number(l.valor))}</span>
+                        {economia > 0.005 && (
+                          <div className="text-[11px] text-emerald-700 dark:text-emerald-400">
+                            {formatBRL(economia)} a menos
+                          </div>
+                        )}
+                      </td>
+                      <td className="td">
+                        {l.status ? (
+                          <Selo pequeno tom={STATUS_TOM[l.status]}>
+                            {STATUS_LABEL[l.status]}
+                          </Selo>
+                        ) : (
+                          <span className="text-xs text-tinta-500">
+                            paga fora do sistema
+                          </span>
+                        )}
+                        {l.idFnApagarIxc && (
+                          <div className="num text-[11px] text-tinta-400">
+                            título {l.idFnApagarIxc}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-5 flex justify-end">
+        <button onClick={onFechar} className="btn btn-neutro">
+          Fechar
         </button>
       </div>
     </Janela>
@@ -505,7 +811,7 @@ export function CadastroDoConsorcio({
 }) {
   const convertendo = !!base && base.totalParcelas == null;
   const editando = !!base && !convertendo;
-  const financiamento = base ? !!base.veiculoId : modo === 'financiamento';
+  const financiamento = base ? base.ehFinanciamento : modo === 'financiamento';
   const oQueE = financiamento ? 'financiamento' : 'consórcio';
 
   const [fornecedor, setFornecedor] = useState<{ id: number; nome: string } | null>(
@@ -528,7 +834,6 @@ export function CadastroDoConsorcio({
   const [total, setTotal] = useState(base?.totalParcelas ? String(base.totalParcelas) : '');
   const [lancadas, setLancadas] = useState(editando ? String(base.parcelasLancadas) : '');
   const [porMes, setPorMes] = useState(String(editando ? base.parcelasPorMes : 1));
-  const [veiculoId, setVeiculoId] = useState(base?.veiculoId ?? '');
   const [antecipadas, setAntecipadas] = useState(
     editando ? String(base.parcelasAntecipadas) : '',
   );
@@ -547,16 +852,6 @@ export function CadastroDoConsorcio({
       ).data,
     enabled: buscaEfetiva.length >= 2 && !fornecedor,
     retry: 0,
-  });
-
-  // Só os ligados: um veículo vendido não ganha financiamento novo. Na
-  // edição, o que já está gravado aparece de qualquer forma (abaixo).
-  const veiculos = useQuery({
-    queryKey: ['veiculos', 'ativos'],
-    queryFn: async () =>
-      (await api.get<VeiculoDaFrota[]>('/veiculos', { params: { ativos: true } }))
-        .data,
-    enabled: financiamento,
   });
 
   const categorias = useQuery({
@@ -630,7 +925,6 @@ export function CadastroDoConsorcio({
     // As duas pontas não se ultrapassam: juntas, nunca passam do contrato.
     nLancadas + nAntecipadas <= nTotal &&
     nPorMes >= 1 &&
-    (!financiamento || !!veiculoId) &&
     !!vencimento;
 
   const salvar = useMutation({
@@ -646,7 +940,7 @@ export function CadastroDoConsorcio({
         parcelasLancadas: nLancadas,
         parcelasPorMes: nPorMes,
         parcelasAntecipadas: nAntecipadas,
-        veiculoId: financiamento ? veiculoId : null,
+        ehFinanciamento: financiamento,
         categoriaId: categoriaId || null,
         tipoPagamentoIxc: tipoPagamento.trim() || undefined,
         apenasDiasUteis: soDiasUteis,
@@ -680,19 +974,10 @@ export function CadastroDoConsorcio({
       ),
   });
 
-  const daFrota = veiculos.data ?? [];
-  // O veículo já gravado fica na lista mesmo depois de desligado: senão editar
-  // o financiamento de um carro vendido apagaria o vínculo sem querer.
-  const opcoesDeVeiculo: VeiculoDaFrota[] =
-    base?.veiculo && !daFrota.some((v) => v.id === base.veiculo?.id)
-      ? [{ ...base.veiculo, modelo: null }, ...daFrota]
-      : daFrota;
-  const veiculoEscolhido = opcoesDeVeiculo.find((v) => v.id === veiculoId);
-  /** Como este cadastro se chama nas mensagens: o carro, ou o credor. */
-  const nomeDoCadastro =
-    veiculoEscolhido?.apelido ?? base?.veiculo?.apelido ?? fornecedor?.nome ?? '';
+  /** Como este cadastro se chama nas mensagens: o que ele paga, ou o credor. */
+  const nomeDoCadastro = observacao.trim() || fornecedor?.nome || '';
   const descricaoPadrao = financiamento
-    ? `Financiamento ${nomeDoCadastro || fornecedor?.nome || ''}`.trim()
+    ? `Financiamento ${fornecedor?.nome ?? ''}`.trim()
     : `Consórcio ${fornecedor?.nome ?? ''}`.trim();
 
   return (
@@ -781,32 +1066,6 @@ export function CadastroDoConsorcio({
           )}
         </div>
 
-        {financiamento && (
-          <div className="sm:col-span-2">
-            <label className="rotulo" htmlFor="co-veiculo">
-              Veículo
-            </label>
-            <select
-              id="co-veiculo"
-              value={veiculoId}
-              onChange={(e) => setVeiculoId(e.target.value)}
-              className="campo"
-            >
-              <option value="">Escolha o veículo…</option>
-              {opcoesDeVeiculo.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {[v.apelido, v.placa, v.modelo].filter(Boolean).join(' · ')}
-                </option>
-              ))}
-            </select>
-            <p className="ajuda">
-              {veiculos.isLoading
-                ? 'Carregando a frota…'
-                : 'De que carro é esta dívida. É por ele que o financiamento aparece na aba Financiamentos.'}
-            </p>
-          </div>
-        )}
-
         <div className="sm:col-span-2">
           <label className="rotulo" htmlFor="co-obs">
             Descrição (vai na conta do IXC)
@@ -817,13 +1076,16 @@ export function CadastroDoConsorcio({
             onChange={(e) => setObservacao(e.target.value)}
             className="campo"
             placeholder={
-              descricaoPadrao ||
-              (financiamento ? 'Financiamento Hilux' : 'Consórcio caçamba')
+              financiamento
+                ? 'Financiamento STRADA NILMA'
+                : descricaoPadrao || 'Consórcio caçamba'
             }
             autoComplete="off"
           />
           <p className="ajuda">
-            Cada conta sai com o número da parcela no fim: "(12/60)".
+            {financiamento
+              ? 'Diga aqui o que está sendo pago — "Financiamento STRADA NILMA", "Retroescavadeira". É o nome do cartão, e vai na conta com o número da parcela no fim: "(12/60)".'
+              : 'Cada conta sai com o número da parcela no fim: "(12/60)".'}
           </p>
         </div>
 

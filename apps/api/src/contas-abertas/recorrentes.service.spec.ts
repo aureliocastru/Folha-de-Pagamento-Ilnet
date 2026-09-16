@@ -33,7 +33,7 @@ function recorrente(over: Record<string, unknown> = {}) {
     lancadasNoMes: 0,
     parcelasAntecipadas: 0,
     antecipadas: [],
-    veiculoId: null,
+    ehFinanciamento: false,
     ...over,
   };
 }
@@ -378,7 +378,7 @@ describe('RecorrentesService — parcela antecipada', () => {
       parcelasLancadas: 12,
       parcelasPorMes: 2,
       parcelasAntecipadas: 5,
-      veiculoId: 'v1',
+      ehFinanciamento: true,
       ...over,
     });
   }
@@ -464,20 +464,41 @@ describe('RecorrentesService — parcela antecipada', () => {
     expect(Number(antecipadas[0].valorDeTabela)).toBe(2000);
   });
 
+  it('informar o valor de uma que o cadastro contou cega transfere a contagem', async () => {
+    // O cadastro diz "5 antecipadas do fim": a 50 até a 46 saíram, sem valor.
+    // Informar o da 50 registra a parcela e desce o contador para 4 — a mesma
+    // parcela não pode valer nos dois lugares.
+    const { service, antecipadas, atualizacoes } = montarServico({
+      registro: financiamento({ antecipadas: [] }),
+    });
+
+    await service.antecipar('r1', { numero: 50, valor: 1600, valorDeTabela: 2000 });
+
+    expect(antecipadas[0]).toMatchObject({ numero: 50 });
+    expect(atualizacoes[0]).toMatchObject({ parcelasAntecipadas: 4 });
+  });
+
+  it('não registra duas vezes a mesma parcela', async () => {
+    const { service } = montarServico({
+      registro: financiamento({ antecipadas: [{ numero: 50 }] }),
+    });
+
+    await expect(service.antecipar('r1', { numero: 50, valor: 1 })).rejects.toThrow(
+      /já está registrada/,
+    );
+  });
+
   it('recusa antecipar uma parcela que já saiu', async () => {
     const { service } = montarServico({
       registro: financiamento({ antecipadas: [{ numero: 44 }] }),
     });
 
-    // A 10 já foi gerada pela rotina; a 44, antecipada; a 48, do fim.
+    // A 10 já foi gerada pela rotina, e a 44 já está registrada.
     await expect(service.antecipar('r1', { numero: 10, valor: 1 })).rejects.toThrow(
       /já saiu/,
     );
     await expect(service.antecipar('r1', { numero: 44, valor: 1 })).rejects.toThrow(
-      /já saiu/,
-    );
-    await expect(service.antecipar('r1', { numero: 48, valor: 1 })).rejects.toThrow(
-      /já saiu/,
+      /já está registrada/,
     );
   });
 

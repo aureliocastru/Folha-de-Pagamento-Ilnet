@@ -23,8 +23,6 @@ export interface AntecipadaDaTela {
 /** Uma recorrente com o que a tela mostra sem abrir o cadastro. */
 export interface RecorrenteComResumo {
   recorrente: DespesaRecorrente & {
-    /** O veículo do financiamento, quando a repetição é de um. */
-    veiculo: { id: string; apelido: string; placa: string | null } | null;
     /** As parcelas já antecipadas, cada uma com o seu número. */
     antecipadas: AntecipadaDaTela[];
   };
@@ -74,7 +72,6 @@ export class RecorrentesService {
       orderBy: [{ ativa: 'desc' }, { proximoVencimento: 'asc' }],
       include: {
         _count: { select: { contas: true } },
-        veiculo: { select: { id: true, apelido: true, placa: true } },
         antecipadas: {
           select: {
             id: true,
@@ -128,8 +125,8 @@ export class RecorrentesService {
       parcelasPorMes?: number;
       /** Quantas já tinham sido antecipadas, contadas do fim, ao cadastrar. */
       parcelasAntecipadas?: number;
-      /** O veículo que este financiamento paga. */
-      veiculoId?: string | null;
+      /** É financiamento: vai para a aba dele. */
+      ehFinanciamento?: boolean;
     },
     usuarioId?: string,
   ): Promise<DespesaRecorrente> {
@@ -157,7 +154,7 @@ export class RecorrentesService {
         parcelasLancadas: dados.parcelasLancadas ?? 0,
         parcelasPorMes: dados.parcelasPorMes ?? 1,
         parcelasAntecipadas: dados.parcelasAntecipadas ?? 0,
-        veiculoId: dados.veiculoId ?? null,
+        ehFinanciamento: dados.ehFinanciamento ?? false,
         criadoPor: usuarioId ?? null,
       },
     });
@@ -166,7 +163,7 @@ export class RecorrentesService {
       `Despesa recorrente criada: ${criada.fornecedorNome}, ` +
         `${dados.valor} todo mês, próxima em ${dados.proximoVencimento}` +
         (criada.totalParcelas
-          ? ` — ${criada.veiculoId ? 'financiamento' : 'consórcio'}, ` +
+          ? ` — ${criada.ehFinanciamento ? 'financiamento' : 'consórcio'}, ` +
             `${criada.parcelasLancadas} de ${criada.totalParcelas} já saíram` +
             (criada.parcelasAntecipadas
               ? ` e ${criada.parcelasAntecipadas} foram antecipadas do fim`
@@ -195,7 +192,7 @@ export class RecorrentesService {
       parcelasLancadas: number;
       parcelasPorMes: number;
       parcelasAntecipadas: number;
-      veiculoId: string | null;
+      ehFinanciamento: boolean;
     }>,
   ): Promise<DespesaRecorrente> {
     const atual = await this.buscar(id);
@@ -234,7 +231,9 @@ export class RecorrentesService {
         ...(dados.parcelasAntecipadas === undefined
           ? {}
           : { parcelasAntecipadas: dados.parcelasAntecipadas }),
-        ...(dados.veiculoId === undefined ? {} : { veiculoId: dados.veiculoId }),
+        ...(dados.ehFinanciamento === undefined
+          ? {}
+          : { ehFinanciamento: dados.ehFinanciamento }),
         ...(mexeuNaContagem ? { lancadasNoMes: 0 } : {}),
         ...(dados.valor === undefined
           ? {}
@@ -278,6 +277,13 @@ export class RecorrentesService {
    * qualquer. O que se guarda aqui é qual parcela saiu, para a rotina mensal
    * não gerá-la de novo, e por quanto, para se saber o que se economizou.
    *
+   * Serve também para o que foi antecipado **antes** de o contrato entrar
+   * aqui, e sem conta nenhuma: o cadastro pergunta quantas já foram, e isso é
+   * uma contagem cega — sabe que a 36 e a 35 saíram, não sabe por quanto.
+   * Informar o valor de uma delas transfere a parcela dessa contagem para um
+   * registro de verdade: o contador desce um, a parcela continua paga, e a
+   * economia dela passa a ser conhecida.
+   *
    * Antecipar a última que faltava encerra o contrato: ele para de gerar, como
    * pararia depois da última parcela comum.
    */
@@ -314,8 +320,21 @@ export class RecorrentesService {
       );
     }
 
+    if (r.antecipadas.some((a) => a.numero === dados.numero)) {
+      throw new BadRequestException(
+        `A parcela ${dados.numero} já está registrada como antecipada.`,
+      );
+    }
+
+    /*
+     * Está dentro da contagem cega do cadastro ("já foram 6 do fim")? Então o
+     * que chega não é uma antecipação nova, é o valor de uma que já aconteceu.
+     */
+    const daContagemDoCadastro =
+      r.parcelasAntecipadas > 0 && dados.numero > total - r.parcelasAntecipadas;
+
     const jaSairam = numerosJaSaidos(r);
-    if (jaSairam.has(dados.numero)) {
+    if (jaSairam.has(dados.numero) && !daContagemDoCadastro) {
       throw new BadRequestException(
         `A parcela ${dados.numero} já saiu — ou foi paga pela rotina, ou já tinha sido antecipada.`,
       );
@@ -334,8 +353,18 @@ export class RecorrentesService {
       },
     });
 
-    // Era a que faltava: o contrato acabou e para de gerar sozinho.
-    if (jaSairam.size + 1 >= total && r.ativa) {
+    if (daContagemDoCadastro) {
+      /*
+       * A parcela saiu da contagem e virou registro. O contador desce um para
+       * a mesma parcela não valer duas vezes — o que já estava pago continua
+       * pago, e agora com valor.
+       */
+      await this.prisma.despesaRecorrente.update({
+        where: { id },
+        data: { parcelasAntecipadas: r.parcelasAntecipadas - 1 },
+      });
+    } else if (jaSairam.size + 1 >= total && r.ativa) {
+      // Era a que faltava: o contrato acabou e para de gerar sozinho.
       await this.prisma.despesaRecorrente.update({
         where: { id },
         data: { ativa: false },
@@ -349,6 +378,80 @@ export class RecorrentesService {
         '.',
     );
     return antecipada;
+  }
+
+  /**
+   * O histórico deste contrato: cada parcela que já virou conta, e cada uma
+   * que foi antecipada.
+   *
+   * O que se responde aqui é "o que já paguei disto?" — e a resposta só existe
+   * a partir do dia em que o contrato entrou no sistema. As parcelas pagas
+   * antes disso são as contagens do cadastro, e delas não há papel nenhum
+   * guardado.
+   */
+  async historico(id: string) {
+    const r = await this.buscar(id);
+    const [contas, antecipadas] = await Promise.all([
+      this.prisma.contaPagar.findMany({
+        where: { recorrenteId: id },
+        select: {
+          id: true,
+          idFnApagarIxc: true,
+          valor: true,
+          dataVencimento: true,
+          observacao: true,
+          status: true,
+          pagoEm: true,
+        },
+        orderBy: { dataVencimento: 'desc' },
+      }),
+      this.prisma.parcelaAntecipada.findMany({
+        where: { recorrenteId: id },
+        orderBy: { numero: 'desc' },
+      }),
+    ]);
+
+    const porConta = new Map(
+      antecipadas.filter((a) => a.contaId).map((a) => [a.contaId as string, a]),
+    );
+
+    const linhas = [
+      ...contas.map((c) => {
+        const antecipada = porConta.get(c.id);
+        return {
+          contaId: c.id,
+          antecipacaoId: antecipada?.id ?? null,
+          // O número vem da observação, que é onde a rotina o escreve: o
+          // "(12/60)" é o mesmo que a lista de contas lê como parcela.
+          numero: numeroDaParcela(c.observacao),
+          valor: c.valor.toString(),
+          valorDeTabela: (antecipada?.valorDeTabela ?? r.valor).toString(),
+          data: c.dataVencimento,
+          status: c.status,
+          pagoEm: c.pagoEm,
+          idFnApagarIxc: c.idFnApagarIxc,
+          antecipada: !!antecipada,
+        };
+      }),
+      // As antecipadas sem conta: as que foram pagas por fora, antes de o
+      // contrato entrar aqui.
+      ...antecipadas
+        .filter((a) => !a.contaId)
+        .map((a) => ({
+          contaId: null,
+          antecipacaoId: a.id,
+          numero: a.numero,
+          valor: a.valor.toString(),
+          valorDeTabela: a.valorDeTabela.toString(),
+          data: a.data,
+          status: null,
+          pagoEm: a.data,
+          idFnApagarIxc: a.idFnApagarIxc,
+          antecipada: true,
+        })),
+    ].sort((x, y) => y.data.getTime() - x.data.getTime());
+
+    return { linhas };
   }
 
   /**
@@ -586,6 +689,12 @@ export function numerosJaSaidos(r: {
   }
   for (const a of r.antecipadas ?? []) usados.add(a.numero);
   return usados;
+}
+
+/** O "(12/60)" que a rotina escreve no fim da observação vira o 12. */
+function numeroDaParcela(observacao: string): number | null {
+  const achou = /\((\d+)\/(\d+)\)\s*/.exec(observacao);
+  return achou ? Number(achou[1]) : null;
 }
 
 /** A próxima depois de `ultima` que ainda não saiu, ou null se não há mais. */

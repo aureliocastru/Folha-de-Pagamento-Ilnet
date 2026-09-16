@@ -113,8 +113,8 @@ export class CriarRecorrenteDto {
   @Max(360)
   parcelasAntecipadas?: number;
 
-  /** O veículo que este financiamento paga. */
-  @IsOptional() @IsUUID() veiculoId?: string | null;
+  /** É financiamento: mora na aba dele. O que é fica dito na descrição. */
+  @IsOptional() @IsBoolean() ehFinanciamento?: boolean;
 }
 
 export class AtualizarRecorrenteDto {
@@ -198,8 +198,8 @@ export class AtualizarRecorrenteDto {
   @Max(360)
   parcelasAntecipadas?: number;
 
-  /** O veículo que este financiamento paga. */
-  @IsOptional() @IsUUID() veiculoId?: string | null;
+  /** É financiamento: mora na aba dele. O que é fica dito na descrição. */
+  @IsOptional() @IsBoolean() ehFinanciamento?: boolean;
 }
 
 /**

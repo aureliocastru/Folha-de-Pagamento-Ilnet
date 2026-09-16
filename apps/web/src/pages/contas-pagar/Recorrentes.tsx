@@ -15,6 +15,7 @@ import { formatBRL, formatData } from '../../lib/format';
 import {
   CadastroDoConsorcio,
   JanelaDeAntecipacao,
+  JanelaDeHistorico,
   ListaDeConsorcios,
 } from './Consorcios';
 import { NovaDespesa } from './NovaDespesa';
@@ -44,9 +45,8 @@ export interface Recorrente {
   parcelasAntecipadas: number;
   /** As parcelas pagas fora da ordem, cada uma com o seu número. */
   antecipadas: ParcelaAntecipada[];
-  /** Preenchido, é financiamento de veículo — e mora na aba dele. */
-  veiculoId: string | null;
-  veiculo: { id: string; apelido: string; placa: string | null } | null;
+  /** É financiamento — e mora na aba dele. O que é vem na descrição. */
+  ehFinanciamento: boolean;
 }
 
 /** Uma parcela paga adiantada: qual era, por quanto saiu e o que ela valia. */
@@ -93,6 +93,8 @@ export function Recorrentes() {
   } | null>(null);
   /** O contrato cuja parcela se está escolhendo para antecipar. */
   const [antecipando, setAntecipando] = useState<string | null>(null);
+  /** O contrato aberto para ver o que já foi pago dele. */
+  const [historico, setHistorico] = useState<string | null>(null);
   /**
    * A parcela escolhida, esperando virar conta a pagar. Enquanto isto existe,
    * a tela de lançar está aberta com tudo preenchido menos o valor do boleto.
@@ -157,6 +159,8 @@ export function Recorrentes() {
       valorDeTabela: number;
       contaId?: string | null;
       idFnApagarIxc?: number | null;
+      /** O dia em que foi paga, quando o pagamento é antigo. */
+      data?: string;
     }) => {
       await api.post(`/recorrentes/${dados.id}/antecipacoes`, {
         numero: dados.numero,
@@ -164,13 +168,17 @@ export function Recorrentes() {
         valorDeTabela: dados.valorDeTabela,
         contaId: dados.contaId ?? undefined,
         idFnApagarIxc: dados.idFnApagarIxc ?? undefined,
+        data: dados.data ?? undefined,
       });
     },
     onSuccess: (_, dados) => {
       setErro(false);
       setAviso(
-        `Parcela ${dados.numero} antecipada por ${formatBRL(dados.valor)}. ` +
-          'Ela saiu da fila: não vai nascer de novo no mês dela.',
+        `Parcela ${dados.numero} antecipada por ${formatBRL(dados.valor)}` +
+          (dados.valorDeTabela > dados.valor
+            ? `, ${formatBRL(dados.valorDeTabela - dados.valor)} a menos do que ela valia`
+            : '') +
+          '. Ela saiu da fila: não vai nascer de novo no mês dela.',
       );
       invalidar();
     },
@@ -234,10 +242,11 @@ export function Recorrentes() {
 
   const todos = lista.data ?? [];
   // Consórcio é a recorrente com fim: mora na aba dele, e não entre as mensais.
-  // Financiamento é o consórcio com um veículo no nome, e tem a aba dele.
+  // Financiamento é a mesma coisa marcada como tal — carro, máquina, o que
+  // for: quem diz o que é, é a descrição.
   const parceladas = todos.filter((i) => i.recorrente.totalParcelas != null);
-  const financiamentos = parceladas.filter((i) => i.recorrente.veiculoId != null);
-  const consorcios = parceladas.filter((i) => i.recorrente.veiculoId == null);
+  const financiamentos = parceladas.filter((i) => i.recorrente.ehFinanciamento);
+  const consorcios = parceladas.filter((i) => !i.recorrente.ehFinanciamento);
   const itens = todos.filter((i) => i.recorrente.totalParcelas == null);
   const ativas = itens.filter((i) => i.recorrente.ativa);
   const porMes = ativas.reduce((s, i) => s + Number(i.recorrente.valor), 0);
@@ -317,6 +326,16 @@ export function Recorrentes() {
               setAntecipando(null);
               setALancar({ recorrente: item.recorrente, numero: parcela.numero });
             }}
+            onRegistrar={(dados) => {
+              setAntecipando(null);
+              registrarAntecipada.mutate({
+                id: item.recorrente.id,
+                numero: dados.numero,
+                valor: dados.valor,
+                valorDeTabela: Number(item.recorrente.valor),
+                data: dados.data,
+              });
+            }}
             onDesfazer={(antecipada) => {
               if (
                 confirm(
@@ -332,6 +351,15 @@ export function Recorrentes() {
               }
             }}
           />
+        );
+      })()}
+
+      {/* O que já foi pago deste contrato, parcela a parcela. */}
+      {historico && (() => {
+        const item = todos.find((i) => i.recorrente.id === historico);
+        if (!item) return null;
+        return (
+          <JanelaDeHistorico item={item} onFechar={() => setHistorico(null)} />
         );
       })()}
 
@@ -353,7 +381,6 @@ export function Recorrentes() {
               `${aLancar.recorrente.observacao} ` +
               `(${aLancar.numero}/${aLancar.recorrente.totalParcelas}) antecipada`,
             categoriaId: aLancar.recorrente.categoriaId,
-            veiculoId: aLancar.recorrente.veiculoId,
             tipoPagamento: aLancar.recorrente.tipoPagamentoIxc ?? 'Boleto',
           }}
           onLancada={(dados, valorLancado) => {
@@ -420,12 +447,9 @@ export function Recorrentes() {
             ) : (
               <ListaDeConsorcios
                 itens={consorcios}
-                ocupado={salvar.isPending}
                 onEditar={(r) => setCadastro({ base: r, modo: 'consorcio' })}
                 onAntecipar={(r) => setAntecipando(r.id)}
-                onLigar={(r) =>
-                  salvar.mutate({ id: r.id, dados: { ativa: !r.ativa } })
-                }
+                onAbrir={(r) => setHistorico(r.id)}
                 onApagar={(r) => {
                   if (
                     confirm(
@@ -446,7 +470,7 @@ export function Recorrentes() {
         <>
           {financiamentosAtivos.length > 0 && (
             <p className="mb-4 text-sm text-tinta-500">
-              {financiamentosAtivos.length} veículo(s) sendo pagos, somando{' '}
+              {financiamentosAtivos.length} financiamento(s) correndo, somando{' '}
               <strong className="valor">{formatBRL(financiamentosPorMes)}</strong>{' '}
               por mês.
             </p>
@@ -457,21 +481,18 @@ export function Recorrentes() {
             ) : (
               <ListaDeConsorcios
                 itens={financiamentos}
-                ocupado={salvar.isPending}
                 vazio={{
                   titulo: 'Nenhum financiamento cadastrado',
                   texto:
-                    'Cadastre em "Novo financiamento": escolha o veículo, o banco e em que parcela está. A conta de cada mês passa a nascer sozinha no IXC.',
+                    'Cadastre em "Novo financiamento": o banco, o que está sendo pago e em que parcela está. A conta de cada mês passa a nascer sozinha no IXC.',
                 }}
                 onEditar={(r) => setCadastro({ base: r, modo: 'financiamento' })}
                 onAntecipar={(r) => setAntecipando(r.id)}
-                onLigar={(r) =>
-                  salvar.mutate({ id: r.id, dados: { ativa: !r.ativa } })
-                }
+                onAbrir={(r) => setHistorico(r.id)}
                 onApagar={(r) => {
                   if (
                     confirm(
-                      `Apagar o financiamento de ${r.veiculo?.apelido ?? r.fornecedorNome}? ` +
+                      `Apagar o financiamento "${r.observacao}"? ` +
                         'As parcelas já geradas continuam no IXC.',
                     )
                   ) {

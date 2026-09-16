@@ -43,6 +43,12 @@ export class RecorrentesController {
     return this.service.atualizar(id, dto);
   }
 
+  /** O que já foi pago deste contrato: as contas geradas e as antecipadas. */
+  @Get(':id/historico')
+  historico(@Param('id') id: string) {
+    return this.service.historico(id);
+  }
+
   /**
    * Registra a parcela que foi paga adiantada. A conta a pagar já nasceu — o
    * que entra aqui é qual parcela ela era e por quanto saiu.
