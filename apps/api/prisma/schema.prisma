@@ -991,6 +991,25 @@ model DespesaRecorrente {
   /// a próxima rodada gera só a que faltou, e não as duas de novo.
   lancadasNoMes    Int  @default(0) @map("lancadas_no_mes")
 
+  // --- Antecipação: as parcelas que se pagam do fim para trás ---
+  /// Quantas parcelas já foram quitadas contando do fim do contrato. Num
+  /// consórcio de 50 com 5 antecipadas, as parcelas 50, 49, 48, 47 e 46 já
+  /// foram: a próxima do fim é a 45, e faltam as do meio.
+  parcelasAntecipadas Int @default(0) @map("parcelas_antecipadas")
+  /// Quantas das parcelas do mês são contadas do fim. Quem paga duas por mês
+  /// costuma pagar uma da frente e antecipar uma do fim — é isso que faz a
+  /// conta nascer no IXC com o número certo em cima.
+  antecipadasPorMes   Int @default(0) @map("antecipadas_por_mes")
+  /// O que se paga pela parcela antecipada — menor que a normal, porque
+  /// antecipar desconta juros. Vazio: sai pelo valor de sempre.
+  valorDaAntecipada   Decimal? @db.Decimal(14, 2) @map("valor_da_antecipada")
+
+  /// O veículo que este financiamento está pagando. Preenchido, a repetição é
+  /// um financiamento de veículo: sai da aba de consórcios e vai para a de
+  /// financiamentos, onde se vê a evolução de cada carro da frota.
+  veiculo   Veiculo? @relation(fields: [veiculoId], references: [id], onDelete: SetNull)
+  veiculoId String?  @map("veiculo_id")
+
   // --- Como a conta sai (o mesmo do lançamento avulso) ---
   contaContabil    Int?    @map("conta_contabil")
   contaPagamento   Int?    @map("conta_pagamento")
@@ -1015,6 +1034,7 @@ model DespesaRecorrente {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@index([ativa, proximoVencimento])
+  @@index([veiculoId])
   @@map("despesas_recorrentes")
 }
 
@@ -1361,6 +1381,8 @@ model Veiculo {
 
   contas         ContaPagar[]
   abastecimentos Abastecimento[]
+  /// O financiamento que está pagando este veículo (quando há um).
+  financiamentos DespesaRecorrente[]
 
   criadoPor String?  @map("criado_por")
   createdAt DateTime @default(now()) @map("created_at")

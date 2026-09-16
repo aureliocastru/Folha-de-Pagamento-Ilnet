@@ -12,7 +12,10 @@ import { proximoDiaUtil } from './dias-uteis';
 
 /** Uma recorrente com o que a tela mostra sem abrir o cadastro. */
 export interface RecorrenteComResumo {
-  recorrente: DespesaRecorrente;
+  recorrente: DespesaRecorrente & {
+    /** O veículo do financiamento, quando a repetição é de um. */
+    veiculo: { id: string; apelido: string; placa: string | null } | null;
+  };
   /** Quantas contas ela já gerou. */
   geradas: number;
   /** Quantos dias faltam para a próxima nascer no IXC (negativo = atrasada). */
@@ -57,7 +60,10 @@ export class RecorrentesService {
     const lista = await this.prisma.despesaRecorrente.findMany({
       where: incluirDesligadas ? undefined : { ativa: true },
       orderBy: [{ ativa: 'desc' }, { proximoVencimento: 'asc' }],
-      include: { _count: { select: { contas: true } } },
+      include: {
+        _count: { select: { contas: true } },
+        veiculo: { select: { id: true, apelido: true, placa: true } },
+      },
     });
 
     const hoje = hojeUtc();
@@ -90,10 +96,23 @@ export class RecorrentesService {
       totalParcelas?: number;
       parcelasLancadas?: number;
       parcelasPorMes?: number;
+      /** Quantas já foram quitadas contando do fim do contrato. */
+      parcelasAntecipadas?: number;
+      /** Quantas das do mês vêm do fim (uma da frente e uma do fim, em geral). */
+      antecipadasPorMes?: number;
+      /** O valor da parcela antecipada, quando o desconto a faz menor. */
+      valorDaAntecipada?: number | null;
+      /** O veículo que este financiamento paga. */
+      veiculoId?: string | null;
     },
     usuarioId?: string,
   ): Promise<DespesaRecorrente> {
-    conferirParcelas(dados.totalParcelas, dados.parcelasLancadas);
+    conferirParcelas(
+      dados.totalParcelas,
+      dados.parcelasLancadas,
+      dados.parcelasAntecipadas,
+    );
+    conferirAntecipadasPorMes(dados.antecipadasPorMes, dados.parcelasPorMes);
 
     const criada = await this.prisma.despesaRecorrente.create({
       data: {
@@ -112,6 +131,13 @@ export class RecorrentesService {
         totalParcelas: dados.totalParcelas ?? null,
         parcelasLancadas: dados.parcelasLancadas ?? 0,
         parcelasPorMes: dados.parcelasPorMes ?? 1,
+        parcelasAntecipadas: dados.parcelasAntecipadas ?? 0,
+        antecipadasPorMes: dados.antecipadasPorMes ?? 0,
+        valorDaAntecipada:
+          dados.valorDaAntecipada == null
+            ? null
+            : new Prisma.Decimal(dados.valorDaAntecipada),
+        veiculoId: dados.veiculoId ?? null,
         criadoPor: usuarioId ?? null,
       },
     });
@@ -120,7 +146,12 @@ export class RecorrentesService {
       `Despesa recorrente criada: ${criada.fornecedorNome}, ` +
         `${dados.valor} todo mês, próxima em ${dados.proximoVencimento}` +
         (criada.totalParcelas
-          ? ` — consórcio, ${criada.parcelasLancadas} de ${criada.totalParcelas} já saíram, ${criada.parcelasPorMes} por mês.`
+          ? ` — ${criada.veiculoId ? 'financiamento' : 'consórcio'}, ` +
+            `${criada.parcelasLancadas} de ${criada.totalParcelas} já saíram` +
+            (criada.parcelasAntecipadas
+              ? ` e ${criada.parcelasAntecipadas} foram antecipadas do fim`
+              : '') +
+            `, ${criada.parcelasPorMes} por mês.`
           : '.'),
     );
     return criada;
@@ -143,12 +174,21 @@ export class RecorrentesService {
       totalParcelas: number;
       parcelasLancadas: number;
       parcelasPorMes: number;
+      parcelasAntecipadas: number;
+      antecipadasPorMes: number;
+      valorDaAntecipada: number | null;
+      veiculoId: string | null;
     }>,
   ): Promise<DespesaRecorrente> {
     const atual = await this.buscar(id);
     const total = dados.totalParcelas ?? atual.totalParcelas ?? undefined;
     const lancadas = dados.parcelasLancadas ?? atual.parcelasLancadas;
-    conferirParcelas(total, lancadas);
+    const antecipadas = dados.parcelasAntecipadas ?? atual.parcelasAntecipadas;
+    conferirParcelas(total, lancadas, antecipadas);
+    conferirAntecipadasPorMes(
+      dados.antecipadasPorMes ?? atual.antecipadasPorMes,
+      dados.parcelasPorMes ?? atual.parcelasPorMes,
+    );
 
     /*
      * Mexer na contagem recomeça o mês: quem corrige "já saíram 11" está
@@ -177,6 +217,21 @@ export class RecorrentesService {
         ...(dados.parcelasPorMes === undefined
           ? {}
           : { parcelasPorMes: dados.parcelasPorMes }),
+        ...(dados.parcelasAntecipadas === undefined
+          ? {}
+          : { parcelasAntecipadas: dados.parcelasAntecipadas }),
+        ...(dados.antecipadasPorMes === undefined
+          ? {}
+          : { antecipadasPorMes: dados.antecipadasPorMes }),
+        ...(dados.valorDaAntecipada === undefined
+          ? {}
+          : {
+              valorDaAntecipada:
+                dados.valorDaAntecipada === null
+                  ? null
+                  : new Prisma.Decimal(dados.valorDaAntecipada),
+            }),
+        ...(dados.veiculoId === undefined ? {} : { veiculoId: dados.veiculoId }),
         ...(mexeuNaContagem ? { lancadasNoMes: 0 } : {}),
         ...(dados.valor === undefined
           ? {}
@@ -261,24 +316,44 @@ export class RecorrentesService {
 
       /*
        * Consórcio quitado não gera mais nada, mesmo que alguém o tenha
-       * religado: a parcela 61 de 60 seria uma dívida inventada.
+       * religado: a parcela 61 de 60 seria uma dívida inventada. As
+       * antecipadas contam: elas já foram pagas, lá do fim para trás.
        */
       const total = r.totalParcelas;
-      if (total != null && r.parcelasLancadas >= total) continue;
+      if (total != null && r.parcelasLancadas + r.parcelasAntecipadas >= total)
+        continue;
 
       // Recorrente comum gera uma por mês; consórcio, quantas vencem juntas.
       const porMes = total != null ? Math.max(1, r.parcelasPorMes) : 1;
+      /*
+       * Quantas das do mês são contadas do fim do contrato.
+       *
+       * Quem paga duas por mês costuma pagar a da frente e antecipar uma do
+       * fim: num consórcio de 50 com 5 antecipadas, as deste mês são a 13 e a
+       * 45. As da frente saem primeiro, e é por isso que `lancadasNoMes` basta
+       * para saber qual é a próxima quando o IXC recusa a segunda.
+       */
+      const doFimNoMes = total != null ? Math.min(r.antecipadasPorMes, porMes) : 0;
+      const daFrenteNoMes = porMes - doFimNoMes;
       let lancadas = r.parcelasLancadas;
+      let antecipadas = r.parcelasAntecipadas;
       let noMes = r.lancadasNoMes;
 
       try {
         for (;;) {
-          const numero = lancadas + 1;
+          const doFim = total != null && noMes >= daFrenteNoMes;
+          const numero = doFim ? total - antecipadas : lancadas + 1;
+          // A antecipada custa menos: antecipar desconta os juros do que ainda
+          // faltava correr. Sem o valor com desconto, sai pelo de sempre.
+          const valorDaParcela =
+            doFim && r.valorDaAntecipada != null
+              ? Number(r.valorDaAntecipada)
+              : Number(r.valor);
           const conta = await this.contasPagar.criarDespesa(
             {
               idFornecedorIxc: r.idFornecedorIxc,
               fornecedorNome: r.fornecedorNome,
-              valor: Number(r.valor),
+              valor: valorDaParcela,
               // Emitida hoje, vencendo no dia combinado: é o que a conta seria
               // se alguém a lançasse à mão nesta manhã.
               dataEmissao: hoje,
@@ -310,9 +385,10 @@ export class RecorrentesService {
               });
           }
 
-          lancadas += 1;
+          if (doFim) antecipadas += 1;
+          else lancadas += 1;
           noMes += 1;
-          const quitou = total != null && lancadas >= total;
+          const quitou = total != null && lancadas + antecipadas >= total;
           const fechouOMes = noMes >= porMes || quitou;
 
           /*
@@ -344,7 +420,9 @@ export class RecorrentesService {
                     lancadasNoMes: 0,
                   }
                 : { lancadasNoMes: noMes }),
-              ...(total != null ? { parcelasLancadas: lancadas } : {}),
+              ...(total != null
+                ? { parcelasLancadas: lancadas, parcelasAntecipadas: antecipadas }
+                : {}),
               // A última parcela desliga o consórcio: some da conta do mês e
               // fica na lista como quitado.
               ...(quitou ? { ativa: false } : {}),
@@ -406,15 +484,39 @@ function dataUtc(iso: string): Date {
 /**
  * Consórcio não pode começar já tendo saído mais parcelas do que tem: a
  * rotina não geraria nada, e a tela mostraria um consórcio que nunca existiu.
+ *
+ * As antecipadas entram na mesma conta: as da frente e as do fim caminham uma
+ * em direção à outra, e juntas nunca passam do total.
  */
 function conferirParcelas(
   total: number | undefined | null,
   lancadas: number | undefined,
+  antecipadas?: number,
 ): void {
   if (total == null || lancadas == null) return;
-  if (lancadas > total) {
+  const doFim = antecipadas ?? 0;
+  if (lancadas + doFim > total) {
     throw new BadRequestException(
-      `Já saíram ${lancadas} parcelas, mas o consórcio tem ${total}. Confira os dois números.`,
+      doFim > 0
+        ? `Já saíram ${lancadas} parcelas e ${doFim} antecipadas do fim, mas o contrato tem ${total}. Confira os números.`
+        : `Já saíram ${lancadas} parcelas, mas o consórcio tem ${total}. Confira os dois números.`,
+    );
+  }
+}
+
+/**
+ * Não se antecipa mais parcelas por mês do que se paga por mês: o resto seria
+ * uma conta do fim nascendo sem nenhuma da frente para acompanhar.
+ */
+function conferirAntecipadasPorMes(
+  antecipadasPorMes: number | undefined | null,
+  porMes: number | undefined | null,
+): void {
+  if (antecipadasPorMes == null) return;
+  const total = porMes ?? 1;
+  if (antecipadasPorMes > total) {
+    throw new BadRequestException(
+      `São ${total} parcela(s) por mês, e ${antecipadasPorMes} delas do fim. A antecipada sai junto com a da frente.`,
     );
   }
 }

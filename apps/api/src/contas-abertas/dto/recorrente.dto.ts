@@ -100,6 +100,35 @@ export class CriarRecorrenteDto {
   @Min(1)
   @Max(12)
   parcelasPorMes?: number;
+
+  /**
+   * Quantas já foram quitadas contando do fim do contrato. Num consórcio de 50
+   * com 5 antecipadas, a próxima do fim é a 45.
+   */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsInt()
+  @Min(0)
+  @Max(360)
+  parcelasAntecipadas?: number;
+
+  /** Quantas das parcelas do mês são contadas do fim. */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsInt()
+  @Min(0)
+  @Max(12)
+  antecipadasPorMes?: number;
+
+  /** O que se paga pela antecipada, já com o desconto. */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? null : Number(value)))
+  @IsNumber()
+  @Min(0.01)
+  valorDaAntecipada?: number | null;
+
+  /** O veículo que este financiamento paga. */
+  @IsOptional() @IsUUID() veiculoId?: string | null;
 }
 
 export class AtualizarRecorrenteDto {
@@ -170,4 +199,33 @@ export class AtualizarRecorrenteDto {
   @Min(1)
   @Max(12)
   parcelasPorMes?: number;
+
+  /**
+   * Quantas já foram quitadas contando do fim do contrato. Num consórcio de 50
+   * com 5 antecipadas, a próxima do fim é a 45.
+   */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsInt()
+  @Min(0)
+  @Max(360)
+  parcelasAntecipadas?: number;
+
+  /** Quantas das parcelas do mês são contadas do fim. */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsInt()
+  @Min(0)
+  @Max(12)
+  antecipadasPorMes?: number;
+
+  /** O que se paga pela antecipada, já com o desconto. */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? null : Number(value)))
+  @IsNumber()
+  @Min(0.01)
+  valorDaAntecipada?: number | null;
+
+  /** O veículo que este financiamento paga. */
+  @IsOptional() @IsUUID() veiculoId?: string | null;
 }

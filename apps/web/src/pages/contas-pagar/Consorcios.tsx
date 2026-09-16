@@ -8,6 +8,14 @@ import { formatBRL, formatData } from '../../lib/format';
 import type { CategoriaDespesa } from '../../lib/types';
 import type { Recorrente, RecorrenteComResumo } from './Recorrentes';
 
+/** O veículo da frota que o financiamento está pagando. */
+interface VeiculoDaFrota {
+  id: string;
+  apelido: string;
+  placa: string | null;
+  modelo: string | null;
+}
+
 /** Um fornecedor achado no IXC pela busca. */
 interface FornecedorIxc {
   idFornecedor: number;
@@ -24,53 +32,90 @@ const TIPOS_DE_PAGAMENTO = [
   'Dinheiro',
 ];
 
-/** O que falta de um consórcio, contado do jeito que a rotina vai gerar. */
+/**
+ * O que falta de um consórcio, contado do jeito que a rotina vai gerar.
+ *
+ * As parcelas caminham de duas pontas: as da frente, uma atrás da outra, e as
+ * antecipadas, do fim para trás — num contrato de 50 com 5 antecipadas, as
+ * parcelas 50 a 46 já foram, e a próxima do fim é a 45. Elas se encontram no
+ * meio, e é aí que o contrato acaba.
+ */
 export function andamento(r: Recorrente) {
   const total = r.totalParcelas ?? 0;
   const porMes = Math.max(1, r.parcelasPorMes);
-  const faltam = Math.max(0, total - r.parcelasLancadas);
+  const antecipadas = r.parcelasAntecipadas ?? 0;
+  const faltam = Math.max(0, total - r.parcelasLancadas - antecipadas);
   // As que ainda cabem no vencimento de agora (uma das duas pode já ter saído).
   const noProximo = Math.min(porMes - r.lancadasNoMes, faltam);
-  const numeros = Array.from(
-    { length: noProximo },
-    (_, i) => r.parcelasLancadas + i + 1,
-  );
+  // Quantas das do mês vêm do fim. As da frente saem primeiro — a mesma ordem
+  // do servidor, senão a tela anunciaria um número e nasceria outro.
+  const doFimNoMes = Math.min(r.antecipadasPorMes ?? 0, porMes);
+  const daFrenteNoMes = porMes - doFimNoMes;
+
+  const parcelas: Array<{ numero: number; doFim: boolean }> = [];
+  let daFrente = r.parcelasLancadas;
+  let doFim = antecipadas;
+  for (let i = 0; i < noProximo; i += 1) {
+    const dessaVezDoFim = r.lancadasNoMes + i >= daFrenteNoMes;
+    parcelas.push({
+      numero: dessaVezDoFim ? total - doFim : daFrente + 1,
+      doFim: dessaVezDoFim,
+    });
+    if (dessaVezDoFim) doFim += 1;
+    else daFrente += 1;
+  }
+
   const mesesDepois = Math.ceil((faltam - noProximo) / porMes);
   const iso = String(r.proximoVencimento).slice(0, 10);
   return {
     total,
     porMes,
+    /** Quantas do mês saem pela frente, e quantas do fim. */
+    daFrenteNoMes,
+    doFimNoMes,
     faltam,
+    antecipadas,
+    /** Quantas já foram, pelos dois lados. */
+    pagas: r.parcelasLancadas + antecipadas,
     quitado: faltam === 0,
-    numeros,
+    parcelas,
+    numeros: parcelas.map((p) => p.numero),
     ultimaEm: faltam > 0 ? somarMeses(iso, mesesDepois, r.diaDoVencimento) : null,
   };
 }
 
 /**
- * Os consórcios: a despesa que se repete todo mês, mas acaba.
+ * Os consórcios e os financiamentos: a despesa que se repete todo mês, mas
+ * acaba.
  *
  * Cartão em vez de tabela: o que importa aqui é quanto falta, e uma barra diz
  * isso num relance — e cartão cabe na tela do celular sem rolar de lado.
+ *
+ * A barra tem duas pontas porque a dívida também tem: as parcelas pagas
+ * crescem da esquerda, as antecipadas do fim do contrato crescem da direita, e
+ * o vão do meio é o que ainda falta.
  */
 export function ListaDeConsorcios({
   itens,
   ocupado,
+  vazio,
   onEditar,
   onLigar,
   onApagar,
 }: {
   itens: RecorrenteComResumo[];
   ocupado: boolean;
+  /** O que dizer quando não há nenhum — cada aba tem o seu caminho. */
+  vazio?: { titulo: string; texto: string };
   onEditar: (r: Recorrente) => void;
   onLigar: (r: Recorrente) => void;
   onApagar: (r: Recorrente) => void;
 }) {
   if (itens.length === 0) {
     return (
-      <Vazio titulo="Nenhum consórcio cadastrado">
-        Cadastre em "Novo consórcio" — ou, se ele já está nas mensais, use "É
-        consórcio" na linha dele.
+      <Vazio titulo={vazio?.titulo ?? 'Nenhum consórcio cadastrado'}>
+        {vazio?.texto ??
+          'Cadastre em "Novo consórcio" — ou, se ele já está nas mensais, use "É consórcio" na linha dele.'}
       </Vazio>
     );
   }
@@ -79,8 +124,13 @@ export function ListaDeConsorcios({
     <div className="grid grid-cols-1 gap-3 p-3 md:grid-cols-2 md:p-4">
       {itens.map(({ recorrente: r, diasParaGerar }) => {
         const a = andamento(r);
-        const pagas = r.parcelasLancadas;
-        const pct = a.total ? Math.round((pagas / a.total) * 100) : 0;
+        const pct = (n: number) => (a.total ? (n / a.total) * 100 : 0);
+        const valorAntecipada =
+          r.valorDaAntecipada == null ? Number(r.valor) : Number(r.valorDaAntecipada);
+        // O que sai do caixa no mês: a da frente pelo valor cheio, a do fim
+        // pelo valor com desconto.
+        const porMesEmDinheiro =
+          Number(r.valor) * a.daFrenteNoMes + valorAntecipada * a.doFimNoMes;
         return (
           <div
             key={r.id}
@@ -89,42 +139,75 @@ export function ListaDeConsorcios({
             }`}
           >
             <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <div className="font-semibold text-tinta-900">
-                  {r.fornecedorNome}
-                </div>
-                <div className="text-xs text-tinta-500">
-                  {r.observacao}
-                  {r.diaDoVencimento ? ` · todo dia ${r.diaDoVencimento}` : ''}
-                </div>
+              {/* No financiamento o que se procura é o carro; o banco vem
+                  embaixo, junto do resto. */}
+              <div className="min-w-0 font-semibold text-tinta-900">
+                {r.veiculo ? r.veiculo.apelido : r.fornecedorNome}
               </div>
               <div className="shrink-0 text-right">
                 <div className="valor">{formatBRL(Number(r.valor))}</div>
                 {a.porMes > 1 && (
                   <div className="text-[11px] text-tinta-500">
-                    × {a.porMes} ={' '}
-                    <span className="valor">
-                      {formatBRL(Number(r.valor) * a.porMes)}
-                    </span>
+                    {a.doFimNoMes > 0 && valorAntecipada !== Number(r.valor) ? (
+                      <>+ {formatBRL(valorAntecipada)} antecipada</>
+                    ) : (
+                      <>× {a.porMes}</>
+                    )}{' '}
+                    = <span className="valor">{formatBRL(porMesEmDinheiro)}</span>
                     /mês
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Quanto já foi, quanto falta. */}
+            {/*
+             * A linha do meio, com a largura toda do cartão.
+             *
+             * Ela ficou fora do cabeçalho porque, na tela do celular, o valor
+             * da parcela mais o do mês tomam a direita e sobra uma coluna de
+             * uma palavra para o resto: "Banco / Bradesco / S/A" descendo em
+             * escada.
+             */}
+            <div className="mt-0.5 text-xs text-tinta-500">
+              {[
+                r.veiculo?.placa,
+                r.veiculo ? r.fornecedorNome : null,
+                r.observacao,
+                r.diaDoVencimento ? `todo dia ${r.diaDoVencimento}` : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </div>
+
+            {/* Quanto já foi pelas duas pontas, quanto falta no meio. */}
             <div className="mt-3">
-              <div className="h-2 overflow-hidden rounded-full bg-tinta-100">
+              <div className="relative h-2 overflow-hidden rounded-full bg-tinta-100">
                 <div
-                  className={`h-full rounded-full ${a.quitado ? 'bg-emerald-500' : 'bg-brand-500'}`}
-                  style={{ width: `${pct}%` }}
+                  className={`absolute inset-y-0 left-0 ${
+                    a.quitado ? 'bg-emerald-500' : 'bg-brand-500'
+                  }`}
+                  style={{ width: `${pct(r.parcelasLancadas)}%` }}
+                />
+                {/* As antecipadas são as últimas do contrato: elas pintam a
+                    barra da direita para a esquerda, que é como foram pagas. */}
+                <div
+                  className="absolute inset-y-0 right-0 bg-emerald-500"
+                  style={{ width: `${pct(a.antecipadas)}%` }}
                 />
               </div>
               <div className="mt-1.5 flex flex-wrap items-center justify-between gap-2 text-xs text-tinta-500">
                 <span>
-                  <strong className="num text-tinta-800">{pagas}</strong> de{' '}
+                  <strong className="num text-tinta-800">{a.pagas}</strong> de{' '}
                   <span className="num">{a.total}</span> parcelas
                   {a.porMes > 1 ? ` · ${a.porMes} por mês` : ''}
+                  {a.antecipadas > 0 && (
+                    <>
+                      {' · '}
+                      <span className="text-emerald-700 dark:text-emerald-400">
+                        <strong className="num">{a.antecipadas}</strong> do fim
+                      </span>
+                    </>
+                  )}
                 </span>
                 {a.quitado ? (
                   <Selo pequeno tom="pago">
@@ -132,7 +215,8 @@ export function ListaDeConsorcios({
                   </Selo>
                 ) : (
                   <span>
-                    faltam <strong className="num text-tinta-800">{a.faltam}</strong>
+                    faltam{' '}
+                    <strong className="num text-tinta-800">{a.faltam}</strong>
                     {a.ultimaEm && ` · última em ${mesAno(a.ultimaEm)}`}
                   </span>
                 )}
@@ -141,11 +225,11 @@ export function ListaDeConsorcios({
 
             {!a.quitado && (
               <div className="mt-3 rounded-xl bg-tinta-50 px-3 py-2 text-xs text-tinta-600">
-                {a.numeros.length > 1 ? 'Parcelas ' : 'Parcela '}
+                {a.parcelas.length > 1 ? 'Parcelas ' : 'Parcela '}
                 <strong className="num text-tinta-800">
-                  {juntar(a.numeros)}
+                  {juntarParcelas(a.parcelas)}
                 </strong>{' '}
-                {a.numeros.length > 1 ? 'vencem' : 'vence'}{' '}
+                {a.parcelas.length > 1 ? 'vencem' : 'vence'}{' '}
                 <strong className="num text-tinta-800">
                   {formatData(r.proximoVencimento)}
                 </strong>
@@ -174,10 +258,7 @@ export function ListaDeConsorcios({
                 </Selo>
               )}
               <div className="ml-auto flex flex-wrap justify-end gap-1.5">
-                <button
-                  onClick={() => onEditar(r)}
-                  className="btn btn-neutro btn-p"
-                >
+                <button onClick={() => onEditar(r)} className="btn btn-neutro btn-p">
                   Editar
                 </button>
                 {!a.quitado && (
@@ -194,10 +275,7 @@ export function ListaDeConsorcios({
                     {r.ativa ? 'Desligar' : 'Religar'}
                   </button>
                 )}
-                <button
-                  onClick={() => onApagar(r)}
-                  className="btn btn-perigo btn-p"
-                >
+                <button onClick={() => onApagar(r)} className="btn btn-perigo btn-p">
                   Apagar
                 </button>
               </div>
@@ -210,26 +288,37 @@ export function ListaDeConsorcios({
 }
 
 /**
- * Cadastro do consórcio — novo, editado, ou uma mensal que vira consórcio.
+ * Cadastro do consórcio e do financiamento — novo, editado, ou uma mensal que
+ * vira parcelado.
  *
  * A pergunta que decide tudo é "quantas já saíram": dela sai o número da
  * próxima parcela e quando ele acaba. As que já estão lançadas no IXC, mesmo
- * sem pagar, contam — senão a rotina lança de novo uma que já existe.
+ * sem pagar, contam — senão a rotina lança de novo uma que já existe. E, para
+ * quem antecipa, a mesma pergunta do outro lado: quantas já foram pagas do fim
+ * para trás, porque é daí que sai o número da próxima antecipada.
+ *
+ * Financiamento é a mesma coisa com um veículo no nome: é o veículo que o
+ * manda para a aba dele e diz de que carro é a dívida.
  */
 export function CadastroDoConsorcio({
   base,
   todas,
+  modo = 'consorcio',
   onFechar,
   onPronto,
 }: {
-  /** A recorrente editada ou convertida; sem ela, é um consórcio novo. */
+  /** A recorrente editada ou convertida; sem ela, é um cadastro novo. */
   base: Recorrente | null;
   todas: RecorrenteComResumo[];
+  /** De que aba veio. Na edição, quem manda é o veículo que já está gravado. */
+  modo?: 'consorcio' | 'financiamento';
   onFechar: () => void;
   onPronto: (mensagem: string) => void;
 }) {
   const convertendo = !!base && base.totalParcelas == null;
   const editando = !!base && !convertendo;
+  const financiamento = base ? !!base.veiculoId : modo === 'financiamento';
+  const oQueE = financiamento ? 'financiamento' : 'consórcio';
 
   const [fornecedor, setFornecedor] = useState<{ id: number; nome: string } | null>(
     base ? { id: base.idFornecedorIxc, nome: base.fornecedorNome } : null,
@@ -251,6 +340,16 @@ export function CadastroDoConsorcio({
   const [total, setTotal] = useState(base?.totalParcelas ? String(base.totalParcelas) : '');
   const [lancadas, setLancadas] = useState(editando ? String(base.parcelasLancadas) : '');
   const [porMes, setPorMes] = useState(String(editando ? base.parcelasPorMes : 1));
+  const [veiculoId, setVeiculoId] = useState(base?.veiculoId ?? '');
+  const [antecipadas, setAntecipadas] = useState(
+    editando ? String(base.parcelasAntecipadas) : '',
+  );
+  const [antecipadasMes, setAntecipadasMes] = useState(
+    String(editando ? base.antecipadasPorMes : 0),
+  );
+  const [valorAntecipada, setValorAntecipada] = useState(
+    base?.valorDaAntecipada ? String(Number(base.valorDaAntecipada)) : '',
+  );
   const [categoriaId, setCategoriaId] = useState(base?.categoriaId ?? '');
   const [tipoPagamento, setTipoPagamento] = useState(base?.tipoPagamentoIxc ?? 'Boleto');
   const [soDiasUteis, setSoDiasUteis] = useState(base?.apenasDiasUteis ?? true);
@@ -267,6 +366,16 @@ export function CadastroDoConsorcio({
     retry: 0,
   });
 
+  // Só os ligados: um veículo vendido não ganha financiamento novo. Na
+  // edição, o que já está gravado aparece de qualquer forma (abaixo).
+  const veiculos = useQuery({
+    queryKey: ['veiculos', 'ativos'],
+    queryFn: async () =>
+      (await api.get<VeiculoDaFrota[]>('/veiculos', { params: { ativos: true } }))
+        .data,
+    enabled: financiamento,
+  });
+
   const categorias = useQuery({
     queryKey: ['categorias-despesa'],
     queryFn: async () =>
@@ -279,6 +388,10 @@ export function CadastroDoConsorcio({
   const nTotal = Number(total);
   const nLancadas = Number(lancadas || 0);
   const nPorMes = Number(porMes);
+  const nAntecipadas = Number(antecipadas || 0);
+  const nAntecipadasMes = Number(antecipadasMes || 0);
+  /** A próxima a pagar do fim para trás — a que vai nascer com esse número. */
+  const proximaDoFim = nTotal - nAntecipadas;
 
   /*
    * As outras repetições do mesmo fornecedor. É o desenho da Canopus antes
@@ -306,6 +419,8 @@ export function CadastroDoConsorcio({
           totalParcelas: nTotal,
           parcelasLancadas: nLancadas,
           parcelasPorMes: nPorMes,
+          parcelasAntecipadas: nAntecipadas,
+          antecipadasPorMes: Math.min(nAntecipadasMes, nPorMes),
           // Se a contagem e a data ficaram como estavam, vale o que já nasceu
           // no mês; mexer nelas recomeça o mês (é o que o servidor faz).
           lancadasNoMes:
@@ -328,8 +443,13 @@ export function CadastroDoConsorcio({
     nTotal <= 360 &&
     Number.isInteger(nLancadas) &&
     nLancadas >= 0 &&
-    nLancadas <= nTotal &&
+    Number.isInteger(nAntecipadas) &&
+    nAntecipadas >= 0 &&
+    // As duas pontas não se ultrapassam: juntas, nunca passam do contrato.
+    nLancadas + nAntecipadas <= nTotal &&
     nPorMes >= 1 &&
+    nAntecipadasMes <= nPorMes &&
+    (!financiamento || !!veiculoId) &&
     !!vencimento;
 
   const salvar = useMutation({
@@ -338,12 +458,16 @@ export function CadastroDoConsorcio({
       const dados = {
         valor: Number(valor),
         // Sem descrição, a do IXC diz o que é: "nem me pergunta".
-        observacao: obs.length >= 3 ? obs : `Consórcio ${fornecedor!.nome}`,
+        observacao: obs.length >= 3 ? obs : descricaoPadrao,
         proximoVencimento: vencimento,
         diaDoVencimento: nDia,
         totalParcelas: nTotal,
         parcelasLancadas: nLancadas,
         parcelasPorMes: nPorMes,
+        parcelasAntecipadas: nAntecipadas,
+        antecipadasPorMes: Math.min(nAntecipadasMes, nPorMes),
+        valorDaAntecipada: Number(valorAntecipada) > 0 ? Number(valorAntecipada) : null,
+        veiculoId: financiamento ? veiculoId : null,
         categoriaId: categoriaId || null,
         tipoPagamentoIxc: tipoPagamento.trim() || undefined,
         apenasDiasUteis: soDiasUteis,
@@ -369,22 +493,39 @@ export function CadastroDoConsorcio({
     onSuccess: (apagadas) =>
       onPronto(
         (editando
-          ? `Consórcio de ${fornecedor!.nome} atualizado.`
-          : `${fornecedor!.nome} ${convertendo ? 'virou consórcio' : 'cadastrado como consórcio'}. As parcelas nascem no IXC 5 dias antes de vencer.`) +
+          ? `${financiamento ? 'Financiamento' : 'Consórcio'} de ${nomeDoCadastro} atualizado.`
+          : `${nomeDoCadastro} ${convertendo ? `virou ${oQueE}` : `cadastrado como ${oQueE}`}. As parcelas nascem no IXC 5 dias antes de vencer.`) +
           (apagadas > 0
             ? ` ${apagadas} repetição(ões) mensal(is) do mesmo fornecedor apagada(s).`
             : ''),
       ),
   });
 
+  const daFrota = veiculos.data ?? [];
+  // O veículo já gravado fica na lista mesmo depois de desligado: senão editar
+  // o financiamento de um carro vendido apagaria o vínculo sem querer.
+  const opcoesDeVeiculo: VeiculoDaFrota[] =
+    base?.veiculo && !daFrota.some((v) => v.id === base.veiculo?.id)
+      ? [{ ...base.veiculo, modelo: null }, ...daFrota]
+      : daFrota;
+  const veiculoEscolhido = opcoesDeVeiculo.find((v) => v.id === veiculoId);
+  /** Como este cadastro se chama nas mensagens: o carro, ou o credor. */
+  const nomeDoCadastro =
+    veiculoEscolhido?.apelido ?? base?.veiculo?.apelido ?? fornecedor?.nome ?? '';
+  const descricaoPadrao = financiamento
+    ? `Financiamento ${nomeDoCadastro || fornecedor?.nome || ''}`.trim()
+    : `Consórcio ${fornecedor?.nome ?? ''}`.trim();
+
   return (
     <Janela
       titulo={
         editando
-          ? `Editar consórcio — ${base.fornecedorNome}`
+          ? `Editar ${oQueE} — ${nomeDoCadastro || base.fornecedorNome}`
           : convertendo
-            ? 'Transformar em consórcio'
-            : 'Novo consórcio'
+            ? `Transformar em ${oQueE}`
+            : financiamento
+              ? 'Novo financiamento'
+              : 'Novo consórcio'
       }
       onFechar={onFechar}
     >
@@ -461,6 +602,32 @@ export function CadastroDoConsorcio({
           )}
         </div>
 
+        {financiamento && (
+          <div className="sm:col-span-2">
+            <label className="rotulo" htmlFor="co-veiculo">
+              Veículo
+            </label>
+            <select
+              id="co-veiculo"
+              value={veiculoId}
+              onChange={(e) => setVeiculoId(e.target.value)}
+              className="campo"
+            >
+              <option value="">Escolha o veículo…</option>
+              {opcoesDeVeiculo.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {[v.apelido, v.placa, v.modelo].filter(Boolean).join(' · ')}
+                </option>
+              ))}
+            </select>
+            <p className="ajuda">
+              {veiculos.isLoading
+                ? 'Carregando a frota…'
+                : 'De que carro é esta dívida. É por ele que o financiamento aparece na aba Financiamentos.'}
+            </p>
+          </div>
+        )}
+
         <div className="sm:col-span-2">
           <label className="rotulo" htmlFor="co-obs">
             Descrição (vai na conta do IXC)
@@ -471,7 +638,8 @@ export function CadastroDoConsorcio({
             onChange={(e) => setObservacao(e.target.value)}
             className="campo"
             placeholder={
-              fornecedor ? `Consórcio ${fornecedor.nome}` : 'Consórcio caçamba'
+              descricaoPadrao ||
+              (financiamento ? 'Financiamento Hilux' : 'Consórcio caçamba')
             }
             autoComplete="off"
           />
@@ -581,6 +749,70 @@ export function CadastroDoConsorcio({
           </p>
         </div>
 
+        {/* A outra ponta: o que já se pagou do fim para trás. */}
+        <div>
+          <label className="rotulo" htmlFor="co-antecipadas">
+            Quantas já foram antecipadas
+          </label>
+          <input
+            id="co-antecipadas"
+            type="number"
+            inputMode="numeric"
+            min={0}
+            max={360}
+            value={antecipadas}
+            onChange={(e) => setAntecipadas(e.target.value)}
+            className="campo num"
+            placeholder="0"
+          />
+          <p className="ajuda">
+            {nTotal >= 2 && nAntecipadas > 0
+              ? `Contadas do fim: a ${nTotal} até a ${proximaDoFim + 1} já foram, e a próxima do fim é a ${proximaDoFim}.`
+              : 'As pagas do fim para trás. Sem antecipação, deixe zero.'}
+          </p>
+        </div>
+
+        <div>
+          <label className="rotulo" htmlFor="co-antecipadas-mes">
+            Dessas do mês, quantas do fim
+          </label>
+          <select
+            id="co-antecipadas-mes"
+            value={antecipadasMes}
+            onChange={(e) => setAntecipadasMes(e.target.value)}
+            className="campo"
+          >
+            {Array.from({ length: Math.max(1, nPorMes) + 1 }, (_, n) => n).map(
+              (n) => (
+                <option key={n} value={n}>
+                  {n === 0 ? 'nenhuma — só as da frente' : `${n} do fim`}
+                </option>
+              ),
+            )}
+          </select>
+          <p className="ajuda">
+            Quem paga duas por mês costuma pagar a da frente e antecipar uma do
+            fim — as duas contas nascem no mesmo dia, cada uma com o seu número.
+          </p>
+        </div>
+
+        {(nAntecipadasMes > 0 || nAntecipadas > 0) && (
+          <div>
+            <label className="rotulo" htmlFor="co-valor-antecipada">
+              Valor da parcela antecipada
+            </label>
+            <CampoDinheiro
+              id="co-valor-antecipada"
+              valor={valorAntecipada}
+              onChange={setValorAntecipada}
+            />
+            <p className="ajuda">
+              Antecipar desconta o juro que ainda ia correr, e ela sai menor.
+              Vazio, a do fim sai pelo valor de sempre.
+            </p>
+          </div>
+        )}
+
         <div>
           <label className="rotulo" htmlFor="co-tipo">
             Tipo de pagamento
@@ -636,7 +868,7 @@ export function CadastroDoConsorcio({
             <>
               {previa.numeros.length > 1 ? 'As parcelas ' : 'A parcela '}
               <strong className="num text-tinta-900">
-                {juntar(previa.numeros)}
+                {juntarParcelas(previa.parcelas)}
               </strong>{' '}
               de {previa.total} {previa.numeros.length > 1 ? 'vencem' : 'vence'}{' '}
               <strong className="num text-tinta-900">
@@ -645,7 +877,14 @@ export function CadastroDoConsorcio({
               e {previa.numeros.length > 1 ? 'nascem' : 'nasce'} no IXC 5 dias
               antes. Faltam <strong className="num">{previa.faltam}</strong>
               {previa.ultimaEm && <> — a última em {mesAno(previa.ultimaEm)}</>}
-              ; depois dela o consórcio para sozinho.
+              ; depois dela o {oQueE} para sozinho.
+              {nAntecipadas > 0 && (
+                <>
+                  {' '}
+                  Do fim já foram {nAntecipadas}: a próxima antecipada é a{' '}
+                  <strong className="num text-tinta-900">{proximaDoFim}</strong>.
+                </>
+              )}
             </>
           )}
         </div>
@@ -657,7 +896,7 @@ export function CadastroDoConsorcio({
             {fornecedor!.nome} já tem {irmas.length} repetição(ões) mensal(is)
           </p>
           <p className="mt-1 text-sm text-amber-800 dark:text-amber-300">
-            Se ficarem, cada mês vai ter as parcelas do consórcio e mais as
+            Se ficarem, cada mês vai ter as parcelas do {oQueE} e mais as
             delas. As marcadas são apagadas ao salvar — as contas que já
             geraram continuam no IXC.
           </p>
@@ -704,8 +943,10 @@ export function CadastroDoConsorcio({
             : editando
               ? 'Salvar'
               : convertendo
-                ? 'Virar consórcio'
-                : 'Cadastrar consórcio'}
+                ? `Virar ${oQueE}`
+                : financiamento
+                  ? 'Cadastrar financiamento'
+                  : 'Cadastrar consórcio'}
         </button>
       </div>
     </Janela>
@@ -745,7 +986,25 @@ function mesAno(iso: string): string {
 }
 
 /** [12, 13] → "12 e 13"; [12, 13, 14] → "12, 13 e 14". */
-function juntar(numeros: number[]): string {
-  if (numeros.length <= 1) return numeros.join('');
-  return `${numeros.slice(0, -1).join(', ')} e ${numeros[numeros.length - 1]}`;
+function juntar(itens: Array<string | number>): string {
+  if (itens.length <= 1) return itens.join('');
+  return `${itens.slice(0, -1).join(', ')} e ${itens[itens.length - 1]}`;
+}
+
+/**
+ * Os números do mês com o lado de cada um — "13 (da frente) e 45 (do fim)".
+ *
+ * O lado só aparece quando há os dois: é ele que diz qual boleto é qual na
+ * hora de pagar. Num consórcio que só anda para a frente, o número basta.
+ */
+function juntarParcelas(parcelas: Array<{ numero: number; doFim: boolean }>): string {
+  const dosDoisLados =
+    parcelas.some((p) => p.doFim) && parcelas.some((p) => !p.doFim);
+  const texto = juntar(
+    parcelas.map((p) =>
+      dosDoisLados ? `${p.numero} (${p.doFim ? 'do fim' : 'da frente'})` : p.numero,
+    ),
+  );
+  const todasDoFim = parcelas.length > 0 && parcelas.every((p) => p.doFim);
+  return todasDoFim ? `${texto} (do fim)` : texto;
 }

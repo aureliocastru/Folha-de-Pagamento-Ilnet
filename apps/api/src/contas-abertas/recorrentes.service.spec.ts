@@ -31,6 +31,10 @@ function recorrente(over: Record<string, unknown> = {}) {
     parcelasLancadas: 0,
     parcelasPorMes: 1,
     lancadasNoMes: 0,
+    parcelasAntecipadas: 0,
+    antecipadasPorMes: 0,
+    valorDaAntecipada: null,
+    veiculoId: null,
     ...over,
   };
 }
@@ -326,5 +330,153 @@ describe('RecorrentesService.gerarPendentes — consórcio', () => {
         parcelasLancadas: 61,
       }),
     ).rejects.toThrow(/61 parcelas/);
+  });
+});
+
+/**
+ * O financiamento do veículo — e o consórcio que se paga dos dois lados.
+ *
+ * Quem paga duas por mês costuma pagar a da frente e antecipar uma do fim, que
+ * sai mais barata porque o juro que ainda ia correr é descontado. As duas
+ * contas nascem no mesmo dia, cada uma com o seu número em cima: é por ele que
+ * se sabe qual boleto é qual na hora de pagar.
+ */
+describe('RecorrentesService.gerarPendentes — antecipação do fim', () => {
+  beforeAll(() => {
+    jest.useFakeTimers().setSystemTime(HOJE);
+  });
+  afterAll(() => {
+    jest.useRealTimers();
+  });
+
+  /** 50 parcelas, duas por mês: uma da frente e uma do fim, com 5 antecipadas. */
+  function financiamento(over: Record<string, unknown> = {}) {
+    return consorcio({
+      fornecedorNome: 'Banco do Carro',
+      observacao: 'Financiamento Hilux',
+      valor: 2000,
+      totalParcelas: 50,
+      parcelasLancadas: 12,
+      parcelasPorMes: 2,
+      parcelasAntecipadas: 5,
+      antecipadasPorMes: 1,
+      valorDaAntecipada: 1500,
+      veiculoId: 'v1',
+      ...over,
+    });
+  }
+
+  it('a da frente e a do fim saem no mesmo dia, cada uma com o seu número', async () => {
+    const { service, contasPagar } = montarServico({ lista: [financiamento()] });
+
+    const r = await service.gerarPendentes();
+
+    expect(r.geradas).toBe(2);
+    expect(contasPagar.criarDespesa).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        observacao: 'Financiamento Hilux (13/50)',
+        valor: 2000,
+      }),
+      undefined,
+    );
+    // 50 menos as 5 já antecipadas: a próxima do fim é a 45, e mais barata.
+    expect(contasPagar.criarDespesa).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        observacao: 'Financiamento Hilux (45/50)',
+        valor: 1500,
+      }),
+      undefined,
+    );
+  });
+
+  it('cada lado anda no seu contador', async () => {
+    const { service, atualizacoes } = montarServico({ lista: [financiamento()] });
+
+    await service.gerarPendentes();
+
+    expect(atualizacoes[0]).toMatchObject({
+      parcelasLancadas: 13,
+      parcelasAntecipadas: 5,
+      lancadasNoMes: 1,
+    });
+    expect(atualizacoes[1]).toMatchObject({
+      parcelasLancadas: 13,
+      parcelasAntecipadas: 6,
+      lancadasNoMes: 0,
+      proximoVencimento: new Date(Date.UTC(2026, 8, 20)),
+    });
+  });
+
+  it('se a do fim falhou, a rodada seguinte gera só ela', async () => {
+    const { service, contasPagar } = montarServico({
+      lista: [financiamento({ parcelasLancadas: 13, lancadasNoMes: 1 })],
+    });
+
+    expect((await service.gerarPendentes()).geradas).toBe(1);
+    expect(contasPagar.criarDespesa).toHaveBeenCalledWith(
+      expect.objectContaining({ observacao: 'Financiamento Hilux (45/50)' }),
+      undefined,
+    );
+  });
+
+  it('as duas pontas se encontram: a última que falta sai uma vez só', async () => {
+    // 24 pagas da frente e 25 do fim: falta a 25, e o mês pagaria duas.
+    const { service, contasPagar, atualizacoes } = montarServico({
+      lista: [financiamento({ parcelasLancadas: 24, parcelasAntecipadas: 25 })],
+    });
+
+    const r = await service.gerarPendentes();
+
+    expect(r.geradas).toBe(1);
+    expect(contasPagar.criarDespesa).toHaveBeenCalledWith(
+      expect.objectContaining({ observacao: 'Financiamento Hilux (25/50)' }),
+      undefined,
+    );
+    expect(atualizacoes[0]).toMatchObject({ parcelasLancadas: 25, ativa: false });
+  });
+
+  it('quitado pelos dois lados não gera mais nada', async () => {
+    const { service, contasPagar } = montarServico({
+      lista: [financiamento({ parcelasLancadas: 30, parcelasAntecipadas: 20 })],
+    });
+
+    expect((await service.gerarPendentes()).geradas).toBe(0);
+    expect(contasPagar.criarDespesa).not.toHaveBeenCalled();
+  });
+
+  it('recusa quando as antecipadas e as pagas passam do total', async () => {
+    const { service } = montarServico();
+
+    await expect(
+      service.criar({
+        idFornecedorIxc: 196,
+        fornecedorNome: 'Banco do Carro',
+        valor: 2000,
+        observacao: 'Financiamento Hilux',
+        proximoVencimento: '2026-09-20',
+        totalParcelas: 50,
+        parcelasLancadas: 30,
+        parcelasAntecipadas: 25,
+      }),
+    ).rejects.toThrow(/25 antecipadas/);
+  });
+
+  it('recusa antecipar mais por mês do que se paga por mês', async () => {
+    const { service } = montarServico();
+
+    await expect(
+      service.criar({
+        idFornecedorIxc: 196,
+        fornecedorNome: 'Banco do Carro',
+        valor: 2000,
+        observacao: 'Financiamento Hilux',
+        proximoVencimento: '2026-09-20',
+        totalParcelas: 50,
+        parcelasPorMes: 2,
+        antecipadasPorMes: 3,
+      }),
+    ).rejects.toThrow(/2 parcela\(s\) por mês/);
   });
 });

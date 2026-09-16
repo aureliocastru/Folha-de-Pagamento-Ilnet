@@ -35,6 +35,15 @@ export interface Recorrente {
   parcelasLancadas: number;
   parcelasPorMes: number;
   lancadasNoMes: number;
+  /** Quantas já foram quitadas contando do fim do contrato. */
+  parcelasAntecipadas: number;
+  /** Quantas das do mês vêm do fim: em geral uma da frente e uma do fim. */
+  antecipadasPorMes: number;
+  /** O que se paga pela antecipada, já com o desconto. */
+  valorDaAntecipada: string | null;
+  /** Preenchido, é financiamento de veículo — e mora na aba dele. */
+  veiculoId: string | null;
+  veiculo: { id: string; apelido: string; placa: string | null } | null;
 }
 
 export interface RecorrenteComResumo {
@@ -58,11 +67,17 @@ export function Recorrentes() {
   const [vencimento, setVencimento] = useState('');
   const [aviso, setAviso] = useState<string | null>(null);
   const [erro, setErro] = useState(false);
-  const [aba, setAba] = useState<'mensais' | 'consorcios'>('mensais');
-  /** O cadastro de consórcio aberto: `base` nula é consórcio novo. */
-  const [cadastro, setCadastro] = useState<{ base: Recorrente | null } | null>(
-    null,
+  const [aba, setAba] = useState<'mensais' | 'consorcios' | 'financiamentos'>(
+    'mensais',
   );
+  /**
+   * O cadastro aberto: `base` nula é um cadastro novo, e `modo` diz se o que
+   * se está cadastrando tem veículo no nome.
+   */
+  const [cadastro, setCadastro] = useState<{
+    base: Recorrente | null;
+    modo: 'consorcio' | 'financiamento';
+  } | null>(null);
 
   const lista = useQuery({
     queryKey: ['recorrentes'],
@@ -133,16 +148,31 @@ export function Recorrentes() {
 
   const todos = lista.data ?? [];
   // Consórcio é a recorrente com fim: mora na aba dele, e não entre as mensais.
-  const consorcios = todos.filter((i) => i.recorrente.totalParcelas != null);
+  // Financiamento é o consórcio com um veículo no nome, e tem a aba dele.
+  const parceladas = todos.filter((i) => i.recorrente.totalParcelas != null);
+  const financiamentos = parceladas.filter((i) => i.recorrente.veiculoId != null);
+  const consorcios = parceladas.filter((i) => i.recorrente.veiculoId == null);
   const itens = todos.filter((i) => i.recorrente.totalParcelas == null);
   const ativas = itens.filter((i) => i.recorrente.ativa);
   const porMes = ativas.reduce((s, i) => s + Number(i.recorrente.valor), 0);
+
+  /** O que sai do caixa por mês: a do fim entra pelo valor com desconto. */
+  function somaPorMes(itens: RecorrenteComResumo[]): number {
+    return itens
+      .filter((i) => i.recorrente.ativa)
+      .reduce((s, { recorrente: r }) => {
+        const total = Math.max(1, r.parcelasPorMes);
+        const doFim = Math.min(r.antecipadasPorMes, total);
+        const antecipada =
+          r.valorDaAntecipada == null ? Number(r.valor) : Number(r.valorDaAntecipada);
+        return s + Number(r.valor) * (total - doFim) + antecipada * doFim;
+      }, 0);
+  }
+
   const consorciosAtivos = consorcios.filter((i) => i.recorrente.ativa);
-  const consorciosPorMes = consorciosAtivos.reduce(
-    (s, i) =>
-      s + Number(i.recorrente.valor) * Math.max(1, i.recorrente.parcelasPorMes),
-    0,
-  );
+  const consorciosPorMes = somaPorMes(consorcios);
+  const financiamentosAtivos = financiamentos.filter((i) => i.recorrente.ativa);
+  const financiamentosPorMes = somaPorMes(financiamentos);
 
   return (
     <Pagina>
@@ -153,10 +183,15 @@ export function Recorrentes() {
         acoes={
           <>
             <button
-              onClick={() => setCadastro({ base: null })}
+              onClick={() =>
+                setCadastro({
+                  base: null,
+                  modo: aba === 'financiamentos' ? 'financiamento' : 'consorcio',
+                })
+              }
               className="btn btn-neutro"
             >
-              Novo consórcio
+              {aba === 'financiamentos' ? 'Novo financiamento' : 'Novo consórcio'}
             </button>
             <button
               onClick={() => gerarAgora.mutate()}
@@ -173,12 +208,14 @@ export function Recorrentes() {
         <CadastroDoConsorcio
           base={cadastro.base}
           todas={todos}
+          modo={cadastro.modo}
           onFechar={() => setCadastro(null)}
           onPronto={(mensagem) => {
+            const veiculo = cadastro.modo === 'financiamento';
             setCadastro(null);
             setErro(false);
             setAviso(mensagem);
-            setAba('consorcios');
+            setAba(veiculo ? 'financiamentos' : 'consorcios');
             invalidar();
           }}
         />
@@ -189,6 +226,7 @@ export function Recorrentes() {
           [
             ['mensais', `Mensais (${itens.length})`],
             ['consorcios', `Consórcios (${consorcios.length})`],
+            ['financiamentos', `Financiamentos (${financiamentos.length})`],
           ] as const
         ).map(([qual, rotulo]) => (
           <button
@@ -234,7 +272,7 @@ export function Recorrentes() {
               <ListaDeConsorcios
                 itens={consorcios}
                 ocupado={salvar.isPending}
-                onEditar={(r) => setCadastro({ base: r })}
+                onEditar={(r) => setCadastro({ base: r, modo: 'consorcio' })}
                 onLigar={(r) =>
                   salvar.mutate({ id: r.id, dados: { ativa: !r.ativa } })
                 }
@@ -242,6 +280,47 @@ export function Recorrentes() {
                   if (
                     confirm(
                       `Apagar o consórcio de ${r.fornecedorNome}? ` +
+                        'As parcelas já geradas continuam no IXC.',
+                    )
+                  ) {
+                    remover.mutate(r.id);
+                  }
+                }}
+              />
+            )}
+          </Bloco>
+        </>
+      )}
+
+      {aba === 'financiamentos' && (
+        <>
+          {financiamentosAtivos.length > 0 && (
+            <p className="mb-4 text-sm text-tinta-500">
+              {financiamentosAtivos.length} veículo(s) sendo pagos, somando{' '}
+              <strong className="valor">{formatBRL(financiamentosPorMes)}</strong>{' '}
+              por mês.
+            </p>
+          )}
+          <Bloco semPadding>
+            {lista.isLoading ? (
+              <Carregando />
+            ) : (
+              <ListaDeConsorcios
+                itens={financiamentos}
+                ocupado={salvar.isPending}
+                vazio={{
+                  titulo: 'Nenhum financiamento cadastrado',
+                  texto:
+                    'Cadastre em "Novo financiamento": escolha o veículo, o banco e em que parcela está. A conta de cada mês passa a nascer sozinha no IXC.',
+                }}
+                onEditar={(r) => setCadastro({ base: r, modo: 'financiamento' })}
+                onLigar={(r) =>
+                  salvar.mutate({ id: r.id, dados: { ativa: !r.ativa } })
+                }
+                onApagar={(r) => {
+                  if (
+                    confirm(
+                      `Apagar o financiamento de ${r.veiculo?.apelido ?? r.fornecedorNome}? ` +
                         'As parcelas já geradas continuam no IXC.',
                     )
                   ) {
@@ -436,7 +515,9 @@ export function Recorrentes() {
                                 Editar
                               </button>
                               <button
-                                onClick={() => setCadastro({ base: r })}
+                                onClick={() =>
+                                  setCadastro({ base: r, modo: 'consorcio' })
+                                }
                                 className="btn btn-sutil btn-p"
                                 title="Tem número de parcelas: passa para Consórcios, numera as contas e para na última"
                               >
