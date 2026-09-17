@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AxiosInstance } from 'axios';
-import { useMemo, useState, type ChangeEvent } from 'react';
+import { useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
 import { mensagemErro } from '../lib/api';
 import { semAcento } from '../lib/busca';
 import { useCelular } from '../lib/celular';
@@ -529,11 +529,18 @@ export function FotoDoPonto({
   chave,
   buscar,
   titulo = 'Foto',
+  acao,
 }: {
   chave: unknown[];
   buscar: () => Promise<string>;
   /** O que se lê no alto quando a foto abre em tela cheia. */
   titulo?: string;
+  /**
+   * O que se faz com a foto aberta — na conferência do abastecimento, digitar
+   * o valor que está escrito nela. Recebe o fechar, para sair da tela cheia
+   * assim que o trabalho terminar.
+   */
+  acao?: (fechar: () => void) => ReactNode;
 }) {
   const [aberta, setAberta] = useState(false);
   const [ampliada, setAmpliada] = useState(false);
@@ -575,6 +582,7 @@ export function FotoDoPonto({
               <FotoAmpliada
                 src={foto.data}
                 titulo={titulo}
+                acao={acao?.(() => setAmpliada(false))}
                 onFechar={() => setAmpliada(false)}
               />
             )}

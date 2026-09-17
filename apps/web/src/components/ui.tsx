@@ -300,6 +300,20 @@ export function Janela({
   useEffect(() => {
     const aoTeclar = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onFechar();
+      /*
+       * Digitando no rodapé, o teclado é do campo e não da foto: sem isto, o
+       * "0" do valor da nota devolveria a imagem ao tamanho de tela e o "-"
+       * a afastaria no meio da digitação.
+       */
+      const alvo = e.target as HTMLElement | null;
+      if (
+        alvo &&
+        (alvo.tagName === 'INPUT' ||
+          alvo.tagName === 'TEXTAREA' ||
+          alvo.isContentEditable)
+      ) {
+        return;
+      }
     };
     window.addEventListener('keydown', aoTeclar);
     // Rolar a página atrás da janela tira do lugar o que se está lendo nela.
@@ -431,12 +445,19 @@ const limitarZoom = (n: number) => Math.min(ZOOM_MAXIMO, Math.max(1, n));
 export function FotoAmpliada({
   src,
   titulo,
+  acao,
   onFechar,
   onAnterior,
   onProxima,
 }: {
   src: string;
   titulo: string;
+  /**
+   * O que se faz com esta foto à vista — na conferência, o valor da nota e o
+   * botão de salvar. Fica num rodapé, embaixo da imagem: quem está lendo um
+   * número torto no papel não pode ter de fechar a foto para digitá-lo.
+   */
+  acao?: ReactNode;
   onFechar: () => void;
   /**
    * As vizinhas, quando a saída tem mais de uma nota. Ausente é ponta da
@@ -702,6 +723,12 @@ export function FotoAmpliada({
           />
         </div>
       </div>
+
+      {acao && (
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-2 rounded-2xl border border-white/10 bg-white/[0.06] px-3 py-2.5">
+          {acao}
+        </div>
+      )}
 
       {/*
         As setas ficam por cima da foto, e não na barra de cima: passar de uma

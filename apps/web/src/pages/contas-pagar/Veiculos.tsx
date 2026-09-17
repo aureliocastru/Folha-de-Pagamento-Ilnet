@@ -445,15 +445,30 @@ function LinhaAConferir({
         <span className="block text-[11px] text-tinta-400">
           {dataEHora(a.data)} · {a.lancadoPor}
         </span>
-        {a.temFoto && <FotoDoAbastecimento id={a.id} />}
+        {a.temFoto && <FotoDoAbastecimento id={a.id} conferir={a} />}
       </span>
       <ValorDaNota abastecimento={a} />
     </li>
   );
 }
 
-/** O campo de pôr (ou corrigir) o valor lido na nota. */
-function ValorDaNota({ abastecimento }: { abastecimento: Abastecimento }) {
+/**
+ * O campo de pôr (ou corrigir) o valor lido na nota.
+ *
+ * Aparece em dois lugares: na linha da fila e, `naFoto`, no rodapé da nota
+ * aberta em tela cheia — que é onde o valor de verdade se lê, ampliado. Lá o
+ * botão fecha a foto ao salvar: o trabalho daquela nota acabou.
+ */
+function ValorDaNota({
+  abastecimento,
+  naFoto = false,
+  aoSalvar,
+}: {
+  abastecimento: Abastecimento;
+  /** Sobre a tinta escura da foto em tela cheia: campo maior, rótulo claro. */
+  naFoto?: boolean;
+  aoSalvar?: () => void;
+}) {
   const qc = useQueryClient();
   const [valor, setValor] = useState(
     abastecimento.valor != null ? abastecimento.valor.toFixed(2) : '',
@@ -463,39 +478,70 @@ function ValorDaNota({ abastecimento }: { abastecimento: Abastecimento }) {
     mutationFn: async () => {
       await api.patch(`/veiculos/abastecimentos/${abastecimento.id}`, { valor: Number(valor) });
     },
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['veiculos'] }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['veiculos'] });
+      aoSalvar?.();
+    },
   });
 
   return (
-    <span className="flex flex-col items-end gap-1">
-      <span className="flex items-center gap-2">
+    <span className={`flex flex-col gap-1 ${naFoto ? 'w-full' : 'items-end'}`}>
+      <span className="flex flex-wrap items-center justify-end gap-2">
+        {naFoto && (
+          <label
+            htmlFor={`valor-da-nota-${abastecimento.id}`}
+            className="mr-auto text-sm font-semibold text-white/80"
+          >
+            Valor da nota
+          </label>
+        )}
         <CampoDinheiro
+          id={naFoto ? `valor-da-nota-${abastecimento.id}` : undefined}
           valor={valor}
           onChange={setValor}
-          className="campo num w-32 py-1.5 text-right"
+          className={`campo num text-right ${naFoto ? 'h-11 w-40 text-base' : 'w-32 py-1.5'}`}
           placeholder="valor da nota"
         />
         <button
           type="button"
           onClick={() => salvar.mutate()}
           disabled={!(Number(valor) > 0) || salvar.isPending}
-          className="btn btn-primario btn-p"
+          className={`btn btn-primario ${naFoto ? 'h-11 px-5' : 'btn-p'}`}
         >
-          {salvar.isPending ? 'Salvando…' : 'Salvar'}
+          {salvar.isPending ? 'Salvando…' : naFoto ? 'Salvar e fechar' : 'Salvar'}
         </button>
       </span>
-      {salvar.isError && <span className="text-xs text-rose-600">{mensagemErro(salvar.error)}</span>}
+      {salvar.isError && (
+        <span className={`text-xs ${naFoto ? 'text-rose-300' : 'text-rose-600'}`}>
+          {mensagemErro(salvar.error)}
+        </span>
+      )}
     </span>
   );
 }
 
-function FotoDoAbastecimento({ id }: { id: string }) {
+function FotoDoAbastecimento({
+  id,
+  conferir,
+}: {
+  id: string;
+  /**
+   * O abastecimento que espera o valor. Presente, a nota em tela cheia leva o
+   * campo no rodapé — lê-se o número ampliado e digita-se ali mesmo, sem
+   * fechar a foto para procurar o campo na linha.
+   */
+  conferir?: Abastecimento;
+}) {
   return (
     <FotoDoPonto
       chave={['veiculos', 'abastecimento', 'foto', id]}
       titulo="Nota do posto"
       buscar={async () =>
         (await api.get<{ foto: string }>(`/veiculos/abastecimentos/${id}/foto`)).data.foto
+      }
+      acao={
+        conferir &&
+        ((fechar) => <ValorDaNota abastecimento={conferir} naFoto aoSalvar={fechar} />)
       }
     />
   );
@@ -900,7 +946,7 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
                       {dataEHora(a.data)} · {a.lancadoPor}
                       {a.conferidoPor && a.conferidoPor !== a.lancadoPor && ` · conferido por ${a.conferidoPor}`}
                     </span>
-                    {a.temFoto && <FotoDoAbastecimento id={a.id} />}
+                    {a.temFoto && <FotoDoAbastecimento id={a.id} conferir={a} />}
                   </span>
                   <span className="flex flex-col items-end gap-2">
                     {/* Com valor, dá para corrigir; sem, é a conferência ali mesmo. */}
