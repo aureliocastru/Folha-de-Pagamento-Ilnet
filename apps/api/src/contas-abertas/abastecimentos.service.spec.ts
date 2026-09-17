@@ -1,5 +1,9 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
-import { AbastecimentosService, resumirCombustivel } from './abastecimentos.service';
+import {
+  AbastecimentosService,
+  mediaDeConsumo,
+  resumirCombustivel,
+} from './abastecimentos.service';
 
 /**
  * O abastecimento entra pelo portal do CPF, sem login, só com o km e a foto; o
@@ -16,6 +20,7 @@ const FOTO = 'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQ==';
 
 function montar(
   opts: {
+    /** Quem tem o veículo no nome. Um só, que é o do caso comum. */
     responsavelId?: string;
     ultimoKm?: number | null;
     ultimoHorimetro?: number | null;
@@ -43,7 +48,7 @@ function montar(
           apelido: 'Moto do almoxarifado',
           tipo: 'MOTO',
           ativo: true,
-          responsavelId: opts.responsavelId ?? 'f1',
+          responsaveis: [{ funcionarioId: opts.responsavelId ?? 'f1' }],
         };
         return opts.veiculos?.[where.id] ?? (where.id === 'v1' ? padrao : null);
       }),
@@ -110,6 +115,27 @@ describe('AbastecimentosService.lancarPeloPortal', () => {
     const { service, prisma } = montar({ responsavelId: 'outro' });
     await expect(service.lancarPeloPortal(CPF, PEDIDO)).rejects.toThrow(ForbiddenException);
     expect(prisma.abastecimento.create).not.toHaveBeenCalled();
+  });
+
+  it('o carro de dois: o segundo responsável lança igual ao primeiro', async () => {
+    const { service, prisma } = montar({
+      veiculos: {
+        v1: {
+          id: 'v1',
+          apelido: 'Hilux',
+          tipo: 'CAMINHONETE',
+          ativo: true,
+          responsaveis: [{ funcionarioId: 'outro' }, { funcionarioId: 'f1' }],
+        },
+      },
+    });
+
+    await service.lancarPeloPortal(CPF, PEDIDO);
+
+    expect(prisma.abastecimento.create.mock.calls[0][0].data).toMatchObject({
+      veiculoId: 'v1',
+      funcionarioId: 'f1',
+    });
   });
 
   it('sem a foto da nota não entra', async () => {
@@ -204,14 +230,14 @@ describe('o galão de combustível', () => {
     apelido: 'Galão do S10',
     tipo: 'GALAO',
     ativo: true,
-    responsavelId: 'f1',
+    responsaveis: [{ funcionarioId: 'f1' }],
   };
   const MAQUINA = {
     id: 'm1',
     apelido: 'Retroescavadeira',
     tipo: 'MAQUINA',
     ativo: true,
-    responsavelId: 'outro',
+    responsaveis: [{ funcionarioId: 'outro' }],
   };
 
   function comGalao(extra: Record<string, unknown> = {}) {
@@ -313,7 +339,7 @@ describe('o galão de combustível', () => {
 
   it('só tira do galão quem o tem no nome', async () => {
     const { service } = montar({
-      veiculos: { g1: { ...GALAO, responsavelId: 'outro' }, m1: MAQUINA },
+      veiculos: { g1: { ...GALAO, responsaveis: [{ funcionarioId: 'outro' }] }, m1: MAQUINA },
       galao: { entrou: 200, litrosPagos: 200, pago: 1200 },
     });
 
@@ -396,5 +422,65 @@ describe('resumirCombustivel', () => {
       kmRodados: null,
       custoPorKm: null,
     });
+  });
+});
+
+/**
+ * A média de consumo — o número que quem anda com o veículo cobra primeiro.
+ *
+ * A conta é a do posto: o combustível de um abastecimento leva o veículo até o
+ * próximo, e por isso o primeiro fica fora dos litros. Quem só olha "litros
+ * totais dividido por km" erra sempre para menos.
+ */
+describe('mediaDeConsumo', () => {
+  it('km por litro: o que se andou pelos litros que vieram depois do primeiro', () => {
+    const r = mediaDeConsumo([
+      { km: 1000, litros: 40 },
+      { km: 1500, litros: 50 },
+      { km: 2000, litros: 50 },
+    ]);
+    // 1000 km andados, 100 litros depois do primeiro: 10 km/L.
+    expect(r).toMatchObject({ medio: 10, ultimo: 10, unidade: 'km_por_litro', base: 3 });
+  });
+
+  it('a última é só o trecho de agora — é nela que a queda aparece', () => {
+    const r = mediaDeConsumo([
+      { km: 1000, litros: 40 },
+      { km: 1500, litros: 50 },
+      { km: 1800, litros: 50 },
+    ]);
+    // Na média, 800 km por 100 L dão 8; no último trecho, 300 por 50 dão 6.
+    expect(r).toMatchObject({ medio: 8, ultimo: 6 });
+  });
+
+  it('um abastecimento só não é média nenhuma', () => {
+    expect(mediaDeConsumo([{ km: 1000, litros: 40 }])).toMatchObject({
+      medio: null,
+      ultimo: null,
+      base: 1,
+    });
+  });
+
+  it('o que veio sem medidor fica de fora, e não estraga a conta', () => {
+    const r = mediaDeConsumo([
+      { km: 1000, litros: 40 },
+      { km: null, litros: 20 },
+      { km: 1500, litros: 50 },
+    ]);
+    // Os 20 litros sem km nenhum atrás deles não entram: 500 km por 50 L.
+    expect(r).toMatchObject({ medio: 10, base: 2 });
+  });
+
+  it('na máquina a média é de litros por hora de trabalho', () => {
+    const r = mediaDeConsumo(
+      [
+        { horimetro: 1000, litros: 50 },
+        { horimetro: 1050, litros: 50 },
+        { horimetro: 1100, litros: 50 },
+      ],
+      'horimetro',
+    );
+    // 100 litros em 100 horas: um litro por hora.
+    expect(r).toMatchObject({ medio: 1, ultimo: 1, unidade: 'litros_por_hora' });
   });
 });

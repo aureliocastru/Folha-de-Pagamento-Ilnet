@@ -2,16 +2,17 @@
  * Reduz a foto da nota antes de mandar.
  *
  * A foto de um celular moderno tem 3 a 6 MB, e ela vai para uma coluna de
- * texto no Postgres — o mesmo disco do servidor, que não é grande. Uma nota
- * fiscal precisa ser **legível**, não precisa ter qualidade de impressão:
- * 1600px no lado maior lê o valor e o CNPJ de qualquer cupom, e o JPEG a 70%
- * derruba o arquivo para algo entre 150 e 400 KB.
+ * texto no Postgres — o mesmo disco do servidor, que não é grande. Mas uma
+ * nota fiscal precisa ser **lida**: quem confere tem de achar, no meio do
+ * papel amassado, um valor escrito a caneta, e foi por não conseguir ler esse
+ * valor que 1600px a 70% ficaram para trás. A 2400px e 85% a caneta aparece,
+ * e o arquivo fica entre 500 KB e 1,5 MB — longe do teto de 3 MB do servidor.
  *
  * Também é aqui que o HEIC do iPhone e o PNG viram JPEG: o navegador decodifica
  * o que sabe abrir e o canvas devolve sempre o mesmo formato.
  */
-const LADO_MAIOR = 1600;
-const QUALIDADE = 0.7;
+const LADO_MAIOR = 2400;
+const QUALIDADE = 0.85;
 
 export async function reduzirFoto(arquivo: File): Promise<string> {
   const bitmap = await carregar(arquivo);

@@ -13,7 +13,9 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import {
   AbastecimentosService,
+  mediaDeConsumo,
   type AbastecimentoNaTela,
+  type Consumo,
   type EstoqueDoGalao,
   type ResumoDoCombustivel,
 } from './abastecimentos.service';
@@ -30,8 +32,8 @@ export interface VeiculoNaLista {
   ano: number | null;
   observacao: string | null;
   ativo: boolean;
-  /** Quem anda com ele e o abastece pelo portal. */
-  responsavel: { id: string; nome: string } | null;
+  /** Quem anda com ele e o abastece pelo portal. Pode ser mais de um. */
+  responsaveis: Array<{ id: string; nome: string }>;
   /** Tudo o que foi lançado nele e chegou ao IXC, pago ou não. */
   gasto: number;
   /** A parte do gasto que ainda não foi paga. */
@@ -59,6 +61,8 @@ export interface VeiculoNaLista {
   ultimoKm: number | null;
   /** O horímetro da última vez, nas máquinas. */
   ultimoHorimetro: number | null;
+  /** A média que ele está fazendo — km/L, ou L/h na máquina. Galão não tem. */
+  consumo: Consumo | null;
 }
 
 /** Um gasto do veículo, como a ficha dele mostra. */
@@ -102,13 +106,13 @@ export class VeiculosService {
   ) {}
 
   async listar(incluirDesligados = true): Promise<VeiculoNaLista[]> {
-    const [veiculos, compras, saidas, precos] = await Promise.all([
+    const [veiculos, compras, saidas, precos, medidas] = await Promise.all([
       this.prisma.veiculo.findMany({
         where: incluirDesligados ? undefined : { ativo: true },
         orderBy: [{ ativo: 'desc' }, { apelido: 'asc' }],
         include: {
           contas: { select: CAMPOS_DA_CONTA },
-          responsavel: { select: RESPONSAVEL },
+          responsaveis: RESPONSAVEIS,
         },
       }),
       // As idas ao posto: têm nota, e é a nota que vira dinheiro.
@@ -129,7 +133,30 @@ export class VeiculosService {
         _max: { km: true, horimetro: true },
       }),
       this.abastecimentos.precosDosGaloes(),
+      /*
+       * Os medidores de toda a frota, em ordem, para a média de consumo.
+       *
+       * Vem numa consulta só e se divide por veículo aqui: são três colunas de
+       * número por abastecimento, e a conta da média precisa da sequência —
+       * nenhum `groupBy` responde "quanto ele andou entre um e outro".
+       */
+      this.prisma.abastecimento.findMany({
+        where: { veiculo: { tipo: { not: 'GALAO' } } },
+        orderBy: [{ data: 'asc' }, { createdAt: 'asc' }],
+        select: { veiculoId: true, km: true, horimetro: true, litros: true },
+      }),
     ]);
+
+    const medidasPorVeiculo = new Map<string, Medida[]>();
+    for (const m of medidas) {
+      const lista = medidasPorVeiculo.get(m.veiculoId) ?? [];
+      lista.push({
+        km: m.km,
+        horimetro: m.horimetro,
+        litros: m.litros == null ? null : Number(m.litros),
+      });
+      medidasPorVeiculo.set(m.veiculoId, lista);
+    }
 
     const porVeiculo = new Map<
       string,
@@ -191,7 +218,16 @@ export class VeiculosService {
     }
 
     return veiculos.map((v) =>
-      resumir(v, v.contas, porVeiculo.get(v.id), estoques.get(v.id) ?? null),
+      resumir(
+        v,
+        v.contas,
+        porVeiculo.get(v.id),
+        estoques.get(v.id) ?? null,
+        mediaDeConsumo(
+          medidasPorVeiculo.get(v.id) ?? [],
+          v.tipo === 'MAQUINA' ? 'horimetro' : 'km',
+        ),
+      ),
     );
   }
 
@@ -211,7 +247,7 @@ export class VeiculosService {
     const veiculo = await this.prisma.veiculo.findUnique({
       where: { id },
       include: {
-        responsavel: { select: RESPONSAVEL },
+        responsaveis: RESPONSAVEIS,
         contas: {
           select: {
             ...CAMPOS_DA_CONTA,
@@ -272,7 +308,8 @@ export class VeiculosService {
   }
 
   async criar(dto: CriarVeiculoDto, usuarioId?: string): Promise<Veiculo> {
-    if (dto.responsavelId) await this.conferirResponsavel(dto.responsavelId);
+    const responsaveis = dto.responsaveisIds ?? [];
+    await this.conferirResponsaveis(responsaveis);
     const veiculo = await this.prisma.veiculo.create({
       data: {
         apelido: dto.apelido.trim(),
@@ -281,7 +318,9 @@ export class VeiculosService {
         modelo: dto.modelo?.trim() || null,
         ano: dto.ano ?? null,
         observacao: dto.observacao?.trim() || null,
-        responsavelId: dto.responsavelId || null,
+        responsaveis: {
+          create: responsaveis.map((funcionarioId) => ({ funcionarioId })),
+        },
         criadoPor: usuarioId ?? null,
       },
     });
@@ -291,7 +330,7 @@ export class VeiculosService {
 
   async atualizar(id: string, dto: AtualizarVeiculoDto): Promise<Veiculo> {
     await this.existente(id);
-    if (dto.responsavelId) await this.conferirResponsavel(dto.responsavelId);
+    await this.conferirResponsaveis(dto.responsaveisIds ?? []);
     return this.prisma.veiculo.update({
       where: { id },
       data: {
@@ -303,7 +342,15 @@ export class VeiculosService {
         observacao:
           dto.observacao === undefined ? undefined : dto.observacao?.trim() || null,
         ativo: dto.ativo,
-        responsavelId: dto.responsavelId,
+        /*
+         * A lista que chega é a lista inteira: apaga as ligações e refaz. Não
+         * há nada guardado na ligação além de quem é — refazer não perde nada,
+         * e evita ter de descobrir quem entrou e quem saiu.
+         */
+        responsaveis: dto.responsaveisIds && {
+          deleteMany: {},
+          create: dto.responsaveisIds.map((funcionarioId) => ({ funcionarioId })),
+        },
       },
     });
   }
@@ -328,12 +375,19 @@ export class VeiculosService {
     await this.prisma.veiculo.delete({ where: { id } });
   }
 
-  private async conferirResponsavel(funcionarioId: string): Promise<void> {
-    const f = await this.prisma.funcionario.findFirst({
-      where: { id: funcionarioId, ativo: true },
-      select: { id: true },
+  /** Todo mundo da lista tem de ser funcionário ativo — senão, nenhum entra. */
+  private async conferirResponsaveis(ids: string[]): Promise<void> {
+    if (ids.length === 0) return;
+    const achados = await this.prisma.funcionario.count({
+      where: { id: { in: ids }, ativo: true },
     });
-    if (!f) throw new BadRequestException('O responsável escolhido não é um funcionário ativo.');
+    if (achados !== ids.length) {
+      throw new BadRequestException(
+        ids.length === 1
+          ? 'O responsável escolhido não é um funcionário ativo.'
+          : 'Algum dos responsáveis escolhidos não é um funcionário ativo.',
+      );
+    }
   }
 
   private async existente(id: string): Promise<Veiculo> {
@@ -343,7 +397,18 @@ export class VeiculosService {
   }
 }
 
-const RESPONSAVEL = { id: true, nome: true, apelido: true } as const;
+/** Os responsáveis do veículo, em ordem de nome — é como a tela os mostra. */
+const RESPONSAVEIS = {
+  select: { funcionario: { select: { id: true, nome: true, apelido: true } } },
+  orderBy: { funcionario: { nome: 'asc' } },
+} as const;
+
+/** O que a média de consumo precisa de cada abastecimento. */
+interface Medida {
+  km: number | null;
+  horimetro: number | null;
+  litros: number | null;
+}
 
 const CAMPOS_DA_CONTA = {
   valor: true,
@@ -390,7 +455,9 @@ export function resumir(
   > & {
     combustivel?: Combustivel | null;
     capacidadeLitros?: number | null;
-    responsavel?: { id: string; nome: string; apelido: string | null } | null;
+    responsaveis?: Array<{
+      funcionario: { id: string; nome: string; apelido: string | null };
+    }>;
   },
   contas: ContaResumida[],
   combustivel?: {
@@ -399,8 +466,11 @@ export function resumir(
     aConferir?: number;
     ultimoKm: number | null;
     ultimoHorimetro?: number | null;
+    consumo?: Consumo;
   },
   estoque: EstoqueDoGalao | null = null,
+  /** A média de consumo, quando quem chama já a calculou. */
+  consumo: Consumo | null = null,
 ): VeiculoNaLista {
   let gasto = 0;
   let emAberto = 0;
@@ -424,9 +494,10 @@ export function resumir(
     ano: v.ano,
     observacao: v.observacao,
     ativo: v.ativo,
-    responsavel: v.responsavel
-      ? { id: v.responsavel.id, nome: v.responsavel.apelido || v.responsavel.nome }
-      : null,
+    responsaveis: (v.responsaveis ?? []).map(({ funcionario: f }) => ({
+      id: f.id,
+      nome: f.apelido || f.nome,
+    })),
     gasto: centavos(gasto),
     emAberto: centavos(emAberto),
     quantidade,
@@ -439,6 +510,9 @@ export function resumir(
     estoque,
     ultimoKm: combustivel?.ultimoKm ?? null,
     ultimoHorimetro: combustivel?.ultimoHorimetro ?? null,
+    // O galão não faz média: ele não anda, e o que sai dele vira consumo da
+    // máquina que o bebeu.
+    consumo: v.tipo === 'GALAO' ? null : (consumo ?? combustivel?.consumo ?? null),
   };
 }
 

@@ -1,10 +1,12 @@
 import { Navigate, NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { useAvisosDoMenu } from '../lib/avisos';
 import { useAuth } from '../lib/auth';
 import { useCelular } from '../lib/celular';
 import { modulosDoUsuario, type Modulo } from '../lib/modulos';
 import { useTema } from '../lib/tema';
 import { LayoutCelular } from './LayoutCelular';
 import { IconeGrade, IconeLua, IconeSol } from './icones';
+import { PontoDeAviso } from './ui';
 
 /**
  * A casca de um módulo — e a escolha de qual delas usar.
@@ -59,6 +61,7 @@ function LayoutComputador({ modulo }: { modulo: Modulo }) {
   const { usuario, logout } = useAuth();
   const navigate = useNavigate();
   const { escuro, trocar } = useTema();
+  const avisos = useAvisosDoMenu(modulo);
 
   function sair() {
     logout();
@@ -121,6 +124,9 @@ function LayoutComputador({ modulo }: { modulo: Modulo }) {
                       }
                     />
                     {item.label}
+                    {avisos[item.to] && (
+                      <PontoDeAviso {...avisos[item.to]} className="ml-auto" />
+                    )}
                   </>
                 )}
               </NavLink>

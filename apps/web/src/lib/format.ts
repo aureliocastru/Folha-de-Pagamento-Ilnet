@@ -67,3 +67,18 @@ export function formatData(value: string | null | undefined): string {
     ? '—'
     : d.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
 }
+
+/**
+ * A média de consumo: "8,25 km/L", ou "3,5 L/h" nas máquinas.
+ *
+ * A unidade vem do servidor junto com o número, e não do tipo do veículo —
+ * quem faz a conta é quem sabe se ela é por quilômetro ou por hora de
+ * horímetro.
+ */
+export function formatConsumo(
+  valor: number,
+  unidade: 'km_por_litro' | 'litros_por_hora',
+): string {
+  const n = valor.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+  return unidade === 'km_por_litro' ? `${n} km/L` : `${n} L/h`;
+}

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type ChangeEvent } from 'react';
 import { Aviso, Carregando } from '../../components/ui';
 import { mensagemErro } from '../../lib/api';
-import { formatBRL } from '../../lib/format';
+import { formatBRL, formatConsumo } from '../../lib/format';
 import { reduzirFoto } from '../../lib/foto';
 import { apiPontos } from '../../lib/pontos';
 
@@ -28,6 +28,15 @@ export interface EstoqueDoGalao {
   litrosSemValor: number;
 }
 
+/** A média que o veículo está fazendo. O galão não tem: ele não anda. */
+export interface Consumo {
+  medio: number | null;
+  /** Só o trecho entre os dois últimos abastecimentos. */
+  ultimo: number | null;
+  unidade: 'km_por_litro' | 'litros_por_hora';
+  base: number;
+}
+
 export interface VeiculoDoPortal {
   id: string;
   apelido: string;
@@ -40,6 +49,8 @@ export interface VeiculoDoPortal {
   ultimoHorimetro: number | null;
   /** Só os galões têm. */
   estoque: EstoqueDoGalao | null;
+  /** A média dele, refeita a cada abastecimento. Null no galão. */
+  consumo: Consumo | null;
   ultimos: AbastecimentoDoPortal[];
 }
 
@@ -334,6 +345,30 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
               {[veiculo.modelo, veiculo.placa].filter(Boolean).join(' · ')}
             </p>
           </div>
+        )}
+
+        {/*
+          A média que ele está fazendo, para quem abastece.
+
+          É aqui que ela é útil de verdade: quem põe o combustível é o primeiro
+          a perceber que o carro passou a beber mais, e é a mesma pessoa que
+          sabe dizer por quê — o pneu murcho, a estrada de terra da semana.
+        */}
+        {veiculo?.consumo?.medio != null && !tirandoDoGalao && (
+          <p className="rounded-xl bg-tinta-100/70 px-3 py-2 text-sm text-tinta-600">
+            Está fazendo{' '}
+            <strong className="num text-tinta-900">
+              {formatConsumo(veiculo.consumo.medio, veiculo.consumo.unidade)}
+            </strong>
+            {veiculo.consumo.ultimo != null && (
+              <>
+                {' '}· no último trecho,{' '}
+                <strong className="num text-tinta-900">
+                  {formatConsumo(veiculo.consumo.ultimo, veiculo.consumo.unidade)}
+                </strong>
+              </>
+            )}
+          </p>
         )}
 
         {/* O galão faz duas coisas opostas, e é preciso dizer qual delas é. */}

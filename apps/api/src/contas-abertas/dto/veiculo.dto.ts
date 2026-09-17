@@ -1,6 +1,7 @@
 import { Combustivel, TipoVeiculo } from '@prisma/client';
 import { Transform } from 'class-transformer';
 import {
+  IsArray,
   IsBoolean,
   IsEnum,
   IsInt,
@@ -17,6 +18,16 @@ import {
 /** Vazio vira ausente — o campo em branco da tela não é um texto de zero letras. */
 const semVazio = ({ value }: { value: unknown }) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
+
+/**
+ * A lista de responsáveis sem repetido e sem branco. `null` é lista vazia:
+ * tirar todo mundo e deixar ninguém no veículo.
+ */
+const listaDeIds = ({ value }: { value: unknown }) => {
+  if (value === null) return [];
+  if (!Array.isArray(value)) return value;
+  return [...new Set(value.filter((v) => typeof v === 'string' && v.trim() !== ''))];
+};
 
 /** Um veículo da frota: como a casa o chama, e o que o identifica. */
 export class CriarVeiculoDto {
@@ -50,8 +61,9 @@ export class CriarVeiculoDto {
   @Max(100_000)
   capacidadeLitros?: number;
 
-  /** O funcionário que anda com ele e o abastece pelo portal. */
-  @IsOptional() @Transform(semVazio) @IsUUID() responsavelId?: string;
+  /** Os funcionários que andam com ele e o abastecem pelo portal. */
+  @IsOptional() @Transform(listaDeIds) @IsArray() @IsUUID(undefined, { each: true })
+  responsaveisIds?: string[];
 }
 
 /** O que muda num veículo que já existe. `ativo: false` o desliga. */
@@ -85,8 +97,12 @@ export class AtualizarVeiculoDto {
 
   @IsOptional() @IsBoolean() ativo?: boolean;
 
-  /** `null` tira o responsável; ausente não mexe. */
-  @IsOptional() @IsUUID() responsavelId?: string | null;
+  /**
+   * A lista inteira de quem é responsável: quem não vier nela sai. Lista vazia
+   * deixa o veículo sem ninguém; ausente não mexe.
+   */
+  @IsOptional() @Transform(listaDeIds) @IsArray() @IsUUID(undefined, { each: true })
+  responsaveisIds?: string[];
 }
 
 /** O portal pede os veículos do CPF. */

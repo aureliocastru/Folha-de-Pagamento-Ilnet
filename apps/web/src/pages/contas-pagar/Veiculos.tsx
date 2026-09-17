@@ -15,7 +15,7 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
-import { formatBRL, formatData } from '../../lib/format';
+import { formatBRL, formatConsumo, formatData } from '../../lib/format';
 import { NovaDespesa } from './NovaDespesa';
 
 type TipoVeiculo =
@@ -50,6 +50,19 @@ const COMBUSTIVEIS: Array<{ valor: Combustivel; rotulo: string }> = [
 const rotuloDoCombustivel = (c: Combustivel | null) =>
   COMBUSTIVEIS.find((x) => x.valor === c)?.rotulo ?? null;
 
+/**
+ * A média que o veículo está fazendo: km por litro, ou litros por hora nas
+ * máquinas. O galão não tem — ele não anda.
+ */
+interface Consumo {
+  medio: number | null;
+  /** Só o trecho entre os dois últimos abastecimentos. */
+  ultimo: number | null;
+  unidade: 'km_por_litro' | 'litros_por_hora';
+  /** Quantos abastecimentos entraram na conta. */
+  base: number;
+}
+
 /** O que há dentro de um galão, e por quanto saiu o litro. */
 interface EstoqueDoGalao {
   litros: number;
@@ -69,7 +82,8 @@ interface VeiculoNaLista {
   ano: number | null;
   observacao: string | null;
   ativo: boolean;
-  responsavel: { id: string; nome: string } | null;
+  /** Quem anda com ele e o abastece pelo portal. Pode ser mais de um. */
+  responsaveis: Array<{ id: string; nome: string }>;
   gasto: number;
   emAberto: number;
   quantidade: number;
@@ -84,6 +98,7 @@ interface VeiculoNaLista {
   estoque: EstoqueDoGalao | null;
   ultimoKm: number | null;
   ultimoHorimetro: number | null;
+  consumo: Consumo | null;
 }
 
 interface Abastecimento {
@@ -130,6 +145,7 @@ interface Ficha {
     ultimoHorimetro: number | null;
     horasTrabalhadas: number | null;
     custoPorHora: number | null;
+    consumo: Consumo;
   };
   abastecimentos: Abastecimento[];
 }
@@ -176,6 +192,13 @@ function identificacao(
       .join(' · ');
   }
   return [rotuloDoTipo(v.tipo), v.modelo, v.ano, v.placa].filter(Boolean).join(' · ');
+}
+
+/** "Anderson", "Anderson e Cainan", "Anderson, Cainan e Blane". */
+function nomesDosResponsaveis(lista: Array<{ nome: string }>): string {
+  const nomes = lista.map((r) => r.nome);
+  if (nomes.length <= 1) return nomes.join('');
+  return `${nomes.slice(0, -1).join(', ')} e ${nomes[nomes.length - 1]}`;
 }
 
 /**
@@ -294,7 +317,15 @@ export function Veiculos() {
                       )}
                     </td>
                     <td className="td text-tinta-600">
-                      {v.responsavel?.nome ?? <span className="text-tinta-400">—</span>}
+                      {v.responsaveis.length === 0 ? (
+                        <span className="text-tinta-400">—</span>
+                      ) : (
+                        v.responsaveis.map((r) => (
+                          <span key={r.id} className="block leading-tight">
+                            {r.nome}
+                          </span>
+                        ))
+                      )}
                     </td>
                     <td className="td whitespace-nowrap text-right">
                       <span className="valor">{formatBRL(v.gasto)}</span>
@@ -327,6 +358,13 @@ export function Veiculos() {
                             {v.ultimoKm != null && ` · ${km(v.ultimoKm)}`}
                             {v.ultimoHorimetro != null && ` · ${horas(v.ultimoHorimetro)}`}
                           </span>
+                          {/* A média que ele está fazendo: o número que diz se
+                              o veículo está bem, e que nenhuma soma mostra. */}
+                          {v.consumo?.medio != null && (
+                            <span className="block text-xs font-semibold text-tinta-500">
+                              {formatConsumo(v.consumo.medio, v.consumo.unidade)}
+                            </span>
+                          )}
                         </>
                       )}
                       {v.abastecimentosAConferir > 0 && (
@@ -455,6 +493,7 @@ function FotoDoAbastecimento({ id }: { id: string }) {
   return (
     <FotoDoPonto
       chave={['veiculos', 'abastecimento', 'foto', id]}
+      titulo="Nota do posto"
       buscar={async () =>
         (await api.get<{ foto: string }>(`/veiculos/abastecimentos/${id}/foto`)).data.foto
       }
@@ -653,7 +692,8 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
         <>
           <p className="mb-4 text-[13px] text-tinta-500">
             {identificacao(d.veiculo)}
-            {d.veiculo.responsavel && ` · com ${d.veiculo.responsavel.nome}`}
+            {d.veiculo.responsaveis.length > 0 &&
+              ` · com ${nomesDosResponsaveis(d.veiculo.responsaveis)}`}
             {!d.veiculo.ativo && ' · desligado'}
           </p>
 
@@ -726,6 +766,47 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
                 )}
               </div>
             )}
+
+            {/*
+             * A média, num cartão só dela.
+             *
+             * É o número que diz se o veículo está bem, e ele não sai de soma
+             * nenhuma: cada abastecimento novo o refaz. O galão não entra —
+             * ele não anda, e o que sai dele vira consumo de quem o bebeu.
+             */}
+            {d.veiculo.tipo !== 'GALAO' && (
+              <div className="rounded-2xl bg-tinta-50 p-4 sm:col-span-2">
+                <p className="eyebrow">Média de consumo</p>
+                {d.combustivel.consumo.medio != null ? (
+                  <>
+                    <p className="valor mt-1 text-2xl">
+                      {formatConsumo(
+                        d.combustivel.consumo.medio,
+                        d.combustivel.consumo.unidade,
+                      )}
+                    </p>
+                    <p className="mt-0.5 text-xs text-tinta-500">
+                      de {d.combustivel.consumo.base} abastecimento(s) com medidor
+                      {d.combustivel.consumo.ultimo != null &&
+                        ` · no último trecho, ${formatConsumo(
+                          d.combustivel.consumo.ultimo,
+                          d.combustivel.consumo.unidade,
+                        )}`}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="valor mt-1 text-2xl text-tinta-300">—</p>
+                    <p className="mt-0.5 text-xs text-tinta-500">
+                      A média nasce do segundo abastecimento: é a distância entre
+                      dois deles, pelos litros que entraram no caminho. Lance com o{' '}
+                      {d.veiculo.tipo === 'MAQUINA' ? 'horímetro' : 'km'} e os litros,
+                      e ela aparece aqui.
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
           </div>
 
           {d.porCategoria.length > 0 && (
@@ -794,9 +875,11 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
           {d.abastecimentos.length === 0 ? (
             <p className="text-sm text-tinta-400">
               Nenhum ainda. Use "Lançar abastecimento" aqui em cima
-              {d.veiculo.responsavel
-                ? `, ou ${d.veiculo.responsavel.nome} lança pelo portal, com o CPF.`
-                : ' — ou escolha o responsável em Editar, e ele lança pelo portal, com o CPF.'}
+              {d.veiculo.responsaveis.length > 0
+                ? `, ou ${nomesDosResponsaveis(d.veiculo.responsaveis)} ${
+                    d.veiculo.responsaveis.length > 1 ? 'lançam' : 'lança'
+                  } pelo portal, com o CPF.`
+                : ' — ou escolha os responsáveis em Editar, e eles lançam pelo portal, com o CPF.'}
             </p>
           ) : (
             <ul className="lista-dividida rounded-xl border border-tinta-200">
@@ -848,6 +931,85 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
   );
 }
 
+/**
+ * Quem abastece este veículo — um, ou quantos forem.
+ *
+ * Quem já está fica à vista, em cima, cada um com o seu "×"; a lista de baixo
+ * só oferece quem ainda não entrou. Não é um `select` de vários: segurar Ctrl
+ * para marcar dois nomes não existe no celular, e é do celular que se mexe
+ * nisto no pátio.
+ */
+function EscolherResponsaveis({
+  escolhidos,
+  candidatos,
+  carregando,
+  onMudar,
+}: {
+  escolhidos: string[];
+  candidatos: Array<{ id: string; nome: string; apelido: string | null }>;
+  carregando: boolean;
+  onMudar: (ids: string[]) => void;
+}) {
+  const porId = new Map(candidatos.map((f) => [f.id, f]));
+  const faltam = candidatos.filter((f) => !escolhidos.includes(f.id));
+
+  return (
+    <>
+      {escolhidos.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {escolhidos.map((id) => {
+            const f = porId.get(id);
+            return (
+              <button
+                key={id}
+                type="button"
+                title="Tirar deste veículo"
+                onClick={() => onMudar(escolhidos.filter((x) => x !== id))}
+                className="rounded-full border border-emerald-300 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-700 transition hover:border-rose-300 hover:bg-rose-500/10 hover:text-rose-700 dark:border-emerald-500/40 dark:text-emerald-300 dark:hover:border-rose-500/40 dark:hover:text-rose-300"
+              >
+                {f ? nomeDoFuncionario(f) : 'Responsável'}
+                <span aria-hidden className="ml-1.5 font-sans">
+                  ×
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <select
+        id="vei-responsavel"
+        // Volta sempre ao vazio: o que foi escolhido virou chip ali em cima.
+        value=""
+        onChange={(e) => {
+          if (e.target.value) onMudar([...escolhidos, e.target.value]);
+        }}
+        className="campo"
+        disabled={carregando || faltam.length === 0}
+      >
+        <option value="">
+          {carregando
+            ? 'Carregando…'
+            : faltam.length === 0
+              ? escolhidos.length === 0
+                ? 'Nenhum funcionário para escolher'
+                : 'Todos já estão neste veículo'
+              : escolhidos.length === 0
+                ? 'Ninguém — escolha quem abastece…'
+                : 'Pôr mais um…'}
+        </option>
+        {faltam.map((f) => (
+          <option key={f.id} value={f.id}>
+            {nomeDoFuncionario(f)}
+          </option>
+        ))}
+      </select>
+    </>
+  );
+}
+
+const nomeDoFuncionario = (f: { nome: string; apelido: string | null }) =>
+  f.apelido ? `${f.apelido} (${f.nome})` : f.nome;
+
 /** Cadastrar um veículo, ou editar, desligar e apagar um que já existe. */
 function FormularioDoVeiculo({
   veiculo,
@@ -870,7 +1032,9 @@ function FormularioDoVeiculo({
   const [capacidade, setCapacidade] = useState(
     veiculo?.capacidadeLitros ? String(veiculo.capacidadeLitros) : '',
   );
-  const [responsavelId, setResponsavelId] = useState(veiculo?.responsavel?.id ?? '');
+  const [responsaveisIds, setResponsaveisIds] = useState<string[]>(
+    veiculo?.responsaveis.map((r) => r.id) ?? [],
+  );
   const [observacao, setObservacao] = useState(veiculo?.observacao ?? '');
 
   const responsaveis = useQuery({
@@ -901,7 +1065,7 @@ function FormularioDoVeiculo({
           : veiculo
             ? null
             : undefined,
-        responsavelId: responsavelId || (veiculo ? null : undefined),
+        responsaveisIds,
         observacao: observacao.trim() || (veiculo ? null : undefined),
       };
       if (veiculo) await api.patch(`/veiculos/${veiculo.id}`, dados);
@@ -1060,25 +1224,18 @@ function FormularioDoVeiculo({
         </div>
         <div className="sm:col-span-2">
           <label className="rotulo" htmlFor="vei-responsavel">
-            Responsável (quem abastece)
+            Responsáveis (quem abastece)
           </label>
-          <select
-            id="vei-responsavel"
-            value={responsavelId}
-            onChange={(e) => setResponsavelId(e.target.value)}
-            className="campo"
-            disabled={responsaveis.isLoading}
-          >
-            <option value="">Ninguém</option>
-            {(responsaveis.data ?? []).map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.apelido ? `${f.apelido} (${f.nome})` : f.nome}
-              </option>
-            ))}
-          </select>
+          <EscolherResponsaveis
+            escolhidos={responsaveisIds}
+            candidatos={responsaveis.data ?? []}
+            carregando={responsaveis.isLoading}
+            onMudar={setResponsaveisIds}
+          />
           <p className="ajuda">
-            Ele entra no portal da pontuação com o CPF e lança o abastecimento deste
-            veículo, com o km e a foto da nota.
+            Cada um deles entra no portal da pontuação com o próprio CPF e lança o
+            abastecimento deste veículo, com o km e a foto da nota. Pode ser mais de
+            um — o carro de dois, a máquina que troca de operador.
           </p>
         </div>
         <div className="sm:col-span-2">

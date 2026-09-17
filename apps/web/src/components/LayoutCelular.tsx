@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
+import { useAvisosDoMenu, type AvisoDoMenu } from '../lib/avisos';
 import type { ItemMenu, Modulo } from '../lib/modulos';
 import { useTema } from '../lib/tema';
 import { IconeGrade, IconeLua, IconeSol } from './icones';
+import { PontoDeAviso } from './ui';
 
 /**
  * Quantos itens do módulo cabem na barra de baixo.
@@ -39,12 +41,21 @@ export function LayoutCelular({ modulo }: { modulo: Modulo }) {
   const local = useLocation();
   const [maisAberto, setMaisAberto] = useState(false);
   const { escuro, trocar } = useTema();
+  const avisos = useAvisosDoMenu(modulo);
 
   const itens = modulo.menu.filter(
     (item) => !item.somenteAdmin || usuario?.role === 'ADMIN',
   );
   const naBarra = itens.slice(0, ITENS_NA_BARRA);
   const noMais = itens.slice(ITENS_NA_BARRA);
+
+  /*
+   * O aviso que está lá dentro também acende o "Mais".
+   *
+   * Veículos é o oitavo item das contas a pagar: sem isto, a fila de
+   * conferência ficaria escondida atrás de um botão que não muda de cara.
+   */
+  const avisoNoMais = noMais.reduce((total, item) => total + (avisos[item.to]?.quantos ?? 0), 0);
 
   /*
    * A folha fecha ao trocar de tela.
@@ -108,6 +119,7 @@ export function LayoutCelular({ modulo }: { modulo: Modulo }) {
         <FolhaDoMais
           modulo={modulo}
           itens={noMais}
+          avisos={avisos}
           escuro={escuro}
           onTema={() => trocar(escuro ? 'claro' : 'escuro')}
           onSair={sair}
@@ -130,7 +142,7 @@ export function LayoutCelular({ modulo }: { modulo: Modulo }) {
       >
         <div className="flex items-stretch">
           {naBarra.map((item) => (
-            <BotaoDaBarra key={item.to} item={item} />
+            <BotaoDaBarra key={item.to} item={item} aviso={avisos[item.to]} />
           ))}
           <button
             type="button"
@@ -142,7 +154,14 @@ export function LayoutCelular({ modulo }: { modulo: Modulo }) {
                 : 'text-tinta-500'
             }`}
           >
-            <IconeMais3Pontos />
+            <span className="relative">
+              <IconeMais3Pontos />
+              <PontoDeAviso
+                quantos={avisoNoMais}
+                oQue="aviso"
+                className="absolute -right-1.5 -top-0.5"
+              />
+            </span>
             <span className="w-full truncate text-center text-[10px] font-semibold leading-none">
               Mais
             </span>
@@ -160,7 +179,7 @@ export function LayoutCelular({ modulo }: { modulo: Modulo }) {
  * um dedo pede —, e é por isso que o botão não encolhe até o ícone: no rodapé
  * de um celular o erro de mira custa a tela errada.
  */
-function BotaoDaBarra({ item }: { item: ItemMenu }) {
+function BotaoDaBarra({ item, aviso }: { item: ItemMenu; aviso?: AvisoDoMenu }) {
   return (
     <NavLink
       to={item.to}
@@ -179,7 +198,12 @@ function BotaoDaBarra({ item }: { item: ItemMenu }) {
               isActive ? 'opacity-100' : 'opacity-0'
             }`}
           />
-          <item.icone className="h-[19px] w-[19px]" />
+          <span className="relative">
+            <item.icone className="h-[19px] w-[19px]" />
+            {aviso && (
+              <PontoDeAviso {...aviso} className="absolute -right-1.5 -top-0.5" />
+            )}
+          </span>
           <span className="w-full truncate text-center text-[10px] font-semibold leading-none">
             {item.label}
           </span>
@@ -200,6 +224,7 @@ function BotaoDaBarra({ item }: { item: ItemMenu }) {
 function FolhaDoMais({
   modulo,
   itens,
+  avisos,
   escuro,
   onTema,
   onSair,
@@ -207,6 +232,7 @@ function FolhaDoMais({
 }: {
   modulo: Modulo;
   itens: ItemMenu[];
+  avisos: Record<string, AvisoDoMenu>;
   escuro: boolean;
   onTema: () => void;
   onSair: () => void;
@@ -271,6 +297,9 @@ function FolhaDoMais({
                         }
                       />
                       {item.label}
+                      {avisos[item.to] && (
+                        <PontoDeAviso {...avisos[item.to]} className="ml-auto" />
+                      )}
                     </>
                   )}
                 </NavLink>

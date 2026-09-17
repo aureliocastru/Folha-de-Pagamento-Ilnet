@@ -86,6 +86,8 @@ export interface VeiculoDoPortal {
   ultimoHorimetro: number | null;
   /** Quantos litros ainda há dentro do galão, e por quanto saiu o litro. */
   estoque: EstoqueDoGalao | null;
+  /** A média que ele está fazendo. Quem abastece é quem a vê primeiro. */
+  consumo: Consumo | null;
   ultimos: AbastecimentoNaTela[];
 }
 
@@ -137,6 +139,30 @@ export interface ResumoDoCombustivel {
    * que falta sairia menor do que foi.
    */
   custoPorKm: number | null;
+  /** A média que o veículo está fazendo: km/L, ou L/h nas máquinas. */
+  consumo: Consumo;
+}
+
+/**
+ * A média de consumo de um veículo — o galão não tem, porque não anda.
+ *
+ * `medio` é a vida inteira do veículo no sistema; `ultimo` é só o trecho entre
+ * os dois últimos abastecimentos, que é onde um problema aparece primeiro: o
+ * carro que fazia 12 e passou a fazer 8 tem algo errado agora, e a média geral
+ * levaria meses para acusar isso.
+ */
+export interface Consumo {
+  /** km por litro; nas máquinas, litros por hora. Null = ainda não dá para dizer. */
+  medio: number | null;
+  /** A mesma conta, só do trecho mais recente. */
+  ultimo: number | null;
+  /** 'km_por_litro' no que anda, 'litros_por_hora' na máquina. */
+  unidade: 'km_por_litro' | 'litros_por_hora';
+  /**
+   * Quantos abastecimentos entraram na média. Dois é o mínimo: um só diz
+   * quantos litros entraram, e não quanto o veículo andou com eles.
+   */
+  base: number;
 }
 
 type AbastecimentoCru = {
@@ -206,7 +232,9 @@ export class AbastecimentosService {
 
   /** Quantos veículos ativos estão no nome desta pessoa. */
   quantosVeiculos(funcionarioId: string): Promise<number> {
-    return this.prisma.veiculo.count({ where: { responsavelId: funcionarioId, ativo: true } });
+    return this.prisma.veiculo.count({
+      where: { responsaveis: { some: { funcionarioId } }, ativo: true },
+    });
   }
 
   private async doResponsavel(funcionario: {
@@ -215,7 +243,7 @@ export class AbastecimentosService {
     apelido: string | null;
   }): Promise<RespostaDoPortal> {
     const veiculos = await this.prisma.veiculo.findMany({
-      where: { responsavelId: funcionario.id, ativo: true },
+      where: { responsaveis: { some: { funcionarioId: funcionario.id } }, ativo: true },
       orderBy: { apelido: 'asc' },
       include: {
         abastecimentos: {
@@ -241,6 +269,7 @@ export class AbastecimentosService {
         ultimoKm: await this.ultimoMedidor(v.id, 'km'),
         ultimoHorimetro: await this.ultimoMedidor(v.id, 'horimetro'),
         estoque: v.tipo === 'GALAO' ? await this.estoqueDoGalao(v.id) : null,
+        consumo: await this.consumoDoVeiculo(v.id, v.tipo),
         ultimos: v.abastecimentos.map(naTela),
       })),
     );
@@ -258,6 +287,29 @@ export class AbastecimentosService {
       : [];
 
     return { nome: funcionario.apelido || funcionario.nome, veiculos: noPortal, destinos };
+  }
+
+  /**
+   * A média que o veículo está fazendo, do primeiro abastecimento até hoje.
+   *
+   * Galão não tem: ele não anda, e os litros que saem dele viram consumo da
+   * máquina que os bebeu.
+   */
+  async consumoDoVeiculo(veiculoId: string, tipo: TipoVeiculo): Promise<Consumo | null> {
+    if (tipo === 'GALAO') return null;
+    const lista = await this.prisma.abastecimento.findMany({
+      where: { veiculoId },
+      orderBy: [{ data: 'asc' }, { createdAt: 'asc' }],
+      select: { km: true, horimetro: true, litros: true },
+    });
+    return mediaDeConsumo(
+      lista.map((a) => ({
+        km: a.km,
+        horimetro: a.horimetro,
+        litros: a.litros == null ? null : Number(a.litros),
+      })),
+      tipo === 'MAQUINA' ? 'horimetro' : 'km',
+    );
   }
 
   /** A frota ligada, tirando os galões: é onde o combustível de fato acaba. */
@@ -302,7 +354,7 @@ export class AbastecimentosService {
       if (galao.tipo !== 'GALAO') {
         throw new BadRequestException(`${galao.apelido} não é um galão.`);
       }
-      if (galao.responsavelId !== funcionario.id) {
+      if (!estaNoNome(galao, funcionario.id)) {
         throw new ForbiddenException(
           'Este galão não está com você. Peça ao administrador para colocá-lo no seu nome.',
         );
@@ -343,7 +395,7 @@ export class AbastecimentosService {
     }
 
     // A ida ao posto: só quem tem a coisa no nome é que a abastece.
-    if (destino.responsavelId !== funcionario.id) {
+    if (!estaNoNome(destino, funcionario.id)) {
       throw new ForbiddenException(
         'Este veículo não está com você. Peça ao administrador para colocá-lo no seu nome.',
       );
@@ -623,7 +675,7 @@ export class AbastecimentosService {
         apelido: true,
         tipo: true,
         ativo: true,
-        responsavelId: true,
+        responsaveis: { select: { funcionarioId: true } },
       },
     });
     if (!veiculo || !veiculo.ativo) {
@@ -696,6 +748,17 @@ export class AbastecimentosService {
     }
     return { id: achado.id, nome: achado.nome, apelido: achado.apelido };
   }
+}
+
+/**
+ * Se o veículo está no nome desta pessoa. Basta ser um dos responsáveis: o
+ * carro de dois é de cada um deles por inteiro.
+ */
+function estaNoNome(
+  veiculo: { responsaveis: Array<{ funcionarioId: string }> },
+  funcionarioId: string,
+): boolean {
+  return veiculo.responsaveis.some((r) => r.funcionarioId === funcionarioId);
 }
 
 /** A nota do posto, que é o que prova a compra. Devolve a foto conferida. */
@@ -835,6 +898,7 @@ export function resumirCombustivel(
     quantidade: lista.length,
     aConferir: lista.filter((a) => a.valor == null).length,
     litros: Math.round(litros * 100) / 100,
+    consumo: mediaDeConsumo(lista, medidor),
     ultimoKm: medidor === 'km' ? (ultimo ?? primeiro ?? null) : null,
     ultimoHorimetro: medidor === 'horimetro' ? (ultimo ?? primeiro ?? null) : null,
     kmRodados: medidor === 'km' ? andados : null,
@@ -842,4 +906,67 @@ export function resumirCombustivel(
     horasTrabalhadas: medidor === 'horimetro' ? andados : null,
     custoPorHora: medidor === 'horimetro' ? porUnidade : null,
   };
+}
+
+/**
+ * A média que o veículo está fazendo.
+ *
+ * A conta é a do posto: **o combustível de um abastecimento é o que leva o
+ * veículo até o próximo**. Por isso o primeiro fica de fora dos litros — o que
+ * entrou nele foi queimado antes do primeiro km que se conhece — e o que se
+ * divide é o que se andou do primeiro ao último medidor pelos litros que
+ * vieram depois dele.
+ *
+ * Só entram os abastecimentos que trouxeram medidor: a saída de um galão para
+ * uma máquina pode vir sem, e um litro sem quilômetro nenhum atrás dele
+ * estragaria a média dos outros.
+ *
+ * Nas máquinas a conta se inverte — ninguém pergunta quantos quilômetros uma
+ * retroescavadeira faz por litro; pergunta-se quantos litros ela come por hora
+ * de trabalho.
+ */
+export function mediaDeConsumo(
+  lista: Array<{ km?: number | null; horimetro?: number | null; litros?: number | null }>,
+  medidor: 'km' | 'horimetro' = 'km',
+): Consumo {
+  const unidade = medidor === 'km' ? 'km_por_litro' : 'litros_por_hora';
+  const medidos = lista.filter(
+    (a) => (medidor === 'km' ? a.km : a.horimetro) != null,
+  );
+  const vazio: Consumo = { medio: null, ultimo: null, unidade, base: medidos.length };
+  if (medidos.length < 2) return vazio;
+
+  const valor = (a: (typeof medidos)[number]) =>
+    (medidor === 'km' ? a.km : a.horimetro) as number;
+
+  const andados = valor(medidos[medidos.length - 1]) - valor(medidos[0]);
+  const litrosDepois = medidos
+    .slice(1)
+    .reduce((soma, a) => soma + (a.litros ?? 0), 0);
+  if (andados <= 0 || litrosDepois <= 0) return vazio;
+
+  // O trecho mais recente: o que se andou desde a última vez, pelos litros
+  // que entraram agora.
+  const ultimo = medidos[medidos.length - 1];
+  const penultimo = medidos[medidos.length - 2];
+  const andadosAgora = valor(ultimo) - valor(penultimo);
+  const litrosAgora = ultimo.litros ?? 0;
+
+  const conta = (distancia: number, litros: number) =>
+    medidor === 'km' ? distancia / litros : litros / distancia;
+
+  return {
+    medio: arredondar(conta(andados, litrosDepois)),
+    ultimo:
+      andadosAgora > 0 && litrosAgora > 0
+        ? arredondar(conta(andadosAgora, litrosAgora))
+        : null,
+    unidade,
+    base: medidos.length,
+  };
+}
+
+/** Duas casas: "8,25 km/L" já é mais precisão do que a bomba do posto tem. */
+function arredondar(n: number): number {
+  return Math.round(n * 100) / 100;
 }

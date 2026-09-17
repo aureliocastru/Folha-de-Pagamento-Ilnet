@@ -3,6 +3,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type PointerEvent,
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
@@ -414,10 +415,19 @@ function BotaoFechar({ onFechar }: { onFechar: () => void }) {
  * barra desde 2018. A aba abria em branco, com o base64 no lugar do endereço,
  * e a nota continuava do tamanho de um selo.
  *
- * Aqui a imagem não vai a lugar nenhum: ela cresce dentro da página. Clicar
- * alterna entre caber na tela e o tamanho de verdade — foto de celular tem
- * mais pixels que o monitor, e é dessa sobra que sai a letra miúda do papel.
+ * Aqui a imagem não vai a lugar nenhum: ela cresce dentro da página. A roda do
+ * mouse aproxima e afasta no ponto onde está o ponteiro — que é como se lê um
+ * valor escrito torto no canto do papel —, e com a foto ampliada arrastar com
+ * o mouse a move. Clicar alterna entre caber na tela e o tamanho de verdade:
+ * foto de celular tem mais pixels que o monitor, e é dessa sobra que sai a
+ * letra miúda.
  */
+
+/** Oito vezes o que cabe na tela: passa disso e a nota vira borrão de pixel. */
+const ZOOM_MAXIMO = 8;
+
+const limitarZoom = (n: number) => Math.min(ZOOM_MAXIMO, Math.max(1, n));
+
 export function FotoAmpliada({
   src,
   titulo,
@@ -435,7 +445,41 @@ export function FotoAmpliada({
   onAnterior?: () => void;
   onProxima?: () => void;
 }) {
-  const [inteira, setInteira] = useState(false);
+  const caixa = useRef<HTMLDivElement>(null);
+  const imagem = useRef<HTMLImageElement>(null);
+  const [escala, setEscala] = useState(1);
+
+  /**
+   * De onde o zoom cresce: o ponto da tela que tem de continuar onde está.
+   *
+   * Guardado no gesto e usado depois que o React já pintou o novo tamanho —
+   * é aí, e só aí, que a rolagem pode ser acertada.
+   */
+  const ancora = useRef<{
+    x: number;
+    y: number;
+    de: number;
+    sl: number;
+    st: number;
+  } | null>(null);
+
+  /** Aproxima ou afasta, deixando quieto o ponto (x, y) da caixa. */
+  const aproximar = (fator: number, ponto?: { x: number; y: number }) => {
+    const el = caixa.current;
+    if (!el) return;
+    setEscala((atual) => {
+      const nova = limitarZoom(atual * fator);
+      if (nova === atual) return atual;
+      ancora.current = {
+        x: ponto?.x ?? el.clientWidth / 2,
+        y: ponto?.y ?? el.clientHeight / 2,
+        de: atual,
+        sl: el.scrollLeft,
+        st: el.scrollTop,
+      };
+      return nova;
+    });
+  };
 
   /*
    * Cada nota começa cabendo na tela.
@@ -444,7 +488,62 @@ export function FotoAmpliada({
    * primeiro; herdar o zoom da anterior abriria a próxima num pedaço do
    * meio, e a mesma foto pareceria outra coisa.
    */
-  useEffect(() => setInteira(false), [src]);
+  useEffect(() => setEscala(1), [src]);
+
+  /*
+   * A roda do mouse aproxima, em vez de rolar.
+   *
+   * O ouvinte é pendurado à mão porque o React registra a roda como passiva,
+   * e ouvinte passivo não pode chamar `preventDefault` — sem ele o navegador
+   * rolaria a foto ao mesmo tempo em que ela cresce, e a nota fugiria da tela.
+   */
+  useEffect(() => {
+    const el = caixa.current;
+    if (!el) return;
+    const aoRolar = (e: WheelEvent) => {
+      e.preventDefault();
+      const r = el.getBoundingClientRect();
+      // O Firefox manda a roda em linhas; o resto, em pixels.
+      const passo = e.deltaY * (e.deltaMode === 1 ? 16 : 1);
+      aproximar(Math.exp(-passo * 0.0022), {
+        x: e.clientX - r.left,
+        y: e.clientY - r.top,
+      });
+    };
+    el.addEventListener('wheel', aoRolar, { passive: false });
+    return () => el.removeEventListener('wheel', aoRolar);
+  }, []);
+
+  /* Crescida a foto, a rolagem vai para onde o ponto de origem ficou. */
+  useLayoutEffect(() => {
+    const el = caixa.current;
+    const a = ancora.current;
+    if (!el || !a) return;
+    ancora.current = null;
+    const k = escala / a.de;
+    el.scrollLeft = (a.sl + a.x) * k - a.x;
+    el.scrollTop = (a.st + a.y) * k - a.y;
+  }, [escala]);
+
+  /** O tamanho em que um pixel da foto é um pixel da tela. */
+  const tamanhoReal = () => {
+    const el = caixa.current;
+    const im = imagem.current;
+    if (!el || !im?.naturalWidth) return 2.5;
+    const cabe = Math.min(
+      el.clientWidth / im.naturalWidth,
+      el.clientHeight / im.naturalHeight,
+    );
+    return cabe > 0 ? limitarZoom(1 / cabe) : 2.5;
+  };
+
+  const alternar = () => {
+    if (escala > 1) {
+      setEscala(1);
+      return;
+    }
+    aproximar(tamanhoReal());
+  };
 
   useEffect(() => {
     const aoTeclar = (e: KeyboardEvent) => {
@@ -458,6 +557,10 @@ export function FotoAmpliada({
         e.preventDefault();
         onProxima();
       }
+      // Quem não tem roda — o notebook sem mouse — aproxima pelo teclado.
+      if (e.key === '+' || e.key === '=') aproximar(1.4);
+      if (e.key === '-' || e.key === '_') aproximar(1 / 1.4);
+      if (e.key === '0') setEscala(1);
     };
     window.addEventListener('keydown', aoTeclar);
     // Rolar a página atrás tira do lugar a lista que se estava conferindo.
@@ -468,6 +571,36 @@ export function FotoAmpliada({
       document.body.style.overflow = overflowAnterior;
     };
   }, [onFechar, onAnterior, onProxima]);
+
+  /*
+   * Com a foto ampliada, arrastar a move — e o clique que a arrastou não
+   * alterna o zoom, senão todo empurrão terminaria com a nota de volta ao
+   * tamanho de selo.
+   */
+  const arrasto = useRef<{ x: number; y: number; sl: number; st: number } | null>(null);
+  const arrastou = useRef(false);
+
+  const aoPegar = (e: PointerEvent<HTMLDivElement>) => {
+    const el = caixa.current;
+    if (!el || escala === 1) return;
+    arrasto.current = { x: e.clientX, y: e.clientY, sl: el.scrollLeft, st: el.scrollTop };
+    arrastou.current = false;
+  };
+
+  const aoMover = (e: PointerEvent<HTMLDivElement>) => {
+    const el = caixa.current;
+    const a = arrasto.current;
+    if (!el || !a) return;
+    const dx = e.clientX - a.x;
+    const dy = e.clientY - a.y;
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) arrastou.current = true;
+    el.scrollLeft = a.sl - dx;
+    el.scrollTop = a.st - dy;
+  };
+
+  const aoSoltar = () => {
+    arrasto.current = null;
+  };
 
   /*
    * Vai pendurada no `body`, e não onde foi escrita.
@@ -481,14 +614,40 @@ export function FotoAmpliada({
   return createPortal(
     <div className="fixed inset-0 z-[60] flex flex-col bg-barra/95 p-3 sm:p-4">
       <div className="flex items-center justify-between gap-3 pb-3">
-        <span className="text-sm font-semibold text-white">{titulo}</span>
+        <span className="min-w-0 truncate text-sm font-semibold text-white">{titulo}</span>
         <div className="flex items-center gap-2">
+          {/* No celular e no tablet não há roda: o zoom é por estes dois. */}
+          <span className="flex items-center overflow-hidden rounded-xl border border-white/20 md:rounded-lg">
+            <button
+              type="button"
+              onClick={() => aproximar(1 / 1.4)}
+              disabled={escala <= 1}
+              aria-label="Afastar"
+              title="Afastar"
+              className="min-h-[44px] px-3.5 text-lg font-semibold leading-none text-white/80 transition hover:bg-white/10 disabled:opacity-30 md:min-h-[36px] md:text-base"
+            >
+              −
+            </button>
+            <span className="num min-w-[3.5rem] border-x border-white/20 px-1 text-center text-xs text-white/70">
+              {Math.round(escala * 100)}%
+            </span>
+            <button
+              type="button"
+              onClick={() => aproximar(1.4)}
+              disabled={escala >= ZOOM_MAXIMO}
+              aria-label="Aproximar"
+              title="Aproximar — ou role a roda do mouse sobre a foto"
+              className="min-h-[44px] px-3.5 text-lg font-semibold leading-none text-white/80 transition hover:bg-white/10 disabled:opacity-30 md:min-h-[36px] md:text-base"
+            >
+              +
+            </button>
+          </span>
           <button
             type="button"
-            onClick={() => setInteira((v) => !v)}
+            onClick={alternar}
             className="min-h-[44px] rounded-xl border border-white/20 px-3.5 text-sm font-semibold text-white/80 transition hover:bg-white/10 md:min-h-[36px] md:rounded-lg md:text-xs"
           >
-            {inteira ? 'Caber na tela' : 'Tamanho real'}
+            {escala > 1 ? 'Caber na tela' : 'Tamanho real'}
           </button>
           <button
             type="button"
@@ -503,28 +662,45 @@ export function FotoAmpliada({
       {/*
         Clicar no fundo fecha — ao contrário da `Janela`, aqui não há trabalho
         a perder: é uma foto sendo olhada, e quem abriu para ler sai pelo
-        mesmo gesto com que entrou.
+        mesmo gesto com que entrou. Com a foto ampliada, não: ali o fundo é
+        por onde ela se arrasta.
       */}
       <div
+        ref={caixa}
         onClick={(e) => {
-          if (e.target === e.currentTarget) onFechar();
+          if (e.target === e.currentTarget && escala === 1) onFechar();
         }}
-        className={`flex-1 rounded-2xl bg-black/40 ${
-          inteira
-            ? 'overflow-auto rolagem-fina p-2'
-            : 'flex items-center justify-center overflow-hidden p-2'
+        onPointerDown={aoPegar}
+        onPointerMove={aoMover}
+        onPointerUp={aoSoltar}
+        onPointerLeave={aoSoltar}
+        className={`flex-1 rounded-2xl bg-black/40 p-2 ${
+          escala > 1 ? 'overflow-auto rolagem-fina' : 'overflow-hidden'
         }`}
       >
-        <img
-          src={src}
-          alt={titulo}
-          onClick={() => setInteira((v) => !v)}
-          className={
-            inteira
-              ? 'max-w-none cursor-zoom-out rounded-lg'
-              : 'max-h-full max-w-full cursor-zoom-in rounded-lg object-contain'
-          }
-        />
+        {/*
+          A moldura é o tamanho da caixa vezes o zoom, e a foto cabe dentro
+          dela: assim um número só comanda o tamanho, e quem rola é a caixa —
+          sem `transform`, que borraria a letra a lápis.
+        */}
+        <div
+          style={{ width: `${escala * 100}%`, height: `${escala * 100}%` }}
+          className="flex items-center justify-center"
+        >
+          <img
+            ref={imagem}
+            src={src}
+            alt={titulo}
+            draggable={false}
+            onClick={() => {
+              if (arrastou.current) return;
+              alternar();
+            }}
+            className={`max-h-full max-w-full select-none rounded-lg object-contain ${
+              escala > 1 ? 'cursor-zoom-out' : 'cursor-zoom-in'
+            }`}
+          />
+        </div>
       </div>
 
       {/*
@@ -688,6 +864,35 @@ export function Selo({
         <span className="h-1.5 w-1.5 rounded-full bg-current opacity-70" />
       )}
       {children}
+    </span>
+  );
+}
+
+/**
+ * O ponto âmbar do menu: ali dentro tem coisa esperando alguém.
+ *
+ * Âmbar, e não vermelho: é fila de trabalho parada, não erro. O número vai no
+ * `title` e no texto para o leitor de tela — o ponto sozinho diz "tem algo", e
+ * quantos é o que a tela mostra quando se abre.
+ */
+export function PontoDeAviso({
+  quantos,
+  oQue,
+  className = '',
+}: {
+  quantos: number;
+  /** "abastecimento esperando conferência" — o que a fila é, no singular. */
+  oQue: string;
+  className?: string;
+}) {
+  if (quantos <= 0) return null;
+  const texto = `${quantos} ${oQue}${quantos > 1 ? 's' : ''}`;
+  return (
+    <span
+      title={texto}
+      className={`inline-flex h-2 w-2 shrink-0 rounded-full bg-amber-400 ring-2 ring-amber-400/30 ${className}`}
+    >
+      <span className="sr-only">{texto}</span>
     </span>
   );
 }

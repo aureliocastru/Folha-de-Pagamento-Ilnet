@@ -6,7 +6,7 @@ import { semAcento } from '../lib/busca';
 import { useCelular } from '../lib/celular';
 import { formatData } from '../lib/format';
 import { reduzirFoto } from '../lib/foto';
-import { Aviso, Carregando, Janela, Vazio } from './ui';
+import { Aviso, Carregando, FotoAmpliada, Janela, Vazio } from './ui';
 
 /** Uma linha do painel, como a API a devolve. */
 export interface FuncionarioNoPainel {
@@ -528,11 +528,15 @@ function FichaDePontos({
 export function FotoDoPonto({
   chave,
   buscar,
+  titulo = 'Foto',
 }: {
   chave: unknown[];
   buscar: () => Promise<string>;
+  /** O que se lê no alto quando a foto abre em tela cheia. */
+  titulo?: string;
 }) {
   const [aberta, setAberta] = useState(false);
+  const [ampliada, setAmpliada] = useState(false);
   const foto = useQuery({
     queryKey: chave,
     queryFn: buscar,
@@ -555,11 +559,26 @@ export function FotoDoPonto({
         ) : foto.isError ? (
           <span className="block text-xs text-rose-600">{mensagemErro(foto.error)}</span>
         ) : (
-          <img
-            src={foto.data}
-            alt="Foto do ponto"
-            className="mt-2 max-h-96 w-full rounded-lg bg-tinta-100 object-contain"
-          />
+          <>
+            {/*
+              Aqui dentro da lista a foto é um cartão de olhada; o valor a
+              caneta se lê é na tela cheia, onde a roda do mouse aproxima.
+            */}
+            <img
+              src={foto.data}
+              alt={titulo}
+              onClick={() => setAmpliada(true)}
+              title="Abrir em tela cheia — lá a roda do mouse aproxima"
+              className="mt-2 max-h-96 w-full cursor-zoom-in rounded-lg bg-tinta-100 object-contain"
+            />
+            {ampliada && foto.data && (
+              <FotoAmpliada
+                src={foto.data}
+                titulo={titulo}
+                onFechar={() => setAmpliada(false)}
+              />
+            )}
+          </>
         ))}
     </>
   );

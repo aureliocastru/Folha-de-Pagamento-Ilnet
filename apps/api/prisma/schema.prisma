@@ -196,7 +196,7 @@ model Funcionario {
   lancamentos   Lancamento[]
   contasPagar   ContaPagar[]
   /// Os veículos da frota que ele abastece — é o que o portal lhe mostra.
-  veiculosResponsavel Veiculo[]
+  veiculosResponsavel ResponsavelDoVeiculo[]
   abastecimentos      Abastecimento[]
   variaveisMes  VariavelMes[]
   vales         Vale[]
@@ -1431,10 +1431,10 @@ model Veiculo {
   /// gastou nele continua de pé.
   ativo Boolean @default(true)
 
-  /// Quem anda com ele e o abastece. É o funcionário que, no portal (CPF),
-  /// vê este veículo e lança o abastecimento dele.
-  responsavel   Funcionario? @relation(fields: [responsavelId], references: [id], onDelete: SetNull)
-  responsavelId String?      @map("responsavel_id")
+  /// Quem anda com ele e o abastece. São os funcionários que, no portal (CPF),
+  /// veem este veículo e lançam o abastecimento dele — o carro que é de dois,
+  /// a máquina que troca de operador, o galão que mais de um leva ao posto.
+  responsaveis ResponsavelDoVeiculo[]
 
   contas         ContaPagar[]
   abastecimentos Abastecimento[]
@@ -1447,6 +1447,22 @@ model Veiculo {
 
   @@index([ativo])
   @@map("veiculos")
+}
+
+/// Um responsável de um veículo. Um veículo pode ter vários; uma pessoa,
+/// vários veículos.
+model ResponsavelDoVeiculo {
+  veiculo   Veiculo @relation(fields: [veiculoId], references: [id], onDelete: Cascade)
+  veiculoId String  @map("veiculo_id")
+
+  funcionario   Funcionario @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
+  funcionarioId String      @map("funcionario_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([veiculoId, funcionarioId])
+  @@index([funcionarioId])
+  @@map("veiculo_responsaveis")
 }
 
 /// Um abastecimento: quanto, com que km no painel, e a foto da nota.
