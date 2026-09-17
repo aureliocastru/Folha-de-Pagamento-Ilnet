@@ -63,6 +63,8 @@ export interface VeiculoNaLista {
   ultimoHorimetro: number | null;
   /** A média que ele está fazendo — km/L, ou L/h na máquina. Galão não tem. */
   consumo: Consumo | null;
+  /** A média que se espera dele, cadastrada na ficha. */
+  consumoIdeal: number | null;
 }
 
 /** Um gasto do veículo, como a ficha dele mostra. */
@@ -152,7 +154,8 @@ export class VeiculosService {
       const lista = medidasPorVeiculo.get(m.veiculoId) ?? [];
       lista.push({
         km: m.km,
-        horimetro: m.horimetro,
+        // Horímetro e litros são decimais no banco: chegam como `Decimal`.
+        horimetro: m.horimetro == null ? null : Number(m.horimetro),
         litros: m.litros == null ? null : Number(m.litros),
       });
       medidasPorVeiculo.set(m.veiculoId, lista);
@@ -193,7 +196,7 @@ export class VeiculosService {
         c._count._all,
         c._count._all - c._count.valor,
         c._max.km ?? null,
-        c._max.horimetro ?? null,
+        c._max.horimetro == null ? null : Number(c._max.horimetro),
       );
     }
     for (const s of saidas) {
@@ -206,7 +209,7 @@ export class VeiculosService {
         // A saída não espera conferência nenhuma: o preço dela já existe.
         0,
         s._max.km ?? null,
-        s._max.horimetro ?? null,
+        s._max.horimetro == null ? null : Number(s._max.horimetro),
       );
     }
 
@@ -226,6 +229,7 @@ export class VeiculosService {
         mediaDeConsumo(
           medidasPorVeiculo.get(v.id) ?? [],
           v.tipo === 'MAQUINA' ? 'horimetro' : 'km',
+          v.consumoIdeal == null ? null : Number(v.consumoIdeal),
         ),
       ),
     );
@@ -318,6 +322,7 @@ export class VeiculosService {
         modelo: dto.modelo?.trim() || null,
         ano: dto.ano ?? null,
         observacao: dto.observacao?.trim() || null,
+        consumoIdeal: dto.consumoIdeal ?? null,
         responsaveis: {
           create: responsaveis.map((funcionarioId) => ({ funcionarioId })),
         },
@@ -342,6 +347,7 @@ export class VeiculosService {
         observacao:
           dto.observacao === undefined ? undefined : dto.observacao?.trim() || null,
         ativo: dto.ativo,
+        consumoIdeal: dto.consumoIdeal,
         /*
          * A lista que chega é a lista inteira: apaga as ligações e refaz. Não
          * há nada guardado na ligação além de quem é — refazer não perde nada,
@@ -455,6 +461,7 @@ export function resumir(
   > & {
     combustivel?: Combustivel | null;
     capacidadeLitros?: number | null;
+    consumoIdeal?: { toString(): string } | number | null;
     responsaveis?: Array<{
       funcionario: { id: string; nome: string; apelido: string | null };
     }>;
@@ -513,6 +520,7 @@ export function resumir(
     // O galão não faz média: ele não anda, e o que sai dele vira consumo da
     // máquina que o bebeu.
     consumo: v.tipo === 'GALAO' ? null : (consumo ?? combustivel?.consumo ?? null),
+    consumoIdeal: v.consumoIdeal == null ? null : Number(v.consumoIdeal),
   };
 }
 

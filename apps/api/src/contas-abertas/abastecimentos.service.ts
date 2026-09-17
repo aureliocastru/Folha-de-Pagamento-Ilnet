@@ -163,13 +163,19 @@ export interface Consumo {
    * quantos litros entraram, e não quanto o veículo andou com eles.
    */
   base: number;
+  /** A média que se espera dele, cadastrada na ficha. */
+  ideal: number | null;
+  /** A média está pior do que a esperada — é o amarelo da tela. */
+  irregular: boolean;
+  /** O último trecho está pior do que o esperado, mesmo com a média de pé. */
+  ultimoIrregular: boolean;
 }
 
 type AbastecimentoCru = {
   id: string;
   valor: { toString(): string } | number | null;
   km: number | null;
-  horimetro: number | null;
+  horimetro: { toString(): string } | number | null;
   litros: { toString(): string } | number | null;
   galaoId?: string | null;
   galao?: { id: string; apelido: string } | null;
@@ -269,7 +275,7 @@ export class AbastecimentosService {
         ultimoKm: await this.ultimoMedidor(v.id, 'km'),
         ultimoHorimetro: await this.ultimoMedidor(v.id, 'horimetro'),
         estoque: v.tipo === 'GALAO' ? await this.estoqueDoGalao(v.id) : null,
-        consumo: await this.consumoDoVeiculo(v.id, v.tipo),
+        consumo: await this.consumoDoVeiculo(v.id, v.tipo, numero(v.consumoIdeal)),
         ultimos: v.abastecimentos.map(naTela),
       })),
     );
@@ -295,7 +301,11 @@ export class AbastecimentosService {
    * Galão não tem: ele não anda, e os litros que saem dele viram consumo da
    * máquina que os bebeu.
    */
-  async consumoDoVeiculo(veiculoId: string, tipo: TipoVeiculo): Promise<Consumo | null> {
+  async consumoDoVeiculo(
+    veiculoId: string,
+    tipo: TipoVeiculo,
+    ideal: number | null = null,
+  ): Promise<Consumo | null> {
     if (tipo === 'GALAO') return null;
     const lista = await this.prisma.abastecimento.findMany({
       where: { veiculoId },
@@ -305,10 +315,11 @@ export class AbastecimentosService {
     return mediaDeConsumo(
       lista.map((a) => ({
         km: a.km,
-        horimetro: a.horimetro,
+        horimetro: numero(a.horimetro),
         litros: a.litros == null ? null : Number(a.litros),
       })),
       tipo === 'MAQUINA' ? 'horimetro' : 'km',
+      ideal,
     );
   }
 
@@ -442,9 +453,9 @@ export class AbastecimentosService {
     if (veiculo.tipo === 'GALAO') return { km: null, horimetro: null };
 
     if (veiculo.tipo === 'MAQUINA') {
-      const horimetro = medidorValido(
+      const horimetro = horimetroValido(
         dados.horimetro,
-        'Digite o horímetro da máquina, só os números.',
+        'Digite o horímetro da máquina — as horas do painel, com o décimo se houver.',
       );
       await this.conferirMedidor(veiculo, 'horimetro', horimetro);
       return { km: null, horimetro };
@@ -495,13 +506,29 @@ export class AbastecimentosService {
     return naTela(criado);
   }
 
-  /** O administrador põe (ou corrige) o valor lido na nota. */
-  async conferir(id: string, valor: number, quem: string): Promise<AbastecimentoNaTela> {
+  /**
+   * O administrador põe (ou corrige) o que está escrito na nota.
+   *
+   * O valor é o que se cobra; os litros vêm junto porque estão na mesma linha
+   * do papel — quem abastece nem sempre olha a bomba, e sem os litros não há
+   * média de consumo nenhuma. Litros ausente não mexe nos que já estavam lá.
+   */
+  async conferir(
+    id: string,
+    valor: number,
+    quem: string,
+    litros?: number | null,
+  ): Promise<AbastecimentoNaTela> {
     const achado = await this.prisma.abastecimento.findUnique({ where: { id }, select: { id: true } });
     if (!achado) throw new NotFoundException('Abastecimento não encontrado.');
     const atualizado = await this.prisma.abastecimento.update({
       where: { id },
-      data: { valor: valorValido(valor), conferidoPor: quem, conferidoEm: new Date() },
+      data: {
+        valor: valorValido(valor),
+        litros: litros == null ? undefined : litrosValidos(litros),
+        conferidoPor: quem,
+        conferidoEm: new Date(),
+      },
       include: { foto: { select: { id: true } } },
     });
     return naTela(atualizado);
@@ -560,7 +587,10 @@ export class AbastecimentosService {
 
   async resumo(veiculoId: string): Promise<ResumoDoCombustivel> {
     const [veiculo, lista, precos] = await Promise.all([
-      this.prisma.veiculo.findUnique({ where: { id: veiculoId }, select: { tipo: true } }),
+      this.prisma.veiculo.findUnique({
+        where: { id: veiculoId },
+        select: { tipo: true, consumoIdeal: true },
+      }),
       this.prisma.abastecimento.findMany({
         where: { veiculoId },
         orderBy: [{ data: 'asc' }, { createdAt: 'asc' }],
@@ -573,10 +603,11 @@ export class AbastecimentosService {
       lista.map((a) => ({
         valor: valorDoAbastecimento(a, precos),
         km: a.km,
-        horimetro: a.horimetro,
+        horimetro: numero(a.horimetro),
         litros: a.litros == null ? null : Number(a.litros),
       })),
       veiculo?.tipo === 'MAQUINA' ? 'horimetro' : 'km',
+      numero(veiculo?.consumoIdeal),
     );
   }
 
@@ -693,8 +724,11 @@ export class AbastecimentosService {
     const anterior = await this.ultimoMedidor(veiculo.id, campo);
     if (anterior != null && valor < anterior) {
       const unidade = campo === 'km' ? 'km' : 'horas';
+      const escrito = anterior.toLocaleString('pt-BR', {
+        maximumFractionDigits: campo === 'km' ? 0 : 1,
+      });
       throw new BadRequestException(
-        `O último abastecimento de ${veiculo.apelido} foi com ${anterior.toLocaleString('pt-BR')} ${unidade}. ` +
+        `O último abastecimento de ${veiculo.apelido} foi com ${escrito} ${unidade}. ` +
           `O de agora não pode ser menor — confira o painel.`,
       );
     }
@@ -708,7 +742,8 @@ export class AbastecimentosService {
       where: { veiculoId },
       _max: { km: true, horimetro: true },
     });
-    return (campo === 'km' ? r._max.km : r._max.horimetro) ?? null;
+    // O horímetro é decimal no banco: vem como `Decimal`, e não como número.
+    return numero(campo === 'km' ? r._max.km : r._max.horimetro);
   }
 
   /** O colaborador do login, ainda ativo na casa — a mesma régua do portal. */
@@ -768,10 +803,26 @@ function conferirFoto(foto: string | undefined): string {
   return foto;
 }
 
-/** O km do painel ou as horas do horímetro: inteiro, e nunca negativo. */
+/** O km do painel: inteiro, e nunca negativo. */
 function medidorValido(valor: number | null | undefined, reclamacao: string): number {
   const n = Number(valor);
   if (!Number.isInteger(n) || n < 0 || n > 9_999_999) {
+    throw new BadRequestException(reclamacao);
+  }
+  return n;
+}
+
+/**
+ * As horas do horímetro, com o décimo que o ponteiro mostra.
+ *
+ * 1252,6 é mil duzentas e cinquenta e duas horas e trinta e seis minutos — o
+ * horímetro conta assim, de seis em seis minutos, e é assim que a pessoa lê o
+ * painel. Mais de uma casa não existe no aparelho; o que vier a mais se
+ * arredonda para o décimo mais perto.
+ */
+function horimetroValido(valor: number | null | undefined, reclamacao: string): number {
+  const n = Math.round(Number(valor) * 10) / 10;
+  if (!Number.isFinite(n) || n < 0 || n > 9_999_999) {
     throw new BadRequestException(reclamacao);
   }
   return n;
@@ -792,6 +843,11 @@ function litrosValidos(litros: number | null | undefined): number {
 function litrosSeVierem(litros: number | null | undefined): number | null {
   if (litros == null || Number(litros) === 0) return null;
   return litrosValidos(litros);
+}
+
+/** O que o Prisma devolve de uma coluna decimal, como número — ou nada. */
+function numero(v: { toString(): string } | number | null | undefined): number | null {
+  return v == null ? null : Number(v);
 }
 
 /** "12,5 L" — para as mensagens de erro, que são lidas no posto. */
@@ -845,7 +901,7 @@ function naTela(a: AbastecimentoCru): AbastecimentoNaTela {
     id: a.id,
     valor: a.valor == null ? null : Number(a.valor),
     km: a.km,
-    horimetro: a.horimetro,
+    horimetro: numero(a.horimetro),
     litros: a.litros == null ? null : Number(a.litros),
     galao: a.galao ?? null,
     data: a.data.toISOString(),
@@ -871,6 +927,8 @@ export function resumirCombustivel(
     litros?: number | null;
   }>,
   medidor: 'km' | 'horimetro' = 'km',
+  /** A média que se espera do veículo, para o resumo já dizer se ela caiu. */
+  ideal: number | null = null,
 ): ResumoDoCombustivel {
   const total = lista.reduce((s, a) => s + (a.valor ?? 0), 0);
   const litros = lista.reduce((s, a) => s + (a.litros ?? 0), 0);
@@ -898,7 +956,7 @@ export function resumirCombustivel(
     quantidade: lista.length,
     aConferir: lista.filter((a) => a.valor == null).length,
     litros: Math.round(litros * 100) / 100,
-    consumo: mediaDeConsumo(lista, medidor),
+    consumo: mediaDeConsumo(lista, medidor, ideal),
     ultimoKm: medidor === 'km' ? (ultimo ?? primeiro ?? null) : null,
     ultimoHorimetro: medidor === 'horimetro' ? (ultimo ?? primeiro ?? null) : null,
     kmRodados: medidor === 'km' ? andados : null,
@@ -928,12 +986,22 @@ export function resumirCombustivel(
 export function mediaDeConsumo(
   lista: Array<{ km?: number | null; horimetro?: number | null; litros?: number | null }>,
   medidor: 'km' | 'horimetro' = 'km',
+  /** A média que se espera deste veículo, quando a casa a cadastrou. */
+  ideal: number | null = null,
 ): Consumo {
   const unidade = medidor === 'km' ? 'km_por_litro' : 'litros_por_hora';
   const medidos = lista.filter(
     (a) => (medidor === 'km' ? a.km : a.horimetro) != null,
   );
-  const vazio: Consumo = { medio: null, ultimo: null, unidade, base: medidos.length };
+  const vazio: Consumo = {
+    medio: null,
+    ultimo: null,
+    unidade,
+    base: medidos.length,
+    ideal,
+    irregular: false,
+    ultimoIrregular: false,
+  };
   if (medidos.length < 2) return vazio;
 
   const valor = (a: (typeof medidos)[number]) =>
@@ -955,14 +1023,28 @@ export function mediaDeConsumo(
   const conta = (distancia: number, litros: number) =>
     medidor === 'km' ? distancia / litros : litros / distancia;
 
+  const medio = arredondar(conta(andados, litrosDepois));
+  const ultimoTrecho =
+    andadosAgora > 0 && litrosAgora > 0
+      ? arredondar(conta(andadosAgora, litrosAgora))
+      : null;
+
+  /*
+   * Pior que o esperado quer dizer coisas opostas nos dois medidores: o carro
+   * que faz menos quilômetros por litro está gastando mais, e a máquina que
+   * faz mais litros por hora também.
+   */
+  const pior = (valor: number | null) =>
+    valor != null && ideal != null && (medidor === 'km' ? valor < ideal : valor > ideal);
+
   return {
-    medio: arredondar(conta(andados, litrosDepois)),
-    ultimo:
-      andadosAgora > 0 && litrosAgora > 0
-        ? arredondar(conta(andadosAgora, litrosAgora))
-        : null,
+    medio,
+    ultimo: ultimoTrecho,
     unidade,
     base: medidos.length,
+    ideal,
+    irregular: pior(medio),
+    ultimoIrregular: pior(ultimoTrecho),
   };
 }
 

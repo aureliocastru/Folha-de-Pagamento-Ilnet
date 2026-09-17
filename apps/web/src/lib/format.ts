@@ -82,3 +82,34 @@ export function formatConsumo(
   const n = valor.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
   return unidade === 'km_por_litro' ? `${n} km/L` : `${n} L/h`;
 }
+
+/**
+ * O que se digita num medidor de painel, limpo enquanto se digita.
+ *
+ * O km é inteiro. O horímetro não: o ponteiro dele anda de décimo em décimo —
+ * 1252,6 é mil duzentas e cinquenta e duas horas e trinta e seis minutos —, e
+ * é assim que a máquina é lida. Por isso ele aceita uma vírgula e uma casa; o
+ * ponto que vem do teclado numérico do celular vira vírgula, que é a que se
+ * escreve aqui.
+ */
+export function medidorLimpo(bruto: string, comDecimo: boolean): string {
+  if (!comDecimo) return bruto.replace(/\D/g, '').slice(0, 7);
+  const [inteiro, ...resto] = bruto
+    .replace(/[^\d.,]/g, '')
+    .replace(/\./g, ',')
+    .split(',');
+  const horas = inteiro.slice(0, 7);
+  return resto.length ? `${horas},${resto.join('').slice(0, 1)}` : horas;
+}
+
+/** "1252,6" → 1252.6; vazio → null. O que a API espera é número. */
+export function medidorNumero(digitado: string): number | null {
+  if (!digitado) return null;
+  const n = Number(digitado.replace(',', '.'));
+  return Number.isFinite(n) ? n : null;
+}
+
+/** O medidor escrito: "27.191" de km, "1.252,6" de horímetro. */
+export function formatMedidor(valor: number, comDecimo = false): string {
+  return valor.toLocaleString('pt-BR', { maximumFractionDigits: comDecimo ? 1 : 0 });
+}

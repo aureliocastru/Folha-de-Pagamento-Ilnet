@@ -201,6 +201,27 @@ describe('a conferência', () => {
     expect(r).toMatchObject({ valor: 45.5, conferidoPor: 'Administrador' });
   });
 
+  it('os litros da nota entram junto com o valor', async () => {
+    const { service, prisma } = montar();
+
+    await service.conferir('a1', 312.79, 'Administrador', 45.99);
+
+    // Estão na mesma linha do papel, e sem eles não há média de consumo.
+    expect(prisma.abastecimento.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ valor: 312.79, litros: 45.99 }),
+      }),
+    );
+  });
+
+  it('sem litros digitados, os que já estavam lá ficam', async () => {
+    const { service, prisma } = montar();
+
+    await service.conferir('a1', 312.79, 'Administrador');
+
+    expect(prisma.abastecimento.update.mock.calls[0][0].data.litros).toBeUndefined();
+  });
+
   it('valor zerado não confere', async () => {
     const { service } = montar();
     await expect(service.conferir('a1', 0, 'Administrador')).rejects.toThrow(/valor da nota/);
@@ -290,6 +311,43 @@ describe('o galão de combustível', () => {
     expect(dados).not.toHaveProperty('foto');
     // 1200 por 200 litros dá 6 o litro: 50 litros são 300 reais de máquina.
     expect(r).toMatchObject({ valor: 300, litros: 50, horimetro: 1320 });
+  });
+
+  it('o horímetro entra com o décimo que o ponteiro mostra', async () => {
+    const { service, prisma } = comGalao({
+      galao: { entrou: 200, litrosPagos: 200, pago: 1200 },
+      ultimoHorimetro: 1252.5,
+    });
+
+    const r = await service.lancarPeloPortal(CPF, {
+      veiculoId: 'm1',
+      galaoId: 'g1',
+      litros: 50,
+      horimetro: 1252.6,
+    });
+
+    // 1252,6 são 1252 horas e 36 minutos: arredondar para 1253 comeria o
+    // décimo, e a média de litros por hora sairia torta.
+    expect(prisma.abastecimento.create.mock.calls[0][0].data).toMatchObject({
+      horimetro: 1252.6,
+    });
+    expect(r).toMatchObject({ horimetro: 1252.6 });
+  });
+
+  it('o décimo também não anda para trás', async () => {
+    const { service } = comGalao({
+      galao: { entrou: 200, litrosPagos: 200, pago: 1200 },
+      ultimoHorimetro: 1252.6,
+    });
+
+    await expect(
+      service.lancarPeloPortal(CPF, {
+        veiculoId: 'm1',
+        galaoId: 'g1',
+        litros: 50,
+        horimetro: 1252.5,
+      }),
+    ).rejects.toThrow(/1.252,6 horas/);
   });
 
   it('não sai mais litro do que há dentro', async () => {
@@ -469,6 +527,64 @@ describe('mediaDeConsumo', () => {
     ]);
     // Os 20 litros sem km nenhum atrás deles não entram: 500 km por 50 L.
     expect(r).toMatchObject({ medio: 10, base: 2 });
+  });
+
+  it('abaixo da média esperada, o consumo é irregular', () => {
+    const r = mediaDeConsumo(
+      [
+        { km: 1000, litros: 40 },
+        { km: 1800, litros: 100 },
+      ],
+      'km',
+      10,
+    );
+    // Faz 8 onde devia fazer 10: é o amarelo da tela.
+    expect(r).toMatchObject({ medio: 8, ideal: 10, irregular: true });
+  });
+
+  it('sem média esperada não há alerta nenhum', () => {
+    const r = mediaDeConsumo([
+      { km: 1000, litros: 40 },
+      { km: 1800, litros: 100 },
+    ]);
+    expect(r).toMatchObject({ medio: 8, ideal: null, irregular: false });
+  });
+
+  it('na máquina o irregular é ao contrário: mais litros por hora é pior', () => {
+    const r = mediaDeConsumo(
+      [
+        { horimetro: 1000, litros: 50 },
+        { horimetro: 1100, litros: 120 },
+      ],
+      'horimetro',
+      10,
+    );
+    // 120 litros em 100 horas são 1,2 por hora — abaixo do esperado, e portanto
+    // bom; o alerta só acende quando ela passa a beber mais do que 10.
+    expect(r).toMatchObject({ medio: 1.2, irregular: false });
+    expect(mediaDeConsumo(
+      [
+        { horimetro: 1000, litros: 50 },
+        { horimetro: 1100, litros: 1500 },
+      ],
+      'horimetro',
+      10,
+    )).toMatchObject({ medio: 15, irregular: true });
+  });
+
+  it('a média de pé com o último trecho pior acende só o aviso do trecho', () => {
+    const r = mediaDeConsumo(
+      [
+        { km: 1000, litros: 40 },
+        { km: 2200, litros: 100 },
+        { km: 2500, litros: 100 },
+      ],
+      'km',
+      10,
+    );
+    // 1500 km por 200 L dão 7,5 de média... com ideal 10, tudo irregular.
+    expect(r.irregular).toBe(true);
+    expect(r.ultimoIrregular).toBe(true);
   });
 
   it('na máquina a média é de litros por hora de trabalho', () => {

@@ -67,7 +67,7 @@ export class VeiculosController {
     @Body() dto: ConferirAbastecimentoDto,
     @Req() req: Request,
   ) {
-    return this.abastecimentos.conferir(id, dto.valor, nomeDe(req));
+    return this.abastecimentos.conferir(id, dto.valor, nomeDe(req), dto.litros);
   }
 
   /** Lançar um abastecimento pela ficha do veículo. */

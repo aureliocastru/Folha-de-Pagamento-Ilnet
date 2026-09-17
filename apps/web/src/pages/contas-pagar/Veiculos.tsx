@@ -15,7 +15,14 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
-import { formatBRL, formatConsumo, formatData } from '../../lib/format';
+import {
+  formatBRL,
+  formatConsumo,
+  formatData,
+  formatMedidor,
+  medidorLimpo,
+  medidorNumero,
+} from '../../lib/format';
 import { NovaDespesa } from './NovaDespesa';
 
 type TipoVeiculo =
@@ -61,6 +68,12 @@ interface Consumo {
   unidade: 'km_por_litro' | 'litros_por_hora';
   /** Quantos abastecimentos entraram na conta. */
   base: number;
+  /** A média que se espera dele, cadastrada na ficha. */
+  ideal: number | null;
+  /** A média está pior do que a esperada — é o amarelo da tela. */
+  irregular: boolean;
+  /** O último trecho está pior, mesmo com a média geral de pé. */
+  ultimoIrregular: boolean;
 }
 
 /** O que há dentro de um galão, e por quanto saiu o litro. */
@@ -99,6 +112,8 @@ interface VeiculoNaLista {
   ultimoKm: number | null;
   ultimoHorimetro: number | null;
   consumo: Consumo | null;
+  /** A média que se espera dele. Em branco, nada de alerta. */
+  consumoIdeal: number | null;
 }
 
 interface Abastecimento {
@@ -150,8 +165,9 @@ interface Ficha {
   abastecimentos: Abastecimento[];
 }
 
-const km = (n: number) => `${n.toLocaleString('pt-BR')} km`;
-const horas = (n: number) => `${n.toLocaleString('pt-BR')} h`;
+const km = (n: number) => `${formatMedidor(n)} km`;
+/** O horímetro tem o décimo do ponteiro: "1.252,6 h". */
+const horas = (n: number) => `${formatMedidor(n, true)} h`;
 
 /**
  * O que se sabe deste lançamento: os litros, o km, as horas — o que houver.
@@ -192,6 +208,61 @@ function identificacao(
       .join(' · ');
   }
   return [rotuloDoTipo(v.tipo), v.modelo, v.ano, v.placa].filter(Boolean).join(' · ');
+}
+
+/**
+ * A média do veículo na lista, e o amarelo quando ela cai.
+ *
+ * O número sozinho não diz nada a quem não decorou o que cada carro faz — é a
+ * média esperada, cadastrada na ficha, que transforma "6,2 km/L" em "este
+ * carro está bebendo mais do que devia". Sem ela cadastrada, fica só o número.
+ *
+ * Amarelo, e não vermelho: consumo que caiu é coisa para olhar (pneu murcho,
+ * filtro sujo, bico entupido, combustível sumindo), não é erro do sistema.
+ */
+function MediaDoVeiculo({ veiculo: v }: { veiculo: VeiculoNaLista }) {
+  const c = v.consumo;
+  if (v.tipo === 'GALAO') {
+    // O galão não anda: o que sai dele vira consumo de quem o bebeu.
+    return <span className="text-tinta-400">—</span>;
+  }
+  if (!c || c.medio == null) {
+    return (
+      <span className="block text-xs text-tinta-400">
+        {c && c.base === 1
+          ? 'falta o segundo abastecimento'
+          : 'sem abastecimento com medidor'}
+      </span>
+    );
+  }
+
+  const amarelo = 'text-amber-600 dark:text-amber-300';
+  return (
+    <>
+      <span className={`valor block text-base ${c.irregular ? amarelo : 'text-tinta-800'}`}>
+        {formatConsumo(c.medio, c.unidade)}
+      </span>
+      {c.ideal != null ? (
+        c.irregular ? (
+          <span className={`block text-xs font-semibold ${amarelo}`}>
+            consumo irregular · esperado {formatConsumo(c.ideal, c.unidade)}
+          </span>
+        ) : c.ultimoIrregular && c.ultimo != null ? (
+          <span className={`block text-xs font-semibold ${amarelo}`}>
+            último trecho: {formatConsumo(c.ultimo, c.unidade)}
+          </span>
+        ) : (
+          <span className="block text-xs text-tinta-400">
+            esperado {formatConsumo(c.ideal, c.unidade)}
+          </span>
+        )
+      ) : (
+        <span className="block text-xs text-tinta-400">
+          {c.base} abastecimento(s)
+        </span>
+      )}
+    </>
+  );
 }
 
 /** "Anderson", "Anderson e Cainan", "Anderson, Cainan e Blane". */
@@ -280,7 +351,11 @@ export function Veiculos() {
               <thead>
                 <tr>
                   <th className="th">Veículo</th>
-                  <th className="th">Responsável</th>
+                  {/* A média entrou no lugar do responsável: quem anda com o
+                      veículo se vê (e se troca) dentro da ficha dele, e o que
+                      esta tela precisa responder de relance é se ele está
+                      bebendo mais do que devia. */}
+                  <th className="th">Média</th>
                   <th className="th text-right">Peças e serviços</th>
                   <th className="th text-right">Combustível</th>
                 </tr>
@@ -316,16 +391,8 @@ export function Veiculos() {
                         </span>
                       )}
                     </td>
-                    <td className="td text-tinta-600">
-                      {v.responsaveis.length === 0 ? (
-                        <span className="text-tinta-400">—</span>
-                      ) : (
-                        v.responsaveis.map((r) => (
-                          <span key={r.id} className="block leading-tight">
-                            {r.nome}
-                          </span>
-                        ))
-                      )}
+                    <td className="td">
+                      <MediaDoVeiculo veiculo={v} />
                     </td>
                     <td className="td whitespace-nowrap text-right">
                       <span className="valor">{formatBRL(v.gasto)}</span>
@@ -358,13 +425,6 @@ export function Veiculos() {
                             {v.ultimoKm != null && ` · ${km(v.ultimoKm)}`}
                             {v.ultimoHorimetro != null && ` · ${horas(v.ultimoHorimetro)}`}
                           </span>
-                          {/* A média que ele está fazendo: o número que diz se
-                              o veículo está bem, e que nenhuma soma mostra. */}
-                          {v.consumo?.medio != null && (
-                            <span className="block text-xs font-semibold text-tinta-500">
-                              {formatConsumo(v.consumo.medio, v.consumo.unidade)}
-                            </span>
-                          )}
                         </>
                       )}
                       {v.abastecimentosAConferir > 0 && (
@@ -473,10 +533,23 @@ function ValorDaNota({
   const [valor, setValor] = useState(
     abastecimento.valor != null ? abastecimento.valor.toFixed(2) : '',
   );
+  /*
+   * Os litros também se leem na nota, e é a mesma linha do papel: "45,99 Lts
+   * de Gasolina C — 6,86 — 312,79". Quem abastece nem sempre olha a bomba, e
+   * sem os litros não há média de consumo nenhuma — a conferência é a última
+   * chance de pegá-los, com o papel à vista.
+   */
+  const [litros, setLitros] = useState(
+    abastecimento.litros != null ? abastecimento.litros.toFixed(2) : '',
+  );
 
   const salvar = useMutation({
     mutationFn: async () => {
-      await api.patch(`/veiculos/abastecimentos/${abastecimento.id}`, { valor: Number(valor) });
+      await api.patch(`/veiculos/abastecimentos/${abastecimento.id}`, {
+        valor: Number(valor),
+        // Em branco não mexe nos litros que já estavam lá.
+        litros: litros ? Number(litros) : undefined,
+      });
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['veiculos'] });
@@ -495,6 +568,17 @@ function ValorDaNota({
             Valor da nota
           </label>
         )}
+        <span className="flex items-center gap-1.5">
+          <CampoDinheiro
+            id={`litros-da-nota-${abastecimento.id}`}
+            valor={litros}
+            onChange={setLitros}
+            casas={2}
+            placeholder="litros"
+            className={`campo num text-right ${naFoto ? 'h-11 w-24 text-base' : 'w-20 py-1.5'}`}
+          />
+          <span className={`text-xs ${naFoto ? 'text-white/60' : 'text-tinta-400'}`}>L</span>
+        </span>
         <CampoDinheiro
           id={naFoto ? `valor-da-nota-${abastecimento.id}` : undefined}
           valor={valor}
@@ -569,14 +653,15 @@ function LancarAbastecimento({
   const ehMaquina = veiculo.tipo === 'MAQUINA';
   const anterior = ehMaquina ? veiculo.ultimoHorimetro : veiculo.ultimoKm;
 
-  const medidorNumero = medidorDigitado ? Number(medidorDigitado) : null;
-  const medidorAtras = anterior != null && medidorNumero != null && medidorNumero < anterior;
-  const litrosNumero = litrosDigitados ? Number(litrosDigitados.replace(',', '.')) : null;
+  const medidor = medidorNumero(medidorDigitado);
+  const medidorAtras = anterior != null && medidor != null && medidor < anterior;
+  // O campo guarda o canônico ("45.59"): a vírgula é só o que se vê.
+  const litrosNumero = litrosDigitados ? Number(litrosDigitados) : null;
 
   const lancar = useMutation({
     mutationFn: async () => {
       await api.post(`/veiculos/${veiculo.id}/abastecimentos`, {
-        ...(ehGalao ? {} : ehMaquina ? { horimetro: medidorNumero } : { km: medidorNumero }),
+        ...(ehGalao ? {} : ehMaquina ? { horimetro: medidor } : { km: medidor }),
         ...(litrosNumero ? { litros: litrosNumero } : {}),
         foto,
         valor: Number(valor) > 0 ? Number(valor) : undefined,
@@ -589,7 +674,7 @@ function LancarAbastecimento({
   });
 
   const valido =
-    (ehGalao || (medidorNumero != null && !medidorAtras)) &&
+    (ehGalao || (medidor != null && !medidorAtras)) &&
     (!ehGalao || (litrosNumero != null && litrosNumero > 0)) &&
     !!foto;
 
@@ -604,11 +689,17 @@ function LancarAbastecimento({
             <input
               id="abast-km-sistema"
               value={medidorDigitado}
-              onChange={(e) => setMedidorDigitado(e.target.value.replace(/\D/g, '').slice(0, 7))}
-              inputMode="numeric"
+              onChange={(e) => setMedidorDigitado(medidorLimpo(e.target.value, ehMaquina))}
+              inputMode={ehMaquina ? 'decimal' : 'numeric'}
               autoComplete="off"
               autoFocus
-              placeholder={anterior != null ? `último: ${anterior}` : 'só os números'}
+              placeholder={
+                anterior != null
+                  ? `último: ${formatMedidor(anterior, ehMaquina)}`
+                  : ehMaquina
+                    ? 'as horas do painel, com o décimo'
+                    : 'só os números'
+              }
               className="campo num"
             />
             {medidorAtras && anterior != null && (
@@ -624,15 +715,12 @@ function LancarAbastecimento({
           <label className="rotulo" htmlFor="abast-litros-sistema">
             Litros
           </label>
-          <input
+          {/* Como o dinheiro: teclou 4559, está escrito 45,59. */}
+          <CampoDinheiro
             id="abast-litros-sistema"
-            value={litrosDigitados}
-            onChange={(e) =>
-              setLitrosDigitados(e.target.value.replace(/[^\d,.]/g, '').replace('.', ',').slice(0, 7))
-            }
-            inputMode="decimal"
-            autoComplete="off"
-            autoFocus={ehGalao}
+            valor={litrosDigitados}
+            onChange={setLitrosDigitados}
+            casas={2}
             placeholder={
               ehGalao
                 ? veiculo.capacidadeLitros
@@ -825,7 +913,13 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
                 <p className="eyebrow">Média de consumo</p>
                 {d.combustivel.consumo.medio != null ? (
                   <>
-                    <p className="valor mt-1 text-2xl">
+                    <p
+                      className={`valor mt-1 text-2xl ${
+                        d.combustivel.consumo.irregular
+                          ? 'text-amber-600 dark:text-amber-300'
+                          : ''
+                      }`}
+                    >
                       {formatConsumo(
                         d.combustivel.consumo.medio,
                         d.combustivel.consumo.unidade,
@@ -838,7 +932,31 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
                           d.combustivel.consumo.ultimo,
                           d.combustivel.consumo.unidade,
                         )}`}
+                      {d.combustivel.consumo.ideal != null &&
+                        ` · esperado ${formatConsumo(
+                          d.combustivel.consumo.ideal,
+                          d.combustivel.consumo.unidade,
+                        )}`}
                     </p>
+                    {/* O amarelo do consumo irregular, com o que olhar. */}
+                    {(d.combustivel.consumo.irregular ||
+                      d.combustivel.consumo.ultimoIrregular) &&
+                      d.combustivel.consumo.ideal != null && (
+                        <p className="mt-1.5 text-xs font-semibold text-amber-600 dark:text-amber-300">
+                          Consumo irregular:{' '}
+                          {d.combustivel.consumo.irregular
+                            ? 'a média está pior do que a esperada'
+                            : 'o último trecho veio pior do que o esperado'}
+                          . Vale olhar pneu, filtro e por onde o combustível está
+                          indo.
+                        </p>
+                      )}
+                    {d.combustivel.consumo.ideal == null && (
+                      <p className="mt-1.5 text-xs text-tinta-400">
+                        Diga em "Editar" a média que se espera dele, e esta tela
+                        avisa sozinha quando ela cair.
+                      </p>
+                    )}
                   </>
                 ) : (
                   <>
@@ -1081,6 +1199,9 @@ function FormularioDoVeiculo({
   const [responsaveisIds, setResponsaveisIds] = useState<string[]>(
     veiculo?.responsaveis.map((r) => r.id) ?? [],
   );
+  const [consumoIdeal, setConsumoIdeal] = useState(
+    veiculo?.consumoIdeal != null ? veiculo.consumoIdeal.toFixed(2) : '',
+  );
   const [observacao, setObservacao] = useState(veiculo?.observacao ?? '');
 
   const responsaveis = useQuery({
@@ -1112,6 +1233,7 @@ function FormularioDoVeiculo({
             ? null
             : undefined,
         responsaveisIds,
+        consumoIdeal: consumoIdeal ? Number(consumoIdeal) : veiculo ? null : undefined,
         observacao: observacao.trim() || (veiculo ? null : undefined),
       };
       if (veiculo) await api.patch(`/veiculos/${veiculo.id}`, dados);
@@ -1145,6 +1267,7 @@ function FormularioDoVeiculo({
   });
 
   const ehGalao = tipo === 'GALAO';
+  const ehMaquina = tipo === 'MAQUINA';
   const valido = apelido.trim().length >= 2 && (!ano || /^\d{4}$/.test(ano));
   const erro = salvar.error ?? ligar.error ?? apagar.error;
 
@@ -1268,6 +1391,34 @@ function FormularioDoVeiculo({
             autoComplete="off"
           />
         </div>
+        {/*
+         * A média esperada não é cálculo: é o que a casa sabe do veículo. Com
+         * ela, a lista acende o amarelo sozinha quando a média de verdade cai.
+         * O galão não tem: ele não anda.
+         */}
+        {!ehGalao && (
+          <div className="sm:col-span-2">
+            <label className="rotulo" htmlFor="vei-consumo-ideal">
+              {ehMaquina
+                ? 'Média esperada (litros por hora)'
+                : 'Média esperada (km por litro)'}
+            </label>
+            <CampoDinheiro
+              id="vei-consumo-ideal"
+              valor={consumoIdeal}
+              onChange={setConsumoIdeal}
+              casas={2}
+              placeholder={ehMaquina ? 'quantos litros por hora' : 'quantos km por litro'}
+              className="campo num w-40"
+            />
+            <p className="ajuda">
+              {ehMaquina
+                ? 'Comendo mais litros por hora do que isto, a lista marca o veículo de amarelo: consumo irregular.'
+                : 'Fazendo menos km por litro do que isto, a lista marca o veículo de amarelo: consumo irregular.'}
+            </p>
+          </div>
+        )}
+
         <div className="sm:col-span-2">
           <label className="rotulo" htmlFor="vei-responsavel">
             Responsáveis (quem abastece)

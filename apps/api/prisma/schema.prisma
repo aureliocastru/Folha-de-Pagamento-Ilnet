@@ -1427,6 +1427,14 @@ model Veiculo {
   /// Quanto cabe no galão, em litros. Só os galões têm.
   capacidadeLitros Int? @map("capacidade_litros")
 
+  /// A média que se espera dele: km por litro, ou litros por hora na máquina.
+  ///
+  /// Não é cálculo, é o que a casa sabe do veículo — a Hilux faz 8, a moto faz
+  /// 40. Serve para o sistema gritar quando a média de verdade se afasta dela:
+  /// consumo que cai é pneu murcho, filtro sujo, bico entupido — ou combustível
+  /// saindo por onde não devia.
+  consumoIdeal Decimal? @map("consumo_ideal") @db.Decimal(6, 2)
+
   /// Desligado (vendido, baixado) sai da escolha no lançamento. O que já se
   /// gastou nele continua de pé.
   ativo Boolean @default(true)
@@ -1488,7 +1496,12 @@ model Abastecimento {
   /// conta horas.
   km    Int?
   /// O horímetro da máquina — as horas que ela já trabalhou.
-  horimetro Int?
+  ///
+  /// Com uma casa: o ponteiro do horímetro anda de décimo em décimo (1252,6 é
+  /// "mil duzentas e cinquenta e duas horas e trinta e seis minutos"), e
+  /// arredondar isso para hora cheia perderia seis minutos de máquina por
+  /// abastecimento — o bastante para a média de litros por hora sair torta.
+  horimetro Decimal? @db.Decimal(10, 1)
   /// Quantos litros entraram. No galão é o que se comprou; na máquina, o que
   /// se despejou nela.
   litros Decimal? @db.Decimal(10, 2)

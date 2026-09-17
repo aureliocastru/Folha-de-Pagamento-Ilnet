@@ -20,6 +20,17 @@ const semVazio = ({ value }: { value: unknown }) =>
   typeof value === 'string' && value.trim() === '' ? undefined : value;
 
 /**
+ * Um número lido de um painel ou de uma nota: "1252,6" e "1252.6" são o mesmo.
+ *
+ * A vírgula é o que se digita no Brasil, e o `Number` dela sozinho daria
+ * `NaN` — o lançamento seria recusado por um motivo que ninguém entenderia.
+ */
+const numeroDaTela = ({ value }: { value: unknown }) => {
+  if (value === '' || value == null) return undefined;
+  return Number(typeof value === 'string' ? value.replace(',', '.') : value);
+};
+
+/**
  * A lista de responsáveis sem repetido e sem branco. `null` é lista vazia:
  * tirar todo mundo e deixar ninguém no veículo.
  */
@@ -61,6 +72,17 @@ export class CriarVeiculoDto {
   @Max(100_000)
   capacidadeLitros?: number;
 
+  /**
+   * A média que se espera dele: km por litro, ou litros por hora na máquina.
+   * É o que faz a tela acender o amarelo quando a média de verdade cai.
+   */
+  @IsOptional()
+  @Transform(numeroDaTela)
+  @IsNumber()
+  @Min(0.01)
+  @Max(1000)
+  consumoIdeal?: number;
+
   /** Os funcionários que andam com ele e o abastecem pelo portal. */
   @IsOptional() @Transform(listaDeIds) @IsArray() @IsUUID(undefined, { each: true })
   responsaveisIds?: string[];
@@ -97,6 +119,16 @@ export class AtualizarVeiculoDto {
 
   @IsOptional() @IsBoolean() ativo?: boolean;
 
+  /** `null` tira a média esperada; ausente não mexe. */
+  @IsOptional()
+  @Transform(({ value }) =>
+    value === '' ? null : value == null ? value : Number(String(value).replace(',', '.')),
+  )
+  @IsNumber()
+  @Min(0.01)
+  @Max(1000)
+  consumoIdeal?: number | null;
+
   /**
    * A lista inteira de quem é responsável: quem não vier nela sai. Lista vazia
    * deixa o veículo sem ninguém; ausente não mexe.
@@ -130,10 +162,10 @@ export class LancarAbastecimentoDto {
   @Min(0)
   km?: number;
 
-  /** O horímetro, nas máquinas: as horas que ela já trabalhou. */
+  /** O horímetro, nas máquinas: as horas, com o décimo que o painel mostra. */
   @IsOptional()
-  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
-  @IsInt()
+  @Transform(numeroDaTela)
+  @IsNumber()
   @Min(0)
   horimetro?: number;
 
@@ -162,10 +194,10 @@ export class LancarMeuAbastecimentoDto {
   @Min(0)
   km?: number;
 
-  /** O horímetro, nas máquinas: as horas que ela já trabalhou. */
+  /** O horímetro, nas máquinas: as horas, com o décimo que o painel mostra. */
   @IsOptional()
-  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
-  @IsInt()
+  @Transform(numeroDaTela)
+  @IsNumber()
   @Min(0)
   horimetro?: number;
 
@@ -192,10 +224,10 @@ export class LancarAbastecimentoNoSistemaDto {
   @Min(0)
   km?: number;
 
-  /** O horímetro, nas máquinas: as horas que ela já trabalhou. */
+  /** O horímetro, nas máquinas: as horas, com o décimo que o painel mostra. */
   @IsOptional()
-  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
-  @IsInt()
+  @Transform(numeroDaTela)
+  @IsNumber()
   @Min(0)
   horimetro?: number;
 
@@ -219,10 +251,17 @@ export class LancarAbastecimentoNoSistemaDto {
   valor?: number;
 }
 
-/** O valor que o administrador leu na nota. */
+/** O que o administrador leu na nota: o valor e, se estiver escrito, os litros. */
 export class ConferirAbastecimentoDto {
   @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
   @IsNumber()
   @Min(0.01)
   valor!: number;
+
+  /** Ausente não mexe nos litros que já estavam lá. */
+  @IsOptional()
+  @Transform(numeroDaTela)
+  @IsNumber()
+  @Min(0.01)
+  litros?: number;
 }

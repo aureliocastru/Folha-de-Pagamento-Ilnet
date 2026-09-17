@@ -1,8 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type ChangeEvent } from 'react';
-import { Aviso, Carregando } from '../../components/ui';
+import { Aviso, CampoDinheiro, Carregando } from '../../components/ui';
 import { mensagemErro } from '../../lib/api';
-import { formatBRL, formatConsumo } from '../../lib/format';
+import {
+  formatBRL,
+  formatConsumo,
+  formatMedidor,
+  medidorLimpo,
+  medidorNumero as numeroDoMedidor,
+} from '../../lib/format';
 import { reduzirFoto } from '../../lib/foto';
 import { apiPontos } from '../../lib/pontos';
 
@@ -35,6 +41,12 @@ export interface Consumo {
   ultimo: number | null;
   unidade: 'km_por_litro' | 'litros_por_hora';
   base: number;
+  /** A média que se espera dele, cadastrada na ficha. */
+  ideal: number | null;
+  /** A média está pior do que a esperada. */
+  irregular: boolean;
+  /** O último trecho está pior, mesmo com a média geral de pé. */
+  ultimoIrregular: boolean;
 }
 
 export interface VeiculoDoPortal {
@@ -122,8 +134,9 @@ export function TelaDeAbastecimento({ cpf }: { cpf: string }) {
   );
 }
 
-const km = (n: number) => `${n.toLocaleString('pt-BR')} km`;
-const horas = (n: number) => `${n.toLocaleString('pt-BR')} h`;
+const km = (n: number) => `${formatMedidor(n)} km`;
+/** O horímetro tem o décimo do ponteiro: "1.252,6 h". */
+const horas = (n: number) => `${formatMedidor(n, true)} h`;
 const litrosEscritos = (n: number) =>
   `${n.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} L`;
 
@@ -135,12 +148,14 @@ const COMBUSTIVEL_NOME: Record<string, string> = {
   ARLA: 'Arla',
 };
 
-/** Só os números, com vírgula: é assim que a bomba escreve os litros. */
-function soLitros(texto: string): string {
-  return texto.replace(/[^\d,.]/g, '').replace('.', ',').slice(0, 7);
-}
-
-const paraNumero = (texto: string) => Number(texto.replace(',', '.'));
+/**
+ * Os litros são digitados como o dinheiro: a vírgula se monta sozinha.
+ *
+ * No posto se tecla 4559 e sai "45,59" — ninguém procura a vírgula no teclado
+ * do celular com a bomba na mão. O que o campo guarda é o canônico ("45.59"),
+ * que é o que a API espera.
+ */
+const LITROS_COM_CASAS = 2;
 
 /**
  * O abastecimento, lançado por quem anda com o veículo, na hora, no posto.
@@ -200,11 +215,11 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
       : (destino?.ultimoKm ?? null)
     : (veiculo?.ultimoKm ?? null);
 
-  const medidorNumero = medidorDigitado ? Number(medidorDigitado) : null;
+  const medidor = numeroDoMedidor(medidorDigitado);
   const medidorAtras =
-    medidorAnterior != null && medidorNumero != null && medidorNumero < medidorAnterior;
+    medidorAnterior != null && medidor != null && medidor < medidorAnterior;
 
-  const litros = litrosDigitados ? paraNumero(litrosDigitados) : null;
+  const litros = litrosDigitados ? Number(litrosDigitados) : null;
   const estoque = veiculo?.estoque ?? null;
   const passaDoEstoque =
     tirandoDoGalao && litros != null && estoque != null && litros > estoque.litros;
@@ -240,8 +255,8 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
         ...(tirandoDoGalao ? { galaoId: veiculoId } : {}),
         ...(pedeMedidor
           ? ehMaquina
-            ? { horimetro: medidorNumero ?? 0 }
-            : { km: medidorNumero ?? 0 }
+            ? { horimetro: medidor ?? 0 }
+            : { km: medidor ?? 0 }
           : {}),
         ...(litros != null ? { litros } : {}),
         ...(pedeFoto ? { foto: foto ?? '' } : {}),
@@ -252,7 +267,7 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
           ? `${litrosEscritos(litros ?? 0)} do ${veiculo?.apelido} em ${destino?.apelido}.`
           : ehGalao
             ? `${veiculo?.apelido} enchido com ${litrosEscritos(litros ?? 0)}. A nota vai para a conferência.`
-            : `Abastecimento lançado em ${veiculo?.apelido} com ${km(medidorNumero ?? 0)}. A nota vai para a conferência.`,
+            : `Abastecimento lançado em ${veiculo?.apelido} com ${km(medidor ?? 0)}. A nota vai para a conferência.`,
       );
       setMedidorDigitado('');
       setLitrosDigitados('');
@@ -274,7 +289,7 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
 
   const valido =
     !!veiculo &&
-    (!pedeMedidor || (medidorNumero != null && !medidorAtras)) &&
+    (!pedeMedidor || (medidor != null && !medidorAtras)) &&
     (!pedeLitros || (litros != null && litros > 0)) &&
     !passaDoEstoque &&
     (!tirandoDoGalao || !!destinoId) &&
@@ -355,19 +370,35 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
           sabe dizer por quê — o pneu murcho, a estrada de terra da semana.
         */}
         {veiculo?.consumo?.medio != null && !tirandoDoGalao && (
-          <p className="rounded-xl bg-tinta-100/70 px-3 py-2 text-sm text-tinta-600">
+          <p
+            className={`rounded-xl px-3 py-2 text-sm ${
+              veiculo.consumo.irregular || veiculo.consumo.ultimoIrregular
+                ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                : 'bg-tinta-100/70 text-tinta-600'
+            }`}
+          >
             Está fazendo{' '}
-            <strong className="num text-tinta-900">
+            <strong className="num">
               {formatConsumo(veiculo.consumo.medio, veiculo.consumo.unidade)}
             </strong>
             {veiculo.consumo.ultimo != null && (
               <>
                 {' '}· no último trecho,{' '}
-                <strong className="num text-tinta-900">
+                <strong className="num">
                   {formatConsumo(veiculo.consumo.ultimo, veiculo.consumo.unidade)}
                 </strong>
               </>
             )}
+            {/* Quem abastece é quem pode dizer o porquê: a estrada de terra da
+                semana, o pneu murcho, a carga que ele levou. */}
+            {(veiculo.consumo.irregular || veiculo.consumo.ultimoIrregular) &&
+              veiculo.consumo.ideal != null && (
+                <span className="mt-1 block font-semibold">
+                  Este veículo costuma fazer{' '}
+                  {formatConsumo(veiculo.consumo.ideal, veiculo.consumo.unidade)} — avise
+                  se notou alguma coisa nele.
+                </span>
+              )}
           </p>
         )}
 
@@ -441,12 +472,11 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
             <label className="rotulo" htmlFor="abast-litros">
               Litros
             </label>
-            <input
+            <CampoDinheiro
               id="abast-litros"
-              value={litrosDigitados}
-              onChange={(e) => setLitrosDigitados(soLitros(e.target.value))}
-              inputMode="decimal"
-              autoComplete="off"
+              valor={litrosDigitados}
+              onChange={setLitrosDigitados}
+              casas={LITROS_COM_CASAS}
               placeholder={
                 ehGalao && modo === 'posto' && veiculo?.capacidadeLitros
                   ? `cabe ${veiculo.capacidadeLitros} L`
@@ -471,10 +501,16 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
             <input
               id="abast-km"
               value={medidorDigitado}
-              onChange={(e) => setMedidorDigitado(e.target.value.replace(/\D/g, '').slice(0, 7))}
-              inputMode="numeric"
+              onChange={(e) => setMedidorDigitado(medidorLimpo(e.target.value, ehMaquina))}
+              inputMode={ehMaquina ? 'decimal' : 'numeric'}
               autoComplete="off"
-              placeholder={medidorAnterior != null ? `último: ${medidorAnterior}` : 'só os números'}
+              placeholder={
+                medidorAnterior != null
+                  ? `último: ${formatMedidor(medidorAnterior, ehMaquina)}`
+                  : ehMaquina
+                    ? 'as horas do painel, com o décimo'
+                    : 'só os números'
+              }
               className="campo num h-12 text-lg"
             />
             {medidorAtras && medidorAnterior != null && (
@@ -548,7 +584,7 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
                 ? 'Escolha a máquina'
                 : pedeLitros && litros == null
                   ? 'Digite os litros'
-                  : pedeMedidor && medidorNumero == null
+                  : pedeMedidor && medidor == null
                     ? ehMaquina
                       ? 'Digite o horímetro'
                       : 'Digite o km'
