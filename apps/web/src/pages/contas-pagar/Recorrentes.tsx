@@ -89,7 +89,7 @@ export function Recorrentes() {
    */
   const [cadastro, setCadastro] = useState<{
     base: Recorrente | null;
-    modo: 'consorcio' | 'financiamento';
+    modo: 'mensal' | 'consorcio' | 'financiamento';
   } | null>(null);
   /** O contrato cuja parcela se está escolhendo para antecipar. */
   const [antecipando, setAntecipando] = useState<string | null>(null);
@@ -275,16 +275,32 @@ export function Recorrentes() {
         descricao="Serviços pagos todo mês e consórcios. A conta de cada mês nasce sozinha no IXC poucos dias antes de vencer — e já aprovada."
         acoes={
           <>
+            {/*
+              O botão é o da aba aberta.
+
+              Antes ele dizia "Novo consórcio" mesmo em Mensais, e não havia
+              caminho nenhum para cadastrar uma despesa que só se repete — o
+              jeito era lançar uma conta e depois torná-la recorrente.
+            */}
             <button
               onClick={() =>
                 setCadastro({
                   base: null,
-                  modo: aba === 'financiamentos' ? 'financiamento' : 'consorcio',
+                  modo:
+                    aba === 'financiamentos'
+                      ? 'financiamento'
+                      : aba === 'consorcios'
+                        ? 'consorcio'
+                        : 'mensal',
                 })
               }
               className="btn btn-neutro"
             >
-              {aba === 'financiamentos' ? 'Novo financiamento' : 'Novo consórcio'}
+              {aba === 'financiamentos'
+                ? 'Novo financiamento'
+                : aba === 'consorcios'
+                  ? 'Novo consórcio'
+                  : 'Nova despesa mensal'}
             </button>
             <button
               onClick={() => gerarAgora.mutate()}
@@ -304,11 +320,17 @@ export function Recorrentes() {
           modo={cadastro.modo}
           onFechar={() => setCadastro(null)}
           onPronto={(mensagem) => {
-            const veiculo = cadastro.modo === 'financiamento';
+            // Cada cadastro termina na aba em que ele passa a morar.
+            const destino =
+              cadastro.base == null && cadastro.modo === 'mensal'
+                ? 'mensais'
+                : cadastro.modo === 'financiamento'
+                  ? 'financiamentos'
+                  : 'consorcios';
             setCadastro(null);
             setErro(false);
             setAviso(mensagem);
-            setAba(veiculo ? 'financiamentos' : 'consorcios');
+            setAba(destino);
             invalidar();
           }}
         />

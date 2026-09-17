@@ -968,15 +968,22 @@ export function CadastroDoConsorcio({
   /** A recorrente editada ou convertida; sem ela, é um cadastro novo. */
   base: Recorrente | null;
   todas: RecorrenteComResumo[];
-  /** De que aba veio. Na edição, quem manda é o veículo que já está gravado. */
-  modo?: 'consorcio' | 'financiamento';
+  /**
+   * O que se está cadastrando. `mensal` é a despesa que se repete sem fim —
+   * internet, aluguel, contabilidade —, e nela os campos de parcela somem: um
+   * serviço mensal não tem 12/60 nem última parcela. Na edição quem manda é o
+   * que já está gravado.
+   */
+  modo?: 'mensal' | 'consorcio' | 'financiamento';
   onFechar: () => void;
   onPronto: (mensagem: string) => void;
 }) {
+  /** A mensal é sempre cadastro novo: converter uma que existe é o caminho oposto. */
+  const mensal = !base && modo === 'mensal';
   const convertendo = !!base && base.totalParcelas == null;
   const editando = !!base && !convertendo;
   const financiamento = base ? base.ehFinanciamento : modo === 'financiamento';
-  const oQueE = financiamento ? 'financiamento' : 'consórcio';
+  const oQueE = mensal ? 'recorrente' : financiamento ? 'financiamento' : 'consórcio';
 
   const [fornecedor, setFornecedor] = useState<{ id: number; nome: string } | null>(
     base ? { id: base.idFornecedorIxc, nome: base.fornecedorNome } : null,
@@ -1051,7 +1058,13 @@ export function CadastroDoConsorcio({
         )
     : [];
   const [apagar, setApagar] = useState<Set<string> | null>(null);
-  const marcadas = apagar ?? new Set(irmas.map((r) => r.id));
+  /*
+   * Na mensal não se marca nada: as outras repetições do mesmo fornecedor não
+   * são um erro (a casa paga dois serviços à mesma empresa), e apagá-las seria
+   * jogar fora o que ninguém pediu. O aviso continua, para não cadastrar duas
+   * vezes a mesma coisa sem perceber.
+   */
+  const marcadas = mensal ? new Set<string>() : (apagar ?? new Set(irmas.map((r) => r.id)));
 
   const previa =
     nTotal >= 2 && nLancadas >= 0 && nLancadas <= nTotal && nPorMes >= 1 && vencimento
@@ -1079,17 +1092,18 @@ export function CadastroDoConsorcio({
     !!fornecedor &&
     Number(valor) > 0 &&
     diaValido &&
-    Number.isInteger(nTotal) &&
-    nTotal >= 2 &&
-    nTotal <= 360 &&
-    Number.isInteger(nLancadas) &&
-    nLancadas >= 0 &&
-    Number.isInteger(nAntecipadas) &&
-    nAntecipadas >= 0 &&
-    // As duas pontas não se ultrapassam: juntas, nunca passam do contrato.
-    nLancadas + nAntecipadas <= nTotal &&
-    nPorMes >= 1 &&
-    !!vencimento;
+    !!vencimento &&
+    (mensal ||
+      (Number.isInteger(nTotal) &&
+        nTotal >= 2 &&
+        nTotal <= 360 &&
+        Number.isInteger(nLancadas) &&
+        nLancadas >= 0 &&
+        Number.isInteger(nAntecipadas) &&
+        nAntecipadas >= 0 &&
+        // As duas pontas não se ultrapassam: juntas, nunca passam do contrato.
+        nLancadas + nAntecipadas <= nTotal &&
+        nPorMes >= 1));
 
   const salvar = useMutation({
     mutationFn: async () => {
@@ -1100,11 +1114,16 @@ export function CadastroDoConsorcio({
         observacao: obs.length >= 3 ? obs : descricaoPadrao,
         proximoVencimento: vencimento,
         diaDoVencimento: nDia,
-        totalParcelas: nTotal,
-        parcelasLancadas: nLancadas,
-        parcelasPorMes: nPorMes,
-        parcelasAntecipadas: nAntecipadas,
-        ehFinanciamento: financiamento,
+        // A mensal não tem parcela nenhuma: ela se repete enquanto o serviço durar.
+        ...(mensal
+          ? { parcelasPorMes: 1, ehFinanciamento: false }
+          : {
+              totalParcelas: nTotal,
+              parcelasLancadas: nLancadas,
+              parcelasPorMes: nPorMes,
+              parcelasAntecipadas: nAntecipadas,
+              ehFinanciamento: financiamento,
+            }),
         categoriaId: categoriaId || null,
         tipoPagamentoIxc: tipoPagamento.trim() || undefined,
         apenasDiasUteis: soDiasUteis,
@@ -1129,7 +1148,9 @@ export function CadastroDoConsorcio({
     },
     onSuccess: (apagadas) =>
       onPronto(
-        (editando
+        (mensal
+          ? `${nomeDoCadastro} cadastrada. A conta de cada mês nasce no IXC 5 dias antes de vencer.`
+          : editando
           ? `${financiamento ? 'Financiamento' : 'Consórcio'} de ${nomeDoCadastro} atualizado.`
           : `${nomeDoCadastro} ${convertendo ? `virou ${oQueE}` : `cadastrado como ${oQueE}`}. As parcelas nascem no IXC 5 dias antes de vencer.`) +
           (apagadas > 0
@@ -1140,9 +1161,11 @@ export function CadastroDoConsorcio({
 
   /** Como este cadastro se chama nas mensagens: o que ele paga, ou o credor. */
   const nomeDoCadastro = observacao.trim() || fornecedor?.nome || '';
-  const descricaoPadrao = financiamento
-    ? `Financiamento ${fornecedor?.nome ?? ''}`.trim()
-    : `Consórcio ${fornecedor?.nome ?? ''}`.trim();
+  const descricaoPadrao = mensal
+    ? (fornecedor?.nome ?? '')
+    : financiamento
+      ? `Financiamento ${fornecedor?.nome ?? ''}`.trim()
+      : `Consórcio ${fornecedor?.nome ?? ''}`.trim();
 
   return (
     <Janela
@@ -1151,9 +1174,11 @@ export function CadastroDoConsorcio({
           ? `Editar ${oQueE} — ${nomeDoCadastro || base.fornecedorNome}`
           : convertendo
             ? `Transformar em ${oQueE}`
-            : financiamento
-              ? 'Novo financiamento'
-              : 'Novo consórcio'
+            : mensal
+              ? 'Nova despesa mensal'
+              : financiamento
+                ? 'Novo financiamento'
+                : 'Novo consórcio'
       }
       onFechar={onFechar}
     >
@@ -1240,26 +1265,31 @@ export function CadastroDoConsorcio({
             onChange={(e) => setObservacao(e.target.value)}
             className="campo"
             placeholder={
-              financiamento
-                ? 'Financiamento STRADA NILMA'
-                : descricaoPadrao || 'Consórcio caçamba'
+              mensal
+                ? descricaoPadrao || 'LINK, licença de software, aluguel'
+                : financiamento
+                  ? 'Financiamento STRADA NILMA'
+                  : descricaoPadrao || 'Consórcio caçamba'
             }
             autoComplete="off"
           />
           <p className="ajuda">
-            {financiamento
-              ? 'Diga aqui o que está sendo pago — "Financiamento STRADA NILMA", "Retroescavadeira". É o nome do cartão, e vai na conta com o número da parcela no fim: "(12/60)".'
-              : 'Cada conta sai com o número da parcela no fim: "(12/60)".'}
+            {mensal
+              ? 'É o que vai escrito na conta do IXC todo mês — "LINK", "Licença de uso de software", "Aluguel da torre".'
+              : financiamento
+                ? 'Diga aqui o que está sendo pago — "Financiamento STRADA NILMA", "Retroescavadeira". É o nome do cartão, e vai na conta com o número da parcela no fim: "(12/60)".'
+                : 'Cada conta sai com o número da parcela no fim: "(12/60)".'}
           </p>
         </div>
 
         <div>
           <label className="rotulo" htmlFor="co-valor">
-            Valor de cada parcela
+            {mensal ? 'Valor por mês' : 'Valor de cada parcela'}
           </label>
           <CampoDinheiro id="co-valor" valor={valor} onChange={setValor} />
         </div>
 
+        {!mensal && (
         <div>
           <label className="rotulo" htmlFor="co-por-mes">
             Parcelas por mês
@@ -1283,6 +1313,7 @@ export function CadastroDoConsorcio({
             </p>
           )}
         </div>
+        )}
 
         <div>
           <label className="rotulo" htmlFor="co-dia">
@@ -1303,7 +1334,7 @@ export function CadastroDoConsorcio({
 
         <div>
           <label className="rotulo" htmlFor="co-vencimento">
-            Próxima parcela a gerar vence em
+            {mensal ? 'Próxima conta a gerar vence em' : 'Próxima parcela a gerar vence em'}
           </label>
           <input
             id="co-vencimento"
@@ -1317,6 +1348,7 @@ export function CadastroDoConsorcio({
           </p>
         </div>
 
+        {!mensal && (
         <div>
           <label className="rotulo" htmlFor="co-total">
             Quantidade de parcelas
@@ -1333,7 +1365,9 @@ export function CadastroDoConsorcio({
             placeholder="60"
           />
         </div>
+        )}
 
+        {!mensal && (
         <div>
           <label className="rotulo" htmlFor="co-lancadas">
             Quantas já foram pagas
@@ -1353,8 +1387,10 @@ export function CadastroDoConsorcio({
             Conte também as que já estão lançadas no IXC esperando pagamento.
           </p>
         </div>
+        )}
 
         {/* A outra ponta: o que já se pagou do fim para trás. */}
+        {!mensal && (
         <div>
           <label className="rotulo" htmlFor="co-antecipadas">
             Quantas já foram antecipadas
@@ -1376,6 +1412,7 @@ export function CadastroDoConsorcio({
               : 'As que já tinham sido pagas adiantadas, do fim para trás, antes de entrar aqui. As próximas você lança pelo botão Antecipar.'}
           </p>
         </div>
+        )}
 
 
         <div>
@@ -1461,9 +1498,9 @@ export function CadastroDoConsorcio({
             {fornecedor!.nome} já tem {irmas.length} repetição(ões) mensal(is)
           </p>
           <p className="mt-1 text-sm text-amber-800 dark:text-amber-300">
-            Se ficarem, cada mês vai ter as parcelas do {oQueE} e mais as
-            delas. As marcadas são apagadas ao salvar — as contas que já
-            geraram continuam no IXC.
+            {mensal
+              ? 'Confira se não é esta mesma conta entrando duas vezes — se for outra coisa que se paga à mesma empresa, pode cadastrar.'
+              : `Se ficarem, cada mês vai ter as parcelas do ${oQueE} e mais as delas. As marcadas são apagadas ao salvar — as contas que já geraram continuam no IXC.`}
           </p>
           <div className="mt-2 space-y-1">
             {irmas.map((r) => (
@@ -1471,17 +1508,20 @@ export function CadastroDoConsorcio({
                 key={r.id}
                 className="flex items-center gap-2 text-sm text-amber-900 dark:text-amber-200"
               >
-                <input
-                  type="checkbox"
-                  className="h-4 w-4 shrink-0 accent-amber-600"
-                  checked={marcadas.has(r.id)}
-                  onChange={(e) => {
-                    const novo = new Set(marcadas);
-                    if (e.target.checked) novo.add(r.id);
-                    else novo.delete(r.id);
-                    setApagar(novo);
-                  }}
-                />
+                {/* Na mensal não há o que apagar: é só a lista do que já existe. */}
+                {!mensal && (
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 shrink-0 accent-amber-600"
+                    checked={marcadas.has(r.id)}
+                    onChange={(e) => {
+                      const novo = new Set(marcadas);
+                      if (e.target.checked) novo.add(r.id);
+                      else novo.delete(r.id);
+                      setApagar(novo);
+                    }}
+                  />
+                )}
                 <span className="min-w-0 truncate">
                   {r.observacao} · {formatBRL(Number(r.valor))} · próxima{' '}
                   {formatData(r.proximoVencimento)}
@@ -1509,9 +1549,11 @@ export function CadastroDoConsorcio({
               ? 'Salvar'
               : convertendo
                 ? `Virar ${oQueE}`
-                : financiamento
-                  ? 'Cadastrar financiamento'
-                  : 'Cadastrar consórcio'}
+                : mensal
+                  ? 'Cadastrar despesa mensal'
+                  : financiamento
+                    ? 'Cadastrar financiamento'
+                    : 'Cadastrar consórcio'}
         </button>
       </div>
     </Janela>
