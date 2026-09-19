@@ -5,6 +5,7 @@ import {
   leitorDeCodigoSuportado,
 } from '../../components/LeitorDeCodigo';
 import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
+import { SeletorDeVeiculo } from '../../components/SeletorDeVeiculo';
 import { CampoDinheiro, Carregando, Janela, Selo } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { useTermoAdiado } from '../../lib/busca';
@@ -1034,25 +1035,19 @@ export function NovaDespesa({
               <label className="rotulo" htmlFor="veiculo">
                 Veículo da frota
               </label>
-              <select
+              <SeletorDeVeiculo
                 id="veiculo"
                 value={veiculoId}
-                onChange={(e) => setVeiculoId(e.target.value)}
-                className="campo"
-                disabled={veiculos.isLoading}
-              >
-                <option value="">Nenhum</option>
-                {veiculoInicial &&
-                  !veiculos.data?.some((v) => v.id === veiculoInicial.id) && (
-                    <option value={veiculoInicial.id}>{veiculoInicial.apelido}</option>
-                  )}
-                {(veiculos.data ?? []).map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.apelido}
-                    {v.placa ? ` · ${v.placa}` : ''}
-                  </option>
-                ))}
-              </select>
+                onChange={setVeiculoId}
+                carregando={veiculos.isLoading}
+                veiculos={[
+                  ...(veiculos.data ?? []),
+                  // O veículo de onde a conta nasceu, mesmo fora da lista de ativos.
+                  ...(veiculoInicial && !veiculos.data?.some((v) => v.id === veiculoInicial.id)
+                    ? [{ ...veiculoInicial, placa: null }]
+                    : []),
+                ]}
+              />
               <p className="ajuda">
                 Peça, revisão, mecânico: o gasto entra na ficha do veículo. A
                 categoria continua sendo a que você marcar.
