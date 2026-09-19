@@ -41,6 +41,31 @@ export interface ItemMenu {
   label: string;
   icone: Icone;
   somenteAdmin?: boolean;
+  /** Só para o coordenador (e o ADMIN) — ver `transfereEntreAlmoxarifados`. */
+  somenteCoordenador?: boolean;
+}
+
+/**
+ * Pode levar material de um almoxarifado para outro: o coordenador — a marca
+ * "Coordenador" do login, a mesma que o deixa pontuar — e o ADMIN. O
+ * almoxarife dá saída e confere, mas não transfere. A API repete a regra
+ * (`colaborador/areas.ts`); aqui só some o que não se pode usar.
+ */
+export function transfereEntreAlmoxarifados(
+  usuario?: { role: PerfilUsuario; minhaArea?: string[] } | null,
+): boolean {
+  if (!usuario) return false;
+  return usuario.role === 'ADMIN' || (usuario.minhaArea ?? []).includes('pontuar');
+}
+
+/** O item do menu aparece para este login? */
+export function itemDoMenuAparece(
+  item: ItemMenu,
+  usuario?: { role: PerfilUsuario; minhaArea?: string[] } | null,
+): boolean {
+  if (item.somenteAdmin) return usuario?.role === 'ADMIN';
+  if (item.somenteCoordenador) return transfereEntreAlmoxarifados(usuario);
+  return true;
 }
 
 export interface Modulo {
@@ -260,7 +285,8 @@ const almoxarifado: Modulo = {
     { to: 'almoxarifados', label: 'Almoxarifados', icone: IconePrateleira },
     // A transferência entre almoxarifados do IXC, feita aqui: bipa o MAC ou o
     // número da ONU, põe a quantidade do cabo, e grava — lá fica o registro.
-    { to: 'transferir', label: 'Transferir', icone: IconeTransferencia },
+    // Só o coordenador transfere; o almoxarife não vê a aba.
+    { to: 'transferir', label: 'Transferir', icone: IconeTransferencia, somenteCoordenador: true },
     // O que está emprestado a cliente, e com quem. Aba própria: é outra
     // pergunta — o estoque diz o que está na prateleira, o comodato diz o que
     // saiu dela e ainda é da casa.

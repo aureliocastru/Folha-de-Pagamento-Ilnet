@@ -11,7 +11,9 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
 import { combina, semAcento } from '../../lib/busca';
+import { transfereEntreAlmoxarifados } from '../../lib/modulos';
 import type {
   AlmoxarifadoCadastro,
   EstoqueNaTela,
@@ -40,6 +42,8 @@ interface DadosDoFormulario {
  */
 export function Almoxarifados() {
   const qc = useQueryClient();
+  // "Mover tudo" é transferência: só o coordenador.
+  const transfere = transfereEntreAlmoxarifados(useAuth().usuario);
   const [editando, setEditando] = useState<AlmoxarifadoCadastro | null>(null);
   const [criando, setCriando] = useState(false);
   /** A origem aberta na janela "Mover tudo". */
@@ -307,19 +311,21 @@ export function Almoxarifados() {
                     </td>
                     <td className="td text-right">
                       <div className="flex justify-end gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setMovendo(a)}
-                          disabled={!a.liberado}
-                          title={
-                            a.liberado
-                              ? 'Levar tudo o que ele tem para outro almoxarifado'
-                              : 'Libere para o sistema antes'
-                          }
-                          className="btn btn-p btn-sutil"
-                        >
-                          Mover tudo
-                        </button>
+                        {transfere && (
+                          <button
+                            type="button"
+                            onClick={() => setMovendo(a)}
+                            disabled={!a.liberado}
+                            title={
+                              a.liberado
+                                ? 'Levar tudo o que ele tem para outro almoxarifado'
+                                : 'Libere para o sistema antes'
+                            }
+                            className="btn btn-p btn-sutil"
+                          >
+                            Mover tudo
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => {

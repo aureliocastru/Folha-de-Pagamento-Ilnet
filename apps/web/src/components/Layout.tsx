@@ -2,7 +2,7 @@ import { Navigate, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAvisosDoMenu } from '../lib/avisos';
 import { useAuth } from '../lib/auth';
 import { useCelular } from '../lib/celular';
-import { modulosDoUsuario, type Modulo } from '../lib/modulos';
+import { itemDoMenuAparece, modulosDoUsuario, type Modulo } from '../lib/modulos';
 import { useTema } from '../lib/tema';
 import { LayoutCelular } from './LayoutCelular';
 import { IconeGrade, IconeLua, IconeSol } from './icones';
@@ -96,7 +96,7 @@ function LayoutComputador({ modulo }: { modulo: Modulo }) {
 
         <nav className="flex-1 space-y-0.5 overflow-y-auto px-3">
           {modulo.menu
-            .filter((item) => !item.somenteAdmin || usuario?.role === 'ADMIN')
+            .filter((item) => itemDoMenuAparece(item, usuario))
             .map((item) => (
               <NavLink
                 key={item.to}

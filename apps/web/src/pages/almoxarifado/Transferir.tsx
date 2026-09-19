@@ -11,7 +11,9 @@ import {
 } from '../../components/ui';
 import { IconeLixeira, IconeLupa, IconeMais } from '../../components/icones';
 import { api, mensagemErro } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
 import { semAcento } from '../../lib/busca';
+import { transfereEntreAlmoxarifados } from '../../lib/modulos';
 import type {
   AlmoxarifadoCadastro,
   AndamentoDaTransferencia,
@@ -22,6 +24,8 @@ import type {
 import { quantidade } from './ProdutoNoIxc';
 import {
   Andamento,
+  DiaDoLancamento,
+  diaRetroativo,
   FicamDeFora,
   identificacao,
   normalizarCodigo,
@@ -52,8 +56,26 @@ function numeroDigitado(texto: string): number {
  * procurando pelo nome. Produto comum entra com a quantidade que se quiser;
  * patrimônio, peça por peça. "Transferir" grava tudo numa transferência só
  * no IXC — é lá que fica o registro.
+ *
+ * Só o coordenador transfere (e o ADMIN). A aba some do menu de quem não é;
+ * quem chega pelo endereço vê o porquê, e a API recusa do mesmo jeito.
  */
 export function Transferir() {
+  const { usuario } = useAuth();
+  if (transfereEntreAlmoxarifados(usuario)) return <TransferirDoCoordenador />;
+  return (
+    <Pagina>
+      <CabecalhoPagina secao="Almoxarifado" titulo="Transferir" />
+      <Aviso tom="atencao">
+        Transferir entre almoxarifados é do coordenador. Se você precisa transferir, peça ao
+        administrador para marcar "Coordenador" no seu login. Para tirar material da
+        prateleira, use "Dar saída" no Estoque.
+      </Aviso>
+    </Pagina>
+  );
+}
+
+function TransferirDoCoordenador() {
   const qc = useQueryClient();
   const [de, setDe] = useState('');
   const [para, setPara] = useState('');
@@ -63,6 +85,8 @@ export function Transferir() {
   const [produtos, setProdutos] = useState<Record<number, string>>({});
   const [pecas, setPecas] = useState<Set<number>>(new Set());
   const [observacao, setObservacao] = useState('');
+  /** "AAAA-MM-DD" de antes de hoje, ou vazio = hoje. */
+  const [data, setData] = useState('');
   /** A janela que mostra o que vai e para onde, antes de gravar no IXC. */
   const [confirmando, setConfirmando] = useState(false);
   /** A transferência acompanhada — a gravada agora, ou a do "tentar de novo". */
@@ -264,6 +288,7 @@ export function Transferir() {
           de: Number(de),
           para: Number(para),
           observacao: observacao.trim() || undefined,
+          data: data || undefined,
           produtos: naLista.produtos.map((l) => ({ produtoId: l.m.produtoId, quantidade: l.n })),
           patrimonios: naLista.pecas.map((p) => p.patrimonioId),
         })
@@ -445,18 +470,21 @@ export function Transferir() {
               ))}
             </div>
 
-            <div className="mt-3">
-              <label className="rotulo" htmlFor="transf-obs">
-                Observação (vai para o IXC)
-              </label>
-              <input
-                id="transf-obs"
-                value={observacao}
-                onChange={(e) => setObservacao(e.target.value.slice(0, 200))}
-                className="campo"
-                placeholder="Ex.: kit da van da equipe 2"
-                autoComplete="off"
-              />
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[1fr_12rem]">
+              <div>
+                <label className="rotulo" htmlFor="transf-obs">
+                  Observação (vai para o IXC)
+                </label>
+                <input
+                  id="transf-obs"
+                  value={observacao}
+                  onChange={(e) => setObservacao(e.target.value.slice(0, 200))}
+                  className="campo"
+                  placeholder="Ex.: kit da van da equipe 2"
+                  autoComplete="off"
+                />
+              </div>
+              <DiaDoLancamento id="transf-data" valor={data} onMudar={setData} />
             </div>
 
             {transferir.isError && <Aviso tom="erro">{mensagemErro(transferir.error)}</Aviso>}
@@ -587,6 +615,11 @@ export function Transferir() {
           {observacao.trim() && (
             <p className="ajuda mt-2">Observação, que vai para o IXC: "{observacao.trim()}"</p>
           )}
+          {diaRetroativo(data) && (
+            <p className="mt-2 text-[13px] font-semibold text-amber-700 dark:text-amber-300">
+              Data da transferência: {diaRetroativo(data)}
+            </p>
+          )}
           <p className="ajuda mt-2">
             Grava uma transferência só no IXC. Para desfazer, só movendo de volta.
           </p>
@@ -625,6 +658,7 @@ export function Transferir() {
             transferir.reset();
             limparLista();
             setObservacao('');
+            setData('');
             setAviso(null);
             campoDeBusca.current?.focus();
           }}
@@ -638,6 +672,7 @@ export function Transferir() {
               transferir.reset();
               limparLista();
               setObservacao('');
+              setData('');
               setAviso(null);
             }}
           />

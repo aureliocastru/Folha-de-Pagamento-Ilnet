@@ -1,4 +1,5 @@
 import {
+  diaParaIxc,
   fiscalQueFalta,
   hojeParaIxc,
   montarEdicaoProduto,
@@ -334,5 +335,29 @@ describe('hojeParaIxc', () => {
   it('usa o dia de Brasília, e não o do servidor em UTC', () => {
     // 01:30 UTC do dia 11 ainda é 22:30 do dia 10 em Brasília.
     expect(hojeParaIxc(new Date('2026-09-11T01:30:00Z'))).toBe('10/09/2026');
+  });
+});
+
+describe('diaParaIxc', () => {
+  // 22:30 do dia 19 em Brasília; no servidor, em UTC, já é dia 20.
+  const agora = new Date('2026-09-20T01:30:00Z');
+
+  it('sem data, é hoje em Brasília', () => {
+    expect(diaParaIxc(undefined, agora)).toBe('19/09/2026');
+    expect(diaParaIxc('', agora)).toBe('19/09/2026');
+  });
+
+  it('data de antes vai como o IXC escreve', () => {
+    expect(diaParaIxc('2026-09-12', agora)).toBe('12/09/2026');
+    expect(diaParaIxc('2026-09-19', agora)).toBe('19/09/2026');
+  });
+
+  it('o dia que ainda não chegou em Brasília é recusado, mesmo sendo hoje no servidor', () => {
+    expect(() => diaParaIxc('2026-09-20', agora)).toThrow(/ainda não chegou/);
+  });
+
+  it('dia que não existe é recusado', () => {
+    expect(() => diaParaIxc('2026-02-30', agora)).toThrow(/não é uma data válida/);
+    expect(() => diaParaIxc('12/09/2026', agora)).toThrow(/não é uma data válida/);
   });
 });

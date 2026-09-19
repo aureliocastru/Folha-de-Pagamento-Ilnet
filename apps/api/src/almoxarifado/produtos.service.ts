@@ -14,6 +14,7 @@ import {
 import { numeroDoIxc, type ItemDeEstoque } from './estoque.mapper';
 import { EstoqueService } from './estoque.service';
 import {
+  diaParaIxc,
   DOCUMENTO_DO_ACERTO,
   fiscalQueFalta,
   hojeParaIxc,
@@ -252,9 +253,18 @@ export class ProdutosService {
    */
   async transferir(
     produtoId: number,
-    dados: { de: number; para: number; quantidade: number; observacao?: string },
+    dados: {
+      de: number;
+      para: number;
+      quantidade: number;
+      observacao?: string;
+      /** "AAAA-MM-DD"; vazio = hoje. */
+      data?: string;
+    },
     quem: Quem,
   ): Promise<{ transferenciaId: number; origem: Conferencia; destino: Conferencia }> {
+    // Antes de ler qualquer coisa: data que não serve não abre nada no IXC.
+    const data = diaParaIxc(dados.data);
     const [produto, bruto, almoxarifados, unidades] = await Promise.all([
       this.detalhar(produtoId),
       this.lerProduto(produtoId),
@@ -290,7 +300,7 @@ export class ProdutosService {
         filialSaida: origem.filialId,
         almoxEntrada: destino.id,
         filialEntrada: destino.filialId,
-        data: hojeParaIxc(),
+        data,
         observacao:
           (dados.observacao?.trim() ? `${dados.observacao.trim()} — ` : '') +
           `pelo ILNET FINANCE, ${quem.nome}`,

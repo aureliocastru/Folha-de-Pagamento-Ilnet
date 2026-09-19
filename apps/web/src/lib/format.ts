@@ -60,6 +60,20 @@ export function formatNumeroBR(valor: number, casas = 2): string {
  * desempatar. Está no histórico, se um dia voltar a fazer falta.
  */
 
+/**
+ * Hoje, "AAAA-MM-DD", no fuso de Brasília — o mesmo dia que o servidor usa
+ * para o IXC (`hojeParaIxc`), para a tela e a API não discordarem às 22h.
+ */
+export function hojeEmBrasilia(agora = new Date()): string {
+  // en-CA escreve a data como o <input type="date"> a quer: 2026-09-19.
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(agora);
+}
+
 export function formatData(value: string | null | undefined): string {
   if (!value) return '—';
   const d = new Date(value);

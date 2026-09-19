@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   Param,
@@ -13,6 +14,7 @@ import {
   Req,
 } from '@nestjs/common';
 import type { Request } from 'express';
+import { transfereEntreAlmoxarifados } from '../colaborador/areas';
 import { AcertoDeNegativosService } from './acerto-negativos.service';
 import { AlmoxarifadosService } from './almoxarifados.service';
 import { ComodatoService } from './comodato.service';
@@ -54,6 +56,20 @@ function nomeDoLogado(req: Request): string | undefined {
 /** Quem está mexendo no IXC — vai para o log e para a observação da transferência. */
 function quem(req: Request): { nome: string } {
   return { nome: nomeDoLogado(req) ?? 'alguém sem nome' };
+}
+
+/**
+ * Levar material de um almoxarifado para outro é do coordenador. A saída de
+ * material e a conferência também movem saldo no IXC, mas são o serviço do
+ * almoxarife, e continuam abertas a quem mexe no módulo.
+ */
+function exigirCoordenador(req: Request): void {
+  if (!transfereEntreAlmoxarifados(req.user as { role?: string; minhaArea?: string[] })) {
+    throw new ForbiddenException(
+      'Transferir entre almoxarifados é do coordenador. Peça ao administrador para ' +
+        'marcar "Coordenador" no seu login.',
+    );
+  }
 }
 
 /**
@@ -154,6 +170,7 @@ export class AlmoxarifadoController {
     @Body() dto: TransferirProdutoDto,
     @Req() req: Request,
   ) {
+    exigirCoordenador(req);
     return this.produtos.transferir(id, dto, quem(req));
   }
 
@@ -416,6 +433,7 @@ export class AlmoxarifadoController {
     @Body() dto: MoverTudoDto,
     @Req() req: Request,
   ) {
+    exigirCoordenador(req);
     return this.transferencias.iniciar({ de: id, ...dto, tudo: true }, quem(req));
   }
 
@@ -427,6 +445,7 @@ export class AlmoxarifadoController {
   @Post('transferencias')
   @HttpCode(202)
   transferirVarios(@Body() dto: TransferenciaDto, @Req() req: Request) {
+    exigirCoordenador(req);
     return this.transferencias.iniciar(dto, quem(req));
   }
 
@@ -439,6 +458,7 @@ export class AlmoxarifadoController {
   @Post('transferencias/:id/repetir')
   @HttpCode(202)
   repetirTransferencia(@Param('id', ParseUUIDPipe) id: string, @Req() req: Request) {
+    exigirCoordenador(req);
     return this.transferencias.repetir(id, quem(req));
   }
 

@@ -570,12 +570,13 @@ function ColaboradorDoLogin({ usuario }: { usuario: UsuarioAdmin }) {
 
 /**
  * O que é da própria pessoa: a pontuação dela, o abastecimento do veículo no
- * nome dela, e pontuar os outros (coordenador). Chips iguais aos dos módulos,
- * logo embaixo deles, e para qualquer perfil — o técnico e o administrador
- * também têm pontos e podem ter carro.
+ * nome dela, e ser coordenador — pontuar os outros e transferir entre
+ * almoxarifados. Chips iguais aos dos módulos, logo embaixo deles, e para
+ * qualquer perfil — o técnico e o administrador também têm pontos e podem ter
+ * carro.
  *
  * Diferente dos módulos, aqui nada marcado é nada: "todos" daria o painel de
- * pontuar a quem ninguém escolheu. Quem tem Pontuar deixa de ver a análise de
+ * pontuar a quem ninguém escolheu. O coordenador deixa de ver a análise de
  * risco.
  */
 function ChipsDaArea({
@@ -601,8 +602,8 @@ function ChipsDaArea({
             title={
               a.id === 'pontuar'
                 ? ligado
-                  ? 'Tirar: deixa de pontuar e volta a ver a análise de risco'
-                  : 'Coordenador: pontua os funcionários, e não vê a análise de risco'
+                  ? 'Tirar: deixa de pontuar e de transferir entre almoxarifados, e volta a ver a análise de risco'
+                  : 'Coordenador: pontua os funcionários, transfere entre almoxarifados, e não vê a análise de risco'
                 : ligado
                   ? `Tirar ${a.nome} deste login`
                   : `Dar ${a.nome} a este login`
@@ -614,7 +615,9 @@ function ChipsDaArea({
               pequeno ? 'px-2 py-0.5 text-[11px]' : 'px-2.5 py-1 text-xs'
             } ${corDoModulo(ligado, false)}`}
           >
-            {a.nome}
+            {/* No login a marca se chama pelo que a pessoa é: pontuar é uma das
+                coisas que o coordenador faz — transferir é a outra. */}
+            {a.id === 'pontuar' ? 'Coordenador' : a.nome}
           </button>
         );
       })}

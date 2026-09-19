@@ -50,6 +50,37 @@ export function hojeParaIxc(agora = new Date()): string {
 }
 
 /**
+ * O dia escolhido na tela ("AAAA-MM-DD") no formato de escrita do IXC. Vazio
+ * é hoje.
+ *
+ * Existe para lançar o que aconteceu antes — o material que saiu na sexta e
+ * só se registrou na segunda. Por isso recusa só o dia que ainda não chegou
+ * (no fuso de Brasília, como `hojeParaIxc`): esse é dedo errado no calendário.
+ */
+export function diaParaIxc(dia?: string | null, agora = new Date()): string {
+  if (!dia) return hojeParaIxc(agora);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dia.slice(0, 10));
+  const [ano, mes, d] = m ? [Number(m[1]), Number(m[2]), Number(m[3])] : [0, 0, 0];
+  const conferida = new Date(Date.UTC(ano, mes - 1, d));
+  if (
+    !m ||
+    conferida.getUTCFullYear() !== ano ||
+    conferida.getUTCMonth() !== mes - 1 ||
+    conferida.getUTCDate() !== d
+  ) {
+    throw new BadRequestException(`A data "${dia}" não é uma data válida.`);
+  }
+  const noIxc = `${m[3]}/${m[2]}/${m[1]}`;
+  const hoje = hojeParaIxc(agora).split('/').reverse().join('-');
+  if (`${m[1]}-${m[2]}-${m[3]}` > hoje) {
+    throw new BadRequestException(
+      `${noIxc} ainda não chegou. A data pode ser de antes, mas não de depois de hoje.`,
+    );
+  }
+  return noIxc;
+}
+
+/**
  * "AAAA-MM-DD" (como o IXC devolve na leitura) → "DD/MM/AAAA" (como ele aceita
  * na escrita), com a hora junto quando houver. Data zerada passa intocada.
  * É a mesma conversão da edição de fornecedor (`ixc.fornecedor.ts`).

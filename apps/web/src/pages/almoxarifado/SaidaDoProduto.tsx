@@ -5,13 +5,15 @@ import { api, mensagemErro } from '../../lib/api';
 import { formatData } from '../../lib/format';
 import type { HistoricoDeSaidas, ItemDeEstoque } from '../../lib/types';
 import { numeroDigitado, quantidade } from './ProdutoNoIxc';
+import { DiaDoLancamento, diaRetroativo } from './transferencia-comum';
 
 /**
  * A saída de um produto, e o histórico de todas as saídas dele.
  *
  * Feita para o celular, na prateleira: de onde sai (um toque), quanto (os
- * botões − e +), pra onde vai, quem pegou. A data é a do dia. O saldo sai no
- * IXC por transferência para o almoxarifado "Saídas".
+ * botões − e +), pra onde vai, quem pegou. A data é a do dia, ou uma de antes
+ * para o que saiu e não foi lançado na hora. O saldo sai no IXC por
+ * transferência para o almoxarifado "Saídas".
  */
 export function SaidaDoProduto({
   item,
@@ -34,6 +36,11 @@ export function SaidaDoProduto({
   const [destino, setDestino] = useState('');
   const [quemPegou, setQuemPegou] = useState('');
   const [observacao, setObservacao] = useState('');
+  /**
+   * "AAAA-MM-DD" de antes de hoje, ou vazio = hoje. Fica depois de lançar: quem
+   * põe em dia as saídas da semana passada lança várias do mesmo dia seguidas.
+   */
+  const [data, setData] = useState('');
   const [feito, setFeito] = useState<string | null>(null);
 
   const historico = useQuery({
@@ -58,10 +65,14 @@ export function SaidaDoProduto({
           destino: destino.trim(),
           quemPegou: quemPegou.trim(),
           observacao: observacao.trim() || undefined,
+          data: data || undefined,
         })
       ).data,
     onSuccess: () => {
-      setFeito(`Saiu ${quantidade(n)}${unidade} para ${destino.trim()}.`);
+      setFeito(
+        `Saiu ${quantidade(n)}${unidade} para ${destino.trim()}` +
+          (diaRetroativo(data) ? `, com data de ${formatData(data)}.` : '.'),
+      );
       setQtd('1');
       setDestino('');
       setObservacao('');
@@ -192,6 +203,8 @@ export function SaidaDoProduto({
               />
             </div>
 
+            <DiaDoLancamento id="saida-data" valor={data} onMudar={setData} />
+
             {darSaida.isError && <Aviso tom="erro">{mensagemErro(darSaida.error)}</Aviso>}
             {feito && !darSaida.isPending && <Aviso tom="pago">{feito}</Aviso>}
 
@@ -206,11 +219,9 @@ export function SaidaDoProduto({
             >
               {darSaida.isPending
                 ? 'Lançando no IXC…'
-                : `Dar saída${n > 0 ? ` de ${quantidade(n)}${unidade}` : ''}`}
+                : `Dar saída${n > 0 ? ` de ${quantidade(n)}${unidade}` : ''}` +
+                  (diaRetroativo(data) ? ` em ${formatData(data)}` : '')}
             </button>
-            <p className="-mt-2 text-center text-[11px] text-tinta-400">
-              Data: hoje, {new Date().toLocaleDateString('pt-BR')}
-            </p>
           </div>
         )}
 

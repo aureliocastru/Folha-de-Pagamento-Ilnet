@@ -2,8 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Aviso, CampoDinheiro, Carregando, Janela } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
 import { semAcento, useTermoAdiado } from '../../lib/busca';
 import { formatBRL } from '../../lib/format';
+import { transfereEntreAlmoxarifados } from '../../lib/modulos';
 import { OndeFicouNegativo } from './rastreio';
 import type {
   ConferenciaDeSaldo,
@@ -86,6 +88,7 @@ export function JanelaDoProduto({
   onFechar: () => void;
 }) {
   const qc = useQueryClient();
+  const transfere = transfereEntreAlmoxarifados(useAuth().usuario);
   const [aba, setAba] = useState<Aba>('cadastro');
   const [aviso, setAviso] = useState<{ texto: string; tom: 'pago' | 'atencao' | 'erro' } | null>(
     null,
@@ -231,11 +234,16 @@ export function JanelaDoProduto({
             </Aviso>
           )}
 
-          <div className="mb-4 grid grid-cols-3 gap-1 rounded-xl bg-tinta-100 p-1">
+          <div
+            className={`mb-4 grid gap-1 rounded-xl bg-tinta-100 p-1 ${
+              transfere ? 'grid-cols-3' : 'grid-cols-2'
+            }`}
+          >
             {(
               [
                 ['cadastro', 'Cadastro'],
-                ['mover', 'Mover'],
+                // Mover é transferir entre almoxarifados: só o coordenador.
+                ...(transfere ? [['mover', 'Mover']] : []),
                 ['entrada', 'Dar entrada'],
               ] as Array<[Aba, string]>
             ).map(([id, rotulo]) => (
@@ -267,7 +275,7 @@ export function JanelaDoProduto({
               onApagado={onFechar}
             />
           )}
-          {opcoes.data && aba === 'mover' && (
+          {opcoes.data && aba === 'mover' && transfere && (
             <Mover produto={p} opcoes={opcoes.data} onMudou={mudou} />
           )}
           {opcoes.data && aba === 'entrada' && (

@@ -2375,6 +2375,8 @@ export interface AndamentoDaTransferencia {
   de: { id: number; nome: string };
   para: { id: number; nome: string };
   transferenciaId: number;
+  /** O dia dela no IXC, "AAAA-MM-DD" — hoje, ou o de antes que se escolheu. */
+  data?: string;
   status: 'rodando' | 'terminou' | 'falhou';
   total: number;
   feitos: number;

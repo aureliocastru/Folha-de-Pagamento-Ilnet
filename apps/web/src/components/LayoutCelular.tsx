@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { useAvisosDoMenu, type AvisoDoMenu } from '../lib/avisos';
-import type { ItemMenu, Modulo } from '../lib/modulos';
+import { itemDoMenuAparece, type ItemMenu, type Modulo } from '../lib/modulos';
 import { useTema } from '../lib/tema';
 import { IconeGrade, IconeLua, IconeSol } from './icones';
 import { PontoDeAviso } from './ui';
@@ -43,9 +43,7 @@ export function LayoutCelular({ modulo }: { modulo: Modulo }) {
   const { escuro, trocar } = useTema();
   const avisos = useAvisosDoMenu(modulo);
 
-  const itens = modulo.menu.filter(
-    (item) => !item.somenteAdmin || usuario?.role === 'ADMIN',
-  );
+  const itens = modulo.menu.filter((item) => itemDoMenuAparece(item, usuario));
   const naBarra = itens.slice(0, ITENS_NA_BARRA);
   const noMais = itens.slice(ITENS_NA_BARRA);
 

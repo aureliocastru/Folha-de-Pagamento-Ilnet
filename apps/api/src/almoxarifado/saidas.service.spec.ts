@@ -107,6 +107,32 @@ describe('SaidasService.darSaida', () => {
     expect(produtos.transferir).not.toHaveBeenCalled();
   });
 
+  it('com data de antes, a transferência e o histórico ficam naquele dia', async () => {
+    const { service, produtos, prisma } = montar();
+
+    const saida = await service.darSaida(7, { ...pedido, data: '2026-09-12' }, { nome: 'Henrico' });
+
+    expect(produtos.transferir).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({ data: '2026-09-12' }),
+      { nome: 'Henrico' },
+    );
+    expect(prisma.saidaDeEstoque.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ data: new Date(Date.UTC(2026, 8, 12)) }),
+    });
+    expect(saida.data).toBe('2026-09-12T00:00:00.000Z');
+  });
+
+  it('data que ainda não chegou é recusada antes de tocar no IXC', async () => {
+    const { service, produtos, prisma } = montar();
+
+    await expect(
+      service.darSaida(7, { ...pedido, data: '2999-01-01' }, { nome: 'Henrico' }),
+    ).rejects.toThrow(/ainda não chegou/);
+    expect(produtos.transferir).not.toHaveBeenCalled();
+    expect(prisma.saidaDeEstoque.create).not.toHaveBeenCalled();
+  });
+
   it('não tira de Perdas e Falhas', async () => {
     const { service, produtos } = montar();
 

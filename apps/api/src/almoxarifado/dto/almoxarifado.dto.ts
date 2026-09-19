@@ -178,6 +178,9 @@ export class MoverTudoDto {
 
   /** Leva também o saldo de patrimônio que não tem peça cadastrada, pela quantidade. */
   @IsOptional() @IsBoolean() levarSemPeca?: boolean;
+
+  /** "AAAA-MM-DD": o dia da transferência no IXC. Vazio = hoje; pode ser de antes. */
+  @IsOptional() @IsISO8601({ strict: true }) data?: string;
 }
 
 export class ProdutoDaTransferenciaDto {
@@ -201,6 +204,9 @@ export class TransferenciaDto {
 
   @IsOptional() @IsArray() @ArrayMaxSize(5000) @IsInt({ each: true }) @Min(1, { each: true })
   patrimonios?: number[];
+
+  /** "AAAA-MM-DD": o dia da transferência no IXC. Vazio = hoje; pode ser de antes. */
+  @IsOptional() @IsISO8601({ strict: true }) data?: string;
 }
 
 export class TransferirProdutoDto {
@@ -212,9 +218,12 @@ export class TransferirProdutoDto {
 
   @IsOptional() @Transform(texto) @IsString() @MaxLength(200)
   observacao?: string;
+
+  /** "AAAA-MM-DD": o dia da transferência no IXC. Vazio = hoje; pode ser de antes. */
+  @IsOptional() @IsISO8601({ strict: true }) data?: string;
 }
 
-/** A saída de material: de onde, quanto, pra onde vai e quem pegou. A data é a do dia. */
+/** A saída de material: de onde, quanto, pra onde vai e quem pegou. */
 export class SaidaDeEstoqueDto {
   @Transform(numero) @IsInt() @Min(1) almoxId!: number;
 
@@ -229,6 +238,9 @@ export class SaidaDeEstoqueDto {
 
   @IsOptional() @Transform(texto) @IsString() @MaxLength(500)
   observacao?: string;
+
+  /** "AAAA-MM-DD": o dia em que o material saiu. Vazio = hoje; pode ser de antes. */
+  @IsOptional() @IsISO8601({ strict: true }) data?: string;
 }
 
 /** O acerto dos saldos negativos: a compra de acerto e o que vai nela. */

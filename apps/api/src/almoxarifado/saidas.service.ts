@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma, type SaidaDeEstoque } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AlmoxarifadosService } from './almoxarifados.service';
-import { hojeParaIxc } from './produtos-ixc';
+import { diaParaIxc } from './produtos-ixc';
 import { ProdutosService } from './produtos.service';
 
 interface Quem {
@@ -60,9 +60,13 @@ export class SaidasService {
       destino: string;
       quemPegou: string;
       observacao?: string;
+      /** "AAAA-MM-DD": o dia em que saiu. Vazio = hoje; pode ser de antes. */
+      data?: string;
     },
     quem: Quem,
   ): Promise<SaidaNaTela> {
+    // Primeiro a data: a que não serve (a de amanhã) recusa antes de tocar no IXC.
+    const dia = diaParaIxc(dados.data);
     const destino = dados.destino.trim();
     const quemPegou = dados.quemPegou.trim();
     const observacao = dados.observacao?.trim() || null;
@@ -94,6 +98,7 @@ export class SaidasService {
         de: dados.almoxId,
         para: saidas.id,
         quantidade: dados.quantidade,
+        data: dados.data,
         // A observação inteira fica aqui; no IXC vai o bastante para achar a saída.
         observacao: (
           `Saída para ${destino}, pegou ${quemPegou}` + (observacao ? ` (${observacao})` : '')
@@ -102,8 +107,9 @@ export class SaidasService {
       quem,
     );
 
-    // O dia de Brasília, o mesmo da transferência: às 22h daqui o servidor já está amanhã.
-    const [dia, mes, ano] = hojeParaIxc().split('/').map(Number);
+    // O mesmo dia da transferência. Sem data escolhida, o de Brasília: às 22h
+    // daqui o servidor já está amanhã.
+    const [d, mes, ano] = dia.split('/').map(Number);
     const gravada = await this.prisma.saidaDeEstoque.create({
       data: {
         produtoId,
@@ -115,7 +121,7 @@ export class SaidasService {
         destino,
         quemPegou,
         observacao,
-        data: new Date(Date.UTC(ano, mes - 1, dia)),
+        data: new Date(Date.UTC(ano, mes - 1, d)),
         transferenciaIxcId: transferenciaId,
         registradoPor: quem.nome,
       },

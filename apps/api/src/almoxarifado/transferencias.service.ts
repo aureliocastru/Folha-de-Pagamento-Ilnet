@@ -29,7 +29,7 @@ import {
 } from './mover-tudo';
 import { ProdutosService } from './produtos.service';
 import {
-  hojeParaIxc,
+  diaParaIxc,
   montarItemDaTransferencia,
   montarPatrimonioDaTransferencia,
   montarTransferencia,
@@ -63,6 +63,8 @@ export interface AndamentoDaTransferencia {
   para: { id: number; nome: string };
   /** A transferência que o IXC abriu — todos os itens vão nela. */
   transferenciaId: number;
+  /** O dia dela no IXC, "AAAA-MM-DD" — hoje, ou o de antes que se escolheu. */
+  data: string;
   status: 'rodando' | 'terminou' | 'falhou';
   total: number;
   feitos: number;
@@ -101,6 +103,8 @@ export interface PedidoDeTransferencia {
   tudo?: boolean;
   /** No "mover tudo": leva também o saldo de patrimônio sem peça, pela quantidade. */
   levarSemPeca?: boolean;
+  /** "AAAA-MM-DD": o dia da transferência no IXC. Vazio = hoje; pode ser de antes. */
+  data?: string;
 }
 
 type ItemDaTransferencia =
@@ -510,6 +514,7 @@ export class TransferenciasService {
     if (de === para) {
       throw new BadRequestException('A origem e o destino são o mesmo almoxarifado.');
     }
+    const dia = diaParaIxc(pedido.data);
     if (this.ocupados.has(de) || this.ocupados.has(para)) {
       throw new BadRequestException(
         'Já tem uma transferência rodando com um desses almoxarifados. Espere ela terminar.',
@@ -556,7 +561,7 @@ export class TransferenciasService {
           filialSaida: origem.filialId,
           almoxEntrada: destino.id,
           filialEntrada: destino.filialId,
-          data: hojeParaIxc(),
+          data: dia,
           observacao:
             (pedido.observacao?.trim() ? `${pedido.observacao.trim()} — ` : '') +
             (pedido.tudo ? `tudo de ${origem.nome} para ${destino.nome}, ` : '') +
@@ -574,6 +579,7 @@ export class TransferenciasService {
         de: { id: origem.id, nome: origem.nome },
         para: { id: destino.id, nome: destino.nome },
         transferenciaId,
+        data: dia.split('/').reverse().join('-'),
         status: 'rodando',
         total: itens.length,
         feitos: 0,
@@ -631,6 +637,8 @@ export class TransferenciasService {
         de: a.de.id,
         para: a.para.id,
         observacao: `de novo o que a #${a.transferenciaId} não levou`,
+        // O mesmo dia da primeira: o que não foi junto saiu naquele dia também.
+        data: a.data,
         produtos: itens.flatMap((i) =>
           i.tipo === 'produto' ? [{ produtoId: i.item.produtoId, quantidade: i.quantidade }] : [],
         ),

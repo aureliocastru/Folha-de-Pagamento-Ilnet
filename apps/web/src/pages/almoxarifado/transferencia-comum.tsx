@@ -2,6 +2,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { Aviso } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { formatData, hojeEmBrasilia } from '../../lib/format';
 import type {
   AndamentoDaTransferencia,
   ConteudoDoAlmoxarifado,
@@ -14,6 +15,60 @@ import { quantidade } from './ProdutoNoIxc';
  * um almoxarifado tem, acompanhar a transferência rodando no servidor e
  * mostrar o resultado.
  */
+
+/**
+ * O dia do lançamento no IXC: hoje, ou um dia de antes — o material que saiu
+ * na sexta e só se lança na segunda. Depois de hoje, não (a API recusa também).
+ *
+ * `valor` vazio é "hoje", e não a data de hoje escrita: a tela que ficou aberta
+ * de um dia para o outro não lança, sem ninguém ver, com a data de ontem.
+ */
+export function DiaDoLancamento({
+  id,
+  valor,
+  onMudar,
+}: {
+  id: string;
+  valor: string;
+  onMudar: (dia: string) => void;
+}) {
+  const hoje = hojeEmBrasilia();
+  const dia = valor || hoje;
+  const retroativo = dia < hoje;
+  return (
+    <div>
+      <label className="rotulo" htmlFor={id}>
+        Data
+      </label>
+      <input
+        id={id}
+        type="date"
+        value={dia}
+        max={hoje}
+        onChange={(e) => {
+          const escolhido = e.target.value;
+          onMudar(!escolhido || escolhido >= hoje ? '' : escolhido);
+        }}
+        className="campo"
+      />
+      {retroativo ? (
+        <p className="ajuda text-amber-700 dark:text-amber-300">
+          Data retroativa: vai para o IXC como {formatData(dia)}.{' '}
+          <button type="button" onClick={() => onMudar('')} className="underline">
+            Voltar para hoje
+          </button>
+        </p>
+      ) : (
+        <p className="ajuda">Hoje. Se foi antes, troque a data.</p>
+      )}
+    </div>
+  );
+}
+
+/** "12/09/2026 (retroativa)" quando é de antes; null quando é hoje. */
+export function diaRetroativo(valor: string): string | null {
+  return valor && valor < hojeEmBrasilia() ? `${formatData(valor)} (retroativa)` : null;
+}
 
 /** O que o almoxarifado tem agora, lido do IXC — sem guardar: a lista tem de ser a de agora. */
 export function useConteudo(almoxId: number | null) {
@@ -118,6 +173,9 @@ export function Andamento({
       <p className="mb-2 text-sm text-tinta-600">
         {a.de.nome} → <strong>{a.para.nome}</strong> · transferência{' '}
         <span className="num">#{a.transferenciaId}</span> no IXC
+        {a.data && diaRetroativo(a.data) && (
+          <span className="text-amber-700 dark:text-amber-300"> · de {diaRetroativo(a.data)}</span>
+        )}
       </p>
 
       <div className="mb-1 h-2 overflow-hidden rounded-full bg-tinta-100">
