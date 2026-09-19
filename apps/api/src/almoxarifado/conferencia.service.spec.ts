@@ -643,4 +643,21 @@ describe('ConferenciaService — rodada e lista', () => {
     expect(t.escritas()).toBe(0);
     expect(t.saldo(60, 1)).toBe(1);
   });
+
+  it('sem controle de estoque fica à parte, com o motivo, e não conta no progresso', async () => {
+    const t = montar();
+    t.porSaldo(10, 1, 5);
+    t.porSaldo(90, 1, 4); // ativo, mas "Controla estoque: Não"
+
+    const lista = await t.service.doAlmoxarifado(1);
+    expect(lista.itens.map((i) => i.produtoId)).toEqual([10]);
+    expect(lista.foraDaConferencia).toEqual([
+      expect.objectContaining({ produtoId: 90, saldo: 4, motivo: expect.stringMatching(/Controla estoque/) }),
+    ]);
+
+    // Conferido o único que se confere, o almoxarifado está completo.
+    await t.service.conferir({ almoxId: 1, produtoId: 10, sistemaVisto: 5, contado: 5 }, eu);
+    const painel = await t.service.painel();
+    expect(painel.almoxarifados.find((a) => a.id === 1)).toMatchObject({ itens: 1, conferidos: 1 });
+  });
 });

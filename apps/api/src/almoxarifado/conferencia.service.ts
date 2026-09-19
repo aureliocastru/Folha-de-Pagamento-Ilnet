@@ -240,8 +240,11 @@ export class ConferenciaService {
       this.estoque.listar({}),
     ]);
     const perdas = almoxarifados.find((a) => ehAlmoxDePerdas(a.nome)) ?? null;
-    // Inativo não se conta: nem o saldo que o IXC ainda guarda dele, nem a conferência que já houve.
-    const inativos = new Set(lido.itens.filter((i) => !i.ativo).map((i) => i.produtoId));
+    // Inativo e sem controle de estoque não se contam: nem o saldo que o IXC
+    // ainda guarda deles, nem a conferência que já houve.
+    const inativos = new Set(
+      lido.itens.filter((i) => !i.servico && !entraNaConferencia(i)).map((i) => i.produtoId),
+    );
     const conferidas = (
       rodada
         ? await this.prisma.conferenciaDeEstoque.findMany({
@@ -256,7 +259,7 @@ export class ConferenciaService {
     const juntar = (m: Map<number, Set<number>>, almoxId: number, produtoId: number) =>
       m.set(almoxId, (m.get(almoxId) ?? new Set()).add(produtoId));
     for (const i of lido.itens) {
-      if (i.servico || !i.ativo) continue;
+      if (!entraNaConferencia(i)) continue;
       for (const s of i.saldos) {
         if (Math.abs(s.saldo) > QUASE_ZERO) juntar(produtosPorAlmox, s.almoxId, i.produtoId);
       }
@@ -310,15 +313,36 @@ export class ConferenciaService {
       : [];
     const ultima = new Map<number, ConferenciaDeEstoque>();
     for (const c of conferencias) if (!ultima.has(c.produtoId)) ultima.set(c.produtoId, c);
-    // Inativo não se confere: sai da lista e da conta, com saldo no IXC ou conferência antiga.
-    for (const i of lido.itens) if (!i.ativo) ultima.delete(i.produtoId);
+    // Inativo e sem controle de estoque não se conferem: saem da lista e da
+    // conta, com saldo no IXC ou conferência antiga.
+    for (const i of lido.itens) if (!i.servico && !entraNaConferencia(i)) ultima.delete(i.produtoId);
 
     const porProduto = new Map(lido.itens.map((i) => [i.produtoId, i]));
     const itens: ItemParaConferir[] = [];
+    const foraDaConferencia: Array<{
+      produtoId: number;
+      descricao: string;
+      saldo: number;
+      unidade: string | null;
+      motivo: string;
+    }> = [];
     for (const i of lido.itens) {
       if (i.servico || !i.ativo) continue;
       const saldo = i.total;
       if (Math.abs(saldo) <= QUASE_ZERO && !ultima.has(i.produtoId)) continue;
+      if (i.controlaEstoque === false) {
+        // À parte, com o motivo: tem saldo aqui, mas nada que se lance muda o saldo dele.
+        foraDaConferencia.push({
+          produtoId: i.produtoId,
+          descricao: i.descricao,
+          saldo,
+          unidade: i.unidade,
+          motivo:
+            'Estão com "Controla estoque: Não" no IXC — nada que se lance muda o saldo deles, ' +
+            `e por isso não se conferem nem contam no progresso. ${SAIDA_DO_NAO_CONTROLA}.`,
+        });
+        continue;
+      }
       itens.push(this.itemParaConferir(i, saldo, ultima.get(i.produtoId) ?? null));
     }
     for (const [produtoId, c] of ultima) {
@@ -347,6 +371,7 @@ export class ConferenciaService {
       rodada: rodada ? this.rodadaNaTela(rodada, ultima.size) : null,
       lidoEm: lido.lidoEm,
       itens,
+      foraDaConferencia,
     };
   }
 
@@ -1585,6 +1610,16 @@ interface Trabalho {
   passos: Passo[];
   pendencias: string[];
   pecas: Record<string, unknown> | null;
+}
+
+/**
+ * O que conta no progresso da conferência: produto de estoque, ativo, que
+ * controla estoque. Inativo não existe (a mesma regra do Estoque e do Mover
+ * tudo); o sem controle de estoque não se confere aqui — ele fica à parte,
+ * com o motivo, e não impede o almoxarifado de chegar a 100%.
+ */
+function entraNaConferencia(i: ItemDeEstoque): boolean {
+  return !i.servico && i.ativo && i.controlaEstoque !== false;
 }
 
 interface ModeloDaCompra {

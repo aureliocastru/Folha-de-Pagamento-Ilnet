@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { useNavigate } from 'react-router-dom';
 import { useCelular } from '../lib/celular';
 import { formatNumeroBR } from '../lib/format';
 import { IconeVoltar } from './icones';
@@ -184,22 +185,38 @@ export function CabecalhoPagina({
   titulo: string;
   descricao?: ReactNode;
   /**
-   * Para onde volta a seta, quando a tela tem de onde voltar.
+   * O que a seta de voltar faz. Sem dizer, ela volta para a tela anterior —
+   * toda tela tem a seta, a pedido: no celular não há botão de voltar do
+   * navegador à vista. A tela que tem um "anterior" próprio (o mês aberto, a
+   * pasta) passa o dela; `false` tira a seta.
    *
    * Ela mora aqui, encostada no título, e não numa linha própria acima dele:
    * solta lá em cima ela vira um link de rodapé no lugar errado — do tamanho
    * de uma legenda, longe do que nomeia a tela, e ninguém a vê.
    */
-  voltar?: () => void;
+  voltar?: (() => void) | false;
   acoes?: ReactNode;
 }) {
+  const navegar = useNavigate();
+  const aoVoltar =
+    voltar === false
+      ? null
+      : (voltar ??
+        (() => {
+          /* Voltar no histórico só quando a tela anterior é deste sistema: aberta
+             por um link ou recarregada no começo da aba, `-1` sairia dele. O
+             `idx` é onde o React Router guarda a posição no histórico. */
+          const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;
+          if (idx > 0) navegar(-1);
+          else navegar('/modulos');
+        }));
   return (
     <header className="surgir mb-4 flex flex-wrap items-end justify-between gap-3 md:mb-5">
       <div className="flex min-w-0 items-center gap-2.5 md:gap-3">
-        {voltar && (
+        {aoVoltar && (
           <button
             type="button"
-            onClick={voltar}
+            onClick={aoVoltar}
             aria-label="Voltar"
             title="Voltar para a tela anterior"
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-tinta-200 bg-papel text-tinta-600 transition hover:border-brand-300 hover:bg-brand-500/5 hover:text-brand-700"

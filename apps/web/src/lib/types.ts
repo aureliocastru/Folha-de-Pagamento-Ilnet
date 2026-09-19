@@ -2571,6 +2571,8 @@ export interface ConferenciaDoAlmoxarifado {
   rodada: RodadaDeInventario | null;
   lidoEm: string;
   itens: ItemParaConferir[];
+  /** Ativo com "Controla estoque: Não": não se confere aqui, e não conta no progresso. */
+  foraDaConferencia: Array<{ produtoId: number; descricao: string; saldo: number; unidade: string | null; motivo: string }>;
 }
 
 export interface PecaParaConferir {

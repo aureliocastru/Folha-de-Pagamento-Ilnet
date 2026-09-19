@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { IconeLupa } from '../../components/icones';
 import {
   Aviso,
@@ -62,6 +62,15 @@ function arredondar(n: number): number {
 export function Conferencia() {
   const [params, setParams] = useSearchParams();
   const almoxId = Number(params.get('almox')) || null;
+  const navegar = useNavigate();
+  const local = useLocation();
+  /* Entrou no almoxarifado pela lista: voltar é desfazer essa entrada no
+     histórico — senão, da lista, a seta levaria de novo ao almoxarifado, e não
+     à tela de antes. Aberto por link, troca o endereço sem empilhar. */
+  const voltarDoAlmox = () =>
+    (local.state as { daLista?: boolean } | null)?.daLista
+      ? navegar(-1)
+      : setParams({}, { replace: true });
 
   const painel = useQuery({
     queryKey: [...CHAVE, 'painel'],
@@ -73,6 +82,8 @@ export function Conferencia() {
       <CabecalhoPagina
         secao="Almoxarifado"
         titulo="Conferência de estoque"
+        // Dentro de um almoxarifado, a seta volta para a escolha deles; fora, para a tela anterior.
+        voltar={almoxId ? voltarDoAlmox : undefined}
         acoes={painel.data?.rodada && <EncerrarInventario nome={painel.data.rodada.nome} />}
       />
 
@@ -92,12 +103,12 @@ export function Conferencia() {
       )}
 
       {almoxId ? (
-        <ListaDoAlmoxarifado almoxId={almoxId} onVoltar={() => setParams({})} />
+        <ListaDoAlmoxarifado almoxId={almoxId} />
       ) : (
         <EscolherAlmoxarifado
           painel={painel.data}
           carregando={painel.isLoading}
-          onEscolher={(id) => setParams({ almox: String(id) })}
+          onEscolher={(id) => setParams({ almox: String(id) }, { state: { daLista: true } })}
         />
       )}
     </Pagina>
@@ -179,7 +190,7 @@ function conferido(i: ItemParaConferir): boolean {
   return !!i.conferencia && i.conferencia.situacao !== 'DESFEITO';
 }
 
-function ListaDoAlmoxarifado({ almoxId, onVoltar }: { almoxId: number; onVoltar: () => void }) {
+function ListaDoAlmoxarifado({ almoxId }: { almoxId: number }) {
   const [busca, setBusca] = useState('');
   const [filtro, setFiltro] = useState<Filtro>('faltam');
   const [aberto, setAberto] = useState<{ produtoId: number; peca?: PecaAchada } | null>(null);
@@ -218,7 +229,15 @@ function ListaDoAlmoxarifado({ almoxId, onVoltar }: { almoxId: number; onVoltar:
     enabled: buscaAdiada.length >= 2,
     staleTime: 60_000,
   });
-  const idsNaLista = useMemo(() => new Set(itens.map((i) => i.produtoId)), [itens]);
+  // O sem controle de estoque tem saldo aqui, e está lá embaixo: não é "sem saldo".
+  const idsNaLista = useMemo(
+    () =>
+      new Set([
+        ...itens.map((i) => i.produtoId),
+        ...(dados?.foraDaConferencia ?? []).map((f) => f.produtoId),
+      ]),
+    [itens, dados],
+  );
   const foraDaLista =
     busca.trim().length >= 2 ? (doIxc.data ?? []).filter((p) => !idsNaLista.has(p.produtoId)) : [];
 
@@ -262,15 +281,7 @@ function ListaDoAlmoxarifado({ almoxId, onVoltar }: { almoxId: number; onVoltar:
 
   return (
     <>
-      <Bloco
-        titulo={dados?.almox.nome ?? 'Almoxarifado'}
-        className="mb-2"
-        acao={
-          <button type="button" onClick={onVoltar} className="btn btn-sutil btn-p">
-            ← Almoxarifados
-          </button>
-        }
-      >
+      <Bloco titulo={dados?.almox.nome ?? 'Almoxarifado'} className="mb-2">
         {lista.isLoading && <Carregando texto="Lendo no IXC o que tem aqui…" />}
         {lista.isError && <Aviso tom="erro">{mensagemErro(lista.error)}</Aviso>}
 
@@ -438,6 +449,27 @@ function ListaDoAlmoxarifado({ almoxId, onVoltar }: { almoxId: number; onVoltar:
             </div>
           )}
         </Bloco>
+      )}
+
+      {dados && dados.foraDaConferencia.length > 0 && (
+        <details className="mb-4 px-1">
+          <summary className="cursor-pointer text-[13px] font-semibold text-tinta-500">
+            Fora da conferência ({dados.foraDaConferencia.length}) — produtos sem controle de estoque
+          </summary>
+          <p className="mt-1 text-[12px] text-tinta-400">{dados.foraDaConferencia[0].motivo}</p>
+          <div className="mt-2 divide-y divide-tinta-100 rounded-xl border border-tinta-100">
+            {dados.foraDaConferencia.map((f) => (
+              <div key={f.produtoId} className="flex items-baseline justify-between gap-3 px-3 py-2 text-[13px]">
+                <span className="min-w-0 truncate text-tinta-700">
+                  {f.descricao} <span className="num text-[11px] text-tinta-400">· código {f.produtoId}</span>
+                </span>
+                <span className="num shrink-0 text-tinta-500">
+                  {quantidade(f.saldo)} {f.unidade}
+                </span>
+              </div>
+            ))}
+          </div>
+        </details>
       )}
 
       {aberto && (
