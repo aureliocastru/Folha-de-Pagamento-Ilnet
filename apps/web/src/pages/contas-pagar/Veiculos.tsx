@@ -163,6 +163,14 @@ interface Ficha {
     consumo: Consumo;
   };
   abastecimentos: Abastecimento[];
+  /** Só no galão: o que saiu dele — para a frota, ou para outro destino escrito. */
+  saidas?: Array<
+    Abastecimento & {
+      veiculo: { id: string; apelido: string; placa: string | null } | null;
+      /** "roçadeira", "sítio" — quando não foi para um veículo da frota. */
+      outroDestino: string | null;
+    }
+  >;
 }
 
 const km = (n: number) => `${formatMedidor(n)} km`;
@@ -1088,6 +1096,65 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
           )}
           {apagarAbastecimento.isError && (
             <Aviso tom="erro">{mensagemErro(apagarAbastecimento.error)}</Aviso>
+          )}
+
+          {/* O que saiu do galão, e para onde: a máquina da frota ou o destino
+              escrito — a roçadeira, o sítio. O valor é o do litro que estava
+              dentro dele, e não de nota nenhuma. */}
+          {d.veiculo.tipo === 'GALAO' && (
+            <>
+              <p className="eyebrow mb-2 mt-5">Saídas do galão</p>
+              {!d.saidas?.length ? (
+                <p className="text-sm text-tinta-400">
+                  Nada saiu dele ainda. A saída se lança pelo portal ou pela Minha área,
+                  em "Tirei do galão".
+                </p>
+              ) : (
+                <ul className="lista-dividida rounded-xl border border-tinta-200">
+                  {d.saidas.map((s) => (
+                    <li key={s.id} className="flex flex-wrap items-start justify-between gap-3 px-3 py-2.5">
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm text-tinta-800">
+                          {s.veiculo ? (
+                            <strong>{s.veiculo.apelido}</strong>
+                          ) : (
+                            <>
+                              <strong>{s.outroDestino}</strong>{' '}
+                              <span className="text-xs text-tinta-400">(fora da frota)</span>
+                            </>
+                          )}{' '}
+                          · {medida(s)}
+                          {s.valor != null && (
+                            <>
+                              {' '}· <span className="valor">{formatBRL(s.valor)}</span>
+                            </>
+                          )}
+                        </span>
+                        <span className="block text-[11px] text-tinta-400">
+                          {dataEHora(s.data)} · {s.lancadoPor}
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (
+                            confirm(
+                              `Apagar a saída de ${medida(s)} para ${s.veiculo?.apelido ?? s.outroDestino}? Os litros voltam para o galão.`,
+                            )
+                          ) {
+                            apagarAbastecimento.mutate(s.id);
+                          }
+                        }}
+                        disabled={apagarAbastecimento.isPending}
+                        className="btn btn-sutil btn-p text-rose-600"
+                      >
+                        Apagar
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
           )}
         </>
       )}

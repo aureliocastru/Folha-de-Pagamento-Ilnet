@@ -1481,8 +1481,16 @@ model ResponsavelDoVeiculo {
 model Abastecimento {
   id String @id @default(uuid())
 
-  veiculo   Veiculo @relation(fields: [veiculoId], references: [id], onDelete: Restrict)
-  veiculoId String  @map("veiculo_id")
+  /// Quem recebeu o combustível. Vazio só na saída de um galão para o que não
+  /// é da frota — aí quem diz para onde foi é `outroDestino`.
+  veiculo   Veiculo? @relation(fields: [veiculoId], references: [id], onDelete: Restrict)
+  veiculoId String?  @map("veiculo_id")
+
+  /// Para onde foram os litros de um galão quando não foi um veículo da frota:
+  /// "roçadeira", "cortador de grama", "sítio", "fazenda" (pedido do dono, em
+  /// 19/09/2026). Escrito como foi digitado. Só existe com `galaoId`, e no
+  /// lugar do `veiculoId` — o banco confere as duas coisas.
+  outroDestino String? @map("outro_destino")
 
   /// O valor da nota, antes do desconto da fatura. Vazio até o administrador
   /// conferir: quem abastece lança só o km e a foto, e o valor sai da nota,

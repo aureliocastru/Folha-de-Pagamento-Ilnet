@@ -411,6 +411,66 @@ describe('o galão de combustível', () => {
     ).rejects.toThrow(/não está com você/);
   });
 
+  it('o galão também vai para o que não é da frota — a roçadeira —, sem medidor e sem veículo', async () => {
+    const { service, prisma } = comGalao({ galao: { entrou: 11, litrosPagos: 11, pago: 66 } });
+
+    const r = await service.lancarPeloPortal(CPF, {
+      galaoId: 'g1',
+      outroDestino: '  Roçadeira do sítio ',
+      litros: 5,
+    });
+
+    const dados = prisma.abastecimento.create.mock.calls[0][0].data;
+    expect(dados).toMatchObject({
+      veiculoId: null,
+      outroDestino: 'Roçadeira do sítio',
+      galaoId: 'g1',
+      litros: 5,
+      km: null,
+      horimetro: null,
+    });
+    expect(dados).not.toHaveProperty('foto');
+    // 66 por 11 litros dá 6 o litro: os 5 litros da roçadeira valem 30.
+    expect(r).toMatchObject({ valor: 30, litros: 5 });
+  });
+
+  it('a saída do galão diz para onde foi: a máquina ou o outro destino, um dos dois', async () => {
+    const { service, prisma } = comGalao({ galao: { entrou: 200, litrosPagos: 200, pago: 1200 } });
+
+    await expect(service.lancarPeloPortal(CPF, { galaoId: 'g1', litros: 5 })).rejects.toThrow(
+      /para onde foi/,
+    );
+    await expect(
+      service.lancarPeloPortal(CPF, { galaoId: 'g1', outroDestino: '   ', litros: 5 }),
+    ).rejects.toThrow(/para onde foi/);
+    await expect(
+      service.lancarPeloPortal(CPF, {
+        veiculoId: 'm1',
+        galaoId: 'g1',
+        outroDestino: 'Sítio',
+        litros: 5,
+        horimetro: 1320,
+      }),
+    ).rejects.toThrow(/não os dois/);
+    expect(prisma.abastecimento.create).not.toHaveBeenCalled();
+  });
+
+  it('o outro destino também não tira mais do que há no galão', async () => {
+    const { service } = comGalao({ galao: { entrou: 11, litrosPagos: 11, pago: 66 } });
+
+    await expect(
+      service.lancarPeloPortal(CPF, { galaoId: 'g1', outroDestino: 'Fazenda', litros: 12 }),
+    ).rejects.toThrow(/há 11 L/);
+  });
+
+  it('a ida ao posto continua pedindo o veículo', async () => {
+    const { service } = comGalao();
+
+    await expect(service.lancarPeloPortal(CPF, { km: 12_500, foto: FOTO })).rejects.toThrow(
+      /Escolha o veículo/,
+    );
+  });
+
   it('o estoque é o que entrou menos o que saiu, ao preço das notas conferidas', async () => {
     const { service } = comGalao({
       galao: { entrou: 200, litrosPagos: 150, pago: 900, saiu: 50 },

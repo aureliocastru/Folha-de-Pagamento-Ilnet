@@ -15,6 +15,7 @@ import {
   AbastecimentosService,
   mediaDeConsumo,
   type AbastecimentoNaTela,
+  type SaidaDoGalao,
   type Consumo,
   type EstoqueDoGalao,
   type ResumoDoCombustivel,
@@ -87,6 +88,11 @@ export interface FichaDoVeiculo {
   porCategoria: Array<{ nome: string; valor: number }>;
   combustivel: ResumoDoCombustivel;
   abastecimentos: AbastecimentoNaTela[];
+  /**
+   * Só no galão: o que saiu dele e para onde — a máquina da frota, ou o outro
+   * destino escrito (a roçadeira, o sítio). Vazio nos outros veículos.
+   */
+  saidas: SaidaDoGalao[];
 }
 
 /**
@@ -151,6 +157,7 @@ export class VeiculosService {
 
     const medidasPorVeiculo = new Map<string, Medida[]>();
     for (const m of medidas) {
+      if (!m.veiculoId) continue;
       const lista = medidasPorVeiculo.get(m.veiculoId) ?? [];
       lista.push({
         km: m.km,
@@ -190,6 +197,7 @@ export class VeiculosService {
     };
 
     for (const c of compras) {
+      if (!c.veiculoId) continue;
       juntar(
         c.veiculoId,
         Number(c._sum.valor ?? 0),
@@ -200,6 +208,8 @@ export class VeiculosService {
       );
     }
     for (const s of saidas) {
+      // A que foi para a roçadeira, o sítio — fora da frota —, não é gasto de veículo nenhum.
+      if (!s.veiculoId) continue;
       const preco = s.galaoId ? precos.get(s.galaoId) : undefined;
       const litros = Number(s._sum.litros ?? 0);
       juntar(
@@ -295,9 +305,10 @@ export class VeiculosService {
       porNome.set(nome, (porNome.get(nome) ?? 0) + g.valor);
     }
 
-    const [combustivel, abastecimentos] = await Promise.all([
+    const [combustivel, abastecimentos, saidas] = await Promise.all([
       this.abastecimentos.resumo(id),
       this.abastecimentos.doVeiculo(id),
+      veiculo.tipo === 'GALAO' ? this.abastecimentos.saidasDoGalao(id) : Promise.resolve([]),
     ]);
 
     return {
@@ -308,6 +319,7 @@ export class VeiculosService {
         .sort((a, b) => b.valor - a.valor),
       combustivel,
       abastecimentos,
+      saidas,
     };
   }
 

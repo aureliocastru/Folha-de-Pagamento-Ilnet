@@ -50,9 +50,22 @@ export interface AbastecimentoAConferir extends AbastecimentoNaTela {
   veiculo: { id: string; apelido: string; placa: string | null };
 }
 
+/** O que saiu de um galão: para um veículo da frota, ou para outro destino escrito. */
+export interface SaidaDoGalao extends AbastecimentoNaTela {
+  veiculo: { id: string; apelido: string; placa: string | null } | null;
+  /** "roçadeira", "sítio" — quando não foi para um veículo da frota. */
+  outroDestino: string | null;
+}
+
 /** O que o portal precisa saber para lançar — a ida ao posto ou a saída do galão. */
 export interface DadosDoLancamento {
-  veiculoId: string;
+  /**
+   * Quem recebeu o combustível. Na saída do galão pode faltar: aí os litros
+   * foram para `outroDestino`, que não é da frota.
+   */
+  veiculoId?: string | null;
+  /** Na saída do galão, para onde foi quando não foi um veículo: "roçadeira". */
+  outroDestino?: string | null;
   km?: number | null;
   horimetro?: number | null;
   litros?: number | null;
@@ -68,6 +81,12 @@ export interface RespostaDoPortal {
   veiculos: VeiculoDoPortal[];
   /** Para onde os litros do galão podem ir. Vazio para quem não tem galão. */
   destinos: DestinoDoGalao[];
+  /**
+   * Os outros destinos já escritos numa saída de galão — "roçadeira",
+   * "sítio" —, dos mais recentes: o campo os sugere, e o mesmo lugar não vira
+   * três grafias diferentes no histórico.
+   */
+  outrosDestinos: string[];
 }
 
 /** O veículo como o portal o mostra a quem o abastece. */
@@ -288,11 +307,37 @@ export class AbastecimentosService {
      * quem carrega o galão. Sem esta lista, o combustível entraria e nunca
      * teria como sair.
      */
-    const destinos = noPortal.some((v) => v.tipo === 'GALAO')
-      ? await this.destinosPossiveis()
-      : [];
+    const temGalao = noPortal.some((v) => v.tipo === 'GALAO');
+    const [destinos, outrosDestinos] = temGalao
+      ? await Promise.all([this.destinosPossiveis(), this.outrosDestinosUsados()])
+      : [[], []];
 
-    return { nome: funcionario.apelido || funcionario.nome, veiculos: noPortal, destinos };
+    return {
+      nome: funcionario.apelido || funcionario.nome,
+      veiculos: noPortal,
+      destinos,
+      outrosDestinos,
+    };
+  }
+
+  /** Os destinos escritos das últimas saídas de galão, sem repetir. */
+  private async outrosDestinosUsados(): Promise<string[]> {
+    const recentes = await this.prisma.abastecimento.findMany({
+      where: { outroDestino: { not: null } },
+      orderBy: { createdAt: 'desc' },
+      select: { outroDestino: true },
+      take: 200,
+    });
+    const vistos = new Set<string>();
+    const nomes: string[] = [];
+    for (const { outroDestino } of recentes) {
+      const nome = outroDestino?.trim();
+      const chave = nome?.toLocaleLowerCase('pt-BR');
+      if (!nome || !chave || vistos.has(chave)) continue;
+      vistos.add(chave);
+      nomes.push(nome);
+    }
+    return nomes.slice(0, 20);
   }
 
   /**
@@ -345,9 +390,11 @@ export class AbastecimentosService {
    * **Sem galão** é a ida ao posto: a nota, os litros e o medidor do que foi
    * abastecido. O valor não se digita — sai da nota, na conferência.
    *
-   * **Com galão** é o combustível saindo dele para uma máquina: litros e
-   * horímetro, e nada de nota — aquele dinheiro já saiu no dia em que o galão
-   * foi enchido, e cobrá-lo de novo contaria o mesmo diesel duas vezes.
+   * **Com galão** é o combustível saindo dele: litros, e nada de nota — aquele
+   * dinheiro já saiu no dia em que o galão foi enchido, e cobrá-lo de novo
+   * contaria o mesmo diesel duas vezes. Vai para uma máquina ou veículo da
+   * frota (com o horímetro ou o km dele), ou para outro destino escrito — a
+   * roçadeira, o sítio —, que não tem painel nenhum.
    *
    * A data e a hora são as do servidor, e não as do celular — relógio de
    * celular atrasado não muda a ordem dos abastecimentos.
@@ -357,7 +404,6 @@ export class AbastecimentosService {
     dados: DadosDoLancamento,
     usuarioId?: string,
   ): Promise<AbastecimentoNaTela> {
-    const destino = await this.veiculoAtivo(dados.veiculoId);
     const quem = funcionario.apelido || funcionario.nome;
 
     if (dados.galaoId) {
@@ -370,7 +416,24 @@ export class AbastecimentosService {
           'Este galão não está com você. Peça ao administrador para colocá-lo no seu nome.',
         );
       }
-      if (galao.id === destino.id) {
+
+      // Para onde foi: um veículo da frota, ou o que se escreveu — um dos dois.
+      const outroDestino = dados.outroDestino?.trim() || null;
+      if (!dados.veiculoId && !outroDestino) {
+        throw new BadRequestException(
+          'Diga para onde foi o combustível: escolha a máquina ou escreva o outro destino.',
+        );
+      }
+      if (dados.veiculoId && outroDestino) {
+        throw new BadRequestException(
+          'Escolha a máquina ou escreva outro destino — não os dois.',
+        );
+      }
+      if (outroDestino && outroDestino.length < 2) {
+        throw new BadRequestException('Escreva para onde foi o combustível.');
+      }
+      const destino = dados.veiculoId ? await this.veiculoAtivo(dados.veiculoId) : null;
+      if (destino && galao.id === destino.id) {
         throw new BadRequestException('O galão não abastece a si mesmo.');
       }
 
@@ -382,10 +445,14 @@ export class AbastecimentosService {
         );
       }
 
-      const medidor = await this.medidorDoDestino(destino, dados);
+      // A roçadeira não tem painel: sem veículo, não há medidor a pedir.
+      const medidor = destino
+        ? await this.medidorDoDestino(destino, dados)
+        : { km: null, horimetro: null };
       const criado = await this.prisma.abastecimento.create({
         data: {
-          veiculoId: destino.id,
+          veiculoId: destino?.id ?? null,
+          outroDestino,
           galaoId: galao.id,
           litros,
           ...medidor,
@@ -400,10 +467,16 @@ export class AbastecimentosService {
         },
       });
       this.logger.log(
-        `${funcionario.nome} pôs ${litrosEscritos(litros)} do ${galao.apelido} em ${destino.apelido}.`,
+        `${funcionario.nome} pôs ${litrosEscritos(litros)} do ${galao.apelido} em ` +
+          `${destino?.apelido ?? `"${outroDestino}"`}.`,
       );
       return this.valorizada(criado);
     }
+
+    if (!dados.veiculoId) {
+      throw new BadRequestException('Escolha o veículo que você abasteceu.');
+    }
+    const destino = await this.veiculoAtivo(dados.veiculoId);
 
     // A ida ao posto: só quem tem a coisa no nome é que a abastece.
     if (!estaNoNome(destino, funcionario.id)) {
@@ -551,7 +624,8 @@ export class AbastecimentosService {
         veiculo: { select: { id: true, apelido: true, placa: true } },
       },
     });
-    return lista.map((a) => ({ ...naTela(a), veiculo: a.veiculo }));
+    // A ida ao posto é sempre de um veículo; sem ele seria saída de galão, que não vem aqui.
+    return lista.flatMap((a) => (a.veiculo ? [{ ...naTela(a), veiculo: a.veiculo }] : []));
   }
 
   async doVeiculo(veiculoId: string): Promise<AbastecimentoNaTela[]> {
@@ -567,8 +641,8 @@ export class AbastecimentosService {
     return lista.map((a) => valorizar(naTela(a), a.galaoId, precos));
   }
 
-  /** O que já saiu deste galão, e para onde foi. */
-  async saidasDoGalao(galaoId: string): Promise<AbastecimentoAConferir[]> {
+  /** O que já saiu deste galão, e para onde foi — veículo da frota ou outro destino. */
+  async saidasDoGalao(galaoId: string): Promise<SaidaDoGalao[]> {
     const lista = await this.prisma.abastecimento.findMany({
       where: { galaoId },
       orderBy: [{ data: 'desc' }, { createdAt: 'desc' }],
@@ -582,6 +656,7 @@ export class AbastecimentosService {
     return lista.map((a) => ({
       ...valorizar(naTela(a), a.galaoId, precos),
       veiculo: a.veiculo,
+      outroDestino: a.outroDestino,
     }));
   }
 
@@ -673,7 +748,7 @@ export class AbastecimentosService {
     const precos = new Map<string, number>();
     for (const c of compras) {
       const litros = Number(c._sum.litros ?? 0);
-      if (litros > 0) precos.set(c.veiculoId, Number(c._sum.valor ?? 0) / litros);
+      if (c.veiculoId && litros > 0) precos.set(c.veiculoId, Number(c._sum.valor ?? 0) / litros);
     }
     return precos;
   }

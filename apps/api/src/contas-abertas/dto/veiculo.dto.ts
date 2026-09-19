@@ -153,7 +153,11 @@ export class VeiculosDoCpfDto {
 export class LancarAbastecimentoDto {
   @IsString() @MaxLength(20) cpf!: string;
 
-  @IsUUID() veiculoId!: string;
+  /** O que foi abastecido. Na saída do galão, falta quando vai para `outroDestino`. */
+  @IsOptional() @IsUUID() veiculoId?: string;
+
+  /** Na saída do galão, o destino que não é da frota: "roçadeira", "sítio". */
+  @IsOptional() @Transform(semVazio) @IsString() @MaxLength(80) outroDestino?: string;
 
   /** O km do painel. Nos veículos que andam. */
   @IsOptional()
@@ -185,7 +189,11 @@ export class LancarAbastecimentoDto {
 
 /** O mesmo lançamento, pela tela do colaborador: quem é a pessoa vem do login. */
 export class LancarMeuAbastecimentoDto {
-  @IsUUID() veiculoId!: string;
+  /** O que foi abastecido. Na saída do galão, falta quando vai para `outroDestino`. */
+  @IsOptional() @IsUUID() veiculoId?: string;
+
+  /** Na saída do galão, o destino que não é da frota: "roçadeira", "sítio". */
+  @IsOptional() @Transform(semVazio) @IsString() @MaxLength(80) outroDestino?: string;
 
   /** O km do painel. Nos veículos que andam. */
   @IsOptional()

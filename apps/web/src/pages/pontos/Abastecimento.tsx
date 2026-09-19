@@ -80,10 +80,15 @@ export interface VeiculosDoResponsavel {
   nome: string;
   veiculos: VeiculoDoPortal[];
   destinos: DestinoDoGalao[];
+  /** Os outros destinos já escritos numa saída de galão — o campo os sugere. */
+  outrosDestinos?: string[];
 }
 
 export interface DadosDoAbastecimento {
-  veiculoId: string;
+  /** Na saída do galão para outro destino, não vai: quem diz é `outroDestino`. */
+  veiculoId?: string;
+  /** Na saída do galão, o que não é da frota: "roçadeira", "sítio". */
+  outroDestino?: string;
   km?: number;
   horimetro?: number;
   litros?: number;
@@ -157,6 +162,9 @@ const COMBUSTIVEL_NOME: Record<string, string> = {
  */
 const LITROS_COM_CASAS = 2;
 
+/** A opção da lista de destinos que abre o campo de escrever. */
+const OUTRO_DESTINO = 'outro';
+
 /**
  * O abastecimento, lançado por quem anda com o veículo, na hora, no posto.
  *
@@ -166,10 +174,11 @@ const LITROS_COM_CASAS = 2;
  * - **o carro no posto**: o km do painel e a foto da nota, como sempre foi;
  * - **o galão no posto**: quantos litros entraram e a foto da nota — galão não
  *   tem painel, tem estoque;
- * - **o galão na máquina**: quantos litros saíram e o horímetro da máquina. Não
- *   há nota nenhuma aqui: aquele diesel já foi pago no dia em que o galão foi
- *   enchido, e o que a máquina custou sai do preço do litro que está dentro
- *   dele.
+ * - **o que sai do galão**: quantos litros saíram e para onde — a máquina da
+ *   frota, com o horímetro dela, ou outro destino escrito (a roçadeira, o
+ *   sítio), que não tem painel. Não há nota nenhuma aqui: aquele combustível
+ *   já foi pago no dia em que o galão foi enchido, e o que a saída custou sai
+ *   do preço do litro que está dentro dele.
  *
  * Tudo grande, para o dedo e para a luz do sol: é uma tela de posto de
  * gasolina, e às vezes de canteiro de obra.
@@ -184,6 +193,8 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
   /** No galão: encher no posto, ou despejar numa máquina. */
   const [modo, setModo] = useState<'posto' | 'saida'>('posto');
   const [destinoId, setDestinoId] = useState('');
+  /** Escolhido "Outro destino": para onde foi, escrito. */
+  const [outroDestino, setOutroDestino] = useState('');
   const [medidorDigitado, setMedidorDigitado] = useState('');
   const [litrosDigitados, setLitrosDigitados] = useState('');
   const [foto, setFoto] = useState<string | null>(null);
@@ -203,6 +214,9 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
 
   // Quem recebe o combustível: a máquina escolhida, ou o próprio veículo.
   const destino = tirandoDoGalao ? (destinos.find((d) => d.id === destinoId) ?? null) : null;
+  /** Saindo do galão para o que não é da frota — sem veículo, sem painel. */
+  const paraOutroDestino = tirandoDoGalao && destinoId === OUTRO_DESTINO;
+  const outroDestinoEscrito = outroDestino.trim();
   const ehMaquina = destino?.tipo === 'MAQUINA';
   /** O galão não tem painel; a máquina conta horas; o resto conta km. */
   const pedeMedidor = tirandoDoGalao ? !!destino : !ehGalao;
@@ -228,6 +242,7 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
   useEffect(() => {
     setModo('posto');
     setDestinoId('');
+    setOutroDestino('');
     setMedidorDigitado('');
     setLitrosDigitados('');
   }, [veiculoId]);
@@ -251,7 +266,9 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
   const lancar = useMutation({
     mutationFn: () =>
       enviar({
-        veiculoId: tirandoDoGalao ? destinoId : veiculoId,
+        ...(paraOutroDestino
+          ? { outroDestino: outroDestinoEscrito }
+          : { veiculoId: tirandoDoGalao ? destinoId : veiculoId }),
         ...(tirandoDoGalao ? { galaoId: veiculoId } : {}),
         ...(pedeMedidor
           ? ehMaquina
@@ -264,7 +281,9 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
     onSuccess: () => {
       setFeito(
         tirandoDoGalao
-          ? `${litrosEscritos(litros ?? 0)} do ${veiculo?.apelido} em ${destino?.apelido}.`
+          ? `${litrosEscritos(litros ?? 0)} do ${veiculo?.apelido} em ${
+              paraOutroDestino ? outroDestinoEscrito : destino?.apelido
+            }.`
           : ehGalao
             ? `${veiculo?.apelido} enchido com ${litrosEscritos(litros ?? 0)}. A nota vai para a conferência.`
             : `Abastecimento lançado em ${veiculo?.apelido} com ${km(medidor ?? 0)}. A nota vai para a conferência.`,
@@ -292,7 +311,7 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
     (!pedeMedidor || (medidor != null && !medidorAtras)) &&
     (!pedeLitros || (litros != null && litros > 0)) &&
     !passaDoEstoque &&
-    (!tirandoDoGalao || !!destinoId) &&
+    (!tirandoDoGalao || (paraOutroDestino ? outroDestinoEscrito.length >= 2 : !!destinoId)) &&
     (!pedeFoto || !!foto);
 
   const rotuloDoMedidor = ehMaquina ? 'Horímetro da máquina' : 'Km do painel';
@@ -410,7 +429,8 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
               {(
                 [
                   ['posto', 'Enchi no posto'],
-                  ['saida', 'Pus numa máquina'],
+                  // Nem sempre é máquina: a roçadeira, o sítio — "Pra onde foi" diz.
+                  ['saida', 'Tirei do galão'],
                 ] as const
               ).map(([qual, rotulo]) => (
                 <button
@@ -442,11 +462,12 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
           </div>
         )}
 
-        {/* Para qual máquina foram os litros. */}
+        {/* Para onde foram os litros: a máquina da frota, ou outro destino
+            escrito — a roçadeira, o cortador de grama, o sítio, a fazenda. */}
         {tirandoDoGalao && (
           <div>
             <label className="rotulo" htmlFor="abast-destino">
-              Em qual máquina
+              Pra onde foi
             </label>
             <select
               id="abast-destino"
@@ -463,7 +484,31 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
                   {[d.apelido, d.placa].filter(Boolean).join(' · ')}
                 </option>
               ))}
+              <option value={OUTRO_DESTINO}>Outro destino (escrever)…</option>
             </select>
+            {paraOutroDestino && (
+              <>
+                <input
+                  id="abast-outro-destino"
+                  value={outroDestino}
+                  onChange={(e) => setOutroDestino(e.target.value.slice(0, 80))}
+                  className="campo mt-2 h-12 text-base"
+                  placeholder="Roçadeira, cortador de grama, sítio, fazenda…"
+                  aria-label="Outro destino"
+                  list="abast-outros-destinos"
+                  autoComplete="off"
+                  autoFocus
+                />
+                <datalist id="abast-outros-destinos">
+                  {(consulta.data?.outrosDestinos ?? []).map((d) => (
+                    <option key={d} value={d} />
+                  ))}
+                </datalist>
+                <p className="mt-1 text-xs text-tinta-500">
+                  O que não é veículo da frota não tem painel: vão só os litros.
+                </p>
+              </>
+            )}
           </div>
         )}
 
@@ -581,7 +626,9 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
             : !veiculo
               ? 'Escolha o veículo'
               : tirandoDoGalao && !destinoId
-                ? 'Escolha a máquina'
+                ? 'Diga pra onde foi'
+                : paraOutroDestino && outroDestinoEscrito.length < 2
+                  ? 'Escreva o destino'
                 : pedeLitros && litros == null
                   ? 'Digite os litros'
                   : pedeMedidor && medidor == null
