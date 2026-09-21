@@ -293,6 +293,29 @@ describe('guia do FGTS Digital', () => {
   it('a soma dos itens bate com o total da guia', () => {
     expect(conferir(guia)).toBeNull();
   });
+
+  /*
+   * A guia gerada depois do dia traz os encargos do atraso. Com as colunas
+   * embaralhadas, não dá para dizer qual número é qual — mas o total da linha
+   * é o maior deles, e o que passa do FGTS do mês entra como um item só.
+   */
+  it('com encargos, o que passa da coluna principal entra à parte', () => {
+    const comEncargos = lerGuia(
+      FGTS.replace(
+        'Total FGTS: 2.000,00\t0,00\t2.000,00 0,00 0,00',
+        'Total FGTS: 2.000,00\t0,00\t2.100,00 0,00 100,00',
+      )
+        .replace('500,00\tTotal Consignado: 500,00\t0,00', '510,00\tTotal Consignado: 500,00\t10,00')
+        .replace('Total da Guia: 2.500,00', 'Total da Guia: 2.610,00'),
+    );
+    expect(comEncargos.itens.map((i) => [i.denominacao, i.classe, i.valor])).toEqual([
+      ['FGTS mensal', 'FOLHA_PATRONAL', 2000],
+      ['Encargos e demais valores do FGTS', 'FOLHA_PATRONAL', 100],
+      ['Consignado retido do trabalhador', 'FOLHA_RETIDO', 500],
+      ['Encargos do consignado (atraso)', 'FOLHA_PATRONAL', 10],
+    ]);
+    expect(conferir(comEncargos)).toBeNull();
+  });
 });
 
 describe('DARE do ICMS', () => {

@@ -12,6 +12,8 @@
  * pessoa na tela, antes de gravar.
  */
 
+import { MARCA_DO_OCR } from './guia-por-imagem';
+
 /** Documento reconhecido pelo leitor. */
 export type TipoGuia = 'DARF_INSS' | 'FGTS' | 'DAS_SIMPLES' | 'DARE_ICMS';
 
@@ -214,10 +216,11 @@ function lerSenda(texto: string): Omit<GuiaLida, 'pagamento'> {
     valorDepoisDe(texto, /Totais\s+/) ??
     somaDosItens(itens);
 
+  const competencia = competenciaPorExtenso(texto);
   return {
     tipo: ehSimples ? 'DAS_SIMPLES' : 'DARF_INSS',
-    competencia: competenciaPorExtenso(texto),
-    vencimento: vencimento(texto),
+    competencia,
+    vencimento: vencimento(texto, competencia),
     valorTotal,
     numeroDocumento: /Número:\s*([\d.-]+)/.exec(texto)?.[1] ?? null,
     cnpj: /(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})/.exec(texto)?.[1] ?? null,
@@ -227,34 +230,67 @@ function lerSenda(texto: string): Omit<GuiaLida, 'pagamento'> {
   };
 }
 
+/** Uma coluna de dinheiro da composição do FGTS Digital, e como ela conta. */
+interface ColunaFgts {
+  denominacao: string;
+  classe: ClasseTributo;
+}
+
+/** Um dos dois quadros da composição do FGTS Digital. */
+interface QuadroFgts {
+  /** O rótulo da linha de totais, que fecha o quadro. */
+  rotulo: string;
+  /** As colunas de dinheiro, na ordem do papel. Depois delas vem o total. */
+  colunas: ColunaFgts[];
+  /** Como entra o que passa da coluna principal, quando a posição não vale. */
+  resto: ColunaFgts;
+}
+
 /**
- * FGTS Digital. Não tem código de receita e as colunas saem embaralhadas, então
- * os dois valores que interessam vêm dos totais rotulados: o FGTS do mês (custo
- * da empresa) e o consignado, que é desconto do trabalhador sendo repassado.
+ * O quadro do FGTS. Os encargos são o juro e a multa de quem pagou depois do
+ * dia: saem do bolso da empresa como o FGTS do mês, e contam como ele.
+ */
+const QUADRO_FGTS: QuadroFgts = {
+  rotulo: 'Total FGTS:',
+  colunas: [
+    { denominacao: 'FGTS mensal', classe: 'FOLHA_PATRONAL' },
+    { denominacao: 'FGTS rescisório', classe: 'FOLHA_PATRONAL' },
+    { denominacao: 'Indenização compensatória', classe: 'FOLHA_PATRONAL' },
+    { denominacao: 'Encargos do FGTS (atraso)', classe: 'FOLHA_PATRONAL' },
+  ],
+  resto: { denominacao: 'Encargos e demais valores do FGTS', classe: 'FOLHA_PATRONAL' },
+};
+
+/**
+ * O quadro do consignado. O consignado é a parcela do empréstimo descontada do
+ * trabalhador e repassada; os encargos, não — ninguém descontou isso de
+ * ninguém: é a empresa pagando pelo atraso dela.
+ */
+const ENCARGOS_DO_CONSIGNADO: ColunaFgts = {
+  denominacao: 'Encargos do consignado (atraso)',
+  classe: 'FOLHA_PATRONAL',
+};
+const QUADRO_CONSIGNADO: QuadroFgts = {
+  rotulo: 'Total Consignado:',
+  colunas: [
+    { denominacao: 'Consignado retido do trabalhador', classe: 'FOLHA_RETIDO' },
+    ENCARGOS_DO_CONSIGNADO,
+  ],
+  resto: ENCARGOS_DO_CONSIGNADO,
+};
+
+/**
+ * FGTS Digital. Não tem código de receita, e a composição vem em dois quadros —
+ * o do FGTS (custo da empresa) e o do consignado (desconto do trabalhador sendo
+ * repassado) —, cada um fechando numa linha de totais rotulada. É dela que os
+ * itens saem. A guia pode trazer os dois quadros ou só um: a do consignado vem
+ * à parte, com "Não há informações de recolhimentos do FGTS" no primeiro.
  */
 function lerFgts(texto: string): Omit<GuiaLida, 'pagamento'> {
-  const fgts = valorDepoisDe(texto, /Total FGTS:\s*/);
-  const consignado = valorDepoisDe(texto, /Total Consignado:\s*/);
-
-  const itens: ItemGuiaLido[] = [];
-  if (fgts !== null && fgts > 0) {
-    itens.push({
-      codigo: null,
-      denominacao: 'FGTS mensal',
-      valor: fgts,
-      classe: 'FOLHA_PATRONAL',
-      classeIncerta: false,
-    });
-  }
-  if (consignado !== null && consignado > 0) {
-    itens.push({
-      codigo: null,
-      denominacao: 'Consignado retido do trabalhador',
-      valor: consignado,
-      classe: 'FOLHA_RETIDO',
-      classeIncerta: false,
-    });
-  }
+  const itens: ItemGuiaLido[] = [
+    ...itensDoQuadro(texto, QUADRO_FGTS),
+    ...itensDoQuadro(texto, QUADRO_CONSIGNADO),
+  ];
 
   const valorTotal =
     valorDepoisDe(texto, /Total da Guia:\s*/) ??
@@ -262,10 +298,11 @@ function lerFgts(texto: string): Omit<GuiaLida, 'pagamento'> {
     somaDosItens(itens);
 
   // A linha "Tag" resume a guia: CNPJ base, competência e modalidade. Lida da
-  // imagem, a linha que sobra é a da composição — "08/2026 24 3.924,89 …",
-  // competência, trabalhadores e o FGTS do mês.
+  // imagem, a linha que sobra é a da composição — "08/2026 10 2.000,00 …",
+  // competência, trabalhadores e o FGTS do mês; na guia do consignado não há a
+  // coluna de trabalhadores, e a linha é "08/2026 500,00 10,00 510,00".
   const tag = /^\s*(\d{8})\s+(\d{2})\/(\d{4})\s+\w+/m.exec(texto);
-  const composicao = /^\s*(\d{2})\/(\d{4})\s+(\d+)\s+[\d.]+,\d{2}/m.exec(texto);
+  const composicao = /^\s*(\d{2})\/(\d{4})\s+(?:(\d+)\s+)?[\d.]+,\d{2}/m.exec(texto);
   const competencia = tag
     ? `${tag[3]}-${tag[2]}`
     : composicao
@@ -280,7 +317,7 @@ function lerFgts(texto: string): Omit<GuiaLida, 'pagamento'> {
   return {
     tipo: 'FGTS',
     competencia,
-    vencimento: vencimento(texto),
+    vencimento: vencimento(texto, competencia),
     valorTotal,
     numeroDocumento: depoisDoRotulo(texto, 'Identificador'),
     cnpj: /(\d{2}\.\d{3}\.\d{3})/.exec(texto)?.[1] ?? null,
@@ -288,9 +325,62 @@ function lerFgts(texto: string): Omit<GuiaLida, 'pagamento'> {
     // Na linha da composição, a quantidade vem logo depois da competência.
     trabalhadores:
       numeroDepoisDe(texto, /\d{2}\/\d{4}\s+(\d+)\s*$/m) ??
-      (composicao ? Number(composicao[3]) : null),
+      (composicao?.[3] ? Number(composicao[3]) : null),
     itens,
   };
+}
+
+/**
+ * Os itens de um quadro do FGTS Digital, lidos da sua linha de totais.
+ *
+ * Lida da imagem, a linha vem inteira e na ordem do papel — "Total FGTS:
+ * 2.000,00 0,00 0,00 100,00 2.100,00" —, e o último número é a soma dos
+ * outros: quando essa conta fecha, cada número é a sua coluna.
+ *
+ * Do PDF com texto as colunas saem embaralhadas, e a posição não vale nada —
+ * no consignado, trocar duas delas seria contar o desconto do trabalhador como
+ * custo da empresa. O que continua valendo ali é que o primeiro número depois
+ * do rótulo é o da coluna principal (o FGTS do mês, o consignado), e que o
+ * total da linha é o maior número dela, por ser a soma dos outros. A diferença
+ * entre os dois é o resto do quadro — encargos, rescisório —, e entra junta,
+ * como um item só.
+ */
+function itensDoQuadro(texto: string, quadro: QuadroFgts): ItemGuiaLido[] {
+  const i = texto.indexOf(quadro.rotulo);
+  if (i < 0) return [];
+  const numeros = (trecho: string) =>
+    (trecho.match(/[\d.]+,\d{2}/g) ?? []).map(parseValor);
+
+  const aPartirDoRotulo = texto.slice(i + quadro.rotulo.length);
+  const linha = texto.slice(texto.lastIndexOf('\n', i) + 1).split('\n')[0];
+  const depois = numeros(aPartirDoRotulo.split('\n')[0]);
+
+  const item = (coluna: ColunaFgts, valor: number): ItemGuiaLido => ({
+    codigo: null,
+    denominacao: coluna.denominacao,
+    valor,
+    classe: coluna.classe,
+    classeIncerta: false,
+  });
+
+  const { colunas } = quadro;
+  const partes = depois.slice(0, colunas.length);
+  if (
+    texto.startsWith(MARCA_DO_OCR) &&
+    depois.length === colunas.length + 1 &&
+    Math.abs(somaDe(partes) - depois[colunas.length]) < 0.01
+  ) {
+    return partes.map((valor, c) => item(colunas[c], valor)).filter((it) => it.valor > 0);
+  }
+
+  // O valor pode ter ido sozinho para a linha de baixo do rótulo.
+  const principal = depois[0] ?? valorDepoisDe(aPartirDoRotulo, /^/);
+  if (principal === null) return [];
+  const resto = arredondar(Math.max(principal, ...numeros(linha)) - principal);
+
+  return [item(colunas[0], principal), item(quadro.resto, resto)].filter(
+    (it) => it.valor > 0,
+  );
 }
 
 /**
@@ -476,17 +566,46 @@ function competenciaPorExtenso(texto: string): string {
   );
 }
 
-function vencimento(texto: string): string {
-  const m =
-    /Pagar até:\s*(\d{2})\/(\d{2})\/(\d{4})/.exec(texto) ??
-    /Pagar este documento até\s*\n?\s*(\d{2})\/(\d{2})\/(\d{4})/.exec(texto) ??
-    // Lida da imagem, a data do quadro vem na linha de baixo, depois dos
-    // rótulos dos quadros vizinhos ("CPF/CNPJ do Empregador … 18/09/2026").
-    /Pagar este documento até[^\n]*\n[^\n]*?(\d{2})\/(\d{2})\/(\d{4})/.exec(texto);
-  if (!m) {
+/**
+ * O "pagar até" da guia, que ela traz em dois lugares: no rodapé ("Pagar até:
+ * 21/09/2026") e no quadro do topo ("Pagar este documento até").
+ *
+ * O rodapé vem primeiro, por ter o rótulo colado na data. Mas lida da imagem a
+ * data pode sair com um dígito trocado — "21/09/2006" num DARF de agosto de
+ * 2026 — e a régua que separa a leitura certa da errada é a apuração: guia
+ * nenhuma vence antes de o mês dela acabar. A data impossível cede a vez à do
+ * quadro do topo.
+ *
+ * Lido da imagem, o quadro do topo sai espalhado pelas duas linhas de baixo do
+ * rótulo, junto dos quadros vizinhos — e no DARF um deles é a "Data de
+ * Vencimento" original (18/09), que no documento atualizado já passou. O "pagar
+ * até" é a mais tarde das duas: é até ela que vale o total impresso, com multa.
+ */
+function vencimento(texto: string, competencia: string): string {
+  const rodape = /Pagar até:\s*(\d{2}\/\d{2}\/\d{4})/.exec(texto)?.[1];
+  const quadro = /Pagar este documento até([^\n]*\n?){3}/.exec(texto)?.[0] ?? '';
+  const doQuadro = (quadro.match(/\d{2}\/\d{2}\/\d{4}/g) ?? []).map(isoDe).sort().reverse();
+  const candidatas = [...(rodape ? [isoDe(rodape)] : []), ...doQuadro];
+
+  if (candidatas.length === 0) {
     throw new GuiaIlegivelError('Não achei a data de vencimento no documento.');
   }
-  return `${m[3]}-${m[2]}-${m[1]}`;
+  const possivel = candidatas.find((data) => data.slice(0, 7) > competencia);
+  if (!possivel) {
+    const [ano, mes] = competencia.split('-');
+    const [a, m, d] = candidatas[0].split('-');
+    throw new GuiaIlegivelError(
+      `Li o vencimento como ${d}/${m}/${a}, antes do fim da apuração ` +
+        `(${mes}/${ano}) — a leitura errou a data. Digite esta guia à mão.`,
+    );
+  }
+  return possivel;
+}
+
+/** "21/09/2026" → "2026-09-21" */
+function isoDe(data: string): string {
+  const [d, m, a] = data.split('/');
+  return `${a}-${m}-${d}`;
 }
 
 /** Razão social: vem na mesma linha do CNPJ, logo depois dele. */
@@ -521,7 +640,11 @@ function valorDepoisDoRotulo(texto: string, rotulo: string): number | null {
 }
 
 function somaDosItens(itens: ItemGuiaLido[]): number {
-  return arredondar(itens.reduce((s, i) => s + i.valor, 0));
+  return somaDe(itens.map((i) => i.valor));
+}
+
+function somaDe(valores: number[]): number {
+  return arredondar(valores.reduce((s, v) => s + v, 0));
 }
 
 /** "4.310,76" → 4310.76 */

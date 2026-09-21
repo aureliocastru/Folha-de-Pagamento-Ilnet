@@ -5,7 +5,7 @@ import {
   textoDaImagem,
   valorDoCodigoDeBarras,
 } from './guia-por-imagem';
-import { lerGuia } from './guias.parse';
+import { conferir, lerGuia } from './guias.parse';
 import { ImpostosService } from './impostos.service';
 
 /**
@@ -87,6 +87,54 @@ const OCR_FGTS = [
   '00020126330014br.gov.bcb.pix0lll000000000005204000053039865802BR5913EMPRESA TESTE6008BRASILIA62070503***63041061',
 ].join('\n');
 
+/**
+ * A guia do FGTS "atualizada": gerada depois do dia, com os encargos do atraso
+ * numa coluna própria — e o total da guia é o FGTS do mês mais eles.
+ */
+const OCR_FGTS_COM_ENCARGOS = [
+  'Digital :',
+  'Pagar este documento até',
+  'CPF/CNPJ do Empregador Nome/Razão Social do Empregador 21/09/2026',
+  '11.222.333 || EMPRESA EXEMPLO LTDA 5 NSODO Brasílte)',
+  'Valor a recolher',
+  'Núm. de Pág. Identificador Tag 2 100 00',
+  '1 O12345678901/2345-6) | 21/09/2026 09:15 ! !',
+  'Composição do Documento',
+  'Informações de recolhimentos do FGTS',
+  'Competência Trabalhadores FGTS Mensal FGTS Rescisório Compensatória Encargos FGTS Total',
+  '08/2026 10 2.000,00 0,00 0,00 100,00 2.100,00',
+  'Total FGTS: 2.000,00 0,00 0,00 100,00 2.100,00',
+  'Informações de recolhimentos do Consignado',
+  'Não há informações de recolhimentos do Consignado',
+  'Total da Guia: 2.100,00',
+  'Data de geração da Guia: 21/09/2026 às 09:15:35 - Página 1/1',
+].join('\n');
+
+/**
+ * A guia do consignado, que o FGTS Digital manda à parte: o quadro do FGTS
+ * vazio, e a linha da composição sem a coluna de trabalhadores. A tag saiu
+ * embaralhada ("112/2333"), como sai de verdade.
+ */
+const OCR_CONSIGNADO = [
+  '( FGT S GFD - Guia do FGTS Digital',
+  'Digital :',
+  'Pagar este documento até',
+  'CPF/CNPJ do Empregador Nome/Razão Social do Empregador 21/09/2026',
+  '11.222.333 || EMPRESA EXEMPLO LTDA 5 NSODO Brasílte)',
+  'Valor a recolher',
+  'Núm. de Pág. Identificador Tag 5 e 1 00',
+  "1 OB52345678901/2345-0 | | 112/2333 08/2026 MENSAL '",
+  'Composição do Documento',
+  'Informações de recolhimentos do FGTS',
+  'Não há informações de recolhimentos do FGTS',
+  'Informações de recolhimentos do Consignado',
+  'Competência Consignado Encargos Consignado Total',
+  '08/2026 500,00 10,00 510,00',
+  'Total Consignado: 500,00 10,00 510,00',
+  'Total da Guia: 510,00',
+  'Data de geração da Guia: 21/09/2026 às 09:15:50 - Página 1/1',
+].join('\n');
+
 describe('linhaDigitavelDoCodigoDeBarras', () => {
   it('monta os quatro blocos com o dígito de cada um', () => {
     expect(linhaDigitavelDoCodigoDeBarras(BARRAS)).toBe(LINHA);
@@ -151,6 +199,35 @@ describe('o DARF lido da imagem', () => {
     // O travessão do OCR não gruda na denominação.
     expect(guia.itens[0].denominacao).toMatch(/^CONTR PREV/);
   });
+
+  it('as aspas de um cisco no papel não grudam na denominação', () => {
+    const texto = OCR_DARF.replace('1099 CP DESCONTADA', '1099 “CP DESCONTADA');
+    expect(lerGuia(textoDaImagem(texto, [BARRAS])).itens[1].denominacao).toMatch(/^CP DESC/);
+  });
+
+  /*
+   * O DARF atualizado: o vencimento original (18/09) já passou, e o documento
+   * vale até 21/09. O OCR leu o rodapé com o ano trocado — "2006" —, e o quadro
+   * do topo tem a data certa, na linha de baixo da do vencimento original.
+   */
+  const atualizado = OCR_DARF.replace(': 18/09/2026', ': 21/09/2026');
+
+  it('data antes da apuração é leitura errada: vale a do quadro do topo', () => {
+    const texto = atualizado.replace('Pagar até: 18/09/2026', 'Pagar até: 21/09/2006');
+    expect(lerGuia(textoDaImagem(texto, [BARRAS])).vencimento).toBe('2026-09-21');
+  });
+
+  it('do quadro do topo vale o "pagar até", não o vencimento original', () => {
+    const texto = atualizado.replace('| Pagar até: 18/09/2026 ACE', '');
+    expect(lerGuia(textoDaImagem(texto, [BARRAS])).vencimento).toBe('2026-09-21');
+  });
+
+  it('sem nenhuma data possível, recusa em vez de gravar a errada', () => {
+    const texto = OCR_DARF.replace(/18\/09\/2026/g, '18/09/2006');
+    expect(() => lerGuia(textoDaImagem(texto, [BARRAS]))).toThrow(
+      /Li o vencimento como 18\/09\/2006, antes do fim da apuração \(08\/2026\)/,
+    );
+  });
 });
 
 describe('o FGTS lido da imagem', () => {
@@ -172,6 +249,36 @@ describe('o FGTS lido da imagem', () => {
 
   it('sem o QR Code decodificado, fica sem PIX — e não com o do OCR', () => {
     expect(lerGuia(textoDaImagem(OCR_FGTS, [])).pagamento).toBeNull();
+  });
+
+  it('os encargos do atraso entram como item, e a soma fecha com o total', () => {
+    const guia = lerGuia(textoDaImagem(OCR_FGTS_COM_ENCARGOS, [PIX]));
+    expect(guia).toMatchObject({ competencia: '2026-08', valorTotal: 2100, trabalhadores: 10 });
+    expect(guia.itens.map((i) => [i.denominacao, i.classe, i.valor])).toEqual([
+      ['FGTS mensal', 'FOLHA_PATRONAL', 2000],
+      ['Encargos do FGTS (atraso)', 'FOLHA_PATRONAL', 100],
+    ]);
+    expect(conferir(guia)).toBeNull();
+  });
+
+  /*
+   * A parcela do empréstimo é do trabalhador, só repassada; os encargos são a
+   * empresa pagando pelo próprio atraso — ninguém descontou isso de ninguém.
+   */
+  it('a guia só do consignado: competência sem a coluna de trabalhadores', () => {
+    const guia = lerGuia(textoDaImagem(OCR_CONSIGNADO, [PIX]));
+    expect(guia).toMatchObject({
+      tipo: 'FGTS',
+      competencia: '2026-08',
+      vencimento: '2026-09-21',
+      valorTotal: 510,
+      trabalhadores: null,
+    });
+    expect(guia.itens.map((i) => [i.denominacao, i.classe, i.valor])).toEqual([
+      ['Consignado retido do trabalhador', 'FOLHA_RETIDO', 500],
+      ['Encargos do consignado (atraso)', 'FOLHA_PATRONAL', 10],
+    ]);
+    expect(conferir(guia)).toBeNull();
   });
 });
 
@@ -200,5 +307,21 @@ describe('ImpostosService.lerDaImagem', () => {
       arquivoNome: 'darf.pdf',
     });
     expect(r.divergencia).toMatch(/não bate com o valor do código de barras \(1234\.56\)/);
+  });
+
+  /*
+   * Sem o número do documento (o OCR não o lê), a repetida se reconhece pelo
+   * valor: tipo e mês não bastam, porque a guia do consignado é do mesmo tipo e
+   * do mesmo mês que a do FGTS.
+   */
+  it('sem o número da guia, procura a repetida pelo valor', async () => {
+    const prisma = { guia: { findFirst: jest.fn().mockResolvedValue(null) } };
+    const servico = new ImpostosService(prisma as never, {} as never, {} as never);
+    await servico.lerDaImagem({ texto: OCR_CONSIGNADO, codigos: [PIX], arquivoNome: 'c.pdf' });
+    expect(prisma.guia.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { tipo: 'FGTS', competencia: '2026-08', valorTotal: 510 },
+      }),
+    );
   });
 });

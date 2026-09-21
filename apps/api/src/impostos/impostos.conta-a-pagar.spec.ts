@@ -43,6 +43,7 @@ function guiaGravada(over: Record<string, unknown> = {}) {
     numeroDocumento: '07.16.11111.2222222-3',
     textoOriginal: TEXTO_DARF,
     contaPagar: null,
+    itens: [{ denominacao: 'CONTR PREV DESCONTA SEGURADO-EMPREGADO/AVULSO' }],
     ...over,
   };
 }
@@ -56,11 +57,13 @@ function montarServico(opts: { guia?: Record<string, unknown>; semFornecedor?: b
       update: jest.fn().mockResolvedValue({ ...guia, contaPagarId: 'conta-1' }),
       create: jest.fn().mockResolvedValue(guia),
       findFirst: jest.fn().mockResolvedValue(null),
+      delete: jest.fn().mockResolvedValue(guia),
     },
   };
 
   const criadas: Array<Record<string, unknown>> = [];
   const contasPagar = {
+    remover: jest.fn().mockResolvedValue(undefined),
     criarDespesa: jest.fn(async (dados: Record<string, unknown>) => {
       criadas.push(dados);
       return {
@@ -168,6 +171,59 @@ describe('a guia entra na fila de pagamento', () => {
     expect(criadas[0].chavePix).toBeUndefined();
     expect(r.formaDePagamento).toBeNull();
     expect(r.aviso).toMatch(/sem como ser paga/);
+  });
+
+  /*
+   * O consignado chega numa guia do FGTS à parte, no mesmo mês. Com o mesmo
+   * nome, as duas contas na fila pareceriam uma lançada duas vezes.
+   */
+  it('a guia só do consignado entra na fila com nome próprio', async () => {
+    const { service, criadas } = montarServico({
+      guia: guiaGravada({
+        tipo: 'FGTS',
+        textoOriginal: TEXTO_FGTS_COMPLETO,
+        itens: [
+          { denominacao: 'Consignado retido do trabalhador' },
+          { denominacao: 'Encargos do consignado (atraso)' },
+        ],
+      }),
+    });
+    await service.gerarContaAPagar('guia-1');
+    expect(criadas[0].observacao).toBe('FGTS Consignado · competência 07/2026');
+  });
+});
+
+/*
+ * Apagar a guia é como se desfaz uma leitura errada para lançar de novo. Se a
+ * conta ficasse, o título velho continuaria na fila do IXC e a guia relançada
+ * abriria outro — o mesmo imposto duas vezes.
+ */
+describe('apagar a guia', () => {
+  const conta = (status: string) => ({ contaPagar: { id: 'conta-ja', status } });
+
+  it('leva junto a conta que ainda não foi paga', async () => {
+    const { service, prisma, contasPagar } = montarServico({
+      guia: guiaGravada(conta('AGUARDANDO_PAGAMENTO')),
+    });
+    await service.remover('guia-1');
+    expect(contasPagar.remover).toHaveBeenCalledWith('conta-ja');
+    expect(prisma.guia.delete).toHaveBeenCalledWith({ where: { id: 'guia-1' } });
+  });
+
+  it('conta já paga fica: dinheiro que saiu é histórico', async () => {
+    const { service, prisma, contasPagar } = montarServico({ guia: guiaGravada(conta('PAGO')) });
+    await service.remover('guia-1');
+    expect(contasPagar.remover).not.toHaveBeenCalled();
+    expect(prisma.guia.delete).toHaveBeenCalled();
+  });
+
+  it('o IXC recusando apagar a conta, a guia também fica', async () => {
+    const { service, prisma, contasPagar } = montarServico({
+      guia: guiaGravada(conta('AGUARDANDO_APROVACAO')),
+    });
+    contasPagar.remover.mockRejectedValueOnce(new Error('O IXC não apagou a conta'));
+    await expect(service.remover('guia-1')).rejects.toThrow(/IXC não apagou/);
+    expect(prisma.guia.delete).not.toHaveBeenCalled();
   });
 });
 

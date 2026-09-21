@@ -38,13 +38,14 @@ export function textoDaImagem(ocr: string, codigos: string[] = []): string {
 
 /**
  * O que o OCR põe onde não há nada: travessão no lugar de um traço de tabela,
- * barra vertical e colchete na borda de um quadro, parêntese solto colado no
- * CNPJ ("…/0001-02) ([M A CASTRO"). Tirados, os rótulos voltam a encostar nos
- * valores ("Número: 07.16…", "CNPJ razão social").
+ * barra vertical e colchete na borda de um quadro, aspas curvas de um cisco no
+ * papel ("“CP DESCONTADA"), parêntese solto colado no CNPJ ("…/0001-44)
+ * ([EMPRESA EXEMPLO"). Tirados, os rótulos voltam a encostar nos valores
+ * ("Número: 07.00…", "CNPJ razão social").
  */
 function limparLinha(linha: string): string {
   return linha
-    .replace(/[—–|[\]]/g, ' ')
+    .replace(/[—–|[\]“”]/g, ' ')
     .replace(/(\d)\)/g, '$1 ')
     .replace(/\((?![^()]*\))/g, ' ')
     .replace(/\s+/g, ' ')

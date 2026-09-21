@@ -47,6 +47,36 @@ function formatComp(comp: string): string {
   return m ? `${m[2]}/${m[1]}` : comp;
 }
 
+/**
+ * A guia do FGTS Digital que só traz o consignado. Ela chega à parte, do mesmo
+ * tipo e do mesmo mês que a do FGTS, mas não é ela: com o mesmo nome, as duas
+ * pareceriam a mesma guia lançada duas vezes, e esta faria o mês parecer
+ * completo sem o FGTS dele.
+ */
+function soConsignado(guia: { tipo: TipoGuia; itens: { denominacao: string }[] }): boolean {
+  return (
+    guia.tipo === 'FGTS' &&
+    guia.itens.length > 0 &&
+    guia.itens.every((i) => /consignado/i.test(i.denominacao))
+  );
+}
+
+function nomeDaGuia(guia: { tipo: TipoGuia; itens: { denominacao: string }[] }): string {
+  return soConsignado(guia) ? 'FGTS — Consignado' : TIPO_GUIA_LABEL[guia.tipo];
+}
+
+/**
+ * A conta a pagar vai embora com a guia enquanto não foi paga — é assim que se
+ * relança uma guia lida errado sem deixar o título velho na fila do IXC. Quem
+ * apaga precisa saber disso antes de confirmar.
+ */
+function contaQueSaiJunto(guia: Guia): string {
+  const conta = guia.contaPagar;
+  if (!conta || conta.status === 'PAGO') return '';
+  const titulo = conta.idFnApagarIxc ? ` (título ${conta.idFnApagarIxc})` : '';
+  return `, e a conta a pagar dela sai junto do IXC${titulo}`;
+}
+
 /** A API respondeu que o PDF não tem texto — a vez da leitura da imagem. */
 function pdfSemTexto(err: unknown): boolean {
   return (
@@ -91,7 +121,9 @@ function agruparPorMes(guias: Guia[]): ConjuntoDoMes[] {
         (a, b) => ORDEM_GUIA.indexOf(a.tipo) - ORDEM_GUIA.indexOf(b.tipo),
       ),
       total: doMes.reduce((s, g) => s + Number(g.valorTotal), 0),
-      faltando: GUIAS_DO_MES.filter((t) => !doMes.some((g) => g.tipo === t)),
+      faltando: GUIAS_DO_MES.filter(
+        (t) => !doMes.some((g) => g.tipo === t && !soConsignado(g)),
+      ),
     }));
 }
 
@@ -266,7 +298,9 @@ export function Impostos() {
       })
     : null;
   const faltaDepoisDesta =
-    conjuntoDaLeitura?.faltando.filter((t) => t !== leitura?.guia.tipo) ?? [];
+    conjuntoDaLeitura?.faltando.filter(
+      (t) => !leitura || t !== leitura.guia.tipo || soConsignado(leitura.guia),
+    ) ?? [];
 
   return (
     <Pagina>
@@ -329,7 +363,7 @@ export function Impostos() {
 
       {leitura && (
         <Bloco
-          titulo={`Confira antes de gravar — ${TIPO_GUIA_LABEL[leitura.guia.tipo]}`}
+          titulo={`Confira antes de gravar — ${nomeDaGuia(leitura.guia)}`}
           className="surgir mt-6"
         >
           {conjuntoDaLeitura && (
@@ -342,7 +376,7 @@ export function Impostos() {
                 {conjuntoDaLeitura.guias.length === 0
                   ? ' — é a primeira guia deste mês.'
                   : ` — já estão lançadas ${emLista(
-                      conjuntoDaLeitura.guias.map((g) => TIPO_GUIA_LABEL[g.tipo]),
+                      conjuntoDaLeitura.guias.map(nomeDaGuia),
                     )}.`}
                 {faltaDepoisDesta.length > 0 &&
                   ` Depois desta ainda falta ${emLista(
@@ -513,7 +547,7 @@ export function Impostos() {
                   {mes.guias.map((g) => (
                     <tr key={g.id} className="linha">
                       <td className="td font-medium text-tinta-800">
-                        {TIPO_GUIA_LABEL[g.tipo]}
+                        {nomeDaGuia(g)}
                         {g.trabalhadores != null && (
                           <div className="text-xs text-tinta-400">
                             {g.trabalhadores} trabalhadores
@@ -554,7 +588,8 @@ export function Impostos() {
                           onClick={() => {
                             if (
                               confirm(
-                                `Apagar a guia de ${TIPO_GUIA_LABEL[g.tipo]} de ${formatComp(g.competencia)}?\n\nEla sai do custo com pessoal na dashboard.`,
+                                `Apagar a guia de ${nomeDaGuia(g)} de ${formatComp(g.competencia)}?\n\n` +
+                                  `Ela sai do custo com pessoal na dashboard${contaQueSaiJunto(g)}.`,
                               )
                             ) {
                               excluir.mutate(g.id);
@@ -586,7 +621,7 @@ export function Impostos() {
  * continua vencendo, e alguém precisa saber disso agora.
  */
 function avisoDoLancamento(guia: Guia, como = ''): string {
-  const nome = `Guia de ${TIPO_GUIA_LABEL[guia.tipo]} de ${formatComp(guia.competencia)}`;
+  const nome = `Guia de ${nomeDaGuia(guia)} de ${formatComp(guia.competencia)}`;
   const lancada = `${nome} lançada${como ? ` ${como}` : ''}`;
 
   if (guia.avisoConta) {

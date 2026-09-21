@@ -5,7 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { ClasseTributo, Prisma, TipoGuia } from '@prisma/client';
+import { ClasseTributo, Prisma, StatusContaPagar, TipoGuia } from '@prisma/client';
 import { ContasPagarService } from '../financeiro/contas-pagar.service';
 import { FornecedorService } from '../financeiro/fornecedor.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -55,6 +55,21 @@ const ROTULO_DA_GUIA: Record<TipoGuia, string> = {
   DARE_ICMS: 'DARE ICMS',
   OUTRA: 'Guia de imposto',
 };
+
+/**
+ * Como a guia se chama na fila de pagamento.
+ *
+ * O FGTS Digital manda o consignado numa guia à parte, do mesmo tipo e do mesmo
+ * mês que a do FGTS. Com o mesmo nome, as duas viram duas contas "FGTS ·
+ * competência 08/2026" de valores diferentes — cara de lançamento repetido, do
+ * tipo que alguém apaga achando que está consertando.
+ */
+function rotuloDaGuia(tipo: TipoGuia, itens: Array<{ denominacao: string }>): string {
+  if (tipo === 'FGTS' && itens.length > 0 && itens.every((i) => /consignado/i.test(i.denominacao))) {
+    return 'FGTS Consignado';
+  }
+  return ROTULO_DA_GUIA[tipo];
+}
 
 /** O que aconteceu ao transformar uma guia em conta a pagar. */
 export interface ContaDaGuia {
@@ -150,10 +165,12 @@ export class ImpostosService {
       where: {
         tipo: guia.tipo as TipoGuia,
         competencia: guia.competencia,
-        // Sem o número (a leitura da imagem às vezes o perde), a guia do
-        // mesmo tipo e mês já é suspeita de repetida: melhor avisar à toa do
-        // que contar o mesmo imposto duas vezes.
-        ...(guia.numeroDocumento ? { numeroDocumento: guia.numeroDocumento } : {}),
+        // Sem o número (a leitura da imagem às vezes o perde), o que denuncia a
+        // repetida é o valor. Tipo e mês sozinhos não bastam: o FGTS Digital
+        // manda o consignado numa guia à parte, do mesmo tipo e do mesmo mês.
+        ...(guia.numeroDocumento
+          ? { numeroDocumento: guia.numeroDocumento }
+          : { valorTotal: guia.valorTotal }),
       },
       select: { id: true, competencia: true, valorTotal: true },
     });
@@ -309,7 +326,7 @@ export class ImpostosService {
   ): Promise<ContaDaGuia> {
     const guia = await this.prisma.guia.findUnique({
       where: { id: guiaId },
-      include: { contaPagar: true },
+      include: { contaPagar: true, itens: { select: { denominacao: true } } },
     });
     if (!guia) throw new NotFoundException('Guia não encontrada');
 
@@ -332,7 +349,7 @@ export class ImpostosService {
 
     const fornecedor = await this.fornecedorDasGuias();
     const pagamento = lerPagamentoGuardado(guia.textoOriginal);
-    const rotulo = ROTULO_DA_GUIA[guia.tipo];
+    const rotulo = rotuloDaGuia(guia.tipo, guia.itens);
 
     const conta = await this.contasPagar.criarDespesa(
       {
@@ -415,9 +432,26 @@ export class ImpostosService {
     return achado;
   }
 
+  /**
+   * Apaga a guia e, junto, a conta a pagar que ela virou — enquanto não paga.
+   *
+   * Apagar a guia é como se desfaz uma leitura errada (um vencimento trocado,
+   * um valor perdido) para lançar de novo. Se a conta ficasse, o título velho
+   * continuaria na fila do IXC e a guia relançada abriria outro: o mesmo
+   * imposto duas vezes na fila de pagamento. A conta sai primeiro, e se o IXC
+   * recusar, a guia fica — as duas pontas não podem divergir.
+   *
+   * Conta já paga fica onde está: dinheiro que saiu é histórico.
+   */
   async remover(id: string) {
-    const guia = await this.prisma.guia.findUnique({ where: { id } });
+    const guia = await this.prisma.guia.findUnique({
+      where: { id },
+      include: { contaPagar: { select: { id: true, status: true } } },
+    });
     if (!guia) throw new NotFoundException('Guia não encontrada');
+    if (guia.contaPagar && guia.contaPagar.status !== StatusContaPagar.PAGO) {
+      await this.contasPagar.remover(guia.contaPagar.id);
+    }
     await this.prisma.guia.delete({ where: { id } });
   }
 
