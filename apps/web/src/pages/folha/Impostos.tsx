@@ -99,11 +99,32 @@ interface ConjuntoDoMes {
   faltando: TipoGuia[];
 }
 
+/** "2026-09" → "2026-08" */
+function mesAnterior(comp: string): string {
+  const [ano, mes] = comp.split('-').map(Number);
+  return mes === 1 ? `${ano - 1}-12` : `${ano}-${String(mes - 1).padStart(2, '0')}`;
+}
+
+/**
+ * O que se espera no conjunto de um mês: as três fixas, e a parcela do
+ * parcelamento quando o mês anterior teve uma — o acordo vem todo mês enquanto
+ * dura, e é aí que ela é fácil de esquecer. No mês seguinte à última parcela a
+ * cobrança aparece uma vez, sem nada a lançar.
+ */
+function guiasEsperadas(competencia: string, guias: Guia[]): TipoGuia[] {
+  const antes = mesAnterior(competencia);
+  const parcelou = guias.some(
+    (g) => g.competencia === antes && g.tipo === 'PARCELAMENTO_SEFAZ',
+  );
+  return parcelou ? [...GUIAS_DO_MES, 'PARCELAMENTO_SEFAZ'] : GUIAS_DO_MES;
+}
+
 /**
  * As guias não são uma lista: são conjuntos mensais. Todo mês chegam as três
  * fixas — DARF do INSS, FGTS e DAS — mais o DARE do ICMS quando houve ICMS a
- * pagar. Agrupar por apuração é o que deixa ver, de relance, que o mês passado
- * está inteiro e que falta o FGTS deste.
+ * pagar, e a parcela do parcelamento enquanto ele durar. Agrupar por apuração
+ * é o que deixa ver, de relance, que o mês passado está inteiro e que falta o
+ * FGTS deste.
  */
 function agruparPorMes(guias: Guia[]): ConjuntoDoMes[] {
   const porMes = new Map<string, Guia[]>();
@@ -121,7 +142,7 @@ function agruparPorMes(guias: Guia[]): ConjuntoDoMes[] {
         (a, b) => ORDEM_GUIA.indexOf(a.tipo) - ORDEM_GUIA.indexOf(b.tipo),
       ),
       total: doMes.reduce((s, g) => s + Number(g.valorTotal), 0),
-      faltando: GUIAS_DO_MES.filter(
+      faltando: guiasEsperadas(competencia, guias).filter(
         (t) => !doMes.some((g) => g.tipo === t && !soConsignado(g)),
       ),
     }));
@@ -294,7 +315,7 @@ export function Impostos() {
         competencia: leitura.guia.competencia,
         guias: [],
         total: 0,
-        faltando: GUIAS_DO_MES,
+        faltando: guiasEsperadas(leitura.guia.competencia, guias.data ?? []),
       })
     : null;
   const faltaDepoisDesta =
@@ -307,7 +328,7 @@ export function Impostos() {
       <CabecalhoPagina
         secao="Impostos"
         titulo="Guias da contabilidade"
-        descricao="Todo mês chega um conjunto de 3 a 4 arquivos: DARF do INSS, FGTS, DAS do Simples e, quando houve ICMS a pagar, o DARE. Jogue o PDF aqui — o app lê, diz de que mês ele é, você confere, e só então o valor entra no custo com pessoal."
+        descricao="Todo mês chega um conjunto de arquivos: DARF do INSS, FGTS, DAS do Simples, o DARE quando houve ICMS a pagar e, enquanto durar, a parcela do parcelamento da SEFAZ. Jogue o PDF aqui — o app lê, diz de que mês ele é, você confere, e só então o valor entra no custo com pessoal."
       />
 
       {feedback && <Aviso tom={erro ? 'erro' : 'marca'}>{feedback}</Aviso>}
@@ -353,9 +374,10 @@ export function Impostos() {
             </div>
             <p className="mt-3 text-xs leading-relaxed text-tinta-500">
               Entende DARF previdenciário, guia do FGTS Digital, DAS do Simples
-              Nacional e DARE do ICMS. Quando o PDF vem como imagem (impresso em
-              PDF ou digitalizado), eu leio a imagem — demora uns 20 segundos, e
-              aí vale conferir cada número com o papel.
+              Nacional, DARE do ICMS e DARE do parcelamento da SEFAZ. Quando o
+              PDF vem como imagem (impresso em PDF ou digitalizado), eu leio a
+              imagem — demora uns 20 segundos, e aí vale conferir cada número
+              com o papel.
             </p>
           </>
         )}
@@ -696,6 +718,10 @@ const COMPOSICAO_PADRAO: Record<TipoGuia, ItemGuia[]> = {
   DAS_SIMPLES: [
     { codigo: '1006', denominacao: 'INSS — Simples Nacional', valor: 0, classe: 'FOLHA_PATRONAL' },
     { codigo: null, denominacao: 'Demais tributos do DAS', valor: 0, classe: 'FATURAMENTO' },
+  ],
+  PARCELAMENTO_SEFAZ: [
+    { codigo: '104', denominacao: 'Parcelamento SEFAZ — principal', valor: 0, classe: 'FATURAMENTO' },
+    { codigo: null, denominacao: 'Parcelamento SEFAZ — juros e multa', valor: 0, classe: 'FATURAMENTO' },
   ],
   OUTRA: [{ codigo: null, denominacao: '', valor: 0, classe: 'FATURAMENTO' }],
 };

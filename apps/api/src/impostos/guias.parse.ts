@@ -15,7 +15,12 @@
 import { MARCA_DO_OCR } from './guia-por-imagem';
 
 /** Documento reconhecido pelo leitor. */
-export type TipoGuia = 'DARF_INSS' | 'FGTS' | 'DAS_SIMPLES' | 'DARE_ICMS';
+export type TipoGuia =
+  | 'DARF_INSS'
+  | 'FGTS'
+  | 'DAS_SIMPLES'
+  | 'DARE_ICMS'
+  | 'PARCELAMENTO_SEFAZ';
 
 /**
  * O que aquele item representa no bolso da empresa.
@@ -132,7 +137,7 @@ function escolherLeitor(texto: string): Omit<GuiaLida, 'pagamento'> {
   if (/ARRECADAÇÃO DE RECEITAS ESTADUAIS/i.test(texto)) return lerDare(texto);
   throw new GuiaIlegivelError(
     'Não reconheci este PDF. O leitor entende DARF, DAS do Simples Nacional, ' +
-      'guia do FGTS Digital e DARE do ICMS.',
+      'guia do FGTS Digital, DARE do ICMS e DARE do parcelamento da SEFAZ.',
   );
 }
 
@@ -399,6 +404,8 @@ function itensDoQuadro(texto: string, quadro: QuadroFgts): ItemGuiaLido[] {
  * tela avisa antes de gravar.
  */
 function lerDare(texto: string): Omit<GuiaLida, 'pagamento'> {
+  if (/Aplica\S*o:\s*Parcelamento/i.test(texto)) return lerParcelamentoDare(texto);
+
   const { competencias, codigos, vencimento } = lerRelacaoDare(texto);
   if (competencias.length === 0) {
     throw new GuiaIlegivelError(
@@ -406,21 +413,7 @@ function lerDare(texto: string): Omit<GuiaLida, 'pagamento'> {
     );
   }
 
-  const principal =
-    valorDepoisDoRotulo(texto, 'Valor Principal') ??
-    valorDepoisDoRotulo(texto, 'Total Principal');
-  if (principal === null || principal <= 0) {
-    throw new GuiaIlegivelError(
-      'Não achei o valor principal do DARE — confira se o PDF veio inteiro.',
-    );
-  }
-  // Só os rótulos do quadro de totais servem: no canhoto o número vem *antes*
-  // do rótulo ("0,00 / Juros"), e ler o de baixo daria a multa no lugar do juro
-  // e o total no lugar da multa. Faltando o quadro, juro e multa ficam em zero
-  // — e é a linha digitável, abaixo, que denuncia a diferença.
-  const juros = valorDepoisDoRotulo(texto, 'Total Juros') ?? 0;
-  const multa = valorDepoisDoRotulo(texto, 'Total Multa') ?? 0;
-
+  const { principal, juros, multa } = totaisDoDare(texto);
   const conhecidas = codigos.every((c) => c in RECEITA_ESTADUAL);
   const itens: ItemGuiaLido[] = [
     {
@@ -452,18 +445,110 @@ function lerDare(texto: string): Omit<GuiaLida, 'pagamento'> {
     competencia: competencias[0],
     vencimento,
     valorTotal: valorDaLinhaDigitavel(texto) ?? somaDosItens(itens),
+    ...identificacaoDare(texto),
+    itens,
+  };
+}
+
+/**
+ * A parcela de um parcelamento na SEFAZ. Vem no mesmo DARE do ICMS, e a
+ * diferença está na relação de pagamentos: onde o ICMS traz o mês de apuração,
+ * o parcelamento traz o número da parcela ("18"), colado nos valores — e o
+ * leitor do ICMS, sem mês, não acha relação nenhuma.
+ *
+ * Apuração, a parcela não tem: a dívida é de meses atrás. Ela entra no
+ * conjunto do mês anterior ao vencimento, que é o das guias pagas junto com
+ * ela — a que vence no fim de setembro fica com as de agosto, que vencem no
+ * dia 20.
+ *
+ * O vencimento é o do próprio documento ("Data Vencimento", o mesmo "Válido
+ * Até" do topo), e não o da relação: lá está a data da parcela no calendário do
+ * acordo, e o DARE não se paga depois do dia impresso nele.
+ *
+ * Juros e multa, aqui, não são atraso de quem pagou: são a parte da dívida
+ * original que o acordo reparte entre as parcelas. Receita de estado, tudo
+ * conta como tributo sobre faturamento.
+ */
+function lerParcelamentoDare(texto: string): Omit<GuiaLida, 'pagamento'> {
+  const relacao = lerRelacaoDare(texto);
+  const vencimento = dataDepoisDoRotulo(texto, 'Data Vencimento') ?? relacao.vencimento;
+  if (!vencimento) {
+    throw new GuiaIlegivelError(
+      'Não achei o vencimento do DARE do parcelamento — confira se o PDF veio inteiro.',
+    );
+  }
+
+  const { principal, juros, multa } = totaisDoDare(texto);
+  const itens: ItemGuiaLido[] = [
+    {
+      codigo: relacao.codigos.join('/') || null,
+      denominacao: 'Parcelamento SEFAZ — principal',
+      valor: principal,
+      classe: 'FATURAMENTO',
+      classeIncerta: false,
+    },
+  ];
+  if (juros + multa > 0) {
+    itens.push({
+      codigo: null,
+      denominacao: 'Parcelamento SEFAZ — juros e multa',
+      valor: arredondar(juros + multa),
+      classe: 'FATURAMENTO',
+      classeIncerta: false,
+    });
+  }
+
+  return {
+    tipo: 'PARCELAMENTO_SEFAZ',
+    competencia: mesAnterior(vencimento),
+    vencimento,
+    valorTotal: valorDaLinhaDigitavel(texto) ?? somaDosItens(itens),
+    ...identificacaoDare(texto),
+    itens,
+  };
+}
+
+/**
+ * Principal, juros e multa do DARE, dos rótulos do quadro de totais.
+ *
+ * Só esses rótulos servem: no canhoto o número vem *antes* do rótulo ("0,00 /
+ * Juros"), e ler o de baixo daria a multa no lugar do juro e o total no lugar
+ * da multa. Faltando o quadro, juro e multa ficam em zero — e é a linha
+ * digitável que denuncia a diferença.
+ */
+function totaisDoDare(texto: string): { principal: number; juros: number; multa: number } {
+  const principal =
+    valorDepoisDoRotulo(texto, 'Valor Principal') ??
+    valorDepoisDoRotulo(texto, 'Total Principal');
+  if (principal === null || principal <= 0) {
+    throw new GuiaIlegivelError(
+      'Não achei o valor principal do DARE — confira se o PDF veio inteiro.',
+    );
+  }
+  return {
+    principal,
+    juros: valorDepoisDoRotulo(texto, 'Total Juros') ?? 0,
+    multa: valorDepoisDoRotulo(texto, 'Total Multa') ?? 0,
+  };
+}
+
+/** Quem paga e qual é o documento — igual no DARE do ICMS e no do parcelamento. */
+function identificacaoDare(
+  texto: string,
+): Pick<GuiaLida, 'numeroDocumento' | 'cnpj' | 'razaoSocial' | 'trabalhadores'> {
+  return {
     numeroDocumento: depoisDoRotulo(texto, 'Nosso Número'),
     cnpj: /(\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})/.exec(texto)?.[1] ?? null,
     razaoSocial: razaoSocialDare(texto),
     trabalhadores: null,
-    itens,
   };
 }
 
 /**
  * As linhas da "Relação de Pagamentos". Cada uma termina no par que o
  * embaralhamento das colunas não alcança: a data de vencimento seguida do
- * código da receita. O período de apuração é o outro `MM/AAAA` da linha.
+ * código da receita. O período de apuração é o outro `MM/AAAA` da linha —
+ * quando há: na do parcelamento, no lugar dele vem o número da parcela.
  */
 function lerRelacaoDare(texto: string): {
   competencias: string[];
@@ -477,12 +562,11 @@ function lerRelacaoDare(texto: string): {
   for (const linha of texto.split('\n').map((l) => l.trim())) {
     const fim = /(\d{2})\/(\d{2})\/(\d{4})\s+(\d{1,4})$/.exec(linha);
     if (!fim) continue;
-    const referencia = /(\d{2})\/(\d{4})/.exec(linha.slice(0, fim.index));
-    if (!referencia) continue;
-
-    competencias.add(`${referencia[2]}-${referencia[1]}`);
     codigos.add(fim[4]);
     if (!vencimento) vencimento = `${fim[3]}-${fim[2]}-${fim[1]}`;
+
+    const referencia = /(\d{2})\/(\d{4})/.exec(linha.slice(0, fim.index));
+    if (referencia) competencias.add(`${referencia[2]}-${referencia[1]}`);
   }
 
   return {
@@ -631,6 +715,18 @@ function depoisDoRotulo(texto: string, rotulo: string): string | null {
   const linhas = texto.split('\n').map((l) => l.trim());
   const i = linhas.findIndex((l) => l === rotulo);
   return i >= 0 && linhas[i + 1] ? linhas[i + 1] : null;
+}
+
+/** Data na linha logo abaixo de um rótulo isolado, já em "AAAA-MM-DD". */
+function dataDepoisDoRotulo(texto: string, rotulo: string): string | null {
+  const linha = depoisDoRotulo(texto, rotulo);
+  return linha && /^\d{2}\/\d{2}\/\d{4}$/.test(linha) ? isoDe(linha) : null;
+}
+
+/** "2026-09-30" → "2026-08": o mês de antes. */
+function mesAnterior(data: string): string {
+  const [ano, mes] = data.split('-').map(Number);
+  return mes === 1 ? `${ano - 1}-12` : `${ano}-${String(mes - 1).padStart(2, '0')}`;
 }
 
 /** Valor monetário na linha logo abaixo de um rótulo isolado. */

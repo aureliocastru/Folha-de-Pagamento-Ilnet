@@ -53,6 +53,7 @@ const ROTULO_DA_GUIA: Record<TipoGuia, string> = {
   FGTS: 'FGTS',
   DAS_SIMPLES: 'DAS Simples Nacional',
   DARE_ICMS: 'DARE ICMS',
+  PARCELAMENTO_SEFAZ: 'Parcelamento SEFAZ',
   OUTRA: 'Guia de imposto',
 };
 

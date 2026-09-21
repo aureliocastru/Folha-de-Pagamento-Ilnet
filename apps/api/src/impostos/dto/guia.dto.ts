@@ -15,7 +15,14 @@ import {
   ValidateNested,
 } from 'class-validator';
 
-const TIPOS = ['DARF_INSS', 'FGTS', 'DAS_SIMPLES', 'DARE_ICMS', 'OUTRA'];
+const TIPOS = [
+  'DARF_INSS',
+  'FGTS',
+  'DAS_SIMPLES',
+  'DARE_ICMS',
+  'PARCELAMENTO_SEFAZ',
+  'OUTRA',
+];
 const CLASSES = ['FOLHA_PATRONAL', 'FOLHA_RETIDO', 'FATURAMENTO'];
 
 export class ItemGuiaDto {

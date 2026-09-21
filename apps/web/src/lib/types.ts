@@ -1148,6 +1148,7 @@ export type TipoGuia =
   | 'FGTS'
   | 'DAS_SIMPLES'
   | 'DARE_ICMS'
+  | 'PARCELAMENTO_SEFAZ'
   | 'OUTRA';
 
 /**
@@ -1157,8 +1158,12 @@ export type TipoGuia =
  */
 export const GUIAS_DO_MES: TipoGuia[] = ['DARF_INSS', 'FGTS', 'DAS_SIMPLES'];
 
-/** Guias que existem em alguns meses só — a ausência não é pendência. */
-export const GUIAS_EVENTUAIS: TipoGuia[] = ['DARE_ICMS', 'OUTRA'];
+/**
+ * Guias que existem em alguns meses só — a ausência não é pendência. O
+ * parcelamento é a meia exceção: enquanto o acordo dura ele vem todo mês, e a
+ * tela o cobra no mês seguinte a um que teve parcela.
+ */
+export const GUIAS_EVENTUAIS: TipoGuia[] = ['DARE_ICMS', 'PARCELAMENTO_SEFAZ', 'OUTRA'];
 
 /**
  * O que o item representa no bolso da empresa. Somar tudo junto mente: o INSS
@@ -1172,6 +1177,7 @@ export const TIPO_GUIA_LABEL: Record<TipoGuia, string> = {
   FGTS: 'FGTS',
   DAS_SIMPLES: 'DAS — Simples Nacional',
   DARE_ICMS: 'DARE — ICMS',
+  PARCELAMENTO_SEFAZ: 'Parcelamento — SEFAZ',
   OUTRA: 'Outra guia',
 };
 

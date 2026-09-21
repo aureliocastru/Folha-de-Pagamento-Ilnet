@@ -175,6 +175,61 @@ TOTAIS
 (*) Valor informado pelo Contribuinte.
 `;
 
+/**
+ * DARE da parcela de um parcelamento na SEFAZ. O mesmo documento do ICMS, com
+ * duas diferenças que mudam a leitura: na relação vem o número da parcela
+ * ("18", colado nos valores) onde o ICMS traz o mês, e a data da relação é a
+ * da parcela no calendário do acordo — o documento vale até a "Data
+ * Vencimento".
+ */
+const PARCELAMENTO = `Nosso Número
+111222333
+Data de Emissão
+16/09/2026
+ESTADO DO MARANHÃO
+SECRETARIA DE ESTADO DA FAZENDA
+DOCUMENTO DE ARRECADAÇÃO DE RECEITAS ESTADUAIS - DARE
+RELAÇÃO DE PAGAMENTOS
+Nome/ Razão Social
+Endereço Inscrição Estadual/ RENAVAM
+Válido Até:
+EMPRESA EXEMPLO SERVICOS LTDA
+12.345678-9
+30/09/2026
+AVE EXEMPLO 100 - CENTRO
+Telefone
+(0)
+CPF/CNPJ
+11.222.333/0001-44
+CEP
+CIDADE EXEMPLO - MA
+Município / UF
+Nº DOC. ORIGEM REFERÊNCIA/ VENCIMENTO VALOR DOS JUROS VALOR DA MULTA VALOR TOTALVALOR PRINCIPALCÓDIGO DA
+100,001.000,0018300000000001 200,00 1.300,0030/11/2026 104
+Quantidade de Itens Total Principal Valor Total
+DARE/Modelo aprovado pela Portaria 030/2013 - SEFAZ.
+Esta quitação só terá validade após recebimento do pagamento
+INFORMAÇÕES COMPLEMENTARES:
+Valor Principal
+1.000,00
+100,00
+Juros
+200,00
+Multa
+1.300,00
+Total a Recolher
+Linha digitável: 85660000013 0 00000010214 1 00000000000 0 00111222333 4
+1.300,001 1.000,00
+Total Juros
+100,00
+Total Multa
+200,00
+Data Vencimento
+30/09/2026
+TOTAIS
+Aplicação: Parcelamento/Conta Fiscal/SEFAZ.net
+`;
+
 describe('DARF previdenciário', () => {
   const guia = lerGuia(DARF_INSS);
 
@@ -396,6 +451,61 @@ describe('DARE do ICMS', () => {
     expect(() =>
       lerGuia(DARE.replace(/^0,00.*20\/07\/2026 101$/gm, '')),
     ).toThrow(GuiaIlegivelError);
+  });
+});
+
+describe('DARE do parcelamento da SEFAZ', () => {
+  const guia = lerGuia(PARCELAMENTO);
+
+  /*
+   * Apuração a parcela não tem: entra no conjunto do mês anterior ao
+   * vencimento, com as guias que se pagam junto com ela.
+   */
+  it('vence no dia do documento e entra no conjunto do mês de antes', () => {
+    expect(guia).toMatchObject({
+      tipo: 'PARCELAMENTO_SEFAZ',
+      competencia: '2026-08',
+      // E não 30/11, a data da parcela no calendário do acordo.
+      vencimento: '2026-09-30',
+      valorTotal: 1300,
+      numeroDocumento: '111222333',
+      cnpj: '11.222.333/0001-44',
+      razaoSocial: 'EMPRESA EXEMPLO SERVICOS LTDA',
+    });
+  });
+
+  it('principal e juros com multa, tudo sobre faturamento', () => {
+    expect(guia.itens).toEqual([
+      {
+        codigo: '104',
+        denominacao: 'Parcelamento SEFAZ — principal',
+        valor: 1000,
+        classe: 'FATURAMENTO',
+        classeIncerta: false,
+      },
+      {
+        codigo: null,
+        denominacao: 'Parcelamento SEFAZ — juros e multa',
+        valor: 300,
+        classe: 'FATURAMENTO',
+        classeIncerta: false,
+      },
+    ]);
+    expect(conferir(guia)).toBeNull();
+  });
+
+  it('leva a linha digitável, para a conta poder ser paga', () => {
+    expect(guia.pagamento).toEqual({
+      forma: 'BOLETO',
+      codigoBarras: '856600000130000000102141000000000000001112223334',
+    });
+  });
+
+  it('a parcela de janeiro fica com o conjunto de dezembro', () => {
+    const janeiro = lerGuia(
+      PARCELAMENTO.replace('Data Vencimento\n30/09/2026', 'Data Vencimento\n29/01/2027'),
+    );
+    expect(janeiro).toMatchObject({ competencia: '2026-12', vencimento: '2027-01-29' });
   });
 });
 

@@ -1573,6 +1573,8 @@ enum TipoGuia {
   DAS_SIMPLES
   /// DARE estadual — o ICMS (na prática, o DIFAL)
   DARE_ICMS
+  /// DARE estadual da parcela do parcelamento na SEFAZ, todo mês enquanto durar
+  PARCELAMENTO_SEFAZ
   OUTRA
 }
 
