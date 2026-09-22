@@ -4,6 +4,7 @@ import {
   LeitorDeCodigo,
   leitorDeCodigoSuportado,
 } from '../../components/LeitorDeCodigo';
+import { useAssistente } from '../../components/Assistente';
 import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
 import { SeletorDeVeiculo } from '../../components/SeletorDeVeiculo';
 import { CampoDinheiro, Carregando, Janela, Selo } from '../../components/ui';
@@ -547,6 +548,68 @@ export function NovaDespesa({
   // na lista para pagar de novo.
   const quitou = !!lancada?.baixa && lancada.baixa.pagas === lancada.baixa.tentadas;
 
+  /*
+   * No celular, uma pergunta por vez — e a revisão no fim.
+   *
+   * São quinze campos: na tela de bolso eles viravam uma parede em que se
+   * rolava procurando o que faltava, com o botão de lançar a seis rolagens de
+   * distância. No computador nada muda (ver `useAssistente`).
+   */
+  const a = useAssistente([
+    {
+      rotulo: 'Quem recebe',
+      resumo: fornecedor?.nome,
+      falta: fornecedor ? undefined : 'Escolha o fornecedor.',
+    },
+    {
+      rotulo: 'Quanto e como se paga',
+      resumo: [
+        Number(valor) > 0 ? formatBRL(Number(valor)) : null,
+        tipoPagamento || null,
+        jaPaga ? 'já foi paga' : null,
+      ]
+        .filter(Boolean)
+        .join(' · '),
+      falta: Number(valor) > 0 ? undefined : 'Digite o valor.',
+    },
+    {
+      rotulo: 'Datas',
+      resumo: `vence ${formatarDia(vencimento)}`,
+    },
+    {
+      rotulo: 'Linha digitável do boleto',
+      pular: !ehBoleto,
+      resumo: codigoBarras ? 'preenchida' : undefined,
+    },
+    {
+      rotulo: 'Chave PIX desta conta',
+      pular: !ehPix,
+      resumo: chavePix || undefined,
+    },
+    {
+      rotulo: 'Documento e classificação',
+      resumo: [documento || null, numeroNota ? `nota ${numeroNota}` : null]
+        .filter(Boolean)
+        .join(' · '),
+    },
+    {
+      rotulo: 'Repetir ou parcelar',
+      resumo: recorrente
+        ? 'repete todo mês'
+        : parcelado
+          ? `${parcelas.length} parcela(s)`
+          : 'uma conta só',
+    },
+    {
+      rotulo: 'Observação e nota',
+      resumo: observacao.trim() || undefined,
+      falta:
+        observacao.trim().length >= 3
+          ? undefined
+          : 'Escreva a observação — é o que se lê na lista de contas do IXC.',
+    },
+  ]);
+
   if (lancada) {
     return (
       <Janela
@@ -619,7 +682,10 @@ export function NovaDespesa({
 
   return (
     <Janela titulo="Lançar conta a pagar" onFechar={onFechar}>
+      {a.cabecalho}
+
       {/* --- Fornecedor --- */}
+      {a.mostrar(0) && (
       <div className="mb-4">
         <label className="rotulo" htmlFor="fornecedor">
           Fornecedor no IXC
@@ -708,8 +774,11 @@ export function NovaDespesa({
           </>
         )}
       </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {a.mostrar(1) && (
+        <>
         <div>
           <label className="rotulo" htmlFor="valor">
             {parcelado && modoParcela === 'consorcio'
@@ -830,8 +899,12 @@ export function NovaDespesa({
           )}
         </div>
 
+        </>
+        )}
+
         {/* Emissão e vencimento uma sob a outra: são a mesma pergunta em dois
             tempos, e lado a lado com um campo alto sobrava buraco na coluna. */}
+        {a.mostrar(2) && (
         <div className="space-y-3">
           <div>
             <label className="rotulo" htmlFor="emissao">
@@ -865,12 +938,14 @@ export function NovaDespesa({
           </div>
         </div>
 
+        )}
+
         {/*
           O boleto só aparece quando é boleto que vai pagar: é o campo mais
           longo da tela, e deixá-lo aberto o tempo todo empurraria o resto para
           baixo em toda conta paga por PIX.
         */}
-        {ehBoleto && (
+        {ehBoleto && a.mostrar(3) && (
           <div className="sm:col-span-2">
             <label className="rotulo" htmlFor="codigo-barras">
               Linha digitável do boleto
@@ -918,7 +993,7 @@ export function NovaDespesa({
           cola" dele vale só para aquele pagamento, com valor e beneficiário
           dentro —, e é por isso que ele fica aqui, na conta, e não no cadastro.
         */}
-        {ehPix && (
+        {ehPix && a.mostrar(4) && (
           <div className="sm:col-span-2">
             <label className="rotulo" htmlFor="chave-pix">
               Chave PIX desta conta
@@ -985,6 +1060,7 @@ export function NovaDespesa({
 
         {/* Os três curtos numa linha só: eram três alturas de campo para
             preencher meia tela de largura. */}
+        {a.mostrar(5) && (
         <div className="grid grid-cols-1 gap-4 sm:col-span-2 sm:grid-cols-3">
           <div>
             <label className="rotulo" htmlFor="documento">
@@ -1058,8 +1134,10 @@ export function NovaDespesa({
           )}
         </div>
 
+        )}
+
         {/* --- Serviço que se repete todo mês --- */}
-        {!parcelado && (
+        {a.mostrar(6) && !parcelado && (
           <div className="sm:col-span-2">
             <label
               className="opcao"
@@ -1091,7 +1169,7 @@ export function NovaDespesa({
         )}
 
         {/* --- Parcelamento --- */}
-        {!recorrente && (
+        {a.mostrar(6) && !recorrente && (
         <div className="sm:col-span-2">
           <label
             className="opcao"
@@ -1415,6 +1493,8 @@ export function NovaDespesa({
         </div>
         )}
 
+        {a.mostrar(7) && (
+        <>
         <div className="sm:col-span-2">
           <label className="rotulo" htmlFor="observacao">
             Observação
@@ -1432,7 +1512,14 @@ export function NovaDespesa({
         <div className="sm:col-span-2">
           <CampoDaNota nota={nota} onMudar={setNota} />
         </div>
+        </>
+        )}
       </div>
+
+      {/* A revisão do celular: cada passo, o que ficou nele, e o caminho de
+          volta para corrigir. */}
+      {a.resumo}
+      {a.barra}
 
       {lancar.isError && (
         <p className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -1446,6 +1533,7 @@ export function NovaDespesa({
         </p>
       )}
 
+      {a.mostrarAcao && (
       <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
         {!podeLancar && (
           <span className="mr-auto text-xs text-tinta-400">
@@ -1497,6 +1585,7 @@ export function NovaDespesa({
                 : 'Lançar conta'}
         </button>
       </div>
+      )}
 
       {/* Cada parcela é uma ida ao IXC, e mais uma para aprovar. Uma dúzia
           passa despercebida; oitenta demoram, e sem aviso parece travado. */}
