@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { useAssistente } from '../../components/Assistente';
 import { FotoDaNota } from '../../components/FotoDaNota';
 import { NotasDoTitulo } from '../../components/NotasDoTitulo';
 import { FotoDoPonto } from '../../components/PainelDePontos';
@@ -1430,9 +1431,43 @@ function FormularioDoVeiculo({
   const valido = apelido.trim().length >= 2 && (!ano || /^\d{4}$/.test(ano));
   const erro = salvar.error ?? ligar.error ?? apagar.error;
 
+  /* No celular, uma pergunta por vez; no computador, a ficha inteira. */
+  const a = useAssistente([
+    {
+      rotulo: 'Nome e tipo',
+      resumo: [apelido.trim() || null, rotuloDoTipo(tipo)].filter(Boolean).join(' · '),
+      falta: apelido.trim().length >= 2 ? undefined : 'Diga como vocês chamam este veículo.',
+    },
+    {
+      rotulo: ehGalao ? 'O que ele carrega' : 'Placa, combustível e modelo',
+      resumo: ehGalao
+        ? [rotuloDoCombustivel(combustivel || null), capacidade ? `${capacidade} L` : null]
+            .filter(Boolean)
+            .join(' · ')
+        : [placa.trim() || null, rotuloDoCombustivel(combustivel || null), modelo.trim() || null]
+            .filter(Boolean)
+            .join(' · '),
+    },
+    {
+      rotulo: 'Média esperada',
+      pular: ehGalao,
+      resumo: consumoIdeal || undefined,
+    },
+    {
+      rotulo: 'Quem abastece',
+      resumo: responsaveisIds.length
+        ? `${responsaveisIds.length} responsável(is)`
+        : undefined,
+    },
+    { rotulo: 'Observação', resumo: observacao.trim() || undefined },
+  ]);
+
   return (
     <Janela titulo={veiculo ? `Editar — ${veiculo.apelido}` : 'Cadastrar veículo'} onFechar={onFechar}>
+      {a.cabecalho}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {a.mostrar(0) && (
+        <>
         <div className="sm:col-span-2">
           <label className="rotulo" htmlFor="vei-apelido">
             Como vocês chamam
@@ -1464,10 +1499,15 @@ function FormularioDoVeiculo({
             ))}
           </select>
         </div>
+        </>
+        )}
+
         {/*
          * O galão não tem placa nem modelo: o que ele tem é o que carrega e
          * quanto cabe. São esses dois campos que ocupam o lugar.
          */}
+        {a.mostrar(1) && (
+        <>
         {ehGalao ? (
           <div>
             <label className="rotulo" htmlFor="vei-capacidade">
@@ -1550,12 +1590,15 @@ function FormularioDoVeiculo({
             autoComplete="off"
           />
         </div>
+        </>
+        )}
+
         {/*
          * A média esperada não é cálculo: é o que a casa sabe do veículo. Com
          * ela, a lista acende o amarelo sozinha quando a média de verdade cai.
          * O galão não tem: ele não anda.
          */}
-        {!ehGalao && (
+        {a.mostrar(2) && !ehGalao && (
           <div className="sm:col-span-2">
             <label className="rotulo" htmlFor="vei-consumo-ideal">
               {ehMaquina
@@ -1578,6 +1621,7 @@ function FormularioDoVeiculo({
           </div>
         )}
 
+        {a.mostrar(3) && (
         <div className="sm:col-span-2">
           <label className="rotulo" htmlFor="vei-responsavel">
             Responsáveis (quem abastece)
@@ -1596,6 +1640,8 @@ function FormularioDoVeiculo({
             operador.
           </p>
         </div>
+        )}
+        {a.mostrar(4) && (
         <div className="sm:col-span-2">
           <label className="rotulo" htmlFor="vei-obs">
             Observação
@@ -1609,10 +1655,15 @@ function FormularioDoVeiculo({
             autoComplete="off"
           />
         </div>
+        )}
       </div>
+
+      {a.resumo}
+      {a.barra}
 
       {erro && <Aviso tom="erro">{mensagemErro(erro)}</Aviso>}
 
+      {a.mostrarAcao && (
       <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
         {veiculo && (
           <span className="mr-auto flex flex-wrap gap-2">
@@ -1654,6 +1705,7 @@ function FormularioDoVeiculo({
           {salvar.isPending ? 'Salvando…' : veiculo ? 'Salvar' : 'Cadastrar'}
         </button>
       </div>
+      )}
     </Janela>
   );
 }

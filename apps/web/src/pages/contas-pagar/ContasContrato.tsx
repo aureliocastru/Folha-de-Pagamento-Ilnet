@@ -18,6 +18,7 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { useAssistente } from '../../components/Assistente';
 import { combina, useTermoAdiado } from '../../lib/busca';
 import { EMPRESA } from '../../lib/empresa';
 import { formatBRL, formatData } from '../../lib/format';
@@ -1468,12 +1469,41 @@ function CadastroDoEndereco({
     Number(diaDeVencimento) >= 1 &&
     Number(diaDeVencimento) <= 31;
 
+  /* No celular, uma pergunta por vez; no computador, a ficha inteira. */
+  const a = useAssistente([
+    {
+      rotulo: 'Endereço e conta contrato',
+      resumo: [apelido.trim() || null, numero.trim() || null].filter(Boolean).join(' · '),
+      falta:
+        apelido.trim() && numero.trim()
+          ? undefined
+          : 'Diga o endereço e o número da conta contrato.',
+    },
+    {
+      rotulo: 'Companhia',
+      resumo: fornecedor?.nome || undefined,
+      falta: fornecedor ? undefined : 'Escolha a companhia no IXC.',
+    },
+    {
+      rotulo: 'Dias do mês',
+      resumo: `chega dia ${diaDeChegada} · vence dia ${diaDeVencimento}`,
+    },
+    {
+      rotulo: 'Para onde vai no IXC',
+      resumo: [contaContabil || null, tipoPagamento || null].filter(Boolean).join(' · '),
+    },
+    { rotulo: 'Observação', resumo: observacao.trim() || undefined },
+  ]);
+
   return (
     <Janela
       titulo={editando ? `Editar — ${contrato!.apelido}` : 'Cadastrar endereço'}
       onFechar={onFechar}
     >
+      {a.cabecalho}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {a.mostrar(0) && (
+        <>
         <div>
           <label className="rotulo" htmlFor="cc-apelido">
             Endereço (como a casa chama)
@@ -1510,6 +1540,9 @@ function CadastroDoEndereco({
         {/* Quem recebe, no cadastro do IXC. Escolhido uma vez e guardado: é o
             mesmo para todos os endereços, e ninguém deveria procurá-lo de novo
             a cada conta. */}
+        </>
+        )}
+        {a.mostrar(1) && (
         <div className="sm:col-span-2">
           <label className="rotulo" htmlFor="cc-fornecedor">
             Quem recebe (fornecedor no IXC)
@@ -1565,6 +1598,9 @@ function CadastroDoEndereco({
           )}
         </div>
 
+        )}
+        {a.mostrar(2) && (
+        <>
         <div>
           <label className="rotulo" htmlFor="cc-chegada">
             Dia em que a fatura costuma chegar
@@ -1603,6 +1639,10 @@ function CadastroDoEndereco({
           </p>
         </div>
 
+        </>
+        )}
+        {a.mostrar(3) && (
+        <>
         <div>
           <label className="rotulo" htmlFor="cc-contabil">
             Conta contábil no IXC
@@ -1690,6 +1730,9 @@ function CadastroDoEndereco({
           />
         </div>
 
+        </>
+        )}
+        {a.mostrar(4) && (
         <div className="sm:col-span-2">
           <label className="rotulo" htmlFor="cc-obs">
             Observação (vai junto na conta gerada)
@@ -1703,10 +1746,15 @@ function CadastroDoEndereco({
             autoComplete="off"
           />
         </div>
+        )}
       </div>
+
+      {a.resumo}
+      {a.barra}
 
       {salvar.isError && <Aviso tom="erro">{mensagemErro(salvar.error)}</Aviso>}
 
+      {a.mostrarAcao && (
       <div className="mt-5 flex justify-end gap-2">
         <button onClick={onFechar} className="btn btn-neutro">
           Cancelar
@@ -1723,6 +1771,7 @@ function CadastroDoEndereco({
               : 'Cadastrar endereço'}
         </button>
       </div>
+      )}
     </Janela>
   );
 }
