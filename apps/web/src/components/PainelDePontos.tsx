@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { AxiosInstance } from 'axios';
-import { useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent, type ReactNode } from 'react';
 import { mensagemErro } from '../lib/api';
 import { semAcento } from '../lib/busca';
 import { useCelular } from '../lib/celular';
@@ -544,6 +544,13 @@ export function FotoDoPonto({
 }) {
   const [aberta, setAberta] = useState(false);
   const [ampliada, setAmpliada] = useState(false);
+  /*
+   * No celular a foto não cabe numa miniatura dentro da lista: lá ela abre
+   * direto em tela cheia, que é onde se lê o valor a caneta e onde a pinça
+   * aproxima. No computador continua abrindo no lugar, e a tela cheia é um
+   * clique depois.
+   */
+  const celular = useCelular();
   const foto = useQuery({
     queryKey: chave,
     queryFn: buscar,
@@ -551,14 +558,26 @@ export function FotoDoPonto({
     staleTime: Infinity,
   });
 
+  useEffect(() => {
+    if (celular && aberta && foto.data) setAmpliada(true);
+  }, [celular, aberta, foto.data]);
+
   return (
     <>
       <button
         type="button"
-        onClick={() => setAberta((a) => !a)}
+        onClick={() => {
+          if (celular && aberta) {
+            // Fechada a tela cheia, o botão a abre de novo — e não esconde
+            // uma miniatura que no celular nem chega a aparecer.
+            setAmpliada(true);
+            return;
+          }
+          setAberta((a) => !a);
+        }}
         className="mt-1 text-xs font-medium text-brand-600 hover:underline dark:text-brand-300"
       >
-        {aberta ? 'Esconder a foto' : 'Ver a foto'}
+        {aberta && !celular ? 'Esconder a foto' : 'Ver a foto'}
       </button>
       {aberta &&
         (foto.isLoading ? (
@@ -571,13 +590,15 @@ export function FotoDoPonto({
               Aqui dentro da lista a foto é um cartão de olhada; o valor a
               caneta se lê é na tela cheia, onde a roda do mouse aproxima.
             */}
-            <img
-              src={foto.data}
-              alt={titulo}
-              onClick={() => setAmpliada(true)}
-              title="Abrir em tela cheia — lá a roda do mouse aproxima"
-              className="mt-2 max-h-96 w-full cursor-zoom-in rounded-lg bg-tinta-100 object-contain"
-            />
+            {!celular && (
+              <img
+                src={foto.data}
+                alt={titulo}
+                onClick={() => setAmpliada(true)}
+                title="Abrir em tela cheia — lá a roda do mouse aproxima"
+                className="mt-2 max-h-96 w-full cursor-zoom-in rounded-lg bg-tinta-100 object-contain"
+              />
+            )}
             {ampliada && foto.data && (
               <FotoAmpliada
                 src={foto.data}

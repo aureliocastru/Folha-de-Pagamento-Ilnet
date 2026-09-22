@@ -452,6 +452,11 @@ function BotaoFechar({ onFechar }: { onFechar: () => void }) {
  * o mouse a move. Clicar alterna entre caber na tela e o tamanho de verdade:
  * foto de celular tem mais pixels que o monitor, e é dessa sobra que sai a
  * letra miúda.
+ *
+ * No celular é a **pinça** que aproxima, entre os dois dedos, como em qualquer
+ * foto do aparelho; um dedo só arrasta a foto ampliada. O zoom da página está
+ * desligado neste app (ver o `viewport`), então a pinça do navegador não faria
+ * nada aqui — quem a atende é esta tela.
  */
 
 /** Oito vezes o que cabe na tela: passa disso e a nota vira borrão de pixel. */
@@ -618,17 +623,55 @@ export function FotoAmpliada({
   const arrasto = useRef<{ x: number; y: number; sl: number; st: number } | null>(null);
   const arrastou = useRef(false);
 
+  /*
+   * Os dedos que estão na tela agora, para a pinça saber o quanto eles se
+   * afastaram. `dedos` guarda onde cada um está; `pinca`, a distância entre
+   * os dois na última medida — é a razão entre as duas que vira o zoom.
+   */
+  const dedos = useRef(new Map<number, { x: number; y: number }>());
+  const pinca = useRef<number | null>(null);
+
+  const distanciaEntreOsDedos = () => {
+    const [a, b] = [...dedos.current.values()];
+    if (!a || !b) return null;
+    return { d: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  };
+
   const aoPegar = (e: PointerEvent<HTMLDivElement>) => {
     const el = caixa.current;
-    if (!el || escala === 1) return;
+    if (!el) return;
+    dedos.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    // O segundo dedo vira pinça: o arrasto para, para os dois gestos não
+    // disputarem a mesma foto.
+    if (dedos.current.size === 2) {
+      arrasto.current = null;
+      arrastou.current = true;
+      pinca.current = distanciaEntreOsDedos()?.d ?? null;
+      return;
+    }
+    if (escala === 1) return;
     arrasto.current = { x: e.clientX, y: e.clientY, sl: el.scrollLeft, st: el.scrollTop };
     arrastou.current = false;
   };
 
   const aoMover = (e: PointerEvent<HTMLDivElement>) => {
     const el = caixa.current;
+    if (!el) return;
+    if (dedos.current.has(e.pointerId)) {
+      dedos.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+
+    if (dedos.current.size >= 2) {
+      const agora = distanciaEntreOsDedos();
+      if (!agora || !pinca.current || agora.d <= 0) return;
+      const r = el.getBoundingClientRect();
+      aproximar(agora.d / pinca.current, { x: agora.x - r.left, y: agora.y - r.top });
+      pinca.current = agora.d;
+      return;
+    }
+
     const a = arrasto.current;
-    if (!el || !a) return;
+    if (!a) return;
     const dx = e.clientX - a.x;
     const dy = e.clientY - a.y;
     if (Math.abs(dx) > 4 || Math.abs(dy) > 4) arrastou.current = true;
@@ -636,7 +679,9 @@ export function FotoAmpliada({
     el.scrollTop = a.st - dy;
   };
 
-  const aoSoltar = () => {
+  const aoSoltar = (e: PointerEvent<HTMLDivElement>) => {
+    dedos.current.delete(e.pointerId);
+    if (dedos.current.size < 2) pinca.current = null;
     arrasto.current = null;
   };
 
@@ -651,9 +696,16 @@ export function FotoAmpliada({
    */
   return createPortal(
     <div className="fixed inset-0 z-[60] flex flex-col bg-barra/95 p-3 sm:p-4">
-      <div className="flex items-center justify-between gap-3 pb-3">
-        <span className="min-w-0 truncate text-sm font-semibold text-white">{titulo}</span>
-        <div className="flex items-center gap-2">
+      {/*
+        No celular o título fica na sua própria linha: espremido ao lado dos
+        botões ele virava "N…", e o "Fechar" ia para fora da tela — a saída da
+        foto sumia justo no aparelho em que ela mais se abre.
+      */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pb-3 sm:gap-3">
+        <span className="w-full min-w-0 truncate text-sm font-semibold text-white sm:w-auto sm:flex-1">
+          {titulo}
+        </span>
+        <div className="flex w-full items-center justify-end gap-2 sm:w-auto">
           {/* No celular e no tablet não há roda: o zoom é por estes dois. */}
           <span className="flex items-center overflow-hidden rounded-xl border border-white/20 md:rounded-lg">
             <button
@@ -674,7 +726,7 @@ export function FotoAmpliada({
               onClick={() => aproximar(1.4)}
               disabled={escala >= ZOOM_MAXIMO}
               aria-label="Aproximar"
-              title="Aproximar — ou role a roda do mouse sobre a foto"
+              title="Aproximar — a roda do mouse, ou a pinça de dois dedos, fazem o mesmo"
               className="min-h-[44px] px-3.5 text-lg font-semibold leading-none text-white/80 transition hover:bg-white/10 disabled:opacity-30 md:min-h-[36px] md:text-base"
             >
               +
@@ -711,8 +763,14 @@ export function FotoAmpliada({
         onPointerDown={aoPegar}
         onPointerMove={aoMover}
         onPointerUp={aoSoltar}
+        onPointerCancel={aoSoltar}
         onPointerLeave={aoSoltar}
-        className={`flex-1 rounded-2xl bg-black/40 p-2 ${
+        /*
+          `touch-none`: sem isto o navegador trata o gesto como rolagem — a
+          foto andaria duas vezes (a dele e a nossa), e a pinça viraria um
+          arrasto. Quem move a foto ampliada é o arrasto daqui.
+        */
+        className={`flex-1 touch-none rounded-2xl bg-black/40 p-2 ${
           escala > 1 ? 'overflow-auto rolagem-fina' : 'overflow-hidden'
         }`}
       >

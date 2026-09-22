@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { FotoDaNota } from '../../components/FotoDaNota';
+import { NotasDoTitulo } from '../../components/NotasDoTitulo';
 import { FotoDoPonto } from '../../components/PainelDePontos';
 import {
   Aviso,
@@ -680,6 +681,28 @@ function FotoDoAbastecimento({
   );
 }
 
+/**
+ * A nota anexada a uma conta, aberta sob demanda.
+ *
+ * Sob demanda porque ler o anexo é uma ida ao IXC, e a ficha de um veículo com
+ * vinte contas faria vinte delas só para desenhar a lista.
+ */
+function NotaDaConta({ idFnApagar }: { idFnApagar: number }) {
+  const [aberta, setAberta] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setAberta((a) => !a)}
+        className="mt-1 text-xs font-medium text-brand-600 hover:underline dark:text-brand-300"
+      >
+        {aberta ? 'Esconder a nota' : 'Ver a nota'}
+      </button>
+      {aberta && <NotasDoTitulo idFnApagar={idFnApagar} />}
+    </>
+  );
+}
+
 const dataEHora = (iso: string) =>
   new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 
@@ -1069,6 +1092,10 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
                         {g.situacao === 'nao enviada' ? 'não chegou ao IXC' : g.situacao}
                       </Selo>
                     </span>
+                    {/* A nota que se anexou ao lançar a conta mora no IXC, e é
+                        de lá que ela volta — quem anexou o cupom vem procurá-lo
+                        aqui, na ficha do veículo. */}
+                    {g.idFnApagarIxc != null && <NotaDaConta idFnApagar={g.idFnApagarIxc} />}
                   </span>
                   <span
                     className={`valor whitespace-nowrap ${

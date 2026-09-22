@@ -87,6 +87,18 @@ export class ColaboradorController {
     return this.abastecimentos.doLogin(logado(req), colaborador?.id ?? null);
   }
 
+  /** A foto da nota de um abastecimento dele — a que ele mesmo tirou. */
+  @Get('abastecimento/:id/foto')
+  async fotoDoAbastecimento(@Req() req: Request, @Param('id') id: string) {
+    exigir(req, 'abastecimento');
+    const colaborador = await this.vinculos.doLogin(idDoLogado(req));
+    return this.abastecimentos.fotoDoResponsavel(id, {
+      funcionarioId: colaborador?.id ?? null,
+      usuarioId: idDoLogado(req),
+      nome: logado(req).nome,
+    });
+  }
+
   @Post('abastecimento')
   @HttpCode(201)
   async abastecer(@Req() req: Request, @Body() dto: LancarMeuAbastecimentoDto) {

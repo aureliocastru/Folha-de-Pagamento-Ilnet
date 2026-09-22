@@ -142,6 +142,12 @@ export class VeiculosDoCpfDto {
   @IsString() @MaxLength(20) cpf!: string;
 }
 
+/** O portal pede a foto de um abastecimento — a que este CPF anexou. */
+export class FotoDoAbastecimentoDoCpfDto {
+  @IsString() @MaxLength(20) cpf!: string;
+  @IsUUID() id!: string;
+}
+
 /**
  * O abastecimento lançado pelo portal.
  *

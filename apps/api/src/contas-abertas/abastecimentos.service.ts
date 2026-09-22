@@ -242,6 +242,11 @@ export class AbastecimentosService {
     return this.doResponsavel(pessoa(await this.funcionarioPeloCpf(cpf)));
   }
 
+  /** A foto da nota que este CPF anexou — só a dele. */
+  async fotoDoPortal(cpf: string, id: string): Promise<{ foto: string }> {
+    return this.fotoDoResponsavel(id, pessoa(await this.funcionarioPeloCpf(cpf)));
+  }
+
   /** O abastecimento que o responsável fez agora, pelo portal do CPF. */
   async lancarPeloPortal(
     cpf: string,
@@ -776,6 +781,49 @@ export class AbastecimentosService {
   /** Um lançamento só, com o valor da saída já calculado. */
   private async valorizada(a: AbastecimentoCru & { galaoId: string | null }) {
     return valorizar(naTela(a), a.galaoId, await this.precosDosGaloes());
+  }
+
+  /**
+   * A foto da nota de um abastecimento, para quem o lançou.
+   *
+   * Quem tirou a foto precisa poder revê-la — foi ela que ficou no lugar da
+   * nota de papel, que já foi para o lixo do posto. Mas só a dela: a foto sai
+   * se o veículo está no nome da pessoa, ou se foi ela quem lançou (o veículo
+   * pode ter mudado de mão desde então).
+   */
+  async fotoDoResponsavel(id: string, quem: QuemAbastece): Promise<{ foto: string }> {
+    const a = await this.prisma.abastecimento.findUnique({
+      where: { id },
+      select: {
+        funcionarioId: true,
+        usuarioId: true,
+        galaoId: true,
+        veiculo: {
+          select: {
+            responsaveis: { select: { funcionarioId: true } },
+            logins: { select: { usuarioId: true } },
+          },
+        },
+        galao: {
+          select: {
+            responsaveis: { select: { funcionarioId: true } },
+            logins: { select: { usuarioId: true } },
+          },
+        },
+      },
+    });
+    const lancouEla =
+      (!!quem.funcionarioId && a?.funcionarioId === quem.funcionarioId) ||
+      (!!quem.usuarioId && a?.usuarioId === quem.usuarioId);
+    const dela =
+      lancouEla ||
+      (!!a?.veiculo && estaNoNome(a.veiculo, quem)) ||
+      // O galão de onde saiu também é dela: foi ela quem o levou ao posto.
+      (!!a?.galao && estaNoNome(a.galao, quem));
+    if (!a || !dela) {
+      throw new NotFoundException('Foto não encontrada.');
+    }
+    return this.foto(id);
   }
 
   async foto(id: string): Promise<{ foto: string }> {

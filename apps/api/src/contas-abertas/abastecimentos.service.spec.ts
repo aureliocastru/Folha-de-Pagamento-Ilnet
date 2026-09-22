@@ -73,7 +73,14 @@ function montar(
             ? { litros: g?.litrosPagos ?? 0, valor: g?.pago ?? 0 }
             : { litros: g?.entrou ?? 0 },
       })),
-      findUnique: jest.fn(async () => ({ id: 'a1' })),
+      findUnique: jest.fn(async () => ({
+        id: 'a1',
+        funcionarioId: opts.responsavelId ?? 'f1',
+        usuarioId: null,
+        galaoId: null,
+        veiculo: { responsaveis: [{ funcionarioId: opts.responsavelId ?? 'f1' }], logins: [] },
+        galao: null,
+      })),
       create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
         id: 'a1',
         valor: null,
@@ -90,6 +97,7 @@ function montar(
         foto: { id: 'foto1' },
       })),
     },
+    fotoDoAbastecimento: { findUnique: jest.fn(async () => ({ foto: FOTO })) },
   };
   return { service: new AbastecimentosService(prisma as never), prisma };
 }
@@ -238,6 +246,38 @@ describe('o veículo no nome do login', () => {
         ],
       },
     });
+  });
+});
+
+/**
+ * A foto é o que sobrou da nota de papel, que ficou no lixo do posto: quem a
+ * tirou tem de poder revê-la — e só ela.
+ */
+describe('ver a foto da nota', () => {
+  it('sai para quem tem o veículo no nome', async () => {
+    const { service } = montar();
+    await expect(service.fotoDoPortal(CPF, 'a1')).resolves.toEqual({ foto: FOTO });
+  });
+
+  it('não sai para quem não lançou nem tem o veículo', async () => {
+    const { service, prisma } = montar({ responsavelId: 'outro' });
+    await expect(service.fotoDoPortal(CPF, 'a1')).rejects.toThrow(NotFoundException);
+    expect(prisma.fotoDoAbastecimento.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('o login vê a foto do veículo que está no nome dele', async () => {
+    const { service, prisma } = montar();
+    prisma.abastecimento.findUnique = jest.fn(async () => ({
+      id: 'a1',
+      funcionarioId: null,
+      usuarioId: 'u-dono',
+      galaoId: null,
+      veiculo: { responsaveis: [], logins: [{ usuarioId: 'u-dono' }] },
+      galao: null,
+    })) as never;
+    await expect(
+      service.fotoDoResponsavel('a1', { funcionarioId: null, usuarioId: 'u-dono', nome: 'Aurélio' }),
+    ).resolves.toEqual({ foto: FOTO });
   });
 });
 

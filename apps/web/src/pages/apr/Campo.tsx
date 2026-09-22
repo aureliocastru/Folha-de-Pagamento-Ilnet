@@ -296,6 +296,9 @@ export function CampoAbastecimento() {
         lancar={async (dados: DadosDoAbastecimento) =>
           (await api.post('/colaborador/abastecimento', dados)).data
         }
+        foto={async (id) =>
+          (await api.get<{ foto: string }>(`/colaborador/abastecimento/${id}/foto`)).data.foto
+        }
       />
     </>
   );

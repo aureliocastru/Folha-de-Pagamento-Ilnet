@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { FotoDaNota } from '../../components/FotoDaNota';
+import { FotoDoPonto } from '../../components/PainelDePontos';
 import { SeletorDeVeiculo } from '../../components/SeletorDeVeiculo';
 import { Aviso, CampoDinheiro, Carregando } from '../../components/ui';
 import { mensagemErro } from '../../lib/api';
@@ -111,6 +112,8 @@ export interface FonteDoAbastecimento {
   chave: unknown[];
   buscar: () => Promise<VeiculosDoResponsavel>;
   lancar: (dados: DadosDoAbastecimento) => Promise<unknown>;
+  /** A foto da nota de um lançamento — para quem a tirou poder revê-la. */
+  foto: (id: string) => Promise<string>;
 }
 
 const chaveDoCpf = (cpf: string) => ['pontos', 'abastecimento', cpf];
@@ -138,6 +141,10 @@ export function TelaDeAbastecimento({ cpf }: { cpf: string }) {
       chave={chaveDoCpf(cpf)}
       buscar={() => veiculosDoCpf(cpf)}
       lancar={async (dados) => (await apiPontos.post('/pontos/abastecimento', { cpf, ...dados })).data}
+      foto={async (id) =>
+        (await apiPontos.post<{ foto: string }>('/pontos/abastecimento/foto', { cpf, id }))
+          .data.foto
+      }
     />
   );
 }
@@ -190,7 +197,12 @@ const BUSCA_A_PARTIR_DE = 6;
  * Tudo grande, para o dedo e para a luz do sol: é uma tela de posto de
  * gasolina, e às vezes de canteiro de obra.
  */
-export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: FonteDoAbastecimento) {
+export function FormularioDeAbastecimento({
+  chave,
+  buscar,
+  lancar: enviar,
+  foto: buscarFoto,
+}: FonteDoAbastecimento) {
   const qc = useQueryClient();
   const consulta = useQuery({ queryKey: chave, queryFn: buscar, retry: 0 });
   const veiculos = consulta.data?.veiculos ?? [];
@@ -645,11 +657,18 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
                 <span className="block text-[11px] text-tinta-400">
                   {new Date(a.data).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })} ·{' '}
                   {a.lancadoPor}
-                  {/* A foto em si fica na ficha do veículo, no sistema: aqui
-                      basta saber que a nota foi junto. */}
-                  {a.temFoto && ' · nota anexada'}
                   {a.galao && ` · do ${a.galao.apelido}`}
                 </span>
+                {/* A nota de papel ficou no posto: a foto é o que sobrou dela,
+                    e quem a tirou precisa poder abri-la — no celular, em tela
+                    cheia, com a pinça. */}
+                {a.temFoto && (
+                  <FotoDoPonto
+                    chave={[...chave, 'foto', a.id]}
+                    buscar={() => buscarFoto(a.id)}
+                    titulo={`Nota de ${veiculo.apelido}`}
+                  />
+                )}
               </li>
             ))}
           </ul>

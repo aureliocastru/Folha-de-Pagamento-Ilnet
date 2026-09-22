@@ -3,7 +3,7 @@ import type { Request } from 'express';
 import { Public } from '../auth/public.decorator';
 import { LimiteDeTentativas } from '../pontuacao/limite-de-tentativas';
 import { AbastecimentosService } from './abastecimentos.service';
-import { LancarAbastecimentoDto, VeiculosDoCpfDto } from './dto/veiculo.dto';
+import { FotoDoAbastecimentoDoCpfDto, LancarAbastecimentoDto, VeiculosDoCpfDto } from './dto/veiculo.dto';
 
 /**
  * O abastecimento no portal do CPF — a mesma porta da pontuação.
@@ -31,5 +31,16 @@ export class AbastecimentoPortalController {
   lancar(@Body() dto: LancarAbastecimentoDto, @Req() req: Request) {
     this.limite.conferir(req);
     return this.service.lancarPeloPortal(dto.cpf, dto);
+  }
+
+  /**
+   * A foto da nota que essa pessoa anexou. `POST` como o resto daqui: o CPF
+   * vai no corpo, e endereço nenhum carrega o documento de alguém.
+   */
+  @Post('foto')
+  @HttpCode(200)
+  async foto(@Body() dto: FotoDoAbastecimentoDoCpfDto, @Req() req: Request) {
+    this.limite.conferir(req);
+    return this.service.fotoDoPortal(dto.cpf, dto.id);
   }
 }
