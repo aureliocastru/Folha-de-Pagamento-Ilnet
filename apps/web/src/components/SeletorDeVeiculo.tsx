@@ -37,6 +37,9 @@ export function ordenarPorPlaca(veiculos: VeiculoDaLista[]): VeiculoDaLista[] {
  *
  * A lista vai pendurada no `body`, como a do `SeletorDeCategoria`: escrita no
  * lugar, a janela que rola a cortaria pela metade.
+ *
+ * Serve também ao "Pra onde foi" do galão, no celular: lá a escolha é
+ * obrigatória (sem "Nenhum") e a última linha é a de escrever outro destino.
  */
 export function SeletorDeVeiculo({
   veiculos,
@@ -44,16 +47,31 @@ export function SeletorDeVeiculo({
   onChange,
   carregando = false,
   id,
+  vazio = 'Nenhum',
+  obrigatorio = false,
+  extra,
+  grande = false,
 }: {
   veiculos: VeiculoDaLista[];
   value: string;
   onChange: (id: string) => void;
   carregando?: boolean;
   id?: string;
+  /** O que o botão diz antes de escolher. */
+  vazio?: string;
+  /** Sem a linha "Nenhum": um veículo tem de ser escolhido. */
+  obrigatorio?: boolean;
+  /** Uma linha a mais, sempre no fim da lista, fora da busca: "Outro destino…". */
+  extra?: { id: string; rotulo: string };
+  /** Da altura do dedo, para a tela do posto. */
+  grande?: boolean;
 }) {
   const [aberta, setAberta] = useState(false);
   const botao = useRef<HTMLButtonElement>(null);
-  const escolhido = veiculos.find((v) => v.id === value) ?? null;
+  const linhaExtra = extra ? { id: extra.id, apelido: extra.rotulo, placa: null } : null;
+  const escolhido =
+    veiculos.find((v) => v.id === value) ??
+    (linhaExtra && value === linhaExtra.id ? linhaExtra : null);
 
   return (
     <div>
@@ -65,10 +83,12 @@ export function SeletorDeVeiculo({
         onClick={() => setAberta(true)}
         aria-haspopup="listbox"
         aria-expanded={aberta}
-        className="campo flex items-center justify-between gap-2 text-left"
+        className={`campo flex items-center justify-between gap-2 text-left ${
+          grande ? 'h-12 text-base' : ''
+        }`}
       >
         <span className={`truncate ${escolhido ? '' : 'text-tinta-400'}`}>
-          {carregando ? 'Carregando…' : escolhido ? <Nome v={escolhido} /> : 'Nenhum'}
+          {carregando ? 'Carregando…' : escolhido ? <Nome v={escolhido} /> : vazio}
         </span>
         <SetaDeAbrir />
       </button>
@@ -78,6 +98,8 @@ export function SeletorDeVeiculo({
           ancora={botao.current}
           veiculos={veiculos}
           value={value}
+          vazio={obrigatorio ? null : vazio}
+          extra={linhaExtra}
           onEscolher={(v) => {
             setAberta(false);
             onChange(v);
@@ -118,12 +140,17 @@ function ListaDeVeiculos({
   ancora,
   veiculos,
   value,
+  vazio,
+  extra,
   onEscolher,
   onFechar,
 }: {
   ancora: HTMLElement | null;
   veiculos: VeiculoDaLista[];
   value: string;
+  /** O rótulo da linha que desmarca. Null = não há essa linha. */
+  vazio: string | null;
+  extra: VeiculoDaLista | null;
   onEscolher: (id: string) => void;
   onFechar: () => void;
 }) {
@@ -163,8 +190,14 @@ function ListaDeVeiculos({
       semAcento(v.apelido).includes(termo) ||
       (placaDigitada.length > 0 && soLetrasENumeros(v.placa ?? '').includes(placaDigitada)),
   );
-  // Sem busca, "Nenhum" é a primeira linha — é a escolha de quem desmarca.
-  const linhas: Array<VeiculoDaLista | null> = termo ? achados : [null, ...achados];
+  // Sem busca, "Nenhum" é a primeira linha — é a escolha de quem desmarca. O
+  // extra fica no fim mesmo sem achado: não achar a roçadeira na frota é
+  // justamente a hora de escrever outro destino.
+  const linhas: Array<VeiculoDaLista | null> = [
+    ...(termo || vazio == null ? [] : [null]),
+    ...achados,
+    ...(extra ? [extra] : []),
+  ];
   const marcada = Math.min(destaque, Math.max(0, linhas.length - 1));
 
   // A linha em destaque acompanha as setas, sem sair da área visível.
@@ -244,7 +277,13 @@ function ListaDeVeiculos({
                 }`}
               >
                 <span className="min-w-0 flex-1 truncate">
-                  {v ? <Nome v={v} /> : <span className="text-tinta-500">Nenhum</span>}
+                  {!v ? (
+                    <span className="text-tinta-500">{vazio}</span>
+                  ) : v === extra ? (
+                    <span className="font-semibold text-tinta-600">{v.apelido}</span>
+                  ) : (
+                    <Nome v={v} />
+                  )}
                 </span>
               </button>
             ))

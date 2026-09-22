@@ -1,8 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { FotoDaNota } from '../../components/FotoDaNota';
+import { SeletorDeVeiculo } from '../../components/SeletorDeVeiculo';
 import { Aviso, CampoDinheiro, Carregando } from '../../components/ui';
 import { mensagemErro } from '../../lib/api';
+import { combina } from '../../lib/busca';
 import {
   formatBRL,
   formatConsumo,
@@ -166,6 +168,9 @@ const LITROS_COM_CASAS = 2;
 /** A opção da lista de destinos que abre o campo de escrever. */
 const OUTRO_DESTINO = 'outro';
 
+/** De quantos veículos no nome para cima os botões ganham uma busca em cima. */
+const BUSCA_A_PARTIR_DE = 6;
+
 /**
  * O abastecimento, lançado por quem anda com o veículo, na hora, no posto.
  *
@@ -202,6 +207,7 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
   /** A nota e, se precisar, o visor da bomba: vão juntas, lado a lado. */
   const [fotos, setFotos] = useState<string[]>([]);
   const [feito, setFeito] = useState<string | null>(null);
+  const [buscaVeiculo, setBuscaVeiculo] = useState('');
 
   // Um veículo só: já vem escolhido. Perguntar qual, com uma opção, é um toque cobrado à toa.
   const unico = veiculos.length === 1 ? veiculos[0].id : null;
@@ -303,6 +309,16 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
 
   const rotuloDoMedidor = ehMaquina ? 'Horímetro da máquina' : 'Km do painel';
 
+  // O escolhido fica sempre à vista, ache a busca ou não.
+  const veiculosAVista = veiculos.filter(
+    (v) =>
+      v.id === veiculoId ||
+      combina(
+        [v.apelido, v.placa, v.modelo, v.combustivel && COMBUSTIVEL_NOME[v.combustivel]],
+        buscaVeiculo,
+      ),
+  );
+
   return (
     <div className="space-y-4">
       <div>
@@ -329,8 +345,21 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
         {veiculos.length > 1 && (
           <div>
             <p className="rotulo">O que você abasteceu</p>
+            {/* Muitos no nome — o coordenador, a frota de uma equipe —, e os
+                botões viram uma parede: a busca acha pela placa ou pelo nome. */}
+            {veiculos.length >= BUSCA_A_PARTIR_DE && (
+              <input
+                type="search"
+                value={buscaVeiculo}
+                onChange={(e) => setBuscaVeiculo(e.target.value)}
+                placeholder="Procurar pela placa ou pelo nome…"
+                aria-label="Procurar veículo"
+                autoComplete="off"
+                className="campo mb-2 h-12 text-base"
+              />
+            )}
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {veiculos.map((v) => (
+              {veiculosAVista.map((v) => (
                 <button
                   key={v.id}
                   type="button"
@@ -456,23 +485,21 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
             <label className="rotulo" htmlFor="abast-destino">
               Pra onde foi
             </label>
-            <select
+            {/* A frota inteira cabe aqui: com busca, e não um <select> de
+                vinte e tantas linhas para rolar com o galão na outra mão. */}
+            <SeletorDeVeiculo
               id="abast-destino"
+              veiculos={destinos}
               value={destinoId}
-              onChange={(e) => {
-                setDestinoId(e.target.value);
+              onChange={(id) => {
+                setDestinoId(id);
                 setMedidorDigitado('');
               }}
-              className="campo h-12 text-base"
-            >
-              <option value="">Escolha…</option>
-              {destinos.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {[d.apelido, d.placa].filter(Boolean).join(' · ')}
-                </option>
-              ))}
-              <option value={OUTRO_DESTINO}>Outro destino (escrever)…</option>
-            </select>
+              vazio="Escolha…"
+              obrigatorio
+              extra={{ id: OUTRO_DESTINO, rotulo: 'Outro destino (escrever)…' }}
+              grande
+            />
             {paraOutroDestino && (
               <>
                 <input

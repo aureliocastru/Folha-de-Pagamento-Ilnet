@@ -15,6 +15,7 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { combina } from '../../lib/busca';
 import {
   formatBRL,
   formatConsumo,
@@ -274,6 +275,23 @@ function MediaDoVeiculo({ veiculo: v }: { veiculo: VeiculoNaLista }) {
   );
 }
 
+/**
+ * Onde a busca da frota procura: o nome, a placa (com ou sem traço), o modelo,
+ * o tipo, o combustível e quem anda com ele — "hilux", "snf6", "moto",
+ * "diesel", "anderson".
+ */
+function camposDaBusca(v: VeiculoNaLista) {
+  return [
+    v.apelido,
+    v.placa,
+    v.modelo,
+    v.ano,
+    rotuloDoTipo(v.tipo),
+    rotuloDoCombustivel(v.tipoCombustivel),
+    ...v.responsaveis.map((r) => r.nome),
+  ];
+}
+
 /** "Anderson", "Anderson e Cainan", "Anderson, Cainan e Blane". */
 function nomesDosResponsaveis(lista: Array<{ nome: string }>): string {
   const nomes = lista.map((r) => r.nome);
@@ -293,6 +311,7 @@ function nomesDosResponsaveis(lista: Array<{ nome: string }>): string {
 export function Veiculos() {
   const [cadastrando, setCadastrando] = useState(false);
   const [abertoId, setAbertoId] = useState<string | null>(null);
+  const [busca, setBusca] = useState('');
 
   const lista = useQuery({
     queryKey: ['veiculos', 'todos'],
@@ -300,6 +319,7 @@ export function Veiculos() {
   });
 
   const veiculos = lista.data ?? [];
+  const achados = veiculos.filter((v) => combina(camposDaBusca(v), busca));
   const ativos = veiculos.filter((v) => v.ativo);
   const totalGasto = veiculos.reduce((s, v) => s + v.gasto, 0);
   const totalCombustivel = veiculos.reduce((s, v) => s + v.combustivel, 0);
@@ -346,6 +366,18 @@ export function Veiculos() {
         </div>
       )}
 
+      {veiculos.length > 0 && (
+        <input
+          type="search"
+          className="campo mb-3 max-w-xs"
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          placeholder="Procurar pelo nome, placa, modelo ou motorista"
+          aria-label="Procurar veículo"
+          autoComplete="off"
+        />
+      )}
+
       <Bloco semPadding>
         {lista.isLoading ? (
           <Carregando />
@@ -353,6 +385,11 @@ export function Veiculos() {
           <Vazio titulo="Nenhum veículo cadastrado">
             Cadastre as motos, os carros e as máquinas. Depois, no "Lançar conta",
             dá para marcar em qual deles foi o gasto.
+          </Vazio>
+        ) : achados.length === 0 ? (
+          <Vazio titulo="Nenhum veículo com essa busca">
+            Nada com "{busca.trim()}" no nome, na placa, no modelo ou em quem anda com
+            ele.
           </Vazio>
         ) : (
           <div className="overflow-x-auto rolagem-fina">
@@ -370,7 +407,7 @@ export function Veiculos() {
                 </tr>
               </thead>
               <tbody>
-                {veiculos.map((v) => (
+                {achados.map((v) => (
                   <tr
                     key={v.id}
                     onClick={() => setAbertoId(v.id)}
