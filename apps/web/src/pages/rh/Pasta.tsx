@@ -23,6 +23,7 @@ import type {
   PrazoDoDocumento,
 } from '../../lib/types';
 import { CartaoDaPasta, FormularioDaPasta } from './Pastas';
+import { CampoDeData } from '../../components/CampoDeData';
 
 /** O que a pasta aceita — o mesmo que a API guarda. */
 const ACEITOS =
@@ -1702,11 +1703,10 @@ export function FormularioDoDocumento({
           <label className="rotulo" htmlFor="emitido-em">
             Data do documento <span className="text-tinta-400">(opcional)</span>
           </label>
-          <input
+          <CampoDeData
             id="emitido-em"
-            type="date"
-            value={emitidoEm}
-            onChange={(e) => setEmitidoEm(e.target.value)}
+            valor={emitidoEm}
+            onChange={setEmitidoEm}
             className="campo"
           />
         </div>
@@ -1714,11 +1714,10 @@ export function FormularioDoDocumento({
           <label className="rotulo" htmlFor="vale-ate">
             Vale até <span className="text-tinta-400">(opcional)</span>
           </label>
-          <input
+          <CampoDeData
             id="vale-ate"
-            type="date"
-            value={valeAte}
-            onChange={(e) => setValeAte(e.target.value)}
+            valor={valeAte}
+            onChange={setValeAte}
             className="campo"
           />
           <p className="ajuda">

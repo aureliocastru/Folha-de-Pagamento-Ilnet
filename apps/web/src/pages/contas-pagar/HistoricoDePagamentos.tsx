@@ -15,6 +15,7 @@ import { formatBRL, formatData } from '../../lib/format';
 import { TIPO_LABEL } from '../../lib/status';
 import type { HistoricoPagamentos, PagamentoFeito } from '../../lib/types';
 import { DetalheDoPagamento, PrazoDoPagamento } from './DetalheDoPagamento';
+import { CampoDeData } from '../../components/CampoDeData';
 
 /**
  * O que a empresa já pagou, lido do IXC na hora.
@@ -274,28 +275,22 @@ export function SeletorDePeriodo({
       </div>
 
       <div className="flex flex-wrap items-end gap-2">
-        <label className="text-xs text-tinta-500">
+        <label className="flex items-center gap-2 text-xs text-tinta-500">
           De
-          <input
-            type="date"
-            value={periodo.de}
+          <CampoDeData
+            valor={periodo.de}
             max={periodo.ate}
-            onChange={(e) =>
-              e.target.value && onEscolher({ ...periodo, de: e.target.value })
-            }
-            className="campo num ml-2 w-[10.5rem]"
+            onChange={(valorNovo) => valorNovo && onEscolher({ ...periodo, de: valorNovo })}
+            className="campo num w-[10.5rem]"
           />
         </label>
-        <label className="text-xs text-tinta-500">
+        <label className="flex items-center gap-2 text-xs text-tinta-500">
           até
-          <input
-            type="date"
-            value={periodo.ate}
+          <CampoDeData
+            valor={periodo.ate}
             min={periodo.de}
-            onChange={(e) =>
-              e.target.value && onEscolher({ ...periodo, ate: e.target.value })
-            }
-            className="campo num ml-2 w-[10.5rem]"
+            onChange={(valorNovo) => valorNovo && onEscolher({ ...periodo, ate: valorNovo })}
+            className="campo num w-[10.5rem]"
           />
         </label>
       </div>

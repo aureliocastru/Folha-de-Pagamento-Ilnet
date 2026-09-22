@@ -20,6 +20,7 @@ import { useTermoAdiado } from '../../lib/busca';
 import { useAuth } from '../../lib/auth';
 import { reduzirFoto } from '../../lib/foto';
 import { formatBRL, formatData } from '../../lib/format';
+import { CampoDeData } from '../../components/CampoDeData';
 import type {
   CaixasDoFechamento,
   CategoriaDespesa,
@@ -159,13 +160,11 @@ export function FechamentoCaixa() {
             <label className="rotulo" htmlFor="de">
               De
             </label>
-            <input
+            <CampoDeData
               id="de"
-              type="date"
               className="campo"
-              value={periodo.de}
-              onChange={(e) =>
-                setPeriodo((p) => ({ ...p, de: e.target.value }))
+              valor={periodo.de}
+              onChange={(valorNovo) => setPeriodo((p) => ({ ...p, de: valorNovo }))
               }
             />
           </div>
@@ -173,13 +172,11 @@ export function FechamentoCaixa() {
             <label className="rotulo" htmlFor="ate">
               Até
             </label>
-            <input
+            <CampoDeData
               id="ate"
-              type="date"
               className="campo"
-              value={periodo.ate}
-              onChange={(e) =>
-                setPeriodo((p) => ({ ...p, ate: e.target.value }))
+              valor={periodo.ate}
+              onChange={(valorNovo) => setPeriodo((p) => ({ ...p, ate: valorNovo }))
               }
             />
           </div>
@@ -760,11 +757,10 @@ function Historico({ caixaId }: { caixaId: number }) {
             <label className="rotulo" htmlFor="hist-de">
               De
             </label>
-            <input
+            <CampoDeData
               id="hist-de"
-              type="date"
-              value={de}
-              onChange={(e) => setDe(e.target.value)}
+              valor={de}
+              onChange={setDe}
               className="campo"
             />
           </div>
@@ -772,11 +768,10 @@ function Historico({ caixaId }: { caixaId: number }) {
             <label className="rotulo" htmlFor="hist-ate">
               Até
             </label>
-            <input
+            <CampoDeData
               id="hist-ate"
-              type="date"
-              value={ate}
-              onChange={(e) => setAte(e.target.value)}
+              valor={ate}
+              onChange={setAte}
               className="campo"
             />
           </div>
@@ -2259,11 +2254,10 @@ function AcertarConta({
             <label className="rotulo" htmlFor="data-acerto">
               Dia da compra
             </label>
-            <input
+            <CampoDeData
               id="data-acerto"
-              type="date"
-              value={data}
-              onChange={(e) => setData(e.target.value)}
+              valor={data}
+              onChange={setData}
               className="campo"
             />
             <p className="ajuda">Pode ser uma data já passada.</p>
@@ -2379,11 +2373,10 @@ function AcertarConta({
                   Em que dia ela saiu do caixa no IXC{' '}
                   <span className="text-tinta-400">(opcional)</span>
                 </label>
-                <input
+                <CampoDeData
                   id="gasto-ja-no-ixc"
-                  type="date"
-                  value={gastoJaNoIxcEm}
-                  onChange={(e) => setGastoJaNoIxcEm(e.target.value)}
+                  valor={gastoJaNoIxcEm}
+                  onChange={setGastoJaNoIxcEm}
                   className="campo max-w-xs"
                 />
                 <p className="ajuda">

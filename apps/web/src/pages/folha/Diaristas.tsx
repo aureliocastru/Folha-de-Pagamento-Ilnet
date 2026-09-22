@@ -17,6 +17,7 @@ import { api, mensagemErro } from '../../lib/api';
 import { formatBRL, formatData } from '../../lib/format';
 import { FORMA_PAGAMENTO_LABEL, STATUS_LABEL, STATUS_TOM } from '../../lib/status';
 import { TIPOS_CHAVE_PIX } from '../../lib/types';
+import { CampoDeData } from '../../components/CampoDeData';
 import type {
   CategoriaDespesa,
   Diaria,
@@ -1344,10 +1345,9 @@ function FormularioDiaria({
     <Janela titulo={`Pagar — ${diarista.nome}`} onFechar={onCancelar}>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Campo label="Data do acerto">
-          <input
-            type="date"
-            value={data}
-            onChange={(e) => setData(e.target.value)}
+          <CampoDeData
+            valor={data}
+            onChange={setData}
             className="campo"
           />
         </Campo>

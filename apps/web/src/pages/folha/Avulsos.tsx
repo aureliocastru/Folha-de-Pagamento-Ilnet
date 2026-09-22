@@ -21,6 +21,7 @@ import { useTermoAdiado } from '../../lib/busca';
 import { formatBRL, formatData } from '../../lib/format';
 import { STATUS_LABEL, STATUS_TOM } from '../../lib/status';
 import { TIPOS_CHAVE_PIX } from '../../lib/types';
+import { CampoDeData } from '../../components/CampoDeData';
 import type {
   BeneficiarioAvulso,
   BeneficiarioComResumo,
@@ -1373,10 +1374,9 @@ function FormularioPagamento({
     <Janela titulo={`Pagar — ${beneficiario.nome}`} onFechar={onCancelar}>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Campo label="Data">
-          <input
-            type="date"
-            value={data}
-            onChange={(e) => setData(e.target.value)}
+          <CampoDeData
+            valor={data}
+            onChange={setData}
             className="campo"
           />
         </Campo>

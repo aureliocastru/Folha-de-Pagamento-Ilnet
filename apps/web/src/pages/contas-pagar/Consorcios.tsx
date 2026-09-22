@@ -20,6 +20,7 @@ import { api, mensagemErro } from '../../lib/api';
 import { useTermoAdiado } from '../../lib/busca';
 import { formatBRL, formatData } from '../../lib/format';
 import type { CategoriaDespesa, StatusContaPagar } from '../../lib/types';
+import { CampoDeData } from '../../components/CampoDeData';
 import type {
   ParcelaAntecipada,
   Recorrente,
@@ -486,11 +487,10 @@ export function JanelaDeAntecipacao({
               <label className="rotulo" htmlFor="ant-data">
                 Quando foi paga
               </label>
-              <input
+              <CampoDeData
                 id="ant-data"
-                type="date"
-                value={dataPaga}
-                onChange={(e) => setDataPaga(e.target.value)}
+                valor={dataPaga}
+                onChange={setDataPaga}
                 className="campo"
               />
             </div>
@@ -1336,11 +1336,10 @@ export function CadastroDoConsorcio({
           <label className="rotulo" htmlFor="co-vencimento">
             {mensal ? 'Próxima conta a gerar vence em' : 'Próxima parcela a gerar vence em'}
           </label>
-          <input
+          <CampoDeData
             id="co-vencimento"
-            type="date"
-            value={vencimento}
-            onChange={(e) => setVencimentoEscrito(e.target.value)}
+            valor={vencimento}
+            onChange={setVencimentoEscrito}
             className="campo"
           />
           <p className="ajuda">

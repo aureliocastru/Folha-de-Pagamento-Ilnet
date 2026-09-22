@@ -6,6 +6,7 @@ import { api, mensagemErro } from '../../lib/api';
 import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
 import { formatBRL, formatData } from '../../lib/format';
 import { TIPO_LABEL } from '../../lib/status';
+import { CampoDeData } from '../../components/CampoDeData';
 import type {
   CategoriaDespesa,
   ContaAberta,
@@ -420,11 +421,10 @@ function PagarConta({
           <label className="rotulo" htmlFor="data-pagamento">
             Dia em que saiu
           </label>
-          <input
+          <CampoDeData
             id="data-pagamento"
-            type="date"
-            value={data}
-            onChange={(e) => setData(e.target.value)}
+            valor={data}
+            onChange={setData}
             className="campo"
           />
         </div>

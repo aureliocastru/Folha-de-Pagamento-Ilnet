@@ -20,6 +20,7 @@ import { api, mensagemErro } from '../../lib/api';
 import { useTermoAdiado } from '../../lib/busca';
 import { formatBRL, formatData } from '../../lib/format';
 import type { CategoriaDespesa } from '../../lib/types';
+import { CampoDeData } from '../../components/CampoDeData';
 
 /** Um fornecedor do IXC, como a busca por nome o devolve. */
 interface FornecedorIxc {
@@ -682,11 +683,10 @@ function FaturaDoCartao({
               <label className="rotulo" htmlFor={`venc-${cartao.id}`}>
                 Vencimento
               </label>
-              <input
+              <CampoDeData
                 id={`venc-${cartao.id}`}
-                type="date"
-                value={vencimento}
-                onChange={(e) => setVencimento(e.target.value)}
+                valor={vencimento}
+                onChange={setVencimento}
                 className="campo py-1.5"
               />
               {!vencimento && (

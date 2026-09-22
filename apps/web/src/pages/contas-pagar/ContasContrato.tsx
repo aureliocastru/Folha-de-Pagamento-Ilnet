@@ -23,6 +23,7 @@ import { combina, useTermoAdiado } from '../../lib/busca';
 import { EMPRESA } from '../../lib/empresa';
 import { formatBRL, formatData } from '../../lib/format';
 import type { CategoriaDespesa } from '../../lib/types';
+import { CampoDeData } from '../../components/CampoDeData';
 
 /** Um fornecedor do IXC, como a busca por nome o devolve. */
 interface FornecedorIxc {
@@ -1022,10 +1023,9 @@ function LinhaDoEndereco({
           formatData(gerada.dataVencimento)
         ) : (
           <>
-            <input
-              type="date"
-              value={vencimento}
-              onChange={(e) => onVencimento(e.target.value)}
+            <CampoDeData
+              valor={vencimento}
+              onChange={onVencimento}
               className="campo py-1"
             />
             {/* Em branco, vale o dia de sempre — e ele anda para o próximo dia

@@ -15,6 +15,7 @@ import {
 import { api, mensagemErro } from '../../lib/api';
 import { combina } from '../../lib/busca';
 import { formatData, formatPrecoUnitario } from '../../lib/format';
+import { CampoDeData } from '../../components/CampoDeData';
 import type {
   FornecedorCotacao,
   ProdutoCotado,
@@ -626,12 +627,11 @@ function FormularioDePreco({
               <label className="rotulo" htmlFor="preco-data">
                 Data da cotação
               </label>
-              <input
+              <CampoDeData
                 id="preco-data"
-                type="date"
-                value={data}
+                valor={data}
                 max={new Date().toISOString().slice(0, 10)}
-                onChange={(e) => setData(e.target.value)}
+                onChange={setData}
                 className="campo"
               />
               <p className="ajuda">

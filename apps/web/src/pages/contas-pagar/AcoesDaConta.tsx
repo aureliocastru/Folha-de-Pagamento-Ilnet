@@ -5,6 +5,7 @@ import { Aviso, CampoDinheiro, Janela } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { formatBRL, formatData, formatNumeroBR } from '../../lib/format';
 import type { CategoriaDespesa, ContaAberta } from '../../lib/types';
+import { CampoDeData } from '../../components/CampoDeData';
 
 /** Uma conta de onde o dinheiro sai, como o IXC a tem. */
 interface ContaDePagamento {
@@ -466,11 +467,10 @@ export function PagarEmMaos({
               <label className="rotulo" htmlFor="data-pagamento-lote">
                 Dia em que saiu
               </label>
-              <input
+              <CampoDeData
                 id="data-pagamento-lote"
-                type="date"
-                value={data}
-                onChange={(e) => setData(e.target.value)}
+                valor={data}
+                onChange={setData}
                 className="campo"
               />
             </div>
@@ -709,11 +709,10 @@ export function EditarConta({
           <label className="rotulo" htmlFor="ed-vencimento">
             Vencimento
           </label>
-          <input
+          <CampoDeData
             id="ed-vencimento"
-            type="date"
-            value={vencimento}
-            onChange={(e) => setVencimento(e.target.value)}
+            valor={vencimento}
+            onChange={setVencimento}
             className="campo"
           />
         </div>

@@ -7,6 +7,7 @@ import { useCelular } from '../lib/celular';
 import { formatData } from '../lib/format';
 import { reduzirFoto } from '../lib/foto';
 import { Aviso, Carregando, FotoAmpliada, Janela, Vazio } from './ui';
+import { CampoDeData } from './CampoDeData';
 
 /** Uma linha do painel, como a API a devolve. */
 export interface FuncionarioNoPainel {
@@ -438,12 +439,11 @@ function FichaDePontos({
           <label className="rotulo" htmlFor="pontos-data">
             Dia
           </label>
-          <input
+          <CampoDeData
             id="pontos-data"
-            type="date"
-            value={data}
+            valor={data}
             max={hojeIso()}
-            onChange={(e) => setData(e.target.value || hojeIso())}
+            onChange={(valorNovo) => setData(valorNovo || hojeIso())}
             className="campo"
           />
         </div>

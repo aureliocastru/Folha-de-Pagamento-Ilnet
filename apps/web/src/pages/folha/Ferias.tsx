@@ -14,6 +14,7 @@ import {
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { formatData } from '../../lib/format';
+import { CampoDeData } from '../../components/CampoDeData';
 import type {
   FilaDeFerias,
   LeituraDaPrevisao,
@@ -709,10 +710,9 @@ function JanelaMandarParaFerias({
       <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div>
           <label className="rotulo">Primeiro dia de férias</label>
-          <input
-            type="date"
-            value={inicio}
-            onChange={(e) => setInicio(e.target.value)}
+          <CampoDeData
+            valor={inicio}
+            onChange={setInicio}
             className="campo"
           />
         </div>

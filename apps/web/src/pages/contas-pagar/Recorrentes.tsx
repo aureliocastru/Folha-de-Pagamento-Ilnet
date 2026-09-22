@@ -19,6 +19,7 @@ import {
   ListaDeConsorcios,
 } from './Consorcios';
 import { NovaDespesa } from './NovaDespesa';
+import { CampoDeData } from '../../components/CampoDeData';
 
 /** Uma despesa que se repete todo mês, como a API a devolve. */
 export interface Recorrente {
@@ -622,10 +623,9 @@ export function Recorrentes() {
 
                       <td className="td num whitespace-nowrap text-tinta-600">
                         {emEdicao ? (
-                          <input
-                            type="date"
-                            value={vencimento}
-                            onChange={(e) => setVencimento(e.target.value)}
+                          <CampoDeData
+                            valor={vencimento}
+                            onChange={setVencimento}
                             className="campo py-1"
                           />
                         ) : (

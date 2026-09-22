@@ -13,6 +13,7 @@ import {
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { formatBRL, formatData } from '../../lib/format';
+import { CampoDeData } from '../../components/CampoDeData';
 import {
   CLASSE_CURTA,
   CLASSE_LABEL,
@@ -795,10 +796,9 @@ function LancamentoAMao({
         </div>
         <div>
           <label className="rotulo">Vencimento</label>
-          <input
-            type="date"
-            value={vencimento}
-            onChange={(e) => setVencimento(e.target.value)}
+          <CampoDeData
+            valor={vencimento}
+            onChange={setVencimento}
             className="campo"
           />
         </div>

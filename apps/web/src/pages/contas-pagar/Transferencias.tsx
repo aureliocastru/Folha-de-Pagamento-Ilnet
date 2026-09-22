@@ -14,6 +14,7 @@ import {
 import { api, mensagemErro } from '../../lib/api';
 import { formatBRL, formatData } from '../../lib/format';
 import type { CaixaIxc, TransferenciaEntreContas } from '../../lib/types';
+import { CampoDeData } from '../../components/CampoDeData';
 
 /** Hoje, em "AAAA-MM-DD". */
 function diaDeHoje(): string {
@@ -252,12 +253,11 @@ function Transferir() {
             <label className="rotulo" htmlFor="data-transferencia">
               Dia em que o dinheiro mudou de lugar
             </label>
-            <input
+            <CampoDeData
               id="data-transferencia"
-              type="date"
               className="campo"
-              value={data}
-              onChange={(e) => setData(e.target.value)}
+              valor={data}
+              onChange={setData}
             />
             <p className="ajuda">
               Pode ser uma data já passada — é ela que decide em que período do

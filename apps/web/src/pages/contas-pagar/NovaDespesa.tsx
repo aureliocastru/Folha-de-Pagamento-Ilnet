@@ -11,6 +11,7 @@ import { CampoDinheiro, Carregando, Janela, Selo } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { useTermoAdiado } from '../../lib/busca';
 import { formatBRL } from '../../lib/format';
+import { CampoDeData } from '../../components/CampoDeData';
 import {
   TIPOS_CHAVE_PIX,
   type CategoriaDespesa,
@@ -887,11 +888,10 @@ export function NovaDespesa({
               <label className="rotulo" htmlFor="data-pagamento">
                 Dia em que saiu
               </label>
-              <input
+              <CampoDeData
                 id="data-pagamento"
-                type="date"
-                value={dataPagamento}
-                onChange={(e) => datarComoPaga(e.target.value)}
+                valor={dataPagamento}
+                onChange={datarComoPaga}
                 className="campo"
                 title="Vale também como emissão e vencimento"
               />
@@ -910,11 +910,10 @@ export function NovaDespesa({
             <label className="rotulo" htmlFor="emissao">
               Emissão
             </label>
-            <input
+            <CampoDeData
               id="emissao"
-              type="date"
-              value={emissao}
-              onChange={(e) => setEmissao(e.target.value)}
+              valor={emissao}
+              onChange={setEmissao}
               className="campo"
             />
           </div>
@@ -923,11 +922,10 @@ export function NovaDespesa({
             <label className="rotulo" htmlFor="vencimento">
               Vencimento
             </label>
-            <input
+            <CampoDeData
               id="vencimento"
-              type="date"
-              value={vencimento}
-              onChange={(e) => setVencimento(e.target.value)}
+              valor={vencimento}
+              onChange={setVencimento}
               className="campo"
             />
             {vencimento < emissao && (
@@ -1433,14 +1431,12 @@ export function NovaDespesa({
                               : i + 1}
                           </td>
                           <td className="td">
-                            <input
-                              type="date"
-                              value={p.vencimento}
-                              onChange={(e) =>
-                                setParcelas((atual) =>
+                            <CampoDeData
+                              valor={p.vencimento}
+                              onChange={(valorNovo) => setParcelas((atual) =>
                                   atual.map((x, j) =>
                                     j === i
-                                      ? { ...x, vencimento: e.target.value }
+                                      ? { ...x, vencimento: valorNovo }
                                       : x,
                                   ),
                                 )

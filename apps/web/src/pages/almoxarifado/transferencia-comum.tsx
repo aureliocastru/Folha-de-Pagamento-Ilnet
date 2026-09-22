@@ -9,6 +9,7 @@ import type {
   PatrimonioDoAlmoxarifado,
 } from '../../lib/types';
 import { quantidade } from './ProdutoNoIxc';
+import { CampoDeData } from '../../components/CampoDeData';
 
 /**
  * O que a janela "Mover tudo" e a tela "Transferir" têm em comum: ler o que
@@ -40,13 +41,12 @@ export function DiaDoLancamento({
       <label className="rotulo" htmlFor={id}>
         Data
       </label>
-      <input
+      <CampoDeData
         id={id}
-        type="date"
-        value={dia}
+        valor={dia}
         max={hoje}
-        onChange={(e) => {
-          const escolhido = e.target.value;
+        onChange={(valorNovo) => {
+          const escolhido = valorNovo;
           onMudar(!escolhido || escolhido >= hoje ? '' : escolhido);
         }}
         className="campo"

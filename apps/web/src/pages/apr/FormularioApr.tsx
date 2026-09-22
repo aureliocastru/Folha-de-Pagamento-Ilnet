@@ -21,6 +21,7 @@ import type {
   RespostaRelato,
 } from '../../lib/types';
 import { PassoEquipe, type PessoaEscolhida } from './PassoEquipe';
+import { CampoDeData } from '../../components/CampoDeData';
 import {
   BlocoDeMarcar,
   Grade,
@@ -695,24 +696,22 @@ function PassoServico(p: {
               <label className="rotulo" htmlFor="prev-ini">
                 Previsão de execução — de
               </label>
-              <input
+              <CampoDeData
                 id="prev-ini"
-                type="date"
                 className="campo"
-                value={p.previsaoInicio}
-                onChange={(e) => p.setPrevisaoInicio(e.target.value)}
+                valor={p.previsaoInicio}
+                onChange={p.setPrevisaoInicio}
               />
             </div>
             <div>
               <label className="rotulo" htmlFor="prev-fim">
                 Previsão de execução — até
               </label>
-              <input
+              <CampoDeData
                 id="prev-fim"
-                type="date"
                 className="campo"
-                value={p.previsaoFim}
-                onChange={(e) => p.setPrevisaoFim(e.target.value)}
+                valor={p.previsaoFim}
+                onChange={p.setPrevisaoFim}
               />
             </div>
           </div>

@@ -14,6 +14,7 @@ import {
 import { api, mensagemErro } from '../../lib/api';
 import { combina } from '../../lib/busca';
 import { formatData } from '../../lib/format';
+import { CampoDeData } from '../../components/CampoDeData';
 import type {
   EmprestimoDeFerramenta,
   Ferramenta,
@@ -551,11 +552,10 @@ function FormularioDeEmprestimo({
             <label className="rotulo" htmlFor="empr-previsao">
               Fica de voltar quando
             </label>
-            <input
+            <CampoDeData
               id="empr-previsao"
-              type="date"
-              value={previsao}
-              onChange={(e) => setPrevisao(e.target.value)}
+              valor={previsao}
+              onChange={setPrevisao}
               className="campo"
             />
             <p className="ajuda">
