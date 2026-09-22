@@ -12,7 +12,7 @@ import {
   type Tom,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
-import { semAcento } from '../../lib/busca';
+import { combina, semAcento } from '../../lib/busca';
 import { estaClassificado } from '../../lib/categorias';
 import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
 import { formatBRL, formatData } from '../../lib/format';
@@ -870,9 +870,18 @@ function filtrar(
     if (!passaRecorte) return false;
     if (!termo) return true;
 
-    return [c.fornecedor.nome, c.documento, c.observacao, c.origem?.beneficiario]
-      .filter((v): v is string => !!v)
-      .some((v) => semAcento(v).includes(termo));
+    // O valor entra junto: "2.330", "2330" e "2330,00" acham a mesma conta,
+    // porque a busca da casa ignora ponto e vírgula (ver `semSeparador`).
+    return combina(
+      [
+        c.fornecedor.nome,
+        c.documento,
+        c.observacao,
+        c.origem?.beneficiario,
+        formatBRL(c.valor),
+      ],
+      termo,
+    );
   });
 }
 

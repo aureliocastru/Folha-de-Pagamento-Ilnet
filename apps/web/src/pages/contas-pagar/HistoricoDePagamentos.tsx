@@ -449,6 +449,14 @@ function filtrar(
         p.caixa.nome,
         p.classificacao?.nome,
         p.origem?.beneficiario,
+        /*
+         * O valor também se procura — é por ele que se acha o pagamento de
+         * que só se lembra o número. Escrito como a tela o mostra: a busca
+         * ignora ponto e vírgula (ver `semSeparador`), então "2330", "2.330"
+         * e "2330,00" acham a mesma linha.
+         */
+        formatBRL(p.valorPago),
+        formatBRL(p.valor),
       ],
       termo,
     );
