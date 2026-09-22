@@ -45,6 +45,21 @@ export interface AbastecimentoNaTela {
   conferidoPor: string | null;
 }
 
+/**
+ * Quem abastece: o funcionário, o login, ou os dois.
+ *
+ * No portal do CPF é só o funcionário. Pelo login do sistema é o login e,
+ * quando ele está ligado a um cadastro, o funcionário também — os veículos de
+ * um e de outro são dele. O dono e o administrador não são funcionários: para
+ * eles há só o login, e o veículo fica no nome dele (`VeiculoDoLogin`).
+ */
+export interface QuemAbastece {
+  funcionarioId: string | null;
+  usuarioId: string | null;
+  /** Como a pessoa é chamada: o apelido, quando há. Vai em "lançado por". */
+  nome: string;
+}
+
 /** Um abastecimento na fila da conferência, com o veículo dele. */
 export interface AbastecimentoAConferir extends AbastecimentoNaTela {
   veiculo: { id: string; apelido: string; placa: string | null };
@@ -224,7 +239,7 @@ export class AbastecimentosService {
 
   /** Os veículos deste CPF, com o último km e os abastecimentos recentes. */
   async doPortal(cpf: string): Promise<RespostaDoPortal> {
-    return this.doResponsavel(await this.funcionarioPeloCpf(cpf));
+    return this.doResponsavel(pessoa(await this.funcionarioPeloCpf(cpf)));
   }
 
   /** O abastecimento que o responsável fez agora, pelo portal do CPF. */
@@ -232,43 +247,49 @@ export class AbastecimentosService {
     cpf: string,
     dados: DadosDoLancamento,
   ): Promise<AbastecimentoNaTela> {
-    return this.lancarPeloResponsavel(await this.funcionarioPeloCpf(cpf), dados);
+    return this.lancarPeloResponsavel(pessoa(await this.funcionarioPeloCpf(cpf)), dados);
   }
 
   // --- A tela do colaborador (o login do sistema) ---
 
   /**
-   * Os veículos do colaborador que entrou com o próprio login. É a mesma tela
-   * do portal; muda só como se sabe quem é a pessoa — lá pelo CPF, aqui pelo
-   * vínculo do login.
+   * Os veículos de quem entrou com o próprio login. É a mesma tela do portal;
+   * muda só como se sabe quem é a pessoa — lá pelo CPF, aqui pelo login e,
+   * quando ele está ligado a um cadastro, pelo funcionário também.
    */
-  async doColaborador(funcionarioId: string): Promise<RespostaDoPortal> {
-    return this.doResponsavel(await this.colaboradorAtivo(funcionarioId));
+  async doLogin(
+    login: { id: string; nome: string },
+    funcionarioId: string | null,
+  ): Promise<RespostaDoPortal> {
+    return this.doResponsavel(await this.quemPeloLogin(login, funcionarioId));
   }
 
-  /** O abastecimento lançado pelo login do colaborador: fica o login também. */
-  async lancarPeloColaborador(
-    funcionarioId: string,
-    usuarioId: string,
+  /** O abastecimento lançado pelo login: fica o login gravado, e o funcionário se houver. */
+  async lancarPeloLogin(
+    login: { id: string; nome: string },
+    funcionarioId: string | null,
     dados: DadosDoLancamento,
   ): Promise<AbastecimentoNaTela> {
-    return this.lancarPeloResponsavel(await this.colaboradorAtivo(funcionarioId), dados, usuarioId);
+    return this.lancarPeloResponsavel(await this.quemPeloLogin(login, funcionarioId), dados);
   }
 
-  /** Quantos veículos ativos estão no nome desta pessoa. */
-  quantosVeiculos(funcionarioId: string): Promise<number> {
-    return this.prisma.veiculo.count({
-      where: { responsaveis: { some: { funcionarioId } }, ativo: true },
-    });
+  /** Quantos veículos ativos estão no nome desta pessoa — pelo cadastro ou pelo login. */
+  quantosVeiculos(quem: Omit<QuemAbastece, 'nome'>): Promise<number> {
+    return this.prisma.veiculo.count({ where: { ...noNome(quem), ativo: true } });
   }
 
-  private async doResponsavel(funcionario: {
-    id: string;
-    nome: string;
-    apelido: string | null;
-  }): Promise<RespostaDoPortal> {
+  /** O login, e o funcionário dele — que tem de estar ativo na casa. */
+  private async quemPeloLogin(
+    login: { id: string; nome: string },
+    funcionarioId: string | null,
+  ): Promise<QuemAbastece> {
+    if (!funcionarioId) return { funcionarioId: null, usuarioId: login.id, nome: login.nome };
+    return { ...pessoa(await this.colaboradorAtivo(funcionarioId)), usuarioId: login.id };
+  }
+
+  private async doResponsavel(quem: QuemAbastece): Promise<RespostaDoPortal> {
     const veiculos = await this.prisma.veiculo.findMany({
-      where: { responsaveis: { some: { funcionarioId: funcionario.id } }, ativo: true },
+      where: { ...noNome(quem), ativo: true },
       orderBy: { apelido: 'asc' },
       include: {
         abastecimentos: {
@@ -313,7 +334,7 @@ export class AbastecimentosService {
       : [[], []];
 
     return {
-      nome: funcionario.apelido || funcionario.nome,
+      nome: quem.nome,
       veiculos: noPortal,
       destinos,
       outrosDestinos,
@@ -400,18 +421,17 @@ export class AbastecimentosService {
    * celular atrasado não muda a ordem dos abastecimentos.
    */
   private async lancarPeloResponsavel(
-    funcionario: { id: string; nome: string; apelido: string | null },
+    responsavel: QuemAbastece,
     dados: DadosDoLancamento,
-    usuarioId?: string,
   ): Promise<AbastecimentoNaTela> {
-    const quem = funcionario.apelido || funcionario.nome;
+    const quem = responsavel.nome;
 
     if (dados.galaoId) {
       const galao = await this.veiculoAtivo(dados.galaoId);
       if (galao.tipo !== 'GALAO') {
         throw new BadRequestException(`${galao.apelido} não é um galão.`);
       }
-      if (!estaNoNome(galao, funcionario.id)) {
+      if (!estaNoNome(galao, responsavel)) {
         throw new ForbiddenException(
           'Este galão não está com você. Peça ao administrador para colocá-lo no seu nome.',
         );
@@ -457,8 +477,8 @@ export class AbastecimentosService {
           litros,
           ...medidor,
           data: new Date(),
-          funcionarioId: funcionario.id,
-          usuarioId: usuarioId ?? null,
+          funcionarioId: responsavel.funcionarioId,
+          usuarioId: responsavel.usuarioId,
           lancadoPor: quem,
         },
         include: {
@@ -467,7 +487,7 @@ export class AbastecimentosService {
         },
       });
       this.logger.log(
-        `${funcionario.nome} pôs ${litrosEscritos(litros)} do ${galao.apelido} em ` +
+        `${quem} pôs ${litrosEscritos(litros)} do ${galao.apelido} em ` +
           `${destino?.apelido ?? `"${outroDestino}"`}.`,
       );
       return this.valorizada(criado);
@@ -479,7 +499,7 @@ export class AbastecimentosService {
     const destino = await this.veiculoAtivo(dados.veiculoId);
 
     // A ida ao posto: só quem tem a coisa no nome é que a abastece.
-    if (!estaNoNome(destino, funcionario.id)) {
+    if (!estaNoNome(destino, responsavel)) {
       throw new ForbiddenException(
         'Este veículo não está com você. Peça ao administrador para colocá-lo no seu nome.',
       );
@@ -496,8 +516,8 @@ export class AbastecimentosService {
         litros,
         ...medidor,
         data: new Date(),
-        funcionarioId: funcionario.id,
-        usuarioId: usuarioId ?? null,
+        funcionarioId: responsavel.funcionarioId,
+        usuarioId: responsavel.usuarioId,
         lancadoPor: quem,
         foto: { create: { foto } },
       },
@@ -507,7 +527,7 @@ export class AbastecimentosService {
       },
     });
     this.logger.log(
-      `${funcionario.nome} abasteceu ${destino.apelido} (a conferir).`,
+      `${quem} abasteceu ${destino.apelido} (a conferir).`,
     );
     return naTela(criado);
   }
@@ -782,6 +802,7 @@ export class AbastecimentosService {
         tipo: true,
         ativo: true,
         responsaveis: { select: { funcionarioId: true } },
+        logins: { select: { usuarioId: true } },
       },
     });
     if (!veiculo || !veiculo.ativo) {
@@ -864,13 +885,39 @@ export class AbastecimentosService {
 
 /**
  * Se o veículo está no nome desta pessoa. Basta ser um dos responsáveis: o
- * carro de dois é de cada um deles por inteiro.
+ * carro de dois é de cada um deles por inteiro. E vale tanto o cadastro de
+ * funcionário quanto o login — o do dono é só o login.
  */
 function estaNoNome(
-  veiculo: { responsaveis: Array<{ funcionarioId: string }> },
-  funcionarioId: string,
+  veiculo: {
+    responsaveis: Array<{ funcionarioId: string }>;
+    logins?: Array<{ usuarioId: string }>;
+  },
+  quem: Omit<QuemAbastece, 'nome'>,
 ): boolean {
-  return veiculo.responsaveis.some((r) => r.funcionarioId === funcionarioId);
+  return (
+    (!!quem.funcionarioId &&
+      veiculo.responsaveis.some((r) => r.funcionarioId === quem.funcionarioId)) ||
+    (!!quem.usuarioId && (veiculo.logins ?? []).some((l) => l.usuarioId === quem.usuarioId))
+  );
+}
+
+/** Os veículos no nome de alguém, para o `where`: pelo cadastro ou pelo login. */
+function noNome(quem: Omit<QuemAbastece, 'nome'>) {
+  return {
+    // Ninguém dos dois: um OR vazio não acha nada — e é isso mesmo.
+    OR: [
+      ...(quem.funcionarioId
+        ? [{ responsaveis: { some: { funcionarioId: quem.funcionarioId } } }]
+        : []),
+      ...(quem.usuarioId ? [{ logins: { some: { usuarioId: quem.usuarioId } } }] : []),
+    ],
+  };
+}
+
+/** O funcionário como quem abastece: pelo apelido, que é como a casa o chama. */
+function pessoa(f: { id: string; nome: string; apelido: string | null }): QuemAbastece {
+  return { funcionarioId: f.id, usuarioId: null, nome: f.apelido || f.nome };
 }
 
 /** A nota do posto, que é o que prova a compra. Devolve a foto conferida. */

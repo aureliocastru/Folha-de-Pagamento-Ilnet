@@ -51,7 +51,12 @@ export class ColaboradorController {
     const colaborador = await this.vinculos.doLogin(idDoLogado(req));
     return {
       colaborador,
-      veiculos: colaborador ? await this.abastecimentos.quantosVeiculos(colaborador.id) : 0,
+      // Os do cadastro e os do login: o dono não é funcionário, e o veículo
+      // dele fica no nome do login.
+      veiculos: await this.abastecimentos.quantosVeiculos({
+        funcionarioId: colaborador?.id ?? null,
+        usuarioId: idDoLogado(req),
+      }),
       areas: logado(req).minhaArea ?? [],
     };
   }
@@ -69,21 +74,25 @@ export class ColaboradorController {
     return this.pontuacao.fotoDoLancamento(lancamentoId, await this.quemSou(req));
   }
 
+  /*
+   * O abastecimento não exige o login ligado a um cadastro, ao contrário da
+   * pontuação: o veículo pode estar no nome do próprio login — o do dono, o
+   * do administrador, que não são funcionários. Ligado, valem os dois.
+   */
+
   @Get('abastecimento')
   async meusVeiculos(@Req() req: Request) {
     exigir(req, 'abastecimento');
-    return this.abastecimentos.doColaborador(await this.quemSou(req));
+    const colaborador = await this.vinculos.doLogin(idDoLogado(req));
+    return this.abastecimentos.doLogin(logado(req), colaborador?.id ?? null);
   }
 
   @Post('abastecimento')
   @HttpCode(201)
   async abastecer(@Req() req: Request, @Body() dto: LancarMeuAbastecimentoDto) {
     exigir(req, 'abastecimento');
-    return this.abastecimentos.lancarPeloColaborador(
-      await this.quemSou(req),
-      idDoLogado(req),
-      dto,
-    );
+    const colaborador = await this.vinculos.doLogin(idDoLogado(req));
+    return this.abastecimentos.lancarPeloLogin(logado(req), colaborador?.id ?? null, dto);
   }
 
   // --- Pontuar: só o login com "Pontuar" marcado ---

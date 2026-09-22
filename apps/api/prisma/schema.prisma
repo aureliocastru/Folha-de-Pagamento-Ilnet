@@ -82,6 +82,10 @@ model User {
   /// O bloco de notas deste login. Ver o modelo `Agenda`.
   agenda Agenda?
 
+  /// Os veículos no nome deste login — de quem anda com eles sem ser
+  /// funcionário. Ver `VeiculoDoLogin`.
+  veiculos VeiculoDoLogin[]
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -1443,6 +1447,9 @@ model Veiculo {
   /// veem este veículo e lançam o abastecimento dele — o carro que é de dois,
   /// a máquina que troca de operador, o galão que mais de um leva ao posto.
   responsaveis ResponsavelDoVeiculo[]
+  /// E quem anda com ele sem ser funcionário: o dono, o administrador — pelo
+  /// login. Ver `VeiculoDoLogin`.
+  logins       VeiculoDoLogin[]
 
   contas         ContaPagar[]
   abastecimentos Abastecimento[]
@@ -1471,6 +1478,27 @@ model ResponsavelDoVeiculo {
   @@id([veiculoId, funcionarioId])
   @@index([funcionarioId])
   @@map("veiculo_responsaveis")
+}
+
+/// Um veículo no nome de um login, e não de um funcionário.
+///
+/// O dono e o administrador andam com a Hilux e a abastecem, mas não estão na
+/// folha — não são fornecedor isento no IXC —, e por isso não aparecem entre
+/// os funcionários que `ResponsavelDoVeiculo` aceita. Quem fica com o veículo,
+/// para eles, é o login: o cartão Abastecimento da tela de módulos mostra os
+/// veículos dele, como mostra os do funcionário.
+model VeiculoDoLogin {
+  veiculo   Veiculo @relation(fields: [veiculoId], references: [id], onDelete: Cascade)
+  veiculoId String  @map("veiculo_id")
+
+  usuario   User   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  usuarioId String @map("usuario_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([veiculoId, usuarioId])
+  @@index([usuarioId])
+  @@map("veiculo_logins")
 }
 
 /// Um abastecimento: quanto, com que km no painel, e a foto da nota.

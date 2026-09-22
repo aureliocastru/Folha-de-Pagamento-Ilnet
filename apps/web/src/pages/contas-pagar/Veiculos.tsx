@@ -97,8 +97,11 @@ interface VeiculoNaLista {
   ano: number | null;
   observacao: string | null;
   ativo: boolean;
-  /** Quem anda com ele e o abastece pelo portal. Pode ser mais de um. */
-  responsaveis: Array<{ id: string; nome: string }>;
+  /**
+   * Quem anda com ele e o abastece. Pode ser mais de um. `login`: não é
+   * funcionário — o dono, o administrador —, e fica pelo login.
+   */
+  responsaveis: Array<{ id: string; nome: string; login?: boolean }>;
   gasto: number;
   emAberto: number;
   quantidade: number;
@@ -1088,8 +1091,8 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
               {d.veiculo.responsaveis.length > 0
                 ? `, ou ${nomesDosResponsaveis(d.veiculo.responsaveis)} ${
                     d.veiculo.responsaveis.length > 1 ? 'lançam' : 'lança'
-                  } pelo portal, com o CPF.`
-                : ' — ou escolha os responsáveis em Editar, e eles lançam pelo portal, com o CPF.'}
+                  } pelo celular.`
+                : ' — ou escolha os responsáveis em Editar, e eles lançam pelo celular.'}
             </p>
           ) : (
             <ul className="lista-dividida rounded-xl border border-tinta-200">
@@ -1200,6 +1203,15 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
   );
 }
 
+/** Quem pode ficar com um veículo: funcionário, ou login de quem não é um. */
+interface Candidato {
+  id: string;
+  nome: string;
+  apelido: string | null;
+  /** O dono, o administrador: não estão na folha, e ficam pelo login. */
+  login?: boolean;
+}
+
 /**
  * Quem abastece este veículo — um, ou quantos forem.
  *
@@ -1207,6 +1219,9 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
  * só oferece quem ainda não entrou. Não é um `select` de vários: segurar Ctrl
  * para marcar dois nomes não existe no celular, e é do celular que se mexe
  * nisto no pátio.
+ *
+ * Os funcionários vêm primeiro; embaixo, os logins de quem não é funcionário
+ * — o dono, o administrador —, que abastecem pelo cartão da tela de módulos.
  */
 function EscolherResponsaveis({
   escolhidos,
@@ -1215,12 +1230,14 @@ function EscolherResponsaveis({
   onMudar,
 }: {
   escolhidos: string[];
-  candidatos: Array<{ id: string; nome: string; apelido: string | null }>;
+  candidatos: Candidato[];
   carregando: boolean;
   onMudar: (ids: string[]) => void;
 }) {
   const porId = new Map(candidatos.map((f) => [f.id, f]));
   const faltam = candidatos.filter((f) => !escolhidos.includes(f.id));
+  const funcionarios = faltam.filter((f) => !f.login);
+  const logins = faltam.filter((f) => f.login);
 
   return (
     <>
@@ -1266,18 +1283,31 @@ function EscolherResponsaveis({
                 ? 'Ninguém — escolha quem abastece…'
                 : 'Pôr mais um…'}
         </option>
-        {faltam.map((f) => (
-          <option key={f.id} value={f.id}>
-            {nomeDoFuncionario(f)}
-          </option>
-        ))}
+        {funcionarios.length > 0 && (
+          <optgroup label="Funcionários">
+            {funcionarios.map((f) => (
+              <option key={f.id} value={f.id}>
+                {nomeDoFuncionario(f)}
+              </option>
+            ))}
+          </optgroup>
+        )}
+        {logins.length > 0 && (
+          <optgroup label="Logins de quem não é funcionário">
+            {logins.map((f) => (
+              <option key={f.id} value={f.id}>
+                {nomeDoFuncionario(f)}
+              </option>
+            ))}
+          </optgroup>
+        )}
       </select>
     </>
   );
 }
 
-const nomeDoFuncionario = (f: { nome: string; apelido: string | null }) =>
-  f.apelido ? `${f.apelido} (${f.nome})` : f.nome;
+const nomeDoFuncionario = (f: Candidato) =>
+  f.login ? `${f.nome} (login)` : f.apelido ? `${f.apelido} (${f.nome})` : f.nome;
 
 /** Cadastrar um veículo, ou editar, desligar e apagar um que já existe. */
 function FormularioDoVeiculo({
@@ -1313,9 +1343,7 @@ function FormularioDoVeiculo({
     queryKey: ['veiculos', 'responsaveis'],
     queryFn: async () =>
       (
-        await api.get<Array<{ id: string; nome: string; apelido: string | null }>>(
-          '/veiculos/responsaveis',
-        )
+        await api.get<Candidato[]>('/veiculos/responsaveis')
       ).data,
   });
 
@@ -1535,9 +1563,11 @@ function FormularioDoVeiculo({
             onMudar={setResponsaveisIds}
           />
           <p className="ajuda">
-            Cada um deles entra no portal da pontuação com o próprio CPF e lança o
-            abastecimento deste veículo, com o km e a foto da nota. Pode ser mais de
-            um — o carro de dois, a máquina que troca de operador.
+            Cada um deles lança o abastecimento deste veículo, com o km e a foto da
+            nota: o funcionário pelo portal, com o CPF, ou pelo login; quem não é
+            funcionário (o dono, o administrador), pelo cartão Abastecimento da tela
+            de módulos. Pode ser mais de um — o carro de dois, a máquina que troca de
+            operador.
           </p>
         </div>
         <div className="sm:col-span-2">

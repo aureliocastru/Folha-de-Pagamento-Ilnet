@@ -150,8 +150,8 @@ export function CampoInicio() {
       {inicio.isSuccess && cartoes.faltaLigar && (
         <Aviso tom="atencao">
           Seu login ainda não está ligado ao seu cadastro de funcionário, e por isso a
-          pontuação e o abastecimento não aparecem. Peça ao administrador para ligar, na
-          tela de Usuários.
+          sua pontuação não aparece. Peça ao administrador para ligar, na tela de
+          Usuários.
         </Aviso>
       )}
 

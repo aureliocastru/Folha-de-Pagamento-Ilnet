@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { FinanceiroModule } from '../financeiro/financeiro.module';
 import { IxcModule } from '../ixc/ixc.module';
+import { UsuariosModule } from '../usuarios/usuarios.module';
 import { AbastecimentoPortalController } from './abastecimento-portal.controller';
 import { AbastecimentosService } from './abastecimentos.service';
 import { BaixasDoIxcService } from './baixas-do-ixc.service';
@@ -28,7 +29,10 @@ import { VeiculosService } from './veiculos.service';
   // O financeiro entra por causa da despesa lançada à mão: ela vira conta a
   // pagar pelo mesmo motor da folha (ContasPagarService) e precisa achar o
   // fornecedor no IXC (FornecedorService).
-  imports: [IxcModule, FinanceiroModule],
+  //
+  // Os usuários, porque o veículo também fica no nome de um login — e a
+  // frota precisa saber que login já é um funcionário, para não repeti-lo.
+  imports: [IxcModule, FinanceiroModule, UsuariosModule],
   controllers: [
     ContasAbertasController,
     CategoriasController,

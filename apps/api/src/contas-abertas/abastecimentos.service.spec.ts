@@ -55,6 +55,7 @@ function montar(
       findMany: jest.fn(async () => [
         { id: 'm1', apelido: 'Retroescavadeira', tipo: 'MAQUINA', placa: null },
       ]),
+      count: jest.fn(async () => 1),
     },
     abastecimento: {
       groupBy: jest.fn(async () =>
@@ -159,11 +160,13 @@ describe('AbastecimentosService.lancarPeloPortal', () => {
  * O mesmo lançamento, pelo login do sistema: quem é a pessoa vem do vínculo do
  * login, e não do CPF — e o login fica gravado junto.
  */
-describe('AbastecimentosService.lancarPeloColaborador', () => {
+const LOGIN = { id: 'u1', nome: 'anderson.silva' };
+
+describe('AbastecimentosService.lancarPeloLogin', () => {
   it('grava o colaborador, o login, o veículo e a hora', async () => {
     const { service, prisma } = montar({ ultimoKm: 12_300 });
     const antes = Date.now();
-    await service.lancarPeloColaborador('f1', 'u1', PEDIDO);
+    await service.lancarPeloLogin(LOGIN, 'f1', PEDIDO);
     const dados = prisma.abastecimento.create.mock.calls[0][0].data;
     expect(dados).toMatchObject({
       veiculoId: 'v1',
@@ -178,14 +181,63 @@ describe('AbastecimentosService.lancarPeloColaborador', () => {
 
   it('só no veículo que está no nome dele', async () => {
     const { service, prisma } = montar({ responsavelId: 'outro' });
-    await expect(service.lancarPeloColaborador('f1', 'u1', PEDIDO)).rejects.toThrow(ForbiddenException);
+    await expect(service.lancarPeloLogin(LOGIN, 'f1', PEDIDO)).rejects.toThrow(ForbiddenException);
     expect(prisma.abastecimento.create).not.toHaveBeenCalled();
   });
 
   it('quem saiu da casa não lança', async () => {
     const { service, prisma } = montar();
-    await expect(service.lancarPeloColaborador('f-saiu', 'u1', PEDIDO)).rejects.toThrow(NotFoundException);
+    await expect(service.lancarPeloLogin(LOGIN, 'f-saiu', PEDIDO)).rejects.toThrow(NotFoundException);
     expect(prisma.abastecimento.create).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * O dono e o administrador não são funcionários: o veículo fica no nome do
+ * login deles, e eles abastecem por ali, como qualquer um.
+ */
+describe('o veículo no nome do login', () => {
+  const DONO = { id: 'u-dono', nome: 'Aurélio' };
+  const HILUX = {
+    id: 'v1',
+    apelido: 'Hilux',
+    tipo: 'CAMINHONETE',
+    ativo: true,
+    responsaveis: [],
+    logins: [{ usuarioId: 'u-dono' }],
+  };
+
+  it('o login sem cadastro lança no veículo dele, e fica o login como quem lançou', async () => {
+    const { service, prisma } = montar({ veiculos: { v1: HILUX } });
+    await service.lancarPeloLogin(DONO, null, PEDIDO);
+    expect(prisma.abastecimento.create.mock.calls[0][0].data).toMatchObject({
+      veiculoId: 'v1',
+      funcionarioId: null,
+      usuarioId: 'u-dono',
+      lancadoPor: 'Aurélio',
+    });
+  });
+
+  it('outro login não lança no veículo do dono', async () => {
+    const { service, prisma } = montar({ veiculos: { v1: HILUX } });
+    await expect(
+      service.lancarPeloLogin({ id: 'u-outro', nome: 'Outro' }, null, PEDIDO),
+    ).rejects.toThrow(ForbiddenException);
+    expect(prisma.abastecimento.create).not.toHaveBeenCalled();
+  });
+
+  it('o login ligado a um funcionário vê os veículos dos dois', async () => {
+    const { service, prisma } = montar();
+    await service.quantosVeiculos({ funcionarioId: 'f1', usuarioId: 'u1' });
+    expect(prisma.veiculo.count).toHaveBeenCalledWith({
+      where: {
+        ativo: true,
+        OR: [
+          { responsaveis: { some: { funcionarioId: 'f1' } } },
+          { logins: { some: { usuarioId: 'u1' } } },
+        ],
+      },
+    });
   });
 });
 

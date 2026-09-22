@@ -83,7 +83,7 @@ export class CriarVeiculoDto {
   @Max(1000)
   consumoIdeal?: number;
 
-  /** Os funcionários que andam com ele e o abastecem pelo portal. */
+  /** Quem anda com ele e o abastece: funcionários, e logins de quem não é funcionário. */
   @IsOptional() @Transform(listaDeIds) @IsArray() @IsUUID(undefined, { each: true })
   responsaveisIds?: string[];
 }

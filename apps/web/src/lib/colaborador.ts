@@ -31,6 +31,10 @@ export const AREAS_PADRAO = ['pontuacao', 'abastecimento'];
  * sem o login ligado ao cadastro não há de quem mostrar; o abastecimento, sem
  * veículo no nome dela, não tem onde lançar.
  *
+ * O abastecimento não pede o cadastro: o veículo pode estar no nome do próprio
+ * login — o do dono, o do administrador, que não são funcionários. Quem conta
+ * os veículos (de um e de outro) é o servidor.
+ *
  * O Pontuar tem mais uma conta: quem abre o módulo Pontuação já entra na mesma
  * tela por lá — é a primeira dele, com os motivos e os coordenadores em volta.
  * Dois cartões para o mesmo lugar não é escolha, é dúvida. Some o da Minha
@@ -47,7 +51,7 @@ export function cartoesDoColaborador(
   const areas = inicio?.areas ?? [];
   const ligado = !!inicio?.colaborador;
   const pontuacao = ligado && areas.includes('pontuacao');
-  const abastecimento = ligado && areas.includes('abastecimento') && (inicio?.veiculos ?? 0) > 0;
+  const abastecimento = areas.includes('abastecimento') && (inicio?.veiculos ?? 0) > 0;
   const coordena = areas.includes('pontuar');
   const noModulo = !!usuario && modulosDoUsuario(usuario).some((m) => m.id === 'pontuacao');
   const pontuar = coordena && !noModulo;
@@ -58,8 +62,11 @@ export function cartoesDoColaborador(
     /** Este login pontua os outros, com cartão ou pelo módulo. */
     coordena,
     algum: pontuacao || abastecimento || pontuar,
-    /** Marcou algo que é da pessoa, mas o login não está ligado a ela. */
-    faltaLigar: !ligado && (areas.includes('pontuacao') || areas.includes('abastecimento')),
+    /**
+     * Marcou a pontuação, que é da pessoa, mas o login não está ligado a ela.
+     * O abastecimento não entra aqui: ele anda pelo veículo no nome do login.
+     */
+    faltaLigar: !ligado && areas.includes('pontuacao'),
   };
 }
 

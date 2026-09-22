@@ -71,14 +71,37 @@ describe('VeiculosService', () => {
       },
       contaPagar: { count: jest.fn(async () => contas.length) },
       abastecimento: { count: jest.fn(async () => 0) },
+      funcionario: {
+        findMany: jest.fn(async ({ where }: { where: { id?: { in: string[] } } }) =>
+          [{ id: 'f1', nome: 'Anderson Silva', apelido: 'Anderson' }].filter(
+            (f) => !where.id || where.id.in.includes(f.id),
+          ),
+        ),
+      },
+      user: {
+        findMany: jest.fn(async ({ where }: { where: { id?: { in: string[] } } }) =>
+          [
+            { id: 'u-dono', nome: 'Aurélio' },
+            { id: 'u-anderson', nome: 'anderson.silva' },
+          ].filter((u) => !where.id || where.id.in.includes(u.id)),
+        ),
+      },
     };
+    Object.assign(prisma.veiculo, { create: jest.fn(async () => MOTO) });
     const categorias = { dosTitulos: jest.fn(async () => etiquetas) };
     const abastecimentos = {
       resumo: jest.fn(async () => ({ total: 90, quantidade: 2, ultimoKm: 1500, kmRodados: 300, custoPorKm: 0.15 })),
       doVeiculo: jest.fn(async () => []),
     };
+    // O login do Anderson já é o funcionário Anderson; o do dono não é ninguém.
+    const vinculos = { todos: jest.fn(async () => new Map([['u-anderson', { id: 'f1' }]])) };
     return {
-      service: new VeiculosService(prisma as never, categorias as never, abastecimentos as never),
+      service: new VeiculosService(
+        prisma as never,
+        categorias as never,
+        abastecimentos as never,
+        vinculos as never,
+      ),
       prisma,
     };
   }
@@ -112,6 +135,31 @@ describe('VeiculosService', () => {
     expect(ficha.veiculo.combustivel).toBe(90);
     expect(ficha.veiculo.ultimoKm).toBe(1500);
     expect(ficha.gastos[1]).toMatchObject({ fornecedor: 'Oficina', situacao: 'paga', categoria: mao });
+  });
+
+  it('quem pode ficar com o veículo: os funcionários, e o login de quem não é um', async () => {
+    const { service } = montar([]);
+    expect(await service.responsaveis()).toEqual([
+      { id: 'f1', nome: 'Anderson Silva', apelido: 'Anderson', login: false },
+      // O login do Anderson não se repete: ele entra pelo cadastro.
+      { id: 'u-dono', nome: 'Aurélio', apelido: null, login: true },
+    ]);
+  });
+
+  it('o veículo fica no nome do funcionário e do login ao mesmo tempo', async () => {
+    const { service, prisma } = montar([]);
+    await service.criar({ apelido: 'Hilux', tipo: 'CAMINHONETE', responsaveisIds: ['f1', 'u-dono'] });
+    expect((prisma.veiculo as unknown as { create: jest.Mock }).create.mock.calls[0][0].data).toMatchObject({
+      responsaveis: { create: [{ funcionarioId: 'f1' }] },
+      logins: { create: [{ usuarioId: 'u-dono' }] },
+    });
+  });
+
+  it('quem não é funcionário nem login não fica com o veículo', async () => {
+    const { service } = montar([]);
+    await expect(
+      service.criar({ apelido: 'Hilux', tipo: 'CAMINHONETE', responsaveisIds: ['ninguem'] }),
+    ).rejects.toThrow(BadRequestException);
   });
 
   it('veículo com gasto não se apaga', async () => {

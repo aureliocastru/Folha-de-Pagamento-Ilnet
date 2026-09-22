@@ -538,8 +538,8 @@ export function Usuarios() {
  * Quem este login é no cadastro, embaixo do nome, na lista.
  *
  * Sem ninguém ligado, o aviso aparece em qualquer perfil: sem o vínculo, a
- * Minha área não mostra pontuação nem abastecimento — e o almoxarife ou o
- * escritório também têm pontos e podem ter um veículo no nome. Só o
+ * Minha área não mostra a pontuação — e o almoxarife ou o escritório também
+ * têm pontos. O veículo não depende disso: ele pode ficar no nome do login. Só o
  * administrador fica em cinza: é quase sempre o login genérico da casa.
  */
 function ColaboradorDoLogin({ usuario }: { usuario: UsuarioAdmin }) {
@@ -1033,8 +1033,9 @@ function EditarLogin({
           <ChipsDaArea areas={minhaArea} onMudar={setMinhaArea} />
         </div>
         <p className="ajuda">
-          Pontuação e Abastecimento só aparecem para quem o login está ligado ao cadastro
-          (e o abastecimento, com veículo no nome). Quem tem Pontuar não vê a análise de risco.
+          Pontuação só aparece para quem o login está ligado ao cadastro. Abastecimento,
+          para quem tem veículo no nome — no do cadastro ou no do próprio login (o dono, o
+          administrador). Quem tem Pontuar não vê a análise de risco.
         </p>
       </div>
 

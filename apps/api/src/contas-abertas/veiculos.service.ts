@@ -11,6 +11,7 @@ import {
   type Veiculo,
 } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { VinculoDoLoginService } from '../usuarios/vinculo-do-login.service';
 import {
   AbastecimentosService,
   mediaDeConsumo,
@@ -33,8 +34,12 @@ export interface VeiculoNaLista {
   ano: number | null;
   observacao: string | null;
   ativo: boolean;
-  /** Quem anda com ele e o abastece pelo portal. Pode ser mais de um. */
-  responsaveis: Array<{ id: string; nome: string }>;
+  /**
+   * Quem anda com ele e o abastece. Pode ser mais de um: funcionários, e os
+   * logins de quem não é funcionário (o dono, o administrador) — `login`
+   * diz qual dos dois.
+   */
+  responsaveis: Array<{ id: string; nome: string; login?: boolean }>;
   /** Tudo o que foi lançado nele e chegou ao IXC, pago ou não. */
   gasto: number;
   /** A parte do gasto que ainda não foi paga. */
@@ -111,6 +116,7 @@ export class VeiculosService {
     private readonly prisma: PrismaService,
     private readonly categorias: CategoriasService,
     private readonly abastecimentos: AbastecimentosService,
+    private readonly vinculos: VinculoDoLoginService,
   ) {}
 
   async listar(incluirDesligados = true): Promise<VeiculoNaLista[]> {
@@ -121,6 +127,7 @@ export class VeiculosService {
         include: {
           contas: { select: CAMPOS_DA_CONTA },
           responsaveis: RESPONSAVEIS,
+          logins: LOGINS,
         },
       }),
       // As idas ao posto: têm nota, e é a nota que vira dinheiro.
@@ -246,15 +253,36 @@ export class VeiculosService {
   }
 
   /**
-   * Os funcionários que podem ficar responsáveis por um veículo — os mesmos
-   * que o portal do CPF reconhece.
+   * Quem pode ficar com um veículo: os funcionários — os mesmos que o portal
+   * do CPF reconhece — e, depois deles, os logins de quem não é funcionário.
+   *
+   * O dono e o administrador andam com a Hilux, mas não estão na folha; sem
+   * os logins aqui, eles nunca teriam veículo no nome, nem o cartão de
+   * Abastecimento. O login que já é um funcionário não se repete: ele entra
+   * pelo cadastro, que é o mesmo do portal.
    */
-  responsaveis(): Promise<Array<{ id: string; nome: string; apelido: string | null }>> {
-    return this.prisma.funcionario.findMany({
-      where: { ativo: true, isentoIcms: true },
-      select: { id: true, nome: true, apelido: true },
-      orderBy: { nome: 'asc' },
-    });
+  async responsaveis(): Promise<
+    Array<{ id: string; nome: string; apelido: string | null; login: boolean }>
+  > {
+    const [funcionarios, logins, ligados] = await Promise.all([
+      this.prisma.funcionario.findMany({
+        where: { ativo: true, isentoIcms: true },
+        select: { id: true, nome: true, apelido: true },
+        orderBy: { nome: 'asc' },
+      }),
+      this.prisma.user.findMany({
+        where: { ativo: true },
+        select: { id: true, nome: true },
+        orderBy: { nome: 'asc' },
+      }),
+      this.vinculos.todos(),
+    ]);
+    return [
+      ...funcionarios.map((f) => ({ ...f, login: false })),
+      ...logins
+        .filter((l) => !ligados.has(l.id))
+        .map((l) => ({ id: l.id, nome: l.nome, apelido: null, login: true })),
+    ];
   }
 
   async ficha(id: string): Promise<FichaDoVeiculo> {
@@ -262,6 +290,7 @@ export class VeiculosService {
       where: { id },
       include: {
         responsaveis: RESPONSAVEIS,
+        logins: LOGINS,
         contas: {
           select: {
             ...CAMPOS_DA_CONTA,
@@ -324,8 +353,7 @@ export class VeiculosService {
   }
 
   async criar(dto: CriarVeiculoDto, usuarioId?: string): Promise<Veiculo> {
-    const responsaveis = dto.responsaveisIds ?? [];
-    await this.conferirResponsaveis(responsaveis);
+    const { funcionarios, logins } = await this.separarResponsaveis(dto.responsaveisIds ?? []);
     const veiculo = await this.prisma.veiculo.create({
       data: {
         apelido: dto.apelido.trim(),
@@ -336,8 +364,9 @@ export class VeiculosService {
         observacao: dto.observacao?.trim() || null,
         consumoIdeal: dto.consumoIdeal ?? null,
         responsaveis: {
-          create: responsaveis.map((funcionarioId) => ({ funcionarioId })),
+          create: funcionarios.map((funcionarioId) => ({ funcionarioId })),
         },
+        logins: { create: logins.map((id) => ({ usuarioId: id })) },
         criadoPor: usuarioId ?? null,
       },
     });
@@ -347,7 +376,8 @@ export class VeiculosService {
 
   async atualizar(id: string, dto: AtualizarVeiculoDto): Promise<Veiculo> {
     await this.existente(id);
-    await this.conferirResponsaveis(dto.responsaveisIds ?? []);
+    const { funcionarios, logins } = await this.separarResponsaveis(dto.responsaveisIds ?? []);
+    const refazer = dto.responsaveisIds !== undefined;
     return this.prisma.veiculo.update({
       where: { id },
       data: {
@@ -365,10 +395,12 @@ export class VeiculosService {
          * há nada guardado na ligação além de quem é — refazer não perde nada,
          * e evita ter de descobrir quem entrou e quem saiu.
          */
-        responsaveis: dto.responsaveisIds && {
-          deleteMany: {},
-          create: dto.responsaveisIds.map((funcionarioId) => ({ funcionarioId })),
-        },
+        responsaveis: refazer
+          ? { deleteMany: {}, create: funcionarios.map((funcionarioId) => ({ funcionarioId })) }
+          : undefined,
+        logins: refazer
+          ? { deleteMany: {}, create: logins.map((usuarioId) => ({ usuarioId })) }
+          : undefined,
       },
     });
   }
@@ -393,19 +425,30 @@ export class VeiculosService {
     await this.prisma.veiculo.delete({ where: { id } });
   }
 
-  /** Todo mundo da lista tem de ser funcionário ativo — senão, nenhum entra. */
-  private async conferirResponsaveis(ids: string[]): Promise<void> {
-    if (ids.length === 0) return;
-    const achados = await this.prisma.funcionario.count({
-      where: { id: { in: ids }, ativo: true },
-    });
-    if (achados !== ids.length) {
+  /**
+   * A lista que a tela manda, separada: os funcionários e os logins. Todo
+   * mundo nela tem de ser um ou outro, e ativo — senão, nenhum entra.
+   */
+  private async separarResponsaveis(
+    ids: string[],
+  ): Promise<{ funcionarios: string[]; logins: string[] }> {
+    const unicos = [...new Set(ids)];
+    if (unicos.length === 0) return { funcionarios: [], logins: [] };
+    const [funcionarios, logins] = await Promise.all([
+      this.prisma.funcionario.findMany({
+        where: { id: { in: unicos }, ativo: true },
+        select: { id: true },
+      }),
+      this.prisma.user.findMany({ where: { id: { in: unicos }, ativo: true }, select: { id: true } }),
+    ]);
+    if (funcionarios.length + logins.length !== unicos.length) {
       throw new BadRequestException(
-        ids.length === 1
-          ? 'O responsável escolhido não é um funcionário ativo.'
-          : 'Algum dos responsáveis escolhidos não é um funcionário ativo.',
+        unicos.length === 1
+          ? 'Quem foi escolhido não é um funcionário nem um login ativo.'
+          : 'Alguém da lista não é um funcionário nem um login ativo.',
       );
     }
+    return { funcionarios: funcionarios.map((f) => f.id), logins: logins.map((l) => l.id) };
   }
 
   private async existente(id: string): Promise<Veiculo> {
@@ -419,6 +462,12 @@ export class VeiculosService {
 const RESPONSAVEIS = {
   select: { funcionario: { select: { id: true, nome: true, apelido: true } } },
   orderBy: { funcionario: { nome: 'asc' } },
+} as const;
+
+/** E os logins que estão com ele, de quem não é funcionário. */
+const LOGINS = {
+  select: { usuario: { select: { id: true, nome: true } } },
+  orderBy: { usuario: { nome: 'asc' } },
 } as const;
 
 /** O que a média de consumo precisa de cada abastecimento. */
@@ -477,6 +526,7 @@ export function resumir(
     responsaveis?: Array<{
       funcionario: { id: string; nome: string; apelido: string | null };
     }>;
+    logins?: Array<{ usuario: { id: string; nome: string } }>;
   },
   contas: ContaResumida[],
   combustivel?: {
@@ -513,10 +563,13 @@ export function resumir(
     ano: v.ano,
     observacao: v.observacao,
     ativo: v.ativo,
-    responsaveis: (v.responsaveis ?? []).map(({ funcionario: f }) => ({
-      id: f.id,
-      nome: f.apelido || f.nome,
-    })),
+    responsaveis: [
+      ...(v.responsaveis ?? []).map(({ funcionario: f }) => ({
+        id: f.id,
+        nome: f.apelido || f.nome,
+      })),
+      ...(v.logins ?? []).map(({ usuario: u }) => ({ id: u.id, nome: u.nome, login: true })),
+    ],
     gasto: centavos(gasto),
     emAberto: centavos(emAberto),
     quantidade,
