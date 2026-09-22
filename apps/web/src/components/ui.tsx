@@ -4,7 +4,6 @@ import {
   useLayoutEffect,
   useRef,
   useState,
-  type MouseEvent,
   type PointerEvent,
   type ReactNode,
 } from 'react';
@@ -292,19 +291,53 @@ export function Bloco({
 }
 
 /**
+ * Quanto da tela o teclado do celular está cobrindo, em pixels.
+ *
+ * `100vh` não encolhe quando o teclado sobe: a janela continuava do tamanho da
+ * tela inteira e o campo em foco ficava atrás das teclas. Quem sabe o tamanho
+ * de verdade é a `visualViewport` — a parte que se vê agora —, e é ela que
+ * diz onde a janela tem de terminar.
+ *
+ * Abaixo de 120px não é teclado: é a barra do navegador que aparece e some ao
+ * rolar, e mexer na janela a cada uma dessas seria um tremor sem motivo.
+ */
+function useTecladoDoCelular(): number {
+  const [altura, setAltura] = useState(0);
+
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const medir = () => {
+      const coberto = window.innerHeight - vv.height - vv.offsetTop;
+      setAltura(coberto > 120 ? Math.round(coberto) : 0);
+    };
+    medir();
+    vv.addEventListener('resize', medir);
+    vv.addEventListener('scroll', medir);
+    return () => {
+      vv.removeEventListener('resize', medir);
+      vv.removeEventListener('scroll', medir);
+    };
+  }, []);
+
+  return altura;
+}
+
+/**
  * Janela por cima da tela, para o que precisa de resposta agora — pagar alguém,
  * por exemplo. Um bloco no rodapé da página resolveria o mesmo, mas nasce fora
  * da área visível: quem clica em "Pagar" no meio de uma tabela longa não vê
  * nada acontecer e conclui que o botão está quebrado.
  *
- * **Como toda janela desta casa se fecha** (padrão pedido em 22/09/2026, para
- * as telas pararem de se comportar cada uma de um jeito):
+ * **Como toda janela desta casa se fecha** (padrão de 22/09/2026, para as
+ * telas pararem de se comportar cada uma de um jeito):
  *
  * - o **X** sai na hora — é o gesto de quem quer sair;
- * - o **Esc** e o **clique no fundo** também saem, mas perguntam antes quando
- *   já se digitou alguma coisa ali dentro. Era esta a diferença de antes: o
- *   fundo não fechava em lugar nenhum, com medo de jogar fora meia dúzia de
- *   campos preenchidos, enquanto o Esc jogava sem perguntar.
+ * - o **Esc** sai também, mas pergunta antes quando já se digitou alguma coisa
+ *   ali dentro;
+ * - **tocar no fundo não fecha.** Chegou a fechar por um dia; no celular a
+ *   folha ocupa meia tela e o dedo encosta fora dela o tempo todo — "se não
+ *   vai clicar toda hora fora sem querer" (pedido do dono).
  *
  * Quem sabe se houve trabalho é a própria janela: qualquer digitação ou
  * escolha lá dentro sobe por aqui (os eventos do React borbulham) e levanta a
@@ -320,6 +353,7 @@ export function Janela({
   children: ReactNode;
 }) {
   const celular = useCelular();
+  const teclado = useTecladoDoCelular();
   /** Alguém mexeu em algum campo daqui de dentro? */
   const mexido = useRef(false);
 
@@ -352,10 +386,6 @@ export function Janela({
     mexido.current = true;
   };
 
-  /** Só o clique no fundo — o que acontece dentro da janela não a fecha. */
-  const aoClicarNoFundo = (e: MouseEvent<HTMLDivElement>) => {
-    if (e.target === e.currentTarget) fecharComCuidado();
-  };
 
   /*
    * No celular ela não é janela: é uma folha que sobe do pé da tela.
@@ -374,8 +404,16 @@ export function Janela({
   if (celular) {
     return (
       <div
-        onClick={aoClicarNoFundo}
-        className="fixed inset-0 z-50 flex flex-col justify-end bg-barra/70 backdrop-blur-sm"
+        /*
+          A janela termina onde o teclado começa, e o que sobra dela fica no
+          meio do que ainda se vê: com o teclado aberto, o campo em foco
+          costumava ficar atrás das teclas — e uma folha encostada nelas põe o
+          campo na beirada, que é onde o dedo já está digitando.
+        */
+        style={teclado ? { bottom: teclado } : undefined}
+        className={`fixed inset-0 z-50 flex flex-col bg-barra/70 backdrop-blur-sm ${
+          teclado ? 'justify-center px-3' : 'justify-end'
+        }`}
       >
         <div
           role="dialog"
@@ -383,7 +421,9 @@ export function Janela({
           aria-label={titulo}
           onInput={marcarMexido}
           onChange={marcarMexido}
-          className="surgir flex max-h-[92vh] flex-col rounded-t-2xl border-t border-tinta-100 bg-papel shadow-2xl"
+          className={`surgir flex flex-col border-tinta-100 bg-papel shadow-2xl ${
+            teclado ? 'max-h-full rounded-2xl border' : 'max-h-[92vh] rounded-t-2xl border-t'
+          }`}
         >
           <div className="faixa-titulo flex shrink-0 items-center justify-between gap-3 rounded-t-2xl py-2 pl-4 pr-2">
             <h2 className="titulo-bloco min-w-0 truncate">{titulo}</h2>
@@ -403,10 +443,7 @@ export function Janela({
   }
 
   return (
-    <div
-      onClick={aoClicarNoFundo}
-      className="rolagem-fina fixed inset-0 z-50 flex justify-center overflow-y-auto overflow-x-clip bg-barra/70 p-4 backdrop-blur-sm sm:p-6"
-    >
+    <div className="rolagem-fina fixed inset-0 z-50 flex justify-center overflow-y-auto overflow-x-clip bg-barra/70 p-4 backdrop-blur-sm sm:p-6">
       <div
         role="dialog"
         aria-modal="true"
