@@ -18,7 +18,7 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
-import { useTermoAdiado } from '../../lib/busca';
+import { combina, useTermoAdiado } from '../../lib/busca';
 import { EMPRESA } from '../../lib/empresa';
 import { formatBRL, formatData } from '../../lib/format';
 import type { CategoriaDespesa } from '../../lib/types';
@@ -367,6 +367,7 @@ export function ContasContrato() {
   const [lendo, setLendo] = useState<{ id: string; alvo: AlvoDaLeitura } | null>(
     null,
   );
+  const [busca, setBusca] = useState('');
   const [cadastrando, setCadastrando] = useState(false);
   const [importando, setImportando] = useState(false);
   const [editando, setEditando] = useState<ContaContrato | null>(null);
@@ -400,6 +401,14 @@ export function ContasContrato() {
   const variosFornecedores = useMemo(
     () => new Set(contas.map((c) => c.contrato.fornecedorNome)).size > 1,
     [contas],
+  );
+
+  /** A busca da tela: pelo apelido, pelo número da conta contrato ou pela companhia. */
+  const achadas = contas.filter((c) =>
+    combina(
+      [c.contrato.apelido, c.contrato.numero, c.contrato.fornecedorNome, c.contrato.observacao],
+      busca,
+    ),
   );
 
   const ativas = contas.filter((c) => c.contrato.ativa);
@@ -609,6 +618,18 @@ export function ContasContrato() {
         </div>
       )}
 
+      {contas.length > 0 && (
+        <input
+          type="search"
+          className="campo mb-3 max-w-xs"
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          placeholder="Procurar pelo endereço, número ou companhia"
+          aria-label="Procurar endereço"
+          autoComplete="off"
+        />
+      )}
+
       <Bloco semPadding>
         {lista.isLoading ? (
           <Carregando texto="Lendo o cadastro…" />
@@ -616,6 +637,11 @@ export function ContasContrato() {
           <Vazio titulo="Nenhum endereço cadastrado ainda">
             Cadastre cada unidade consumidora com o número da conta contrato que
             está na fatura. Depois é só digitar o valor que chegou e gerar.
+          </Vazio>
+        ) : achadas.length === 0 ? (
+          <Vazio titulo="Nenhum endereço com essa busca">
+            Nada com "{busca.trim()}" no apelido, no número da conta contrato ou na
+            companhia.
           </Vazio>
         ) : (
           <div className="overflow-x-auto rolagem-fina">
@@ -647,7 +673,7 @@ export function ContasContrato() {
                 </tr>
               </thead>
               <tbody>
-                {contas.map((linha) => (
+                {achadas.map((linha) => (
                   <LinhaDoEndereco
                     key={linha.contrato.id}
                     linha={linha}

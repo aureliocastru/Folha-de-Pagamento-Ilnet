@@ -1,8 +1,10 @@
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
   useState,
+  type MouseEvent,
   type PointerEvent,
   type ReactNode,
 } from 'react';
@@ -302,6 +304,19 @@ export function Bloco({
  * por exemplo. Um bloco no rodapé da página resolveria o mesmo, mas nasce fora
  * da área visível: quem clica em "Pagar" no meio de uma tabela longa não vê
  * nada acontecer e conclui que o botão está quebrado.
+ *
+ * **Como toda janela desta casa se fecha** (padrão pedido em 22/09/2026, para
+ * as telas pararem de se comportar cada uma de um jeito):
+ *
+ * - o **X** sai na hora — é o gesto de quem quer sair;
+ * - o **Esc** e o **clique no fundo** também saem, mas perguntam antes quando
+ *   já se digitou alguma coisa ali dentro. Era esta a diferença de antes: o
+ *   fundo não fechava em lugar nenhum, com medo de jogar fora meia dúzia de
+ *   campos preenchidos, enquanto o Esc jogava sem perguntar.
+ *
+ * Quem sabe se houve trabalho é a própria janela: qualquer digitação ou
+ * escolha lá dentro sobe por aqui (os eventos do React borbulham) e levanta a
+ * bandeira. Janela de olhar — um detalhe, uma foto — nunca pergunta nada.
  */
 export function Janela({
   titulo,
@@ -313,24 +328,23 @@ export function Janela({
   children: ReactNode;
 }) {
   const celular = useCelular();
+  /** Alguém mexeu em algum campo daqui de dentro? */
+  const mexido = useRef(false);
+
+  /** A saída dos gestos soltos: pergunta quando há o que perder. */
+  const fecharComCuidado = useCallback(() => {
+    if (
+      mexido.current &&
+      !window.confirm('Você preencheu alguma coisa nesta janela. Fechar assim mesmo?')
+    ) {
+      return;
+    }
+    onFechar();
+  }, [onFechar]);
 
   useEffect(() => {
     const aoTeclar = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onFechar();
-      /*
-       * Digitando no rodapé, o teclado é do campo e não da foto: sem isto, o
-       * "0" do valor da nota devolveria a imagem ao tamanho de tela e o "-"
-       * a afastaria no meio da digitação.
-       */
-      const alvo = e.target as HTMLElement | null;
-      if (
-        alvo &&
-        (alvo.tagName === 'INPUT' ||
-          alvo.tagName === 'TEXTAREA' ||
-          alvo.isContentEditable)
-      ) {
-        return;
-      }
+      if (e.key === 'Escape') fecharComCuidado();
     };
     window.addEventListener('keydown', aoTeclar);
     // Rolar a página atrás da janela tira do lugar o que se está lendo nela.
@@ -340,14 +354,16 @@ export function Janela({
       window.removeEventListener('keydown', aoTeclar);
       document.body.style.overflow = overflowAnterior;
     };
-  }, [onFechar]);
+  }, [fecharComCuidado]);
 
-  /*
-   * O clique no fundo não fecha: estas janelas carregam trabalho — um
-   * pagamento conferido, uma edição de meia dúzia de campos — e um clique
-   * fora de mira jogava tudo fora sem perguntar. Sai pelo X ou pelo Esc,
-   * que são gestos de quem quer sair. Vale nas duas formas abaixo.
-   */
+  const marcarMexido = () => {
+    mexido.current = true;
+  };
+
+  /** Só o clique no fundo — o que acontece dentro da janela não a fecha. */
+  const aoClicarNoFundo = (e: MouseEvent<HTMLDivElement>) => {
+    if (e.target === e.currentTarget) fecharComCuidado();
+  };
 
   /*
    * No celular ela não é janela: é uma folha que sobe do pé da tela.
@@ -365,11 +381,16 @@ export function Janela({
    */
   if (celular) {
     return (
-      <div className="fixed inset-0 z-50 flex flex-col justify-end bg-barra/70 backdrop-blur-sm">
+      <div
+        onClick={aoClicarNoFundo}
+        className="fixed inset-0 z-50 flex flex-col justify-end bg-barra/70 backdrop-blur-sm"
+      >
         <div
           role="dialog"
           aria-modal="true"
           aria-label={titulo}
+          onInput={marcarMexido}
+          onChange={marcarMexido}
           className="surgir flex max-h-[92vh] flex-col rounded-t-2xl border-t border-tinta-100 bg-papel shadow-2xl"
         >
           <div className="faixa-titulo flex shrink-0 items-center justify-between gap-3 rounded-t-2xl py-2 pl-4 pr-2">
@@ -387,11 +408,16 @@ export function Janela({
   }
 
   return (
-    <div className="rolagem-fina fixed inset-0 z-50 flex justify-center overflow-y-auto bg-barra/70 p-4 backdrop-blur-sm sm:p-6">
+    <div
+      onClick={aoClicarNoFundo}
+      className="rolagem-fina fixed inset-0 z-50 flex justify-center overflow-y-auto bg-barra/70 p-4 backdrop-blur-sm sm:p-6"
+    >
       <div
         role="dialog"
         aria-modal="true"
         aria-label={titulo}
+        onInput={marcarMexido}
+        onChange={marcarMexido}
         className="surgir my-auto h-fit w-full max-w-5xl rounded-2xl border border-tinta-100 bg-papel shadow-2xl"
       >
         <div className="faixa-titulo flex items-center justify-between gap-3 py-2.5 pl-5 pr-3 sm:pl-6">

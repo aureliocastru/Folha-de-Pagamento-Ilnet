@@ -10,6 +10,7 @@ import {
   Selo,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { combina } from '../../lib/busca';
 import { useAuth } from '../../lib/auth';
 import { formatData } from '../../lib/format';
 import { AREAS_DO_COLABORADOR, AREAS_PADRAO } from '../../lib/colaborador';
@@ -272,6 +273,7 @@ export function Usuarios() {
   const [erro, setErro] = useState(false);
   const [editando, setEditando] = useState<UsuarioAdmin | null>(null);
   const [vendoSenha, setVendoSenha] = useState<UsuarioAdmin | null>(null);
+  const [busca, setBusca] = useState('');
 
   const lista = useQuery({
     queryKey: ['usuarios'],
@@ -279,6 +281,11 @@ export function Usuarios() {
   });
   const perfis = usePerfis();
   const colaboradores = useColaboradores();
+
+  /** Os logins que a busca deixa à vista. */
+  const achados = (lista.data ?? []).filter((u) =>
+    combina([u.nome, u.email, u.role, u.perfil?.nome, u.colaborador?.nomeCompleto], busca),
+  );
 
   function avisar(texto: string, falhou = false) {
     setErro(falhou);
@@ -337,6 +344,19 @@ export function Usuarios() {
       />
 
       <div className="surgir surgir-2 mt-6">
+        {/* A mesma busca das outras listas: pelo nome, pelo e-mail, pelo perfil
+            ou por quem o login é no cadastro. */}
+        {(lista.data?.length ?? 0) > 0 && (
+          <input
+            type="search"
+            className="campo mb-3 max-w-xs"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Procurar pelo nome, e-mail ou perfil"
+            aria-label="Procurar login"
+            autoComplete="off"
+          />
+        )}
         <Bloco titulo="Logins ativos e inativos" semPadding>
           <div className="overflow-x-auto rolagem-fina">
             <table className="w-full text-sm">
@@ -358,7 +378,14 @@ export function Usuarios() {
                     </td>
                   </tr>
                 )}
-                {lista.data?.map((u) => {
+                {achados.length === 0 && !lista.isLoading && (
+                  <tr>
+                    <td colSpan={6} className="td text-center text-sm text-tinta-400">
+                      Nenhum login com "{busca.trim()}" no nome, no e-mail ou no perfil.
+                    </td>
+                  </tr>
+                )}
+                {achados.map((u) => {
                   const souEu = u.id === eu?.id;
                   return (
                     <tr key={u.id} className={`linha ${u.ativo ? '' : 'opacity-50'}`}>
