@@ -70,7 +70,6 @@ export function Aprs() {
       <CabecalhoPagina
         secao="Segurança do Trabalho"
         titulo="Análises de Risco"
-        descricao="Análise preliminar de risco por serviço executado."
         acoes={
           <button
             type="button"

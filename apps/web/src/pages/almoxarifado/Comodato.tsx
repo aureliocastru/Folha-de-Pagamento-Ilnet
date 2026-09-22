@@ -127,7 +127,6 @@ export function Comodato() {
       <CabecalhoPagina
         secao="Almoxarifado"
         titulo="Comodato"
-        descricao="O que está emprestado a cliente, e com quem. Vem do IXC: o comodato nasce na OS de instalação e é baixado no contrato, lá."
         acoes={
           <button
             type="button"

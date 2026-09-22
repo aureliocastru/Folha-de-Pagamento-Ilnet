@@ -462,13 +462,6 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
               : (pasta?.funcao ?? 'Pasta')
         }
         titulo={pasta?.nome ?? 'Pasta'}
-        descricao={
-          pasta?.daEmpresa
-            ? 'Contrato social, alvará, certidões — o que é da empresa e não de uma pessoa.'
-            : pasta?.dosFuncionarios
-              ? 'Uma pasta por pessoa da casa, e elas nascem sozinhas do cadastro. Quem saiu continua aqui: é a pasta que se abre depois.'
-              : 'Contrato, exames, advertências e os recibos de pagamento desta pessoa.'
-        }
         acoes={
           <div className="flex flex-wrap gap-2">
             {/* Mexer na pasta em si vem antes do que se faz dentro dela, e por

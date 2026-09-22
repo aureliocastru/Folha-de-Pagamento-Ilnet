@@ -129,7 +129,6 @@ export function FechamentoCaixa() {
       <CabecalhoPagina
         secao="Fechamento de Caixa"
         titulo="Bater o caixa"
-        descricao="As saídas do período, uma a uma, com a foto da nota no lugar do papel. O que está na rua com alguém entra na conta."
       />
 
       <Bloco titulo="Que caixa, e de quando até quando" className="surgir mb-5">

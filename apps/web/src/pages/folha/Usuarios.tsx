@@ -325,7 +325,6 @@ export function Usuarios() {
       <CabecalhoPagina
         secao="Usuários"
         titulo="Quem entra no sistema"
-        descricao="Cada pessoa com um login próprio. O perfil decide o que ela consegue fazer."
         // O cabeçalho escuro de cima já tem o "‹ Módulos": duas setas seria dúvida.
         voltar={false}
       />

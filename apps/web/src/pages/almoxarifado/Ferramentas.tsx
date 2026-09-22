@@ -142,7 +142,6 @@ export function Ferramentas() {
       <CabecalhoPagina
         secao="Almoxarifado"
         titulo="Ferramentas"
-        descricao="Quem está com o quê. Ferramenta não é material: ela sai com um nome e tem de voltar — e é isso que esta tela guarda."
         acoes={
           <button
             type="button"

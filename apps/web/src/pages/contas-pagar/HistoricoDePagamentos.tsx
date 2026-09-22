@@ -79,7 +79,6 @@ export function HistoricoDePagamentos() {
       <CabecalhoPagina
         secao="Histórico"
         titulo="Pagamentos feitos"
-        descricao="Tudo que já saiu, lido do IXC na hora. Esta tela é de leitura: dar baixa, estornar e cancelar continua sendo no IXC."
         acoes={
           <div className="flex flex-wrap gap-2">
             <button

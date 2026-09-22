@@ -178,14 +178,12 @@ export function Pagina({ children }: { children: ReactNode }) {
 export function CabecalhoPagina({
   secao,
   titulo,
-  descricao,
   voltar,
   acoes,
 }: {
   /** Onde a pessoa está — a mesma palavra da barra lateral. */
   secao: string;
   titulo: string;
-  descricao?: ReactNode;
   /**
    * O que a seta de voltar faz. Sem dizer, ela volta para a tela anterior —
    * toda tela tem a seta, a pedido: no celular não há botão de voltar do
@@ -227,13 +225,15 @@ export function CabecalhoPagina({
           </button>
         )}
         <div className="min-w-0">
+          {/*
+            Sem a linha de explicação embaixo do título (pedido do dono,
+            22/09/2026). Ela dizia para que serve a tela — coisa que se lê uma
+            vez e depois ocupa três linhas de um celular todo santo dia. O que
+            é dado, e não explicação, fica no corpo da página: o CNPJ da
+            empresa nas Contas Contrato, por exemplo.
+          */}
           <p className="eyebrow mb-1">{secao}</p>
           <h1 className="titulo-pagina">{titulo}</h1>
-          {descricao && (
-            <p className="mt-1.5 max-w-2xl text-[13px] leading-relaxed text-tinta-500">
-              {descricao}
-            </p>
-          )}
         </div>
       </div>
       {/*

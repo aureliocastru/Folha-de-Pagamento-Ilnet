@@ -144,13 +144,6 @@ export function Estoque() {
       <CabecalhoPagina
         secao="Almoxarifado"
         titulo="Estoque"
-        descricao={
-          <>
-            O que a casa tem e onde. Vem do IXC, que é onde o estoque é
-            controlado — e o que se muda aqui (cadastro, transferência,
-            entrada de compra) é gravado lá.
-          </>
-        }
         acoes={
           <>
           <button

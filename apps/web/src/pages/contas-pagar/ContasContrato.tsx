@@ -523,9 +523,12 @@ export function ContasContrato() {
       <CabecalhoPagina
         secao="Contas a pagar"
         titulo="Contas Contrato"
-        descricao={<CnpjDaEmpresa />}
         acoes={
           <>
+            {/* O CNPJ fica aqui desde que a linha de explicação saiu de baixo
+                do título: ele não é explicação, é o número que o portal da
+                concessionária pede antes da conta contrato. */}
+            <CnpjDaEmpresa />
             {/* O caminho de encher a tela na primeira vez: os endereços já são
                 pagos há anos, e o IXC sabe de cada um o que este cadastro
                 precisa. Digitar onze vezes o que já está escrito lá seria o

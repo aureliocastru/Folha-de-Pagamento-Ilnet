@@ -102,7 +102,6 @@ export function PastasRh() {
       <CabecalhoPagina
         secao="RH"
         titulo="Pastas"
-        descricao="Onde os documentos da casa ficam. A gente está em Funcionários; empresa, licitações e notas têm porta própria no menu. A busca acha em todas."
         acoes={
           <button
             type="button"

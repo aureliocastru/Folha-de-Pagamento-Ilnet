@@ -1069,11 +1069,6 @@ export function Folha() {
         titulo={
           modo === 'DIA_25' ? 'Adiantamento do dia 25' : 'Salário do quinto dia'
         }
-        descricao={
-          modo === 'DIA_25'
-            ? 'Só o adiantamento de quem recebe no dia 25, sobre o mês que está sendo trabalhado.'
-            : 'Salário e bônus do mês trabalhado. Quem recebeu no dia 25 vem com o adiantamento descontado; quem tem carteira assinada vem cheio, mas dá para descontar.'
-        }
       />
 
       <div className="surgir surgir-1 card mb-6 p-5">

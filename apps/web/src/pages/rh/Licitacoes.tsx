@@ -155,7 +155,6 @@ export function Licitacoes() {
       <CabecalhoPagina
         secao="Licitações"
         titulo="A pasta que vai ser entregue"
-        descricao="Cada licitação é uma pasta com cópia do que foi mandado. A certidão renovada depois não muda o que já saiu daqui — é por isso que dá para responder, meses adiante, o que exatamente foi entregue."
         acoes={
           <button
             onClick={() => {

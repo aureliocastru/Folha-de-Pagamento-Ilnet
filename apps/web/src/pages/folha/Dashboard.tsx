@@ -17,7 +17,7 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
-import { mesAnterior, mesAtual, mesSeguinte, nomeDoMes } from '../../lib/folha';
+import { mesAnterior, mesAtual, nomeDoMes } from '../../lib/folha';
 import { formatBRL, formatData } from '../../lib/format';
 import { STATUS_LABEL, STATUS_TOM, TIPO_LABEL } from '../../lib/status';
 import type { Dashboard as TDashboard, TipoLancamento } from '../../lib/types';
@@ -257,7 +257,6 @@ export function Dashboard() {
       <CabecalhoPagina
         secao="Dashboard"
         titulo={`Trabalho de ${nomeDoMes(competencia)}`}
-        descricao={`Quanto custou o mês trabalhado. A folha dele sai no começo de ${nomeDoMes(mesSeguinte(competencia))} — os valores aparecem aqui, no mês que eles pagaram. Diárias e pagamentos avulsos entram pelo dia em que saíram.`}
         acoes={
           <div className="flex flex-wrap items-end gap-4">
             <div>

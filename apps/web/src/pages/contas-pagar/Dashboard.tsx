@@ -120,7 +120,6 @@ export function Dashboard() {
       <CabecalhoPagina
         secao="Dashboard"
         titulo="Como está o contas a pagar"
-        descricao="A mesma leitura da lista: como fecha o mês, o que vence nos próximos dias, com o que se está gastando e a quem se deve."
         acoes={
           <button
             onClick={() => consulta.refetch()}

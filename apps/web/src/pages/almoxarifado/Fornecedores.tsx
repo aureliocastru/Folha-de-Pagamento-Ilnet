@@ -135,7 +135,6 @@ export function Fornecedores() {
       <CabecalhoPagina
         secao="Cotações de Preços"
         titulo="Fornecedores"
-        descricao="Quem vende material para a casa. É cadastro daqui — não tem relação com os fornecedores do IXC, que são a lista de quem já recebeu dinheiro da empresa."
         acoes={
           <button
             type="button"

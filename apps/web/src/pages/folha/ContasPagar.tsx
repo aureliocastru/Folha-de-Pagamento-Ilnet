@@ -303,7 +303,6 @@ export function ContasPagar() {
       <CabecalhoPagina
         secao="Contas a pagar"
         titulo="Pagamentos no IXC"
-        descricao="Cada conta nasce aqui, passa pela auditoria e só vira dinheiro quando o banco confirma. O que você faz nesta tela vale no IXC — e o que mudar lá volta no botão Verificar."
         acoes={
           <button
             onClick={() => sincronizarTudo.mutate()}

@@ -398,7 +398,6 @@ export function Diaristas() {
       <CabecalhoPagina
         secao="Diaristas"
         titulo="Quem trabalha por dia"
-        descricao="Quem está marcado como “Estrangeiro” no cadastro de fornecedor do IXC é diarista (quem é isento de ICMS é funcionário, e aparece na outra tela). O pagamento sai pelo IXC como conta a pagar, do banco por PIX ou do caixa em dinheiro."
         acoes={
           <div className="flex flex-wrap gap-2">
             <button

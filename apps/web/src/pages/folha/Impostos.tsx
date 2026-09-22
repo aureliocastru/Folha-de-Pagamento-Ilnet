@@ -328,7 +328,6 @@ export function Impostos() {
       <CabecalhoPagina
         secao="Impostos"
         titulo="Guias da contabilidade"
-        descricao="Todo mês chega um conjunto de arquivos: DARF do INSS, FGTS, DAS do Simples, o DARE quando houve ICMS a pagar e, enquanto durar, a parcela do parcelamento da SEFAZ. Jogue o PDF aqui — o app lê, diz de que mês ele é, você confere, e só então o valor entra no custo com pessoal."
       />
 
       {feedback && <Aviso tom={erro ? 'erro' : 'marca'}>{feedback}</Aviso>}

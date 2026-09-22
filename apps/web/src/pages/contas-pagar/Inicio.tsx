@@ -235,7 +235,6 @@ export function Inicio() {
       <CabecalhoPagina
         secao="Em aberto"
         titulo="O que a empresa deve"
-        descricao="Tudo que está em aberto no IXC, do jeito que está lá agora. Daqui dá para lançar, pagar, editar e apagar — o que for feito aqui é gravado lá."
         acoes={
           <>
             <button

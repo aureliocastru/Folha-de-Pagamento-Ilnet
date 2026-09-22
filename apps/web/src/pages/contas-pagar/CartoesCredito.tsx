@@ -171,7 +171,6 @@ export function CartoesCredito() {
       <CabecalhoPagina
         secao="Contas a pagar"
         titulo="Cartão de Crédito"
-        descricao="Cada compra que vem na fatura, à vista ou parcelada. No mês do vencimento, a fatura vira uma conta a pagar só, no valor da soma."
         acoes={
           <button onClick={() => setCadastrando(true)} className="btn btn-acao">
             Cadastrar cartão

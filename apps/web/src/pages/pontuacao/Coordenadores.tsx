@@ -90,7 +90,6 @@ export function Coordenadores() {
       <CabecalhoPagina
         secao="Pontuação"
         titulo="Coordenadores"
-        descricao="Quem pode pontuar pelo portal, com o CPF e a senha definida aqui. Quem já tem login no sistema não precisa disto: marque “Pontuar” nos módulos do login dele, em Usuários, e ele pontua por lá."
         acoes={
           <button onClick={() => setCadastrando(true)} className="btn btn-acao">
             Cadastrar coordenador

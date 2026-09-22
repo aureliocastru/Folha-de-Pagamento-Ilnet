@@ -333,7 +333,6 @@ export function Veiculos() {
       <CabecalhoPagina
         secao="Veículos"
         titulo="A frota"
-        descricao="Quanto cada veículo já custou em peça e serviço, e quanto se abasteceu nele."
         acoes={
           <button onClick={() => setCadastrando(true)} className="btn btn-primario">
             Cadastrar veículo

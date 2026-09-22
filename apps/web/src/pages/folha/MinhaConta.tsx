@@ -39,7 +39,6 @@ export function MinhaConta() {
       <CabecalhoPagina
         secao="Minha conta"
         titulo={usuario?.nome ?? 'Minha conta'}
-        descricao="Seu acesso ao sistema."
       />
 
       {feedback && <Aviso tom={erro ? 'erro' : 'pago'}>{feedback}</Aviso>}

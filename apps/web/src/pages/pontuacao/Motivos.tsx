@@ -23,7 +23,6 @@ export function Motivos() {
       <CabecalhoPagina
         secao="Pontuação"
         titulo="Motivos"
-        descricao="Os botões que aparecem na hora de pontuar. Quem pontua toca num deles e, se quiser, escreve o detalhe."
       />
 
       {lista.isError && (

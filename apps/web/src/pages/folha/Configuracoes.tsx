@@ -93,7 +93,6 @@ export function Configuracoes() {
       <CabecalhoPagina
         secao="Configurações"
         titulo="Parâmetros da integração"
-        descricao="Tudo o que a folha usa para montar uma conta a pagar no IXC. Mexer aqui muda as próximas gerações, não o que já foi enviado."
       />
 
       {feedback && <Aviso tom={erro ? 'erro' : 'marca'}>{feedback}</Aviso>}

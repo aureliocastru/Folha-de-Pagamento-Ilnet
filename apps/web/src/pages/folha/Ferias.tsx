@@ -168,7 +168,6 @@ export function Ferias() {
       <CabecalhoPagina
         secao="Férias"
         titulo="Quem é o próximo"
-        descricao="A fila sai da “Previsão de Férias” que a contabilidade manda todo mês: jogue o PDF aqui e a ordem se refaz sozinha. Quem aparece primeiro é quem tem menos prazo até a data limite — o último dia em que as férias podem começar sem a empresa pagar em dobro."
       />
 
       {feedback && <Aviso tom={erro ? 'erro' : 'marca'}>{feedback}</Aviso>}

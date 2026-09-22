@@ -60,7 +60,6 @@ export function Transferencias() {
       <CabecalhoPagina
         secao="Transferência entre Contas"
         titulo="Mover dinheiro de uma conta para outra"
-        descricao="O que sai de um caixa entra no outro, e o lançamento é feito no IXC nas duas pontas — é o que faz os dois fecharem."
       />
 
       {destravado ? (

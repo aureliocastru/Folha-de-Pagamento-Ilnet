@@ -272,7 +272,6 @@ export function Recorrentes() {
       <CabecalhoPagina
         secao="Contas a pagar"
         titulo="Recorrentes"
-        descricao="Serviços pagos todo mês e consórcios. A conta de cada mês nasce sozinha no IXC poucos dias antes de vencer — e já aprovada."
         acoes={
           <>
             {/*

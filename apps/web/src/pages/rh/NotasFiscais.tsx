@@ -232,11 +232,6 @@ export function NotasFiscais() {
       <CabecalhoPagina
         secao="Notas fiscais"
         titulo={mes ? porExtenso(mes.competencia) : 'Notas fiscais'}
-        descricao={
-          mes
-            ? 'Arraste as notas para qualquer lugar desta tela. No fim do mês, baixe o zip e mande.'
-            : 'O que a empresa comprou em cada mês, para ir à contabilidade e virar crédito de imposto.'
-        }
         voltar={mes ? () => irPara(null) : undefined}
         acoes={
           mes ? (

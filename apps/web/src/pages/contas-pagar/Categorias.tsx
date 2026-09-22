@@ -393,7 +393,6 @@ export function Categorias() {
       <CabecalhoPagina
         secao="Categorias"
         titulo="Com o que a empresa gasta"
-        descricao="A lista que aparece em cada débito e que separa os números do dashboard. Cada categoria pode ficar dentro de outra: o painel soma pela de cima e destrincha pelas de baixo."
       />
 
       {feedback && <Aviso tom={erro ? 'erro' : 'marca'}>{feedback}</Aviso>}

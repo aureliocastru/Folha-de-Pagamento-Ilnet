@@ -135,7 +135,6 @@ export function Formularios() {
       <CabecalhoPagina
         secao="Segurança do Trabalho"
         titulo="Formulários"
-        descricao="Conteúdo do formulário da APR. As alterações valem para as próximas análises; as já assinadas preservam o texto vigente na data."
         acoes={
           <>
             <button

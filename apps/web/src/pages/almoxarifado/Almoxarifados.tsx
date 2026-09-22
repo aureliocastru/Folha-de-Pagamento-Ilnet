@@ -166,7 +166,6 @@ export function Almoxarifados() {
       <CabecalhoPagina
         secao="Almoxarifado"
         titulo="Almoxarifados"
-        descricao="Onde a casa guarda material — nome, filial, técnico e se está ativo. É o cadastro do IXC, não o saldo (isso é a tela Estoque)."
         acoes={
           <button type="button" onClick={() => setCriando(true)} className="btn btn-primario">
             Novo almoxarifado

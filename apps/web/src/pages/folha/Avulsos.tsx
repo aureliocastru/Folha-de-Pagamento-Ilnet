@@ -502,11 +502,6 @@ export function Avulsos({
       <CabecalhoPagina
         secao={soValor ? 'Fornecedores' : 'Pagamentos avulsos'}
         titulo={soValor ? 'Quem a empresa paga' : 'Pagar quem não é da folha'}
-        descricao={
-          soValor
-            ? 'Todo o cadastro de fornecedores do IXC, para pagar quem já existe lá sem cadastrar de novo. Quem não existe, cadastre aqui: o fornecedor nasce no IXC junto. O pagamento sai como conta a pagar lá, do banco por PIX ou do caixa em dinheiro.'
-            : 'Todo o cadastro de fornecedores do IXC: mão de obra contratada, serviço pontual, comissão de venda. O pagamento se divide em serviço, venda e extra — a comissão entra no gráfico de vendas — e sai como conta a pagar no IXC, do banco por PIX ou do caixa em dinheiro.'
-        }
         acoes={
           <button onClick={abrirNovo} className="btn btn-primario">
             {soValor ? 'Cadastrar fornecedor' : 'Cadastrar beneficiário'}

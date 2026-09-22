@@ -15,7 +15,6 @@ export function Pontuar() {
       <CabecalhoPagina
         secao="Pontuação"
         titulo="Pontuar"
-        descricao="Todos os funcionários, os pontos do mês e a posição de cada um. Toque em alguém para dar ou tirar pontos."
       />
       <PainelDePontos cliente={api} base="/pontuacao" />
     </Pagina>

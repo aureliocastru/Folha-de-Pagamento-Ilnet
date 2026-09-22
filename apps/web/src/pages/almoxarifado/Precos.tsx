@@ -119,7 +119,6 @@ export function Precos() {
       <CabecalhoPagina
         secao="Cotações de Preços"
         titulo="Onde está mais barato"
-        descricao="O preço de cada material em cada fornecedor. O que vale é a cotação mais recente de cada um — o resto fica no histórico, que é o que mostra o que subiu."
         acoes={
           <button
             type="button"

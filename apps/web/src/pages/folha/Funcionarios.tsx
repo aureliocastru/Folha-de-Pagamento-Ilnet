@@ -92,7 +92,6 @@ export function Funcionarios() {
       <CabecalhoPagina
         secao="Funcionários"
         titulo="Quem entra na folha"
-        descricao="Fornecedores ativos e isentos de ICMS no IXC. É essa lista que a folha calcula."
         acoes={
           <button
             onClick={() => sync.mutate()}

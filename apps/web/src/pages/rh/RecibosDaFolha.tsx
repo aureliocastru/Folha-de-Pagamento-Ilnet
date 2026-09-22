@@ -164,7 +164,6 @@ export function RecibosDaFolha() {
       <CabecalhoPagina
         secao="RH"
         titulo="Recibos da folha"
-        descricao="O PDF que a contabilidade manda todo mês, separado por pessoa: cada recibo vai para a pasta do dono dele."
       />
 
       {erro && <Aviso tom="erro">{erro}</Aviso>}

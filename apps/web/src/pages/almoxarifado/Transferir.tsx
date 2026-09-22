@@ -302,7 +302,6 @@ function TransferirDoCoordenador() {
       <CabecalhoPagina
         secao="Almoxarifado"
         titulo="Transferir"
-        descricao="A transferência entre almoxarifados do IXC, mais simples: escolha de onde sai e para onde vai, bipe ou procure o que vai — MAC, nº patrimonial ou série para ONU e roteador — e grave. Fica tudo salvo no IXC."
       />
 
       <Bloco titulo="Bipe a peça, e escolha para onde vai">

@@ -112,7 +112,6 @@ export function Vales() {
       <CabecalhoPagina
         secao="Vales e acertos"
         titulo="Acerto de contas"
-        descricao="Nos dois sentidos, avulso ou parcelado. O que estiver marcado para a folha entra no salário da competência de cada parcela."
       />
 
       {feedback && <Aviso tom="marca">{feedback}</Aviso>}
