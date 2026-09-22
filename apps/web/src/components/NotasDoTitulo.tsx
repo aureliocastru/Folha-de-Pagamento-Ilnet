@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { api, mensagemErro } from '../lib/api';
+import { api, mensagemErro, mensagemErroDeArquivo } from '../lib/api';
 import type { NotaDoTitulo } from '../lib/types';
 import { FotoAmpliada } from './ui';
 
@@ -67,7 +67,10 @@ export function NotasDoTitulo({ idFnApagar }: { idFnApagar: number }) {
 
     const { data } = await api.get<Blob>(
       `/contas-abertas/notas/${nota.id}/arquivo`,
-      { params: { extensao: nota.extensao || undefined }, responseType: 'blob' },
+      {
+        params: { extensao: nota.extensao || undefined, titulo: idFnApagar },
+        responseType: 'blob',
+      },
     );
     const lido = { url: URL.createObjectURL(data), tipo: data.type };
     baixados.set(nota.id, lido);
@@ -84,7 +87,7 @@ export function NotasDoTitulo({ idFnApagar }: { idFnApagar: number }) {
       if (tipo.startsWith('image/')) setVendo(nota);
       else window.open(url, '_blank', 'noopener');
     } catch (e) {
-      setErro(mensagemErro(e));
+      setErro(await mensagemErroDeArquivo(e));
     } finally {
       setAbrindo(null);
     }
@@ -100,7 +103,7 @@ export function NotasDoTitulo({ idFnApagar }: { idFnApagar: number }) {
       await arquivo(proxima);
       setVendo(proxima);
     } catch (e) {
-      setErro(mensagemErro(e));
+      setErro(await mensagemErroDeArquivo(e));
       setVendo(null);
     } finally {
       setAbrindo(null);

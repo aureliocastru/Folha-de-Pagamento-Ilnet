@@ -89,9 +89,16 @@ export class DespesasController {
   async arquivoDaNota(
     @Param('id', ParseIntPipe) id: number,
     @Query('extensao') extensao: string | undefined,
+    /* O título de onde ela veio: é a segunda tentativa, quando o IXC não
+       entrega o arquivo pelo id dele. */
+    @Query('titulo') titulo: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
-    const nota = await this.service.baixarNota(id, extensao);
+    const nota = await this.service.baixarNota(
+      id,
+      extensao,
+      titulo && /^\d+$/.test(titulo) ? Number(titulo) : undefined,
+    );
     res.set({
       'Content-Type': nota.tipo,
       'Content-Length': String(nota.conteudo.length),

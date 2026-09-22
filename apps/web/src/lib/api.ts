@@ -34,6 +34,29 @@ api.interceptors.response.use(
   },
 );
 
+/**
+ * A mensagem de um erro cujo corpo veio como arquivo.
+ *
+ * Pedido com `responseType: 'blob'`, o corpo do erro também chega como blob —
+ * e o `mensagemErro` não sabe lê-lo, então a tela mostrava "Request failed
+ * with status code 400" no lugar do que o servidor explicou.
+ */
+export async function mensagemErroDeArquivo(error: unknown): Promise<string> {
+  if (axios.isAxiosError(error) && error.response?.data instanceof Blob) {
+    try {
+      const corpo = JSON.parse(await error.response.data.text()) as {
+        message?: string | string[];
+      };
+      const m = corpo.message;
+      if (Array.isArray(m)) return m.join(', ');
+      if (m) return m;
+    } catch {
+      // Corpo que não é JSON: fica a mensagem de sempre.
+    }
+  }
+  return mensagemErro(error);
+}
+
 /** Extrai mensagem amigável de um erro da API. */
 export function mensagemErro(error: unknown): string {
   if (axios.isAxiosError(error)) {

@@ -103,26 +103,47 @@ export class DespesasService {
    *
    * O webservice devolve o arquivo em base64, e a coleção do IXC não diz em que
    * campo — por isso ele é procurado: o primeiro texto grande que se pareça com
-   * base64 é o arquivo. Não achando, o erro diz quais campos vieram, que é o
-   * que permite acertar isto sem adivinhar de novo.
+   * base64 é o arquivo, em qualquer nível da resposta (ela às vezes vem dentro
+   * de `registros`). Não achando, o erro repete o que o IXC disse e quais
+   * campos vieram, que é o que permite acertar isto sem adivinhar de novo.
+   *
+   * O `id` daqui é o do arquivo. A coleção do IXC, porém, mostra esta mesma
+   * chamada com o id do **título** (`{{id_apagar}}`) — e é assim que ela
+   * atende em algumas versões. Por isso, falhando pelo arquivo, tenta-se pelo
+   * título; mas só quando ele tem uma nota só, senão o que voltaria poderia
+   * ser a nota errada, que é pior que erro nenhum.
    */
   async baixarNota(
     id: number,
     extensao?: string,
+    idFnApagar?: number,
   ): Promise<{ conteudo: Buffer; tipo: string; nome: string }> {
-    const resposta = (await this.ixc.action('fn_apagar_arquivos_download', {
-      id: String(id),
-    })) as Record<string, unknown>;
+    let resposta = await this.pedirArquivoAoIxc({ id: String(id) });
+    let base64 = acharBase64(resposta);
 
-    const base64 = acharBase64(resposta);
+    if (!base64 && idFnApagar) {
+      const notas = await this.notas(idFnApagar);
+      if (notas.length === 1 && notas[0].id === id) {
+        this.logger.log(
+          `Download da nota ${id}: o IXC não a deu pelo id do arquivo; ` +
+            `tentando pelo título ${idFnApagar}.`,
+        );
+        resposta = await this.pedirArquivoAoIxc({ id: String(idFnApagar) });
+        base64 = acharBase64(resposta);
+      }
+    }
+
     if (!base64) {
+      const dito = mensagemDoIxc(resposta);
       this.logger.warn(
         `Download da nota ${id}: não achei o arquivo na resposta ` +
-          `(campos: ${Object.keys(resposta).join(', ')}).`,
+          `(campos: ${Object.keys(resposta).join(', ')}${dito ? `; IXC: ${dito}` : ''}).`,
       );
       throw new BadRequestException(
-        'O IXC respondeu, mas não achei o arquivo na resposta dele. Abra a ' +
-          'nota pela aba "Arquivos" do título, no IXC.',
+        (dito
+          ? `O IXC recusou o download desta nota: ${dito}. `
+          : 'O IXC respondeu, mas não achei o arquivo na resposta dele. ') +
+          'Abra a nota pela aba "Arquivos" do título, no IXC.',
       );
     }
 
@@ -132,6 +153,15 @@ export class DespesasService {
       tipo: TIPO_POR_EXTENSAO[ext] ?? 'application/octet-stream',
       nome: `nota-${id}.${ext}`,
     };
+  }
+
+  private async pedirArquivoAoIxc(
+    corpo: Record<string, string>,
+  ): Promise<Record<string, unknown>> {
+    return (await this.ixc.action(
+      'fn_apagar_arquivos_download',
+      corpo,
+    )) as Record<string, unknown>;
   }
 
   /**
@@ -560,13 +590,35 @@ const TIPO_POR_EXTENSAO: Record<string, string> = {
  * id, uma data ou uma mensagem não passam por essa peneira; um arquivo de
  * verdade, sim.
  */
-function acharBase64(resposta: Record<string, unknown>): string | null {
-  for (const valor of Object.values(resposta)) {
-    if (typeof valor !== 'string' || valor.length < 100) continue;
+function acharBase64(valor: unknown): string | null {
+  // Duas passadas: a estrita primeiro — o tamanho múltiplo de quatro que um
+  // base64 inteiro tem — e, não achando, a frouxa. Arquivo com um byte a mais
+  // no fim ainda abre; arquivo nenhum, não.
+  return procurarBase64(valor, true) ?? procurarBase64(valor, false);
+}
+
+function procurarBase64(valor: unknown, estrito: boolean, fundo = 0): string | null {
+  if (typeof valor === 'string') {
+    if (valor.length < 100) return null;
     const limpo = valor.includes(',') ? valor.slice(valor.indexOf(',') + 1) : valor;
-    if (/^[A-Za-z0-9+/=\r\n]+$/.test(limpo) && limpo.replace(/\s/g, '').length % 4 === 0) {
-      return limpo;
-    }
+    if (!/^[A-Za-z0-9+/=\r\n]+$/.test(limpo)) return null;
+    return !estrito || limpo.replace(/\s/g, '').length % 4 === 0 ? limpo : null;
+  }
+  // A resposta às vezes traz o arquivo dentro de `registros`, ou de um objeto
+  // por linha: o arquivo pode estar em qualquer galho, e não só na raiz.
+  if (fundo > 4 || valor === null || typeof valor !== 'object') return null;
+  for (const dentro of Object.values(valor as Record<string, unknown>)) {
+    const achado = procurarBase64(dentro, estrito, fundo + 1);
+    if (achado) return achado;
+  }
+  return null;
+}
+
+/** O que o IXC disse quando não mandou o arquivo — é o que explica o "não deu". */
+function mensagemDoIxc(resposta: Record<string, unknown>): string | null {
+  for (const campo of ['message', 'mensagem', 'msg', 'erro', 'error']) {
+    const valor = resposta[campo];
+    if (typeof valor === 'string' && valor.trim()) return valor.trim().slice(0, 200);
   }
   return null;
 }

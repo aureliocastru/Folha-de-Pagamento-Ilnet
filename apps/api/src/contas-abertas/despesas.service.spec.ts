@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { DespesasService } from './despesas.service';
 import type { CriarDespesaDto } from './dto/despesa.dto';
 
@@ -25,6 +26,10 @@ function montarServico(
     erroAoPagar?: string;
     /** O IXC aceita a baixa mas não dá a conta por quitada. */
     naoQuita?: boolean;
+    /** O que o `fn_apagar_arquivos_download` responde, uma por chamada. */
+    downloads?: Array<Record<string, unknown>>;
+    /** Os arquivos que o título tem, como a listagem do IXC os devolve. */
+    arquivosDoTitulo?: Array<Record<string, unknown>>;
   } = {},
 ) {
   const conta = {
@@ -55,9 +60,19 @@ function montarServico(
     }),
   };
 
-  // O cliente do IXC só é usado para anexar a nota ao título; nenhum caso daqui
-  // passa por lá, e um dublê mudo basta para o construtor.
-  const ixc = { upload: jest.fn() };
+  // O cliente do IXC: anexa a nota, lista os arquivos do título e baixa um
+  // deles. As respostas do download vêm na ordem em que foram pedidas.
+  const respostas = [...(opts.downloads ?? [])];
+  const ixc = {
+    upload: jest.fn(),
+    action: jest.fn(
+      async (_endpoint: string, _corpo: Record<string, string>) => respostas.shift() ?? {},
+    ),
+    list: jest.fn(async () => ({
+      registros: opts.arquivosDoTitulo ?? [],
+      total: (opts.arquivosDoTitulo ?? []).length,
+    })),
+  };
 
   // Só o veículo é lido do banco aqui: o id "sumido" faz o papel do que foi
   // apagado noutra aba.
@@ -378,5 +393,62 @@ describe('a nota anexada à conta', () => {
     await service.anexarNota(4242, { arquivo: PNG, descricao: 'Combustível' });
 
     expect(ixc.upload.mock.calls[0][3].descricao).toBe('Combustível');
+  });
+});
+
+/**
+ * A nota de volta do IXC — é ela que responde "cadê a foto disso?".
+ *
+ * O webservice não documenta em que campo o arquivo vem, e a coleção mostra a
+ * chamada com o id do título onde o nosso é o id do arquivo. O que se protege
+ * aqui é o que já falhou na mão do usuário: o arquivo aninhado, a segunda
+ * tentativa e o erro que não dizia nada.
+ */
+describe('baixar a nota do IXC', () => {
+  const ARQUIVO = Buffer.from('a'.repeat(150)).toString('base64');
+  const UM_ARQUIVO = [{ id: '9', descricao: 'Manutenção', extensao: '.pdf' }];
+
+  it('acha o arquivo mesmo aninhado na resposta', async () => {
+    const { service } = montarServico({
+      downloads: [{ type: 'success', registros: [{ arquivo: ARQUIVO }] }],
+    });
+
+    const nota = await service.baixarNota(9, 'PDF');
+
+    expect(nota.conteudo.toString('base64')).toBe(ARQUIVO);
+    expect(nota.tipo).toBe('application/pdf');
+    expect(nota.nome).toBe('nota-9.pdf');
+  });
+
+  it('não vindo pelo id do arquivo, tenta pelo título — com uma nota só', async () => {
+    const { service, ixc } = montarServico({
+      downloads: [{ type: 'error' }, { arquivo: ARQUIVO }],
+      arquivosDoTitulo: UM_ARQUIVO,
+    });
+
+    const nota = await service.baixarNota(9, 'pdf', 4242);
+
+    expect(nota.conteudo.toString('base64')).toBe(ARQUIVO);
+    expect(ixc.action.mock.calls.map((c) => c[1])).toEqual([{ id: '9' }, { id: '4242' }]);
+  });
+
+  /* Com duas notas no título, a segunda tentativa traria qualquer uma das
+     duas — e a nota errada é pior do que a nota que não abriu. */
+  it('com mais de uma nota no título, não arrisca a errada', async () => {
+    const { service, ixc } = montarServico({
+      downloads: [{}, { arquivo: ARQUIVO }],
+      arquivosDoTitulo: [...UM_ARQUIVO, { id: '10', descricao: 'Outra', extensao: '.pdf' }],
+    });
+
+    await expect(service.baixarNota(9, 'pdf', 4242)).rejects.toThrow(BadRequestException);
+    expect(ixc.action).toHaveBeenCalledTimes(1);
+  });
+
+  it('o erro repete o que o IXC disse', async () => {
+    const { service } = montarServico({
+      downloads: [{ type: 'error', message: 'Arquivo não localizado' }],
+    });
+
+    await expect(service.baixarNota(9, 'pdf')).rejects.toThrow(/Arquivo não localizado/);
   });
 });
