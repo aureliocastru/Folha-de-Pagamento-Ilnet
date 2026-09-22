@@ -552,7 +552,10 @@ export function FotoAmpliada({
    * primeiro; herdar o zoom da anterior abriria a próxima num pedaço do
    * meio, e a mesma foto pareceria outra coisa.
    */
-  useEffect(() => setEscala(1), [src]);
+  useEffect(() => {
+    setEscala(1);
+    setPuxada(0);
+  }, [src]);
 
   /*
    * A roda do mouse aproxima, em vez de rolar.
@@ -652,6 +655,18 @@ export function FotoAmpliada({
   const dedos = useRef(new Map<number, { x: number; y: number }>());
   const pinca = useRef<number | null>(null);
 
+  /*
+   * Arrastar a foto para fora fecha — o gesto do celular.
+   *
+   * Só com a foto inteira na tela (`escala === 1`): ampliada, arrastar é o
+   * jeito de andar por ela. `puxada` é o quanto o dedo já levou, e a foto vai
+   * junto: um gesto que não mostra o que está fazendo parece travamento.
+   * Soltando antes do limite, ela volta para o lugar.
+   */
+  const puxar = useRef<{ x: number; y: number } | null>(null);
+  const [puxada, setPuxada] = useState(0);
+  const LIMITE_DA_PUXADA = 90;
+
   const distanciaEntreOsDedos = () => {
     const [a, b] = [...dedos.current.values()];
     if (!a || !b) return null;
@@ -670,7 +685,10 @@ export function FotoAmpliada({
       pinca.current = distanciaEntreOsDedos()?.d ?? null;
       return;
     }
-    if (escala === 1) return;
+    if (escala === 1) {
+      puxar.current = { x: e.clientX, y: e.clientY };
+      return;
+    }
     arrasto.current = { x: e.clientX, y: e.clientY, sl: el.scrollLeft, st: el.scrollTop };
     arrastou.current = false;
   };
@@ -691,6 +709,19 @@ export function FotoAmpliada({
       return;
     }
 
+    const p = puxar.current;
+    if (p) {
+      const dx = e.clientX - p.x;
+      const dy = e.clientY - p.y;
+      // Só o gesto que é mais vertical que horizontal: de lado é passar de
+      // uma nota para a outra, e não sair.
+      if (Math.abs(dy) > Math.abs(dx)) {
+        if (Math.abs(dy) > 4) arrastou.current = true;
+        setPuxada(dy);
+      }
+      return;
+    }
+
     const a = arrasto.current;
     if (!a) return;
     const dx = e.clientX - a.x;
@@ -704,6 +735,15 @@ export function FotoAmpliada({
     dedos.current.delete(e.pointerId);
     if (dedos.current.size < 2) pinca.current = null;
     arrasto.current = null;
+
+    if (puxar.current) {
+      puxar.current = null;
+      if (Math.abs(puxada) > LIMITE_DA_PUXADA) {
+        onFechar();
+        return;
+      }
+      setPuxada(0);
+    }
   };
 
   /*
@@ -801,7 +841,15 @@ export function FotoAmpliada({
           sem `transform`, que borraria a letra a lápis.
         */}
         <div
-          style={{ width: `${escala * 100}%`, height: `${escala * 100}%` }}
+          style={{
+            width: `${escala * 100}%`,
+            height: `${escala * 100}%`,
+            transform: puxada ? `translateY(${puxada}px)` : undefined,
+            // Some aos poucos enquanto sai: diz que o gesto está fechando, e
+            // não arrastando a foto para um canto.
+            opacity: puxada ? Math.max(0.35, 1 - Math.abs(puxada) / 420) : undefined,
+            transition: puxada ? 'none' : 'transform .18s, opacity .18s',
+          }}
           className="flex items-center justify-center"
         >
           <img
