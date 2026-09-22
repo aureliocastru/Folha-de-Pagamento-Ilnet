@@ -291,25 +291,43 @@ export function Bloco({
 }
 
 /**
- * Quanto da tela o teclado do celular está cobrindo, em pixels.
+ * Onde está, agora, o pedaço da tela que se vê — e se o teclado está aberto.
  *
- * `100vh` não encolhe quando o teclado sobe: a janela continuava do tamanho da
- * tela inteira e o campo em foco ficava atrás das teclas. Quem sabe o tamanho
- * de verdade é a `visualViewport` — a parte que se vê agora —, e é ela que
- * diz onde a janela tem de terminar.
+ * `100vh` não encolhe quando o teclado sobe, e no iPhone `position: fixed`
+ * continua medindo a tela inteira **e** a página ainda escorrega para cima:
+ * encurtar a janela pelo pé (`bottom`) não bastou — o campo continuava atrás
+ * das teclas. O que funciona é prender a janela ao retângulo visível, dito
+ * pela `visualViewport`: topo, esquerda, largura e altura, atualizados a cada
+ * mexida dela.
  *
- * Abaixo de 120px não é teclado: é a barra do navegador que aparece e some ao
- * rolar, e mexer na janela a cada uma dessas seria um tremor sem motivo.
+ * Abaixo de 120px de diferença não é teclado: é a barra do navegador que
+ * aparece e some ao rolar, e mexer na janela a cada uma dessas seria um tremor
+ * sem motivo.
  */
-function useTecladoDoCelular(): number {
-  const [altura, setAltura] = useState(0);
+interface PedacoVisivel {
+  top: number;
+  left: number;
+  width: number;
+  height: number;
+  /** O teclado está cobrindo a tela. */
+  teclado: boolean;
+}
+
+function usePedacoVisivel(): PedacoVisivel | null {
+  const [pedaco, setPedaco] = useState<PedacoVisivel | null>(null);
 
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
     const medir = () => {
       const coberto = window.innerHeight - vv.height - vv.offsetTop;
-      setAltura(coberto > 120 ? Math.round(coberto) : 0);
+      setPedaco({
+        top: Math.round(vv.offsetTop),
+        left: Math.round(vv.offsetLeft),
+        width: Math.round(vv.width),
+        height: Math.round(vv.height),
+        teclado: coberto > 120,
+      });
     };
     medir();
     vv.addEventListener('resize', medir);
@@ -320,7 +338,29 @@ function useTecladoDoCelular(): number {
     };
   }, []);
 
-  return altura;
+  return pedaco;
+}
+
+/**
+ * O campo que acabou de receber o foco vai para o meio da janela.
+ *
+ * Mesmo com a janela no lugar certo, o campo pode estar no fim de um
+ * formulário que rola por dentro — e o teclado sobe justamente por cima dele.
+ * O atraso é o da animação do teclado: medir antes dela é medir a tela de
+ * antes.
+ */
+function useCampoNoMeio(area: React.RefObject<HTMLElement | null>) {
+  useEffect(() => {
+    const el = area.current;
+    if (!el) return;
+    const aoFocar = (e: FocusEvent) => {
+      const alvo = e.target as HTMLElement | null;
+      if (!alvo || !el.contains(alvo)) return;
+      setTimeout(() => alvo.scrollIntoView({ block: 'center', behavior: 'smooth' }), 280);
+    };
+    el.addEventListener('focusin', aoFocar);
+    return () => el.removeEventListener('focusin', aoFocar);
+  }, [area]);
 }
 
 /**
@@ -353,7 +393,11 @@ export function Janela({
   children: ReactNode;
 }) {
   const celular = useCelular();
-  const teclado = useTecladoDoCelular();
+  const visivel = usePedacoVisivel();
+  const teclado = visivel?.teclado ?? false;
+  /** A área que rola dentro da folha: é nela que o campo em foco se centraliza. */
+  const miolo = useRef<HTMLDivElement>(null);
+  useCampoNoMeio(miolo);
   /** Alguém mexeu em algum campo daqui de dentro? */
   const mexido = useRef(false);
 
@@ -401,16 +445,38 @@ export function Janela({
    * sempre à mão — num formulário de despesa com doze campos, a saída não pode
    * depender de rolar até o começo.
    */
+  /*
+   * Pendurada no `body`, e não onde foi escrita.
+   *
+   * `position: fixed` mede a partir da tela — menos quando algum ancestral tem
+   * `transform`, e os cartões desta casa entram com a animação `surgir`, que
+   * deixa lá uma matriz. Escrita no lugar, a janela passava a medir pelo
+   * cartão: no iPhone, com o teclado aberto, era o bastante para ela ir parar
+   * atrás das teclas. É o mesmo cuidado da `FotoAmpliada`.
+   */
   if (celular) {
-    return (
+    return createPortal(
       <div
         /*
-          A janela termina onde o teclado começa, e o que sobra dela fica no
-          meio do que ainda se vê: com o teclado aberto, o campo em foco
-          costumava ficar atrás das teclas — e uma folha encostada nelas põe o
-          campo na beirada, que é onde o dedo já está digitando.
+          Com o teclado aberto, a janela é o retângulo que se vê — nem um pixel
+          a mais. No iPhone não basta encurtá-la pelo pé: a página escorrega
+          para cima e a janela fixa vai junto, levando o campo para trás das
+          teclas. Presa ao `visualViewport`, ela fica onde os olhos estão, e o
+          que sobra dela é centrado — folha encostada nas teclas põe o campo
+          na beirada, que é onde o dedo já está digitando.
         */
-        style={teclado ? { bottom: teclado } : undefined}
+        style={
+          teclado && visivel
+            ? {
+                top: visivel.top,
+                left: visivel.left,
+                width: visivel.width,
+                height: visivel.height,
+                right: 'auto',
+                bottom: 'auto',
+              }
+            : undefined
+        }
         className={`fixed inset-0 z-50 flex flex-col bg-barra/70 backdrop-blur-sm ${
           teclado ? 'justify-center px-3' : 'justify-end'
         }`}
@@ -434,15 +500,19 @@ export function Janela({
           {/* `overflow-x-clip`: a janela não anda para o lado, como a página
               (ver o `overflow-x: clip` do body). O que é largo de verdade — uma
               tabela — rola dentro da própria moldura. */}
-          <div className="rolagem-fina min-h-0 flex-1 overflow-y-auto overflow-x-clip px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <div
+            ref={miolo}
+            className="rolagem-fina min-h-0 flex-1 overflow-y-auto overflow-x-clip px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
+          >
             {children}
           </div>
         </div>
-      </div>
+      </div>,
+      document.body,
     );
   }
 
-  return (
+  return createPortal(
     <div className="rolagem-fina fixed inset-0 z-50 flex justify-center overflow-y-auto overflow-x-clip bg-barra/70 p-4 backdrop-blur-sm sm:p-6">
       <div
         role="dialog"
@@ -458,7 +528,8 @@ export function Janela({
         </div>
         <div className="px-5 py-5 sm:px-6">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
