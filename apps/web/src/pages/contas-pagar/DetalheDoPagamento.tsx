@@ -32,6 +32,25 @@ export function DetalheDoPagamento({
 }) {
   const [copiado, setCopiado] = useState(false);
   const [verTudo, setVerTudo] = useState(false);
+  const qcConferencia = useQueryClient();
+
+  /*
+   * "Já conferi": a ressalva foi olhada e o pagamento está de pé.
+   *
+   * A ressalva nasce da leitura do IXC a cada abertura da tela — sem isto ela
+   * voltava todo dia, mesmo depois de a pessoa ter ido ao IXC e concluído que
+   * estava tudo certo. O que vai para o servidor é o texto que está aqui na
+   * tela: se o IXC passar a apontar outra coisa, o aviso volta sozinho.
+   */
+  const conferir = useMutation({
+    mutationFn: async (dar: boolean) => {
+      const caminho = `/pagamentos-feitos/${pagamento.idFnApagar}/conferido`;
+      if (!dar) return (await api.delete(caminho)).data;
+      return (await api.post(caminho, { ressalvas: pagamento.conferencia.ressalvas })).data;
+    },
+    onSuccess: () =>
+      void qcConferencia.invalidateQueries({ queryKey: ['pagamentos-feitos'] }),
+  });
 
   // A mesma leitura crua da ficha do débito: é o mesmo título no IXC, pago em
   // vez de aberto. Para um pagamento, o "por que ficou fora das contas em
@@ -100,15 +119,62 @@ export function DetalheDoPagamento({
               batendo com o que era devido e sem marca de estorno.
             </div>
           ) : (
-            <div className="rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <div
+              className={`rounded-2xl px-4 py-3 text-sm ${
+                pagamento.conferencia.conferidoPor
+                  ? 'bg-tinta-100/70 text-tinta-700'
+                  : 'bg-amber-50 text-amber-900'
+              }`}
+            >
               <p className="font-semibold">
-                O registro deste pagamento pede uma olhada:
+                {pagamento.conferencia.conferidoPor
+                  ? 'O registro deste pagamento tem ressalva, e ela já foi conferida:'
+                  : 'O registro deste pagamento pede uma olhada:'}
               </p>
               <ul className="mt-2 list-disc space-y-1 pl-5">
                 {pagamento.conferencia.ressalvas.map((r) => (
                   <li key={r}>{r}</li>
                 ))}
               </ul>
+
+              {/* A saída que faltava: conferi, está certo, para de me avisar.
+                  O que fica guardado é o que foi conferido — ressalva nova no
+                  IXC faz o aviso voltar. */}
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                {pagamento.conferencia.conferidoPor ? (
+                  <>
+                    <span className="text-[13px]">
+                      Conferido por {pagamento.conferencia.conferidoPor}
+                      {pagamento.conferencia.conferidoEm &&
+                        ` em ${formatData(pagamento.conferencia.conferidoEm)}`}
+                      .
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => conferir.mutate(false)}
+                      disabled={conferir.isPending}
+                      className="btn btn-sutil btn-p"
+                    >
+                      Desfazer
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => conferir.mutate(true)}
+                    disabled={conferir.isPending}
+                    className="btn btn-neutro btn-p"
+                    title="Some com o aviso desta ressalva. Ele volta se o IXC passar a apontar outra coisa."
+                  >
+                    {conferir.isPending ? 'Guardando…' : 'Já conferi, está certo'}
+                  </button>
+                )}
+                {conferir.isError && (
+                  <span className="text-[13px] text-rose-600">
+                    {mensagemErro(conferir.error)}
+                  </span>
+                )}
+              </div>
             </div>
           )}
         </div>

@@ -1480,6 +1480,33 @@ model ResponsavelDoVeiculo {
   @@map("veiculo_responsaveis")
 }
 
+/// "Já conferi": a ressalva de um pagamento que alguém olhou e deu por boa.
+///
+/// A tela de pagamentos feitos marca com "confira" o que o registro do IXC
+/// deixa torto — status parado, pagamento parcial, auditoria reprovada. A
+/// ressalva nasce da leitura do IXC a cada abertura, então ela voltava todo
+/// dia mesmo depois de a pessoa ter ido olhar e concluído que estava tudo
+/// certo (queixa do dono, 22/09/2026).
+///
+/// O que se guarda aqui é **o que foi conferido**: a `impressao` é o texto das
+/// ressalvas que estavam na tela naquele momento. Se o IXC passar a apontar
+/// outra coisa, a impressão muda e o aviso volta — conferir uma ressalva não
+/// é dar quitação eterna ao título.
+model PagamentoConferido {
+  id String @id @default(uuid())
+
+  /// O título no IXC (`fn_apagar.id`).
+  idFnApagar Int @unique @map("id_fn_apagar")
+
+  /// As ressalvas que estavam à vista quando alguém disse "já conferi".
+  impressao String
+
+  conferidoPor String   @map("conferido_por")
+  conferidoEm  DateTime @default(now()) @map("conferido_em")
+
+  @@map("pagamentos_conferidos")
+}
+
 /// Um veículo no nome de um login, e não de um funcionário.
 ///
 /// O dono e o administrador andam com a Hilux e a abastecem, mas não estão na

@@ -1,4 +1,4 @@
-import { IsOptional, Matches } from 'class-validator';
+import { IsArray, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 
 /**
  * O período do histórico, em datas ISO ("2026-08-17").
@@ -20,4 +20,19 @@ export class PeriodoPagamentosDto {
     message: 'A data final precisa estar no formato AAAA-MM-DD.',
   })
   ate?: string;
+}
+
+/**
+ * O "já conferi" de um pagamento: o que estava apontado na tela.
+ *
+ * As ressalvas vêm de quem as leu, e não são recalculadas aqui de propósito —
+ * a marca vale para o que a pessoa viu. Se o IXC passar a apontar outra coisa,
+ * o texto não bate mais e o aviso volta sozinho.
+ */
+export class ConferirPagamentoDto {
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(500, { each: true })
+  ressalvas?: string[];
 }

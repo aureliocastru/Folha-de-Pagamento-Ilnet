@@ -1387,6 +1387,13 @@ export interface ConferenciaDoPagamento {
   /** Nada a apontar: o IXC confirma o pagamento por inteiro e coerente */
   fecha: boolean;
   ressalvas: string[];
+  /**
+   * Alguém já olhou estas mesmas ressalvas e deu o pagamento por bom. A marca
+   * vale para o texto conferido: ressalva nova no IXC, aviso de volta.
+   */
+  conferidoPor?: string | null;
+  /** ISO */
+  conferidoEm?: string | null;
 }
 
 export interface PagamentoFeito {

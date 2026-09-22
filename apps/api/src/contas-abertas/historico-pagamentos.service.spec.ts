@@ -58,6 +58,13 @@ function montarServico(opts: {
   porId?: Array<Record<string, unknown>>;
   /** As baixas não puderam ser lidas nesta base. */
   semBaixas?: boolean;
+  /** As ressalvas que alguém já deu por conferidas, como estão no banco. */
+  conferidos?: Array<{
+    idFnApagar: number;
+    impressao: string;
+    conferidoPor: string;
+    conferidoEm: Date;
+  }>;
 }) {
   const brutos = opts.brutos ?? [];
   const porId = new Map(
@@ -104,7 +111,18 @@ function montarServico(opts: {
     doTitulo: jest.fn(async (id: number) => avulsas.get(id) ?? null),
   };
 
-  const prisma = { contaPagar: { findMany: jest.fn().mockResolvedValue([]) } };
+  const prisma = {
+    contaPagar: { findMany: jest.fn().mockResolvedValue([]) },
+    // As ressalvas que alguém já deu por conferidas.
+    pagamentoConferido: {
+      findMany: jest.fn().mockResolvedValue(opts.conferidos ?? []),
+      upsert: jest.fn(async ({ create }: { create: Record<string, unknown> }) => ({
+        ...create,
+        conferidoEm: new Date('2026-09-22T12:00:00Z'),
+      })),
+      deleteMany: jest.fn(async () => ({ count: 1 })),
+    },
+  };
   const categorias = {
     dosTitulos: jest.fn().mockResolvedValue(new Map()),
     rateiosDosTitulos: jest.fn().mockResolvedValue(new Map()),
@@ -123,7 +141,7 @@ function montarServico(opts: {
     contasAbertas as never,
   );
 
-  return { service, ixc, baixas };
+  return { service, ixc, baixas, prisma };
 }
 
 /** O período de agosto, como o controller o entrega. */
@@ -229,7 +247,13 @@ describe('a data que o histórico mostra', () => {
     expect(r.pagamentos).toHaveLength(0);
   });
 
-  it('sem as baixas, mostra a data do registro e avisa que é ela', async () => {
+  /*
+   * Base sem baixa legível não é notícia: é assim todo dia, e não há o que
+   * fazer a respeito. A data passa a ser a do registro, cada pagamento diz
+   * isso na própria ficha (`fonteDaData`) — e a tela não abre mais com uma
+   * faixa amarela repetindo o recado (pedido do dono, 22/09/2026).
+   */
+  it('sem as baixas, mostra a data do registro — e sem faixa de aviso', async () => {
     const { service } = montarServico({
       brutos: [titulo()],
       semBaixas: true,
@@ -240,7 +264,7 @@ describe('a data que o histórico mostra', () => {
     expect(r.pagamentos).toHaveLength(1);
     expect(r.pagamentos[0].fonteDaData).toBe('titulo');
     expect(r.pagamentos[0].pagoEm.toISOString().slice(0, 10)).toBe('2026-08-16');
-    expect(r.avisos.join(' ')).toContain('não necessariamente o dia em que o dinheiro saiu');
+    expect(r.avisos.join(' ')).not.toContain('dia em que o dinheiro saiu');
   });
 
   /*
@@ -260,5 +284,86 @@ describe('a data que o histórico mostra', () => {
     expect(r.pagamentos).toHaveLength(1);
     expect(r.pagamentos[0].fonteDaData).toBe('titulo');
     expect(r.avisos.join(' ')).toContain('não achei a linha de baixa deles');
+  });
+});
+
+
+/**
+ * "Já conferi": a ressalva que alguém olhou para de chamar.
+ *
+ * Ela nasce da leitura do IXC a cada abertura da tela — sem a marca, voltava
+ * todo dia. E a marca vale para *o que foi conferido*: ressalva nova, aviso
+ * de volta.
+ */
+describe('a ressalva já conferida', () => {
+  /** Um título pago cujo status ficou parado: é o que acende "confira". */
+  const comRessalva = () => titulo({ status: 'A' });
+
+  it('deixa de pedir conferência quando a impressão bate', async () => {
+    // A impressão é o texto que a tela mostrou: leio da própria leitura, em
+    // vez de repetir aqui a frase do IXC e ficar refém dela.
+    const semMarca = await montarServico({
+      brutos: [comRessalva()],
+      semBaixas: true,
+    }).service.listar(agosto());
+    const impressao = semMarca.pagamentos[0].conferencia.ressalvas.join(' · ');
+    expect(semMarca.resumo.comRessalva.quantidade).toBe(1);
+
+    const { service } = montarServico({
+      brutos: [comRessalva()],
+      semBaixas: true,
+      conferidos: [
+        {
+          idFnApagar: 36949,
+          impressao,
+          conferidoPor: 'Aurélio',
+          conferidoEm: new Date('2026-09-22T12:00:00Z'),
+        },
+      ],
+    });
+
+    const r = await service.listar(agosto());
+
+    expect(r.pagamentos[0].conferencia.fecha).toBe(false);
+    expect(r.pagamentos[0].conferencia.conferidoPor).toBe('Aurélio');
+    // O contador da tela é o que ainda falta conferir.
+    expect(r.resumo.comRessalva.quantidade).toBe(0);
+  });
+
+  it('volta a pedir quando o IXC passa a apontar outra coisa', async () => {
+    const { service } = montarServico({
+      brutos: [comRessalva()],
+      semBaixas: true,
+      conferidos: [
+        {
+          idFnApagar: 36949,
+          impressao: 'outra ressalva qualquer',
+          conferidoPor: 'Aurélio',
+          conferidoEm: new Date('2026-09-22T12:00:00Z'),
+        },
+      ],
+    });
+
+    const r = await service.listar(agosto());
+
+    expect(r.pagamentos[0].conferencia.conferidoPor).toBeUndefined();
+    expect(r.resumo.comRessalva.quantidade).toBe(1);
+  });
+
+  it('guarda quem conferiu e o que estava apontado', async () => {
+    const { service, prisma } = montarServico({ brutos: [], semBaixas: true });
+
+    await service.conferir(36949, ['uma', 'outra'], 'Aurélio');
+
+    expect(prisma.pagamentoConferido.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { idFnApagar: 36949 },
+        create: expect.objectContaining({
+          idFnApagar: 36949,
+          impressao: 'uma · outra',
+          conferidoPor: 'Aurélio',
+        }),
+      }),
+    );
   });
 });

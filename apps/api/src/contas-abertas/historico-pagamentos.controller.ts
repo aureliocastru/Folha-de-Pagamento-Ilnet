@@ -1,5 +1,18 @@
-import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
-import { PeriodoPagamentosDto } from './dto/historico-pagamentos.dto';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  ParseIntPipe,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common';
+import type { Request } from 'express';
+import { ConferirPagamentoDto, PeriodoPagamentosDto } from './dto/historico-pagamentos.dto';
 import {
   HistoricoPagamentosService,
   type Periodo,
@@ -22,6 +35,32 @@ export class HistoricoPagamentosController {
   @Get()
   listar(@Query() query: PeriodoPagamentosDto) {
     return this.service.listar(resolverPeriodo(query));
+  }
+
+  /**
+   * "Já conferi": a ressalva deste pagamento foi olhada e está de pé.
+   *
+   * As ressalvas vão no corpo porque é o que a pessoa tinha à vista quando
+   * disse isso — é esse texto que a marca guarda. Ressalva nova, aviso de
+   * volta.
+   */
+  @Post(':idFnApagar/conferido')
+  @HttpCode(200)
+  conferir(
+    @Param('idFnApagar', ParseIntPipe) idFnApagar: number,
+    @Body() dto: ConferirPagamentoDto,
+    @Req() req: Request,
+  ) {
+    const quem = (req.user as { nome?: string } | undefined)?.nome ?? 'Alguém';
+    return this.service.conferir(idFnApagar, dto.ressalvas ?? [], quem);
+  }
+
+  /** Desfaz: a ressalva volta a pedir atenção. */
+  @Delete(':idFnApagar/conferido')
+  @HttpCode(200)
+  async desconferir(@Param('idFnApagar', ParseIntPipe) idFnApagar: number) {
+    await this.service.desconferir(idFnApagar);
+    return { ok: true };
   }
 }
 

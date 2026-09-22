@@ -167,6 +167,17 @@ export interface ConferenciaDoPagamento {
   fecha: boolean;
   /** O que chamou atenção, em português, para quem confere ler direto. */
   ressalvas: string[];
+  /**
+   * Alguém já olhou estas mesmas ressalvas e deu o pagamento por bom.
+   *
+   * A ressalva é recalculada da leitura do IXC a cada abertura da tela: sem
+   * isto ela voltava todos os dias, mesmo depois de conferida. O que fica
+   * guardado é o texto conferido — se o IXC passar a apontar outra coisa, a
+   * marca não vale mais e o aviso volta.
+   */
+  conferidoPor?: string | null;
+  /** ISO */
+  conferidoEm?: string | null;
 }
 
 /** O apanhado do período — é o que responde "quanto saiu do caixa". */
@@ -592,7 +603,11 @@ export function resumirPagamentos(
     somar(fatia, p.valorPago);
 
     if (p.parcial) somar(resumo.parciais, p.valorPago);
-    if (!p.conferencia.fecha) somar(resumo.comRessalva, p.valorPago);
+    // O que alguém já olhou e deu por bom sai da conta: o contador existe
+    // para dizer quanto ainda falta conferir.
+    if (!p.conferencia.fecha && !p.conferencia.conferidoPor) {
+      somar(resumo.comRessalva, p.valorPago);
+    }
   }
 
   return resumo;

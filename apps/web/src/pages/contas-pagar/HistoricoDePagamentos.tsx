@@ -139,7 +139,7 @@ export function HistoricoDePagamentos() {
             className={`btn btn-p ${
               recorte === 'ressalva' ? 'btn-acao' : 'btn-sutil'
             }`}
-            title="Pagamentos cujo registro no IXC não fecha: status parado, valor sem informação, baixa com auditoria reprovada"
+            title="Pagamentos cujo registro no IXC não fecha: status parado, valor sem informação, baixa com auditoria reprovada. Os que alguém já conferiu saem desta conta."
           >
             Só os que pedem conferência ({resumo.comRessalva.quantidade})
           </button>
@@ -314,9 +314,10 @@ function Linha({
   // barra da esquerda — que se enxerga correndo o olho pela lista — e o selo diz
   // em palavras o que ela significa, porque cor sozinha não serve a quem não a
   // distingue.
-  const barra = pagamento.conferencia.fecha
-    ? 'border-emerald-500'
-    : 'border-amber-400';
+  const barra =
+    pagamento.conferencia.fecha || pagamento.conferencia.conferidoPor
+      ? 'border-emerald-500'
+      : 'border-amber-400';
 
   return (
     <tr
@@ -354,15 +355,27 @@ function Linha({
           </div>
         )}
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
-          {!pagamento.conferencia.fecha && (
-            <Selo
-              pequeno
-              tom="atencao"
-              titulo={pagamento.conferencia.ressalvas.join(' · ')}
-            >
-              {pagamento.parcial ? 'parcial' : 'confira'}
-            </Selo>
-          )}
+          {!pagamento.conferencia.fecha &&
+            (pagamento.conferencia.conferidoPor ? (
+              /* Já olhado: o selo conta quem olhou, e o aviso para de chamar.
+                 O que estava torto no IXC continua torto — o que mudou é que
+                 esta casa já sabe disso. */
+              <Selo
+                pequeno
+                tom="pago"
+                titulo={`Conferido por ${pagamento.conferencia.conferidoPor}. Ressalva: ${pagamento.conferencia.ressalvas.join(' · ')}`}
+              >
+                conferido
+              </Selo>
+            ) : (
+              <Selo
+                pequeno
+                tom="atencao"
+                titulo={pagamento.conferencia.ressalvas.join(' · ')}
+              >
+                {pagamento.parcial ? 'parcial' : 'confira'}
+              </Selo>
+            ))}
           {pagamento.classificacao && (
             <Selo
               pequeno
@@ -428,7 +441,7 @@ function filtrar(
   return pagamentos.filter((p) => {
     const passaRecorte =
       recorte === 'todos' ||
-      (recorte === 'ressalva' && !p.conferencia.fecha) ||
+      (recorte === 'ressalva' && !p.conferencia.fecha && !p.conferencia.conferidoPor) ||
       (recorte === 'parciais' && p.parcial);
     if (!passaRecorte) return false;
 

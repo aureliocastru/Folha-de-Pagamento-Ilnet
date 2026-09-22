@@ -251,6 +251,7 @@ export class HistoricoPagamentosService {
       );
     }
 
+    await this.marcarConferidos(pagamentos);
     await this.completarNomes(pagamentos, avisos);
     await this.aplicarClassificacoes(pagamentos);
     await this.marcarOrigemNaFolha(pagamentos);
@@ -581,6 +582,56 @@ export class HistoricoPagamentosService {
    * histórico com códigos do que histórico nenhum. Por isso cada falha vira
    * aviso, não erro.
    */
+  /**
+   * As ressalvas que alguém já conferiu, marcadas como tal.
+   *
+   * A marca vale para o texto que estava na tela quando a pessoa a deu: se o
+   * IXC passou a apontar outra coisa, a impressão não bate mais e o aviso
+   * volta — conferir uma ressalva não é dar quitação eterna ao título.
+   */
+  private async marcarConferidos(pagamentos: PagamentoFeito[]): Promise<void> {
+    const comRessalva = pagamentos.filter((p) => !p.conferencia.fecha);
+    if (comRessalva.length === 0) return;
+
+    const marcas = await this.prisma.pagamentoConferido.findMany({
+      where: { idFnApagar: { in: comRessalva.map((p) => p.idFnApagar) } },
+    });
+    const porTitulo = new Map(marcas.map((m) => [m.idFnApagar, m]));
+
+    for (const p of comRessalva) {
+      const marca = porTitulo.get(p.idFnApagar);
+      if (!marca || marca.impressao !== impressaoDasRessalvas(p.conferencia.ressalvas)) {
+        continue;
+      }
+      p.conferencia.conferidoPor = marca.conferidoPor;
+      p.conferencia.conferidoEm = marca.conferidoEm.toISOString();
+    }
+  }
+
+  /** "Já conferi": guarda quem olhou, quando, e o que estava apontado. */
+  async conferir(
+    idFnApagar: number,
+    ressalvas: string[],
+    quem: string,
+  ): Promise<{ conferidoPor: string; conferidoEm: string }> {
+    const impressao = impressaoDasRessalvas(ressalvas);
+    const marca = await this.prisma.pagamentoConferido.upsert({
+      where: { idFnApagar },
+      create: { idFnApagar, impressao, conferidoPor: quem },
+      update: { impressao, conferidoPor: quem, conferidoEm: new Date() },
+    });
+    this.logger.log(`${quem} deu por conferido o pagamento do título ${idFnApagar}.`);
+    return {
+      conferidoPor: marca.conferidoPor,
+      conferidoEm: marca.conferidoEm.toISOString(),
+    };
+  }
+
+  /** Desfaz o "já conferi" — a ressalva volta a pedir atenção. */
+  async desconferir(idFnApagar: number): Promise<void> {
+    await this.prisma.pagamentoConferido.deleteMany({ where: { idFnApagar } });
+  }
+
   private async completarNomes(
     pagamentos: PagamentoFeito[],
     avisos: string[],
@@ -765,6 +816,17 @@ function explicarExclusoes(excluidos: Map<string, number>): string[] {
 }
 
 /**
+ * O que foi conferido, em uma linha.
+ *
+ * É o texto das ressalvas, na ordem em que a tela as mostra. Guardar o texto,
+ * e não só o id do título, é o que faz a marca valer para *aquilo* que foi
+ * olhado: ressalva nova, aviso de volta.
+ */
+function impressaoDasRessalvas(ressalvas: string[]): string {
+  return ressalvas.join(' · ').slice(0, 2000);
+}
+
+/**
  * Conta em texto de onde vieram as datas desta leitura.
  *
  * A tela mostra um dia para cada pagamento e não tem como mostrar dois. Quando
@@ -778,16 +840,14 @@ function explicarDatas(p: {
 }): string[] {
   const avisos: string[] = [];
 
-  if (!p.baixas.disponivel) {
-    avisos.push(
-      'A data mostrada em cada pagamento é o dia em que a baixa foi registrada ' +
-        'no IXC, não necessariamente o dia em que o dinheiro saiu: não consegui ' +
-        'ler as baixas desta base. Conta paga num dia e lançada em outro aparece ' +
-        'aqui com atraso que é do lançamento, não do pagamento — confira na aba ' +
-        '"Pagamentos" do título, no IXC.',
-    );
-    return avisos;
-  }
+  /*
+   * Esta base não tem como ler as baixas, e isso não muda: era um aviso
+   * amarelo em toda leitura, dizendo todo dia a mesma coisa que ninguém pode
+   * resolver (o dono já conferiu no IXC, 22/09/2026). O de onde a data veio
+   * continua dito na linha discreta do pé da tela, que é onde a pergunta
+   * aparece — e na ficha de cada pagamento.
+   */
+  if (!p.baixas.disponivel) return avisos;
 
   if (p.baixas.cortado) {
     avisos.push(

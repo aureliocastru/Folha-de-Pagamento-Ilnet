@@ -9,7 +9,6 @@ import {
   type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
 import { useCelular } from '../lib/celular';
 import { formatNumeroBR } from '../lib/format';
 import { IconeVoltar } from './icones';
@@ -185,38 +184,31 @@ export function CabecalhoPagina({
   secao: string;
   titulo: string;
   /**
-   * O que a seta de voltar faz. Sem dizer, ela volta para a tela anterior —
-   * toda tela tem a seta, a pedido: no celular não há botão de voltar do
-   * navegador à vista. A tela que tem um "anterior" próprio (o mês aberto, a
-   * pasta) passa o dela; `false` tira a seta.
+   * O que a seta de voltar faz — e ela só aparece quando isto é dito.
    *
-   * Ela mora aqui, encostada no título, e não numa linha própria acima dele:
-   * solta lá em cima ela vira um link de rodapé no lugar errado — do tamanho
-   * de uma legenda, longe do que nomeia a tela, e ninguém a vê.
+   * Era automática em toda tela, voltando no histórico. Deixou de ser em
+   * 22/09/2026: com o menu do módulo a um toque (a gaveta da logo no celular,
+   * a barra lateral no computador), a seta repetia o que o menu já faz e
+   * gastava uma quina do cabeçalho em todas as telas.
+   *
+   * Continua onde ela **sobe um nível dentro da própria tela**: o mês de notas
+   * fiscais que volta para a lista de meses, a pasta que volta para a estante,
+   * o almoxarifado aberto que volta para todos. Isso o menu não faz.
+   *
+   * Ela mora encostada no título, e não numa linha própria acima dele: solta
+   * lá em cima ela vira um link de rodapé no lugar errado — do tamanho de uma
+   * legenda, longe do que nomeia a tela, e ninguém a vê.
    */
-  voltar?: (() => void) | false;
+  voltar?: () => void;
   acoes?: ReactNode;
 }) {
-  const navegar = useNavigate();
-  const aoVoltar =
-    voltar === false
-      ? null
-      : (voltar ??
-        (() => {
-          /* Voltar no histórico só quando a tela anterior é deste sistema: aberta
-             por um link ou recarregada no começo da aba, `-1` sairia dele. O
-             `idx` é onde o React Router guarda a posição no histórico. */
-          const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;
-          if (idx > 0) navegar(-1);
-          else navegar('/modulos');
-        }));
   return (
     <header className="surgir mb-4 flex flex-wrap items-end justify-between gap-3 md:mb-5">
       <div className="flex min-w-0 items-center gap-2.5 md:gap-3">
-        {aoVoltar && (
+        {voltar && (
           <button
             type="button"
-            onClick={aoVoltar}
+            onClick={voltar}
             aria-label="Voltar"
             title="Voltar para a tela anterior"
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-tinta-200 bg-papel text-tinta-600 transition hover:border-brand-300 hover:bg-brand-500/5 hover:text-brand-700"
@@ -399,7 +391,10 @@ export function Janela({
           </div>
           {/* A folga de baixo respeita a faixa do gesto do sistema: sem ela o
               último botão do formulário fica debaixo da barrinha do iPhone. */}
-          <div className="rolagem-fina min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          {/* `overflow-x-clip`: a janela não anda para o lado, como a página
+              (ver o `overflow-x: clip` do body). O que é largo de verdade — uma
+              tabela — rola dentro da própria moldura. */}
+          <div className="rolagem-fina min-h-0 flex-1 overflow-y-auto overflow-x-clip px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
             {children}
           </div>
         </div>
@@ -410,7 +405,7 @@ export function Janela({
   return (
     <div
       onClick={aoClicarNoFundo}
-      className="rolagem-fina fixed inset-0 z-50 flex justify-center overflow-y-auto bg-barra/70 p-4 backdrop-blur-sm sm:p-6"
+      className="rolagem-fina fixed inset-0 z-50 flex justify-center overflow-y-auto overflow-x-clip bg-barra/70 p-4 backdrop-blur-sm sm:p-6"
     >
       <div
         role="dialog"

@@ -931,7 +931,9 @@ export function NovaDespesa({
                   setChavePix(e.target.value);
                   if (!e.target.value) setTipoChavePix('');
                 }}
-                className="campo"
+                // `min-w-0`: num flex o input não encolhe abaixo do tamanho
+                // do placeholder, e era ele que empurrava a janela para o lado.
+                className="campo min-w-0"
                 placeholder="Em branco usa a chave do fornecedor no IXC"
                 autoComplete="off"
               />
