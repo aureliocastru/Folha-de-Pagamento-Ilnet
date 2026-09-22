@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useCelular } from '../lib/celular';
 
 /**
  * Uma data, com calendário desta casa.
@@ -38,10 +39,25 @@ export function CampoDeData({
   title?: string;
   disabled?: boolean;
 }) {
+  const celular = useCelular();
   const [aberto, setAberto] = useState(false);
   /** O que está escrito enquanto se digita; fora disso, o valor formatado. */
   const [digitado, setDigitado] = useState<string | null>(null);
   const caixa = useRef<HTMLDivElement>(null);
+
+  /*
+   * Tocar no campo já abre o calendário — é o que se quer dele nove em cada
+   * dez vezes.
+   *
+   * No celular o campo perde o foco junto: senão o teclado sobe por cima do
+   * calendário que acabou de abrir, e o dia fica atrás das teclas. Lá se
+   * escolhe pelo calendário, como no campo do próprio aparelho. No computador
+   * o foco fica, e quem prefere digitar a data digita por cima.
+   */
+  function abrirCalendario(alvo?: HTMLInputElement) {
+    setAberto(true);
+    if (celular) alvo?.blur();
+  }
 
   const escrito = digitado ?? paraTela(valor);
 
@@ -63,7 +79,11 @@ export function CampoDeData({
         value={escrito}
         onChange={(e) => aoDigitar(e.target.value)}
         onBlur={() => setDigitado(null)}
-        onFocus={(e) => e.currentTarget.select()}
+        onFocus={(e) => {
+          e.currentTarget.select();
+          abrirCalendario(e.currentTarget);
+        }}
+        onClick={(e) => abrirCalendario(e.currentTarget)}
         inputMode="numeric"
         placeholder="dd/mm/aaaa"
         autoComplete="off"
@@ -155,6 +175,13 @@ function Calendario({
       window.removeEventListener('scroll', medir, true);
     };
   }, [ancora]);
+
+  // Digitando com o calendário aberto, ele acompanha: escrever 07/11 leva o
+  // mês para novembro, em vez de deixar setembro à mostra dizendo outra coisa.
+  useEffect(() => {
+    const dia = deIso(valor);
+    if (dia) setMes(new Date(dia.getFullYear(), dia.getMonth(), 1));
+  }, [valor]);
 
   useEffect(() => {
     const aoTeclar = (e: KeyboardEvent) => {
