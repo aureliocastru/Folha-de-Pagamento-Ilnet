@@ -799,9 +799,11 @@ export class AbastecimentosService {
     const anterior = await this.ultimoMedidor(veiculo.id, campo);
     if (anterior != null && valor < anterior) {
       const unidade = campo === 'km' ? 'km' : 'horas';
-      const escrito = anterior.toLocaleString('pt-BR', {
-        maximumFractionDigits: campo === 'km' ? 0 : 1,
-      });
+      // O horímetro como está no painel da máquina: "1252.6", com o ponto.
+      const escrito =
+        campo === 'km'
+          ? anterior.toLocaleString('pt-BR', { maximumFractionDigits: 0 })
+          : anterior.toFixed(1);
       throw new BadRequestException(
         `O último abastecimento de ${veiculo.apelido} foi com ${escrito} ${unidade}. ` +
           `O de agora não pode ser menor — confira o painel.`,
@@ -890,7 +892,7 @@ function medidorValido(valor: number | null | undefined, reclamacao: string): nu
 /**
  * As horas do horímetro, com o décimo que o ponteiro mostra.
  *
- * 1252,6 é mil duzentas e cinquenta e duas horas e trinta e seis minutos — o
+ * 1252.6 é mil duzentas e cinquenta e duas horas e trinta e seis minutos — o
  * horímetro conta assim, de seis em seis minutos, e é assim que a pessoa lê o
  * painel. Mais de uma casa não existe no aparelho; o que vier a mais se
  * arredonda para o décimo mais perto.

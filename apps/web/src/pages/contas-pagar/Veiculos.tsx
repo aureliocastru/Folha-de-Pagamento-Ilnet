@@ -175,7 +175,7 @@ interface Ficha {
 }
 
 const km = (n: number) => `${formatMedidor(n)} km`;
-/** O horímetro tem o décimo do ponteiro: "1.252,6 h". */
+/** O horímetro como no painel da máquina, com o ponto do décimo: "1252.6 h". */
 const horas = (n: number) => `${formatMedidor(n, true)} h`;
 
 /**
@@ -706,7 +706,7 @@ function LancarAbastecimento({
                 anterior != null
                   ? `último: ${formatMedidor(anterior, ehMaquina)}`
                   : ehMaquina
-                    ? 'as horas do painel, com o décimo'
+                    ? 'as horas do painel, com o ponto: 1261.9'
                     : 'só os números'
               }
               className="campo num"

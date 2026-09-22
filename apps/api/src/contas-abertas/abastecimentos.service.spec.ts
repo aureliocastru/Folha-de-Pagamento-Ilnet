@@ -347,7 +347,7 @@ describe('o galão de combustível', () => {
         litros: 50,
         horimetro: 1252.5,
       }),
-    ).rejects.toThrow(/1.252,6 horas/);
+    ).rejects.toThrow(/1252.6 horas/);
   });
 
   it('não sai mais litro do que há dentro', async () => {
@@ -384,7 +384,7 @@ describe('o galão de combustível', () => {
         litros: 50,
         horimetro: 1320,
       }),
-    ).rejects.toThrow(/1.400 horas/);
+    ).rejects.toThrow(/1400.0 horas/);
   });
 
   it('o galão não abastece a si mesmo', async () => {

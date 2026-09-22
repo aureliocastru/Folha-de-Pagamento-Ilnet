@@ -141,7 +141,7 @@ export function TelaDeAbastecimento({ cpf }: { cpf: string }) {
 }
 
 const km = (n: number) => `${formatMedidor(n)} km`;
-/** O horímetro tem o décimo do ponteiro: "1.252,6 h". */
+/** O horímetro como no painel da máquina, com o ponto do décimo: "1252.6 h". */
 const horas = (n: number) => `${formatMedidor(n, true)} h`;
 const litrosEscritos = (n: number) =>
   `${n.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} L`;
@@ -540,7 +540,7 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
                 medidorAnterior != null
                   ? `último: ${formatMedidor(medidorAnterior, ehMaquina)}`
                   : ehMaquina
-                    ? 'as horas do painel, com o décimo'
+                    ? 'as horas do painel, com o ponto: 1261.9'
                     : 'só os números'
               }
               className="campo num h-12 text-lg"
