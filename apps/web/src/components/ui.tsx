@@ -161,8 +161,8 @@ export function Pagina({ children }: { children: ReactNode }) {
      * de reservar cinco centímetros vazios no alto para não ser coberta por
      * ele. Isso valia em **toda** tela do sistema, inclusive nas que já cabiam
      * mal numa tela de bolso. A casca do celular agora tem cabeçalho próprio e
-     * a navegação foi para o rodapé (ver o `LayoutCelular`), então esse alto
-     * voltou a ser do conteúdo.
+     * a navegação mora numa gaveta que a logo abre (ver o `LayoutCelular`),
+     * então esse alto voltou a ser do conteúdo.
      *
      * A folga lateral também encolheu: `px-4` numa tela de 360px eram 32px de
      * margem, quase um décimo da largura, gastos em nada.

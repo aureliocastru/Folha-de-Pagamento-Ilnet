@@ -518,6 +518,10 @@
   .surgir {
     @apply animate-surgir;
   }
+  /* A gaveta do menu, no celular: entra pela esquerda, curta. */
+  .gaveta-entra {
+    @apply animate-gaveta;
+  }
   .surgir-1 {
     animation-delay: 60ms;
   }

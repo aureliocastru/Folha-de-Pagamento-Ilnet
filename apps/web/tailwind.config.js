@@ -99,10 +99,16 @@ export default {
           from: { transform: 'scaleY(0)' },
           to: { transform: 'scaleY(1)' },
         },
+        // A gaveta do menu no celular: entra pela beirada de onde foi chamada.
+        gaveta: {
+          from: { transform: 'translateX(-100%)' },
+          to: { transform: 'none' },
+        },
       },
       animation: {
         surgir: 'surgir 0.4s cubic-bezier(0.16, 1, 0.3, 1) both',
         crescer: 'crescer 0.7s cubic-bezier(0.16, 1, 0.3, 1) both',
+        gaveta: 'gaveta 0.22s cubic-bezier(0.16, 1, 0.3, 1) both',
       },
     },
   },

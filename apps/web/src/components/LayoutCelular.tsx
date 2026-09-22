@@ -8,72 +8,51 @@ import { IconeGrade, IconeLua, IconeSol } from './icones';
 import { PontoDeAviso } from './ui';
 
 /**
- * Quantos itens do módulo cabem na barra de baixo.
- *
- * Quatro, e o quinto lugar é sempre o "Mais". Num aparelho de 360px de largura
- * são 72px por coluna: dá para o ícone, para o rótulo inteiro na maioria dos
- * casos, e para o dedo. Com seis a palavra começa a partir no meio, e uma barra
- * de navegação em que não se lê o destino não é navegação, é adivinhação.
- *
- * A folha tem onze itens e as contas a pagar dez — nenhuma barra caberia todos.
- * O corte não é arbitrário: a ordem do menu já é a ordem de uso, decidida em
- * `modulos.ts`, então os quatro primeiros são os quatro que mais se abrem.
- */
-const ITENS_NA_BARRA = 4;
-
-/**
  * A casca de um módulo no celular.
  *
- * A do computador é uma barra lateral de 248px sempre aberta, e ela não cabe
- * aqui: no celular ela virava uma gaveta atrás de um botão flutuante, e todo
- * caminho entre duas telas passava a custar dois toques e uma animação. Pior:
- * o botão morava por cima do conteúdo, e por isso **toda** página do sistema
- * carregava um `pt-20` — cinco centímetros de nada no alto de uma tela de
- * bolso, em todos os módulos.
+ * A do computador é uma barra lateral de 248px sempre aberta. Aqui ela é a
+ * mesma barra, guardada numa gaveta que entra pela esquerda — pedido do dono
+ * em 22/09/2026: a barra de baixo que havia antes comia uma faixa da tela em
+ * toda página, e o módulo só mostra números.
  *
- * Aqui a navegação é uma barra fixa no rodapé, que é onde o polegar já está, e
- * o que sobra do menu mora numa folha que sobe do pé da tela. O conteúdo ganha
- * a tela inteira de volta.
+ * Quem a abre é a logo, no canto de sempre. Ela é um botão de verdade, e
+ * parece um: moldura, três traços ao lado e o nome do módulo dentro — "o
+ * botão tem de ficar claro". Fecha no toque fora, no Esc e ao trocar de tela.
  */
 export function LayoutCelular({ modulo }: { modulo: Modulo }) {
   const { usuario, logout } = useAuth();
   const navigate = useNavigate();
   const local = useLocation();
-  const [maisAberto, setMaisAberto] = useState(false);
+  const [aberta, setAberta] = useState(false);
   const { escuro, trocar } = useTema();
   const avisos = useAvisosDoMenu(modulo);
 
   const itens = modulo.menu.filter((item) => itemDoMenuAparece(item, usuario));
-  const naBarra = itens.slice(0, ITENS_NA_BARRA);
-  const noMais = itens.slice(ITENS_NA_BARRA);
+  /** O que há para ver lá dentro: é isto que acende o ponto na logo. */
+  const avisoGuardado = itens.reduce(
+    (total, item) => total + (avisos[item.to]?.quantos ?? 0),
+    0,
+  );
 
   /*
-   * O aviso que está lá dentro também acende o "Mais".
-   *
-   * Veículos é o oitavo item das contas a pagar: sem isto, a fila de
-   * conferência ficaria escondida atrás de um botão que não muda de cara.
-   */
-  const avisoNoMais = noMais.reduce((total, item) => total + (avisos[item.to]?.quantos ?? 0), 0);
-
-  /*
-   * A folha fecha ao trocar de tela.
+   * A gaveta fecha ao trocar de tela.
    *
    * O `NavLink` de dentro dela navega sem desmontar este componente — sem isto
-   * a pessoa tocaria em "Impostos", a tela mudaria por baixo e a folha
+   * a pessoa tocaria em "Impostos", a tela mudaria por baixo e a gaveta
    * continuaria aberta por cima dela, cobrindo o que ela acabou de pedir.
    */
-  useEffect(() => setMaisAberto(false), [local.pathname]);
+  useEffect(() => setAberta(false), [local.pathname]);
 
-  // Rolar a lista de contas por trás da folha aberta tira do lugar o que se
+  // Rolar a lista de contas por trás da gaveta aberta tira do lugar o que se
   // estava lendo. É o mesmo cuidado da `Janela`.
   useEffect(() => {
-    if (!maisAberto) return;
+    if (!aberta) return;
     const anterior = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     return () => {
       document.body.style.overflow = anterior;
     };
-  }, [maisAberto]);
+  }, [aberta]);
 
   function sair() {
     logout();
@@ -84,20 +63,36 @@ export function LayoutCelular({ modulo }: { modulo: Modulo }) {
     <div className="flex min-h-screen flex-col bg-tinta-50">
       {/* pr-12: o bloco de notas fica grudado nesta quina, e sem a folga ele
           cairia em cima do nome do módulo. */}
-      <header className="sticky top-0 z-20 border-b border-tinta-200 bg-papel/95 pl-4 pr-12 backdrop-blur">
+      <header className="sticky top-0 z-20 border-b border-tinta-200 bg-papel/95 pl-3 pr-12 backdrop-blur">
         <div className="flex h-[52px] items-center justify-between gap-3">
-          <NavLink to="/modulos" className="flex min-w-0 items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => setAberta(true)}
+            aria-expanded={aberta}
+            aria-label={`Abrir o menu de ${modulo.nome}`}
+            className="flex min-w-0 items-center gap-2 rounded-xl border border-tinta-200 bg-tinta-100/60 py-1.5 pl-2 pr-2.5 text-left transition active:bg-tinta-100"
+          >
+            <span className="relative flex flex-col justify-center gap-[3px] px-0.5">
+              <span className="h-[2px] w-4 rounded-full bg-tinta-500" />
+              <span className="h-[2px] w-4 rounded-full bg-tinta-500" />
+              <span className="h-[2px] w-4 rounded-full bg-tinta-500" />
+              <PontoDeAviso
+                quantos={avisoGuardado}
+                oQue="aviso"
+                className="absolute -right-2 -top-1.5"
+              />
+            </span>
             <img
               src="/logo-ilnet.png"
               alt="ilnet"
               width={92}
               height={57}
-              className="h-auto w-[64px] shrink-0"
+              className="h-auto w-[52px] shrink-0"
             />
-            <span className="truncate text-[10px] font-semibold uppercase tracking-[0.16em] text-tinta-500">
+            <span className="truncate text-[10px] font-semibold uppercase tracking-[0.14em] text-tinta-500">
               {modulo.nome}
             </span>
-          </NavLink>
+          </button>
 
           <NavLink
             to={`${modulo.base}/minha-conta`}
@@ -113,113 +108,33 @@ export function LayoutCelular({ modulo }: { modulo: Modulo }) {
         <Outlet />
       </main>
 
-      {maisAberto && (
-        <FolhaDoMais
+      {aberta && (
+        <GavetaDoModulo
           modulo={modulo}
-          itens={noMais}
+          itens={itens}
           avisos={avisos}
           escuro={escuro}
           onTema={() => trocar(escuro ? 'claro' : 'escuro')}
           onSair={sair}
-          onFechar={() => setMaisAberto(false)}
+          onFechar={() => setAberta(false)}
         />
       )}
-
-      {/*
-        A barra vive acima do conteúdo (z-30) e abaixo do bloco de notas e das
-        janelas (z-40 e z-50): quem abriu um pagamento para conferir não pode
-        ter a navegação por cima do valor.
-
-        O `pb` da área segura é o que a mantém acima da faixa do gesto de voltar
-        no iPhone e nos Android sem botões — sem ele o último item da barra fica
-        debaixo da barrinha do sistema e não atende ao toque.
-      */}
-      <nav
-        className="sticky bottom-0 z-30 border-t border-tinta-200 bg-papel/95 pb-[env(safe-area-inset-bottom)] backdrop-blur"
-        aria-label={`Menu de ${modulo.nome}`}
-      >
-        <div className="flex items-stretch">
-          {naBarra.map((item) => (
-            <BotaoDaBarra key={item.to} item={item} aviso={avisos[item.to]} />
-          ))}
-          <button
-            type="button"
-            onClick={() => setMaisAberto((a) => !a)}
-            aria-expanded={maisAberto}
-            className={`flex flex-1 basis-0 flex-col items-center justify-center gap-1 px-1 py-2 transition ${
-              maisAberto
-                ? 'text-brand-600 dark:text-brand-300'
-                : 'text-tinta-500'
-            }`}
-          >
-            <span className="relative">
-              <IconeMais3Pontos />
-              <PontoDeAviso
-                quantos={avisoNoMais}
-                oQue="aviso"
-                className="absolute -right-1.5 -top-0.5"
-              />
-            </span>
-            <span className="w-full truncate text-center text-[10px] font-semibold leading-none">
-              Mais
-            </span>
-          </button>
-        </div>
-      </nav>
     </div>
   );
 }
 
 /**
- * Um destino da barra de baixo.
+ * O menu do módulo, inteiro, numa gaveta.
  *
- * O alvo tem a largura da coluna inteira e 52px de altura — acima dos 44px que
- * um dedo pede —, e é por isso que o botão não encolhe até o ícone: no rodapé
- * de um celular o erro de mira custa a tela errada.
- */
-function BotaoDaBarra({ item, aviso }: { item: ItemMenu; aviso?: AvisoDoMenu }) {
-  return (
-    <NavLink
-      to={item.to}
-      className={({ isActive }) =>
-        `relative flex flex-1 basis-0 flex-col items-center justify-center gap-1 px-1 py-2 transition ${
-          isActive ? 'text-brand-600 dark:text-brand-300' : 'text-tinta-500'
-        }`
-      }
-    >
-      {({ isActive }) => (
-        <>
-          {/* O traço no alto, e não um fundo colorido: numa barra de cinco
-              colunas o fundo engorda o item ativo e desalinha os vizinhos. */}
-          <span
-            className={`absolute inset-x-3 top-0 h-[3px] rounded-b-full bg-brand-500 transition-opacity ${
-              isActive ? 'opacity-100' : 'opacity-0'
-            }`}
-          />
-          <span className="relative">
-            <item.icone className="h-[19px] w-[19px]" />
-            {aviso && (
-              <PontoDeAviso {...aviso} className="absolute -right-1.5 -top-0.5" />
-            )}
-          </span>
-          <span className="w-full truncate text-center text-[10px] font-semibold leading-none">
-            {item.label}
-          </span>
-        </>
-      )}
-    </NavLink>
-  );
-}
-
-/**
- * O resto do módulo, e as ações da conta.
+ * Inteiro de propósito: a barra de baixo mostrava quatro itens e escondia o
+ * resto atrás de "Mais", e o que estava escondido — a conferência dos
+ * veículos, por exemplo — não acendia aviso nenhum à vista. Aqui tudo está na
+ * mesma lista, e o ponto do que espera alguém aparece na própria linha.
  *
- * Sobe do pé da tela porque é de lá que ela foi chamada — o polegar não precisa
- * atravessar o aparelho para escolher. Os itens são linhas de 52px, e não uma
- * grade de ícones: o que se procura aqui já é o item raro do módulo, e ler o
- * nome inteiro é mais rápido que reconhecer um desenho.
+ * Os itens são linhas de 52px, do tamanho do dedo, e não uma grade de ícones:
+ * ler o nome é mais rápido que reconhecer um desenho.
  */
-function FolhaDoMais({
+function GavetaDoModulo({
   modulo,
   itens,
   avisos,
@@ -238,87 +153,119 @@ function FolhaDoMais({
 }) {
   const { usuario } = useAuth();
 
-  return (
-    <div className="fixed inset-0 z-40 flex flex-col justify-end">
-      {/* Aqui o toque no fundo fecha, ao contrário da `Janela`: não há trabalho
-          nenhum guardado numa lista de links. */}
-      <div
-        onClick={onFechar}
-        className="absolute inset-0 bg-barra/60 backdrop-blur-sm"
-      />
+  // Esc fecha, como em toda janela desta casa.
+  useEffect(() => {
+    const aoTeclar = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onFechar();
+    };
+    window.addEventListener('keydown', aoTeclar);
+    return () => window.removeEventListener('keydown', aoTeclar);
+  }, [onFechar]);
 
-      <div className="surgir rolagem-fina relative max-h-[80vh] overflow-y-auto rounded-t-2xl border-t border-tinta-200 bg-papel pb-[env(safe-area-inset-bottom)] shadow-2xl">
-        {/* A alça: diz que isto sobe do pé da tela e que dá para fechar. */}
-        <div className="sticky top-0 z-10 flex justify-center bg-papel pb-2 pt-2.5">
-          <span className="h-1 w-10 rounded-full bg-tinta-200" />
+  return (
+    <div className="fixed inset-0 z-40 flex">
+      {/* Tocar fora fecha, ao contrário da `Janela`: não há trabalho nenhum
+          guardado numa lista de links. */}
+      <div onClick={onFechar} aria-hidden className="absolute inset-0 bg-barra/60 backdrop-blur-sm" />
+
+      <div className="gaveta-entra rolagem-fina relative flex w-[86%] max-w-[320px] flex-col overflow-y-auto border-r border-white/10 bg-barra pb-[env(safe-area-inset-bottom)] shadow-2xl">
+        <div className="flex items-start justify-between gap-2 px-4 pb-4 pt-5">
+          <div className="min-w-0">
+            <img
+              src="/logo-ilnet.png"
+              alt="ilnet"
+              width={120}
+              height={74}
+              className="h-auto w-[92px]"
+            />
+            <div className="mt-2 truncate text-[10px] font-medium uppercase tracking-[0.18em] text-white/45">
+              {modulo.nome}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onFechar}
+            aria-label="Fechar o menu"
+            className="-mr-1 -mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white/60 transition active:bg-white/10"
+          >
+            <IconeFechar />
+          </button>
         </div>
 
-        <div className="px-3 pb-3">
+        <NavLink
+          to="/modulos"
+          className="mx-3 mb-3 flex items-center gap-2.5 rounded-xl border border-white/10 px-3 py-2.5 text-[13px] font-medium text-white/75 transition active:bg-white/5"
+        >
+          <IconeGrade className="text-white/40" />
+          Trocar de módulo
+        </NavLink>
+
+        <nav className="flex-1 space-y-0.5 px-3" aria-label={`Menu de ${modulo.nome}`}>
+          {itens.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              className={({ isActive }) =>
+                `relative flex min-h-[52px] items-center gap-3 rounded-xl px-3 text-[15px] font-medium transition ${
+                  isActive ? 'bg-white/[0.07] text-white' : 'text-white/70'
+                }`
+              }
+            >
+              {({ isActive }) => (
+                <>
+                  <span
+                    className={`absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-400 ${
+                      isActive ? 'opacity-100' : 'opacity-0'
+                    }`}
+                  />
+                  <item.icone className={isActive ? 'text-brand-400' : 'text-white/40'} />
+                  {item.label}
+                  {avisos[item.to] && (
+                    <PontoDeAviso {...avisos[item.to]} className="ml-auto" />
+                  )}
+                </>
+              )}
+            </NavLink>
+          ))}
+        </nav>
+
+        <div className="m-3 rounded-xl bg-white/[0.04] p-3.5">
+          {/* O caminho é o deste módulo, e não o da folha: quem não abre a
+              folha caía num módulo trancado ao clicar no próprio nome. */}
           <NavLink
             to={`${modulo.base}/minha-conta`}
-            className="mb-2 flex items-center gap-3 rounded-xl bg-tinta-100/60 px-3 py-3"
+            className="flex items-center gap-2.5"
+            title="Minha conta"
           >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-500/15 font-display text-xs font-semibold text-brand-700 dark:text-brand-300">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-500/20 font-display text-xs font-semibold text-brand-300">
               {(usuario?.nome ?? '?').slice(0, 2).toUpperCase()}
             </span>
             <span className="min-w-0 leading-tight">
-              <span className="block truncate text-sm font-semibold text-tinta-900">
+              <span className="block truncate text-[13px] font-medium text-white">
                 {usuario?.nome}
               </span>
-              <span className="block truncate text-[12px] text-tinta-400">
+              <span className="block truncate text-[11px] text-white/45">
                 {usuario?.email}
               </span>
             </span>
           </NavLink>
-
-          {itens.length > 0 && (
-            <div className="lista-dividida">
-              {itens.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  className={({ isActive }) =>
-                    `flex min-h-[52px] items-center gap-3 px-2 text-[15px] font-medium transition ${
-                      isActive
-                        ? 'text-brand-700 dark:text-brand-300'
-                        : 'text-tinta-700'
-                    }`
-                  }
-                >
-                  {({ isActive }) => (
-                    <>
-                      <item.icone
-                        className={
-                          isActive
-                            ? 'h-5 w-5 text-brand-600 dark:text-brand-300'
-                            : 'h-5 w-5 text-tinta-400'
-                        }
-                      />
-                      {item.label}
-                      {avisos[item.to] && (
-                        <PontoDeAviso {...avisos[item.to]} className="ml-auto" />
-                      )}
-                    </>
-                  )}
-                </NavLink>
-              ))}
-            </div>
-          )}
-
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <NavLink
-              to="/modulos"
-              className="btn btn-neutro col-span-2 justify-center"
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              onClick={onSair}
+              className="flex-1 rounded-lg border border-white/10 py-2 text-[11px] font-semibold uppercase tracking-wider text-white/70 transition active:bg-white/5"
             >
-              <IconeGrade className="h-4 w-4" />
-              Trocar de módulo
-            </NavLink>
-            <button type="button" onClick={onTema} className="btn btn-neutro">
-              {escuro ? <IconeSol /> : <IconeLua />}
-              {escuro ? 'Tema claro' : 'Tema escuro'}
-            </button>
-            <button type="button" onClick={onSair} className="btn btn-neutro">
               Sair
+            </button>
+            <button
+              type="button"
+              onClick={onTema}
+              aria-pressed={escuro}
+              title={escuro ? 'Voltar para o tema claro' : 'Trocar para o tema escuro'}
+              className="rounded-lg border border-white/10 px-3 text-white/70 transition active:bg-white/5"
+            >
+              {escuro ? <IconeSol /> : <IconeLua />}
+              <span className="sr-only">{escuro ? 'Tema claro' : 'Tema escuro'}</span>
             </button>
           </div>
         </div>
@@ -327,19 +274,20 @@ function FolhaDoMais({
   );
 }
 
-/** Os três pontos do "Mais". Fica aqui porque não é ícone de módulo nenhum. */
-function IconeMais3Pontos() {
+/** O × da gaveta. Fica aqui porque não é ícone de módulo nenhum. */
+function IconeFechar() {
   return (
     <svg
-      width="19"
-      height="19"
+      width="18"
+      height="18"
       viewBox="0 0 24 24"
-      fill="currentColor"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
       aria-hidden
     >
-      <circle cx="5" cy="12" r="1.9" />
-      <circle cx="12" cy="12" r="1.9" />
-      <circle cx="19" cy="12" r="1.9" />
+      <path d="M18 6 6 18M6 6l12 12" />
     </svg>
   );
 }

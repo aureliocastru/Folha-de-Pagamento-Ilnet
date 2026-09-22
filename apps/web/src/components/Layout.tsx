@@ -11,12 +11,11 @@ import { PontoDeAviso } from './ui';
 /**
  * A casca de um módulo — e a escolha de qual delas usar.
  *
- * São duas, e não uma que se dobra: no computador a navegação é uma barra
- * lateral sempre aberta, no celular é uma barra no rodapé com o resto do menu
- * numa folha que sobe (ver o `LayoutCelular`). Elas não são a mesma coisa
- * espremida — a lateral escondida atrás de um botão flutuante era o que havia
- * antes, e cobrava dois toques e um `pt-20` em toda página do sistema para
- * chegar a qualquer lugar.
+ * São duas: no computador a navegação é uma barra lateral sempre aberta; no
+ * celular é a mesma barra guardada numa gaveta que a logo abre (ver o
+ * `LayoutCelular`). O conteúdo fica com a tela inteira nos dois casos — no
+ * celular não há mais barra de baixo, e nenhuma página reserva alto nem
+ * rodapé para a navegação.
  *
  * A divisa é a largura da janela, em `LARGURA_CELULAR`, e é a mesma em que a
  * barra lateral aparece. Ninguém escolhe nada: o aparelho já respondeu.
@@ -54,8 +53,8 @@ export function Layout({ modulo }: { modulo: Modulo }) {
  * texto legível sobre fundo escuro viraria escuro sobre escuro.
  *
  * Aqui ela está **sempre** aberta: este componente só é montado acima da
- * divisa do celular, e a gaveta que existia para as telas estreitas virou a
- * barra de baixo do `LayoutCelular`.
+ * divisa do celular. Abaixo dela é a mesma barra, na gaveta do
+ * `LayoutCelular`.
  */
 function LayoutComputador({ modulo }: { modulo: Modulo }) {
   const { usuario, logout } = useAuth();
