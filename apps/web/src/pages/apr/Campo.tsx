@@ -172,7 +172,7 @@ export function CampoInicio() {
               icone={IconeBomba}
               tom="bg-sky-500/15 text-sky-600 dark:text-sky-300"
               titulo="Abastecimento"
-              descricao="O km do painel e a foto da nota do posto, no veículo que está com você"
+              descricao="O km ou o horímetro e a foto da nota do posto, no veículo que está com você"
             />
           )}
           {cartoes.pontuar && (

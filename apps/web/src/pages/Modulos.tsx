@@ -31,7 +31,7 @@ export function Modulos() {
       ? [{
           para: '/campo/abastecimento',
           nome: 'Abastecimento',
-          descricao: 'O km do painel e a foto da nota do posto, no veículo que está com você',
+          descricao: 'O km ou o horímetro e a foto da nota do posto, no veículo que está com você',
           icone: IconeBomba,
           tom: 'bg-sky-500/15 text-sky-300',
         }]

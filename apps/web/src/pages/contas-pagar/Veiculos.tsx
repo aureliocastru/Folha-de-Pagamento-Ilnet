@@ -23,6 +23,7 @@ import {
   medidorLimpo,
   medidorNumero,
 } from '../../lib/format';
+import { juntarFotos } from '../../lib/foto';
 import { NovaDespesa } from './NovaDespesa';
 
 type TipoVeiculo =
@@ -653,7 +654,7 @@ function LancarAbastecimento({
   const qc = useQueryClient();
   const [medidorDigitado, setMedidorDigitado] = useState('');
   const [litrosDigitados, setLitrosDigitados] = useState('');
-  const [foto, setFoto] = useState<string | null>(null);
+  const [fotos, setFotos] = useState<string[]>([]);
   const [valor, setValor] = useState('');
 
   // O galão não tem painel; a máquina conta horas; o resto conta km.
@@ -671,7 +672,7 @@ function LancarAbastecimento({
       await api.post(`/veiculos/${veiculo.id}/abastecimentos`, {
         ...(ehGalao ? {} : ehMaquina ? { horimetro: medidor } : { km: medidor }),
         ...(litrosNumero ? { litros: litrosNumero } : {}),
-        foto,
+        foto: await juntarFotos(fotos),
         valor: Number(valor) > 0 ? Number(valor) : undefined,
       });
     },
@@ -684,7 +685,7 @@ function LancarAbastecimento({
   const valido =
     (ehGalao || (medidor != null && !medidorAtras)) &&
     (!ehGalao || (litrosNumero != null && litrosNumero > 0)) &&
-    !!foto;
+    fotos.length > 0;
 
   return (
     <Janela titulo={`Abastecimento — ${veiculo.apelido}`} onFechar={onFechar}>
@@ -756,7 +757,7 @@ function LancarAbastecimento({
         </div>
       </div>
       <p className="rotulo mt-4">Foto da nota</p>
-      <FotoDaNota foto={foto} onFoto={setFoto} />
+      <FotoDaNota fotos={fotos} onFotos={setFotos} />
 
       {lancar.isError && <Aviso tom="erro">{mensagemErro(lancar.error)}</Aviso>}
 

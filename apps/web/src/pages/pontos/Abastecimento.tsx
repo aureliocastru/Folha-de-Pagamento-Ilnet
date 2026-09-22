@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState, type ChangeEvent } from 'react';
+import { useEffect, useState } from 'react';
+import { FotoDaNota } from '../../components/FotoDaNota';
 import { Aviso, CampoDinheiro, Carregando } from '../../components/ui';
 import { mensagemErro } from '../../lib/api';
 import {
@@ -9,7 +10,7 @@ import {
   medidorLimpo,
   medidorNumero as numeroDoMedidor,
 } from '../../lib/format';
-import { reduzirFoto } from '../../lib/foto';
+import { juntarFotos } from '../../lib/foto';
 import { apiPontos } from '../../lib/pontos';
 
 export interface AbastecimentoDoPortal {
@@ -171,7 +172,8 @@ const OUTRO_DESTINO = 'outro';
  * São três coisas que acontecem aqui, e a tela vira de acordo com o que está
  * escolhido:
  *
- * - **o carro no posto**: o km do painel e a foto da nota, como sempre foi;
+ * - **o carro no posto**: o km do painel e a foto da nota, como sempre foi —
+ *   ou o horímetro, quando quem foi ao posto é a máquina;
  * - **o galão no posto**: quantos litros entraram e a foto da nota — galão não
  *   tem painel, tem estoque;
  * - **o que sai do galão**: quantos litros saíram e para onde — a máquina da
@@ -197,9 +199,8 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
   const [outroDestino, setOutroDestino] = useState('');
   const [medidorDigitado, setMedidorDigitado] = useState('');
   const [litrosDigitados, setLitrosDigitados] = useState('');
-  const [foto, setFoto] = useState<string | null>(null);
-  const [preparandoFoto, setPreparandoFoto] = useState(false);
-  const [erroFoto, setErroFoto] = useState<string | null>(null);
+  /** A nota e, se precisar, o visor da bomba: vão juntas, lado a lado. */
+  const [fotos, setFotos] = useState<string[]>([]);
   const [feito, setFeito] = useState<string | null>(null);
 
   // Um veículo só: já vem escolhido. Perguntar qual, com uma opção, é um toque cobrado à toa.
@@ -217,17 +218,17 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
   /** Saindo do galão para o que não é da frota — sem veículo, sem painel. */
   const paraOutroDestino = tirandoDoGalao && destinoId === OUTRO_DESTINO;
   const outroDestinoEscrito = outroDestino.trim();
-  const ehMaquina = destino?.tipo === 'MAQUINA';
+  /** Quem recebe o combustível: a máquina que foi ao posto também é máquina. */
+  const recebe = tirandoDoGalao ? destino : veiculo;
+  const ehMaquina = recebe?.tipo === 'MAQUINA';
   /** O galão não tem painel; a máquina conta horas; o resto conta km. */
   const pedeMedidor = tirandoDoGalao ? !!destino : !ehGalao;
   const pedeFoto = !tirandoDoGalao;
   const pedeLitros = ehGalao || tirandoDoGalao;
 
-  const medidorAnterior = tirandoDoGalao
-    ? ehMaquina
-      ? (destino?.ultimoHorimetro ?? null)
-      : (destino?.ultimoKm ?? null)
-    : (veiculo?.ultimoKm ?? null);
+  const medidorAnterior = ehMaquina
+    ? (recebe?.ultimoHorimetro ?? null)
+    : (recebe?.ultimoKm ?? null);
 
   const medidor = numeroDoMedidor(medidorDigitado);
   const medidorAtras =
@@ -247,24 +248,8 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
     setLitrosDigitados('');
   }, [veiculoId]);
 
-  async function aoEscolherFoto(e: ChangeEvent<HTMLInputElement>) {
-    const arquivo = e.target.files?.[0];
-    // Limpo sempre: sem isso, escolher a mesma foto de novo não dispara nada.
-    e.target.value = '';
-    if (!arquivo) return;
-    setErroFoto(null);
-    setPreparandoFoto(true);
-    try {
-      setFoto(await reduzirFoto(arquivo));
-    } catch (err) {
-      setErroFoto(err instanceof Error ? err.message : String(err));
-    } finally {
-      setPreparandoFoto(false);
-    }
-  }
-
   const lancar = useMutation({
-    mutationFn: () =>
+    mutationFn: async () =>
       enviar({
         ...(paraOutroDestino
           ? { outroDestino: outroDestinoEscrito }
@@ -276,7 +261,7 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
             : { km: medidor ?? 0 }
           : {}),
         ...(litros != null ? { litros } : {}),
-        ...(pedeFoto ? { foto: foto ?? '' } : {}),
+        ...(pedeFoto ? { foto: await juntarFotos(fotos) } : {}),
       }),
     onSuccess: () => {
       setFeito(
@@ -286,11 +271,13 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
             }.`
           : ehGalao
             ? `${veiculo?.apelido} enchido com ${litrosEscritos(litros ?? 0)}. A nota vai para a conferência.`
-            : `Abastecimento lançado em ${veiculo?.apelido} com ${km(medidor ?? 0)}. A nota vai para a conferência.`,
+            : `Abastecimento lançado em ${veiculo?.apelido} com ${
+                ehMaquina ? horas(medidor ?? 0) : km(medidor ?? 0)
+              }. A nota vai para a conferência.`,
       );
       setMedidorDigitado('');
       setLitrosDigitados('');
-      setFoto(null);
+      setFotos([]);
       void qc.invalidateQueries({ queryKey: chave });
     },
   });
@@ -312,7 +299,7 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
     (!pedeLitros || (litros != null && litros > 0)) &&
     !passaDoEstoque &&
     (!tirandoDoGalao || (paraOutroDestino ? outroDestinoEscrito.length >= 2 : !!destinoId)) &&
-    (!pedeFoto || !!foto);
+    (!pedeFoto || fotos.length > 0);
 
   const rotuloDoMedidor = ehMaquina ? 'Horímetro da máquina' : 'Km do painel';
 
@@ -573,43 +560,7 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
         {pedeFoto && (
           <div>
             <p className="rotulo">Foto da nota</p>
-            {foto ? (
-              <div className="flex items-start gap-3">
-                <img
-                  src={foto}
-                  alt="Foto da nota que vai junto"
-                  className="h-28 w-28 rounded-xl border border-tinta-200 object-cover"
-                />
-                <button type="button" onClick={() => setFoto(null)} className="btn btn-sutil btn-p text-rose-600">
-                  Trocar a foto
-                </button>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 gap-2">
-                <label className="btn btn-neutro h-12 cursor-pointer text-base">
-                  {preparandoFoto ? 'Preparando…' : 'Tirar foto'}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="hidden"
-                    onChange={aoEscolherFoto}
-                    disabled={preparandoFoto}
-                  />
-                </label>
-                <label className="btn btn-neutro h-12 cursor-pointer text-base">
-                  Anexar
-                  <input
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={aoEscolherFoto}
-                    disabled={preparandoFoto}
-                  />
-                </label>
-              </div>
-            )}
-            {erroFoto && <p className="mt-1.5 text-xs text-rose-600">{erroFoto}</p>}
+            <FotoDaNota fotos={fotos} onFotos={setFotos} grande />
           </div>
         )}
 
@@ -635,7 +586,7 @@ export function FormularioDeAbastecimento({ chave, buscar, lancar: enviar }: Fon
                     ? ehMaquina
                       ? 'Digite o horímetro'
                       : 'Digite o km'
-                    : pedeFoto && !foto
+                    : pedeFoto && fotos.length === 0
                       ? 'Tire a foto da nota'
                       : tirandoDoGalao
                         ? 'Lançar saída do galão'
