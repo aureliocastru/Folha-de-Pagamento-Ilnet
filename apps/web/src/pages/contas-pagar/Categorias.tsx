@@ -13,6 +13,7 @@ import { IconePasta } from '../../components/icones';
 import { api, mensagemErro } from '../../lib/api';
 import { emArvore } from '../../lib/categorias';
 import type { CategoriaDespesa } from '../../lib/types';
+import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
 /**
  * O valor da opção que abre a criação da mãe. Um uuid nunca começa com dois
@@ -398,6 +399,7 @@ export function Categorias() {
       {feedback && <Aviso tom={erro ? 'erro' : 'marca'}>{feedback}</Aviso>}
 
       <Bloco titulo="Nova categoria" className="surgir mb-6">
+        <FormularioEmPassos>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -446,6 +448,7 @@ export function Categorias() {
           "Compra de veículos" e "Manutenção de veículos" nela — ou crie a mãe
           direto de lá, pela última opção da lista.
         </p>
+        </FormularioEmPassos>
       </Bloco>
 
       <Bloco semPadding>

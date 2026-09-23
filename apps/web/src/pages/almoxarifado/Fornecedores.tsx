@@ -13,6 +13,7 @@ import {
 import { api, mensagemErro } from '../../lib/api';
 import { combina } from '../../lib/busca';
 import type { FornecedorCotacao } from '../../lib/types';
+import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
 /** O formulário vazio — também é o que "Novo fornecedor" abre. */
 const EM_BRANCO = {
@@ -333,6 +334,7 @@ function FormularioFornecedor({
       titulo={fornecedor ? fornecedor.nome : 'Novo fornecedor'}
       onFechar={onFechar}
     >
+      <FormularioEmPassos>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -460,6 +462,7 @@ function FormularioFornecedor({
           </div>
         </div>
       </form>
+      </FormularioEmPassos>
     </Janela>
   );
 }

@@ -27,6 +27,7 @@ import {
   type LeituraDaGuia,
   type TipoGuia,
 } from '../../lib/types';
+import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
 const CLASSES: ClasseTributo[] = [
   'FOLHA_PATRONAL',
@@ -348,6 +349,7 @@ export function Impostos() {
           </button>
         }
       >
+        <FormularioEmPassos>
         {aMao ? (
           <LancamentoAMao
             ocupado={gravarAMao.isPending}
@@ -381,6 +383,7 @@ export function Impostos() {
             </p>
           </>
         )}
+        </FormularioEmPassos>
       </Bloco>
 
       {leitura && (

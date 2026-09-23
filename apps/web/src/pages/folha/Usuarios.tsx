@@ -23,6 +23,7 @@ import type {
   UsuarioAdmin,
 } from '../../lib/types';
 import { SeletorComBusca } from '../../components/SeletorComBusca';
+import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
 const PERFIS: PerfilUsuario[] = ['ADMIN', 'RH', 'VISUALIZADOR', 'TECNICO'];
 
@@ -719,6 +720,7 @@ function NovoUsuario({
 
   return (
     <Bloco titulo="Criar login" className="surgir surgir-1">
+      <FormularioEmPassos>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <div>
           <label className="rotulo" htmlFor="u-nome">
@@ -843,6 +845,7 @@ function NovoUsuario({
           A senha fica guardada: dá para vê-la depois, em "senha".
         </p>
       </div>
+      </FormularioEmPassos>
     </Bloco>
   );
 }
@@ -1339,6 +1342,7 @@ function FormularioDePerfil({
 
   return (
     <Janela titulo={perfil ? `Perfil — ${perfil.nome}` : 'Criar perfil'} onFechar={onFechar}>
+      <FormularioEmPassos>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label className="rotulo" htmlFor="perfil-nome">
@@ -1433,6 +1437,7 @@ function FormularioDePerfil({
           {salvar.isPending ? 'Salvando…' : perfil ? 'Salvar' : 'Criar perfil'}
         </button>
       </div>
+      </FormularioEmPassos>
     </Janela>
   );
 }

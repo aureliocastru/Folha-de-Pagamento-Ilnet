@@ -37,6 +37,7 @@ import type {
 import { CampoComSugestoes } from '../../components/CampoComSugestoes';
 import { useAssistente } from '../../components/Assistente';
 import { SeletorComBusca } from '../../components/SeletorComBusca';
+import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
 /** Cadastro em branco: começa no IXC, que é a forma rastreável. */
 const CADASTRO_VAZIO = {
@@ -541,6 +542,7 @@ export function Avulsos({
           }
           className="surgir mb-6"
         >
+          <FormularioEmPassos>
           {/*
             Na ordem em que se cadastra, e não na em que os campos nasceram.
 
@@ -706,6 +708,7 @@ export function Avulsos({
               </span>
             )}
           </div>
+          </FormularioEmPassos>
         </Bloco>
       )}
 

@@ -958,6 +958,6 @@
 }
 
 /* O nome do campo já é o título do passo, logo acima. */
-[data-em-passos] [data-passo-atual] > label.rotulo:first-child {
+[data-em-passos] [data-passo-titulo] {
   display: none;
 }

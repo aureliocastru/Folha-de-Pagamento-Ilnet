@@ -21,6 +21,7 @@ import type {
   PessoaNaFila,
   SituacaoFerias,
 } from '../../lib/types';
+import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
 const TOM_DA_SITUACAO: Record<SituacaoFerias, Tom> = {
   VENCIDA: 'erro',
@@ -701,6 +702,7 @@ function JanelaMandarParaFerias({
 
   return (
     <Janela titulo={`Mandar ${pessoa.nome} para férias`} onFechar={onFechar}>
+      <FormularioEmPassos>
       <p className="text-sm text-tinta-500">
         Fica registrado aqui quem está fora e até quando. O pagamento das férias
         (e o terço constitucional) continua saindo pela contabilidade — esta tela
@@ -783,6 +785,7 @@ function JanelaMandarParaFerias({
           </strong>
         </span>
       </div>
+      </FormularioEmPassos>
     </Janela>
   );
 }

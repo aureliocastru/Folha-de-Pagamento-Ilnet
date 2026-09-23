@@ -21,8 +21,11 @@ import { useCelular } from '../lib/celular';
  *   (o boleto numa conta em dinheiro) não existe na página, e não vira passo.
  * - **A revisão lê o que foi preenchido** direto dos campos: o texto digitado,
  *   a opção escolhida, o que o botão de escolher mostra.
- * - **`data-passo-acao`** marca o que só aparece na revisão: os botões de
- *   salvar, a prévia, os avisos do fim.
+ * - **`data-passo-acao`** marca o que só aparece na revisão: a prévia, os
+ *   avisos do fim. A linha do botão principal (`.btn-primario`) fora dos
+ *   campos já é tratada assim sem marca — é o "Salvar" de todo formulário.
+ * - **Um campo só não vira passo a passo**: seria uma tela a mais para a
+ *   mesma pergunta.
  * - **`data-passo-falta="…"`** num passo segura o "Continuar" e diz o porquê.
  *   Campo com `required` vazio também segura.
  */
@@ -38,32 +41,64 @@ interface Passo {
   falta: string | null;
 }
 
-/** Os blocos que são passos, na ordem da página. */
-function acharPassos(caixa: HTMLElement): HTMLElement[] {
-  const candidatos = new Set<HTMLElement>();
-  caixa.querySelectorAll<HTMLElement>('[data-passo]').forEach((el) => candidatos.add(el));
-  caixa.querySelectorAll<HTMLElement>('label.rotulo').forEach((label) => {
-    if (label.closest('[data-passo-acao]')) return;
-    if (label.closest('[data-passo]')) return;
-    const bloco = label.parentElement;
-    if (bloco && bloco !== caixa) candidatos.add(bloco);
+/**
+ * Um passo: os pedaços da página que formam um campo. Quase sempre um só — o
+ * bloco com o rótulo dentro. Quando o rótulo está solto no meio de outros
+ * campos (a "Foto da nota", um `<p className="rotulo">` seguido do componente
+ * da foto), o passo é o rótulo e o que vem depois dele, até o próximo rótulo.
+ */
+type PedacosDoPasso = HTMLElement[];
+
+const ROTULO = '.rotulo';
+
+/** Os passos, na ordem da página. */
+function acharPassos(caixa: HTMLElement): PedacosDoPasso[] {
+  const passos: PedacosDoPasso[] = [];
+  caixa.querySelectorAll<HTMLElement>('[data-passo]').forEach((el) => passos.push([el]));
+  caixa.querySelectorAll<HTMLElement>(ROTULO).forEach((rotulo) => {
+    if (rotulo.closest('[data-passo-acao], [data-passo], [data-passo-ui]')) return;
+    const pai = rotulo.parentElement;
+    if (!pai) return;
+    if (pai !== caixa && pai.querySelectorAll(ROTULO).length === 1) {
+      passos.push([pai]);
+      return;
+    }
+    // Rótulo solto entre outros campos: ele e os vizinhos seguintes.
+    const pedacos: HTMLElement[] = [rotulo];
+    for (let v = rotulo.nextElementSibling; v; v = v.nextElementSibling) {
+      if (v.matches(ROTULO) || v.querySelector(ROTULO)) break;
+      if (v.matches('[data-passo-acao], [data-passo]') || v.querySelector('.btn-primario')) break;
+      pedacos.push(v as HTMLElement);
+    }
+    passos.push(pedacos);
   });
-  const lista = [...candidatos].filter(
-    (el) =>
+  const todos = passos.flat();
+  const lista = passos.filter(
+    (p) =>
       // Um bloco dentro de outro passo anda com ele.
-      ![...candidatos].some((outro) => outro !== el && outro.contains(el)),
+      !p.every((el) => todos.some((outro) => outro !== el && !p.includes(outro) && outro.contains(el))),
   );
   return lista.sort((a, b) =>
-    a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1,
+    a[0].compareDocumentPosition(b[0]) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1,
   );
 }
 
-function nomeCru(el: HTMLElement): string {
-  return el.dataset.passo || el.querySelector('label.rotulo')?.textContent || 'Informação';
+/** O elemento que dá nome ao passo. */
+function tituloDoPasso(p: PedacosDoPasso): HTMLElement | null {
+  for (const el of p) {
+    if (el.matches(ROTULO)) return el;
+    const r = el.querySelector<HTMLElement>(ROTULO);
+    if (r) return r;
+  }
+  return null;
 }
 
-function rotuloDoPasso(el: HTMLElement): string {
-  return nomeCru(el).replace(/\*|\(opcional\)/gi, '').replace(/\s+/g, ' ').trim();
+function nomeCru(p: PedacosDoPasso): string {
+  return p[0].dataset.passo || tituloDoPasso(p)?.textContent || 'Informação';
+}
+
+function rotuloDoPasso(p: PedacosDoPasso): string {
+  return nomeCru(p).replace(/\*|\(opcional\)/gi, '').replace(/\s+/g, ' ').trim();
 }
 
 /** O texto que se vê num pedaço da tela, com espaço entre um pedaço e outro. */
@@ -78,9 +113,15 @@ function textoVisivel(el: Node): string {
 }
 
 /** O que foi preenchido num passo, escrito como se lê. */
-function valorDoPasso(el: HTMLElement): string {
+function valorDoPasso(p: PedacosDoPasso): string {
+  return p.map(valorDoPedaco).filter(Boolean).join(' · ');
+}
+
+function valorDoPedaco(el: HTMLElement): string {
   const partes: string[] = [];
   let temCaixinha = false;
+  const fotos = el.querySelectorAll('img').length;
+  if (fotos > 0) partes.push(fotos === 1 ? '1 foto' : `${fotos} fotos`);
   el.querySelectorAll<HTMLElement>('input, select, textarea, button[aria-haspopup]').forEach(
     (c) => {
       if (c instanceof HTMLSelectElement) {
@@ -109,21 +150,54 @@ function valorDoPasso(el: HTMLElement): string {
   );
   if (partes.length === 0 && temCaixinha) return 'Não';
   // Sem campo nenhum (um nome já escolhido, mostrado como texto): o que se vê.
-  if (partes.length === 0) {
+  if (partes.length === 0 && !el.matches(ROTULO)) {
     const copia = el.cloneNode(true) as HTMLElement;
-    copia.querySelectorAll('label.rotulo, button, .ajuda').forEach((n) => n.remove());
+    copia.querySelectorAll('.rotulo, button, .ajuda').forEach((n) => n.remove());
     const t = textoVisivel(copia);
     if (t) partes.push(t);
   }
   return partes.join(' · ');
 }
 
-function faltaNoPasso(el: HTMLElement): string | null {
-  if (el.dataset.passoFalta) return el.dataset.passoFalta;
-  const vazio = [...el.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
-    'input[required], select[required], textarea[required]',
-  )].some((c) => !c.value.trim());
-  return vazio ? `Preencha ${rotuloDoPasso(el).toLowerCase()} para continuar.` : null;
+/**
+ * Deixa à vista só o caminho até os elementos pedidos — e eles inteiros.
+ *
+ * Esconder só os outros campos não bastava: a seção "Vendas" de um pagamento,
+ * a explicação no pé do formulário, a caixa de prévia continuavam na tela a
+ * cada passo, vazias ou fora de hora. Aqui, de cada nível entre o campo e a
+ * caixa, o que não leva ao campo sai. `null` mostra tudo (fora do celular, ou
+ * formulário de um campo só).
+ */
+function mostrarSo(caixa: HTMLElement, manter: HTMLElement[] | null): void {
+  if (!manter) {
+    caixa.querySelectorAll('[data-passo-oculto]').forEach((n) => n.removeAttribute('data-passo-oculto'));
+    return;
+  }
+  const noCaminho = new Set<Element>();
+  for (const m of manter) {
+    for (let x: Element | null = m; x && x !== caixa; x = x.parentElement) noCaminho.add(x);
+    m.querySelectorAll('[data-passo-oculto]').forEach((n) => n.removeAttribute('data-passo-oculto'));
+  }
+  const visitar = (pai: Element) => {
+    for (const filho of Array.from(pai.children)) {
+      if (filho.hasAttribute('data-passo-ui')) continue;
+      const fica = noCaminho.has(filho);
+      filho.toggleAttribute('data-passo-oculto', !fica);
+      if (fica && !manter.includes(filho as HTMLElement)) visitar(filho);
+    }
+  };
+  visitar(caixa);
+}
+
+function faltaNoPasso(p: PedacosDoPasso): string | null {
+  const marcada = p.find((el) => el.dataset.passoFalta)?.dataset.passoFalta;
+  if (marcada) return marcada;
+  const vazio = p.some((el) =>
+    [...el.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
+      'input[required], select[required], textarea[required]',
+    )].some((c) => !c.value.trim()),
+  );
+  return vazio ? `Preencha ${rotuloDoPasso(p).toLowerCase()} para continuar.` : null;
 }
 
 function EmPassos({ children }: { children: ReactNode }) {
@@ -148,19 +222,33 @@ function EmPassos({ children }: { children: ReactNode }) {
       opcional: /\(opcional\)/i.test(nomeCru(b)),
       falta: faltaNoPasso(b),
     }));
+    const valendo = agora.length >= 2 ? agora : [];
     setPassos((antes) =>
-      JSON.stringify(antes) === JSON.stringify(agora) ? antes : agora,
+      JSON.stringify(antes) === JSON.stringify(valendo) ? antes : valendo,
     );
 
+    const ativo = blocos.length >= 2;
     const atual = Math.min(posicao, blocos.length);
-    const revisao = blocos.length > 0 && atual >= blocos.length;
-    blocos.forEach((b, i) => {
-      b.toggleAttribute('data-passo-oculto', revisao || i !== atual);
-      // O nome do campo já está no alto, como título do passo.
-      b.toggleAttribute('data-passo-atual', !revisao && i === atual);
+    const revisao = ativo && atual >= blocos.length;
+    // O nome do campo já está no alto, como título do passo.
+    el.querySelectorAll('[data-passo-titulo]').forEach((t) => t.removeAttribute('data-passo-titulo'));
+    if (ativo && !revisao) tituloDoPasso(blocos[atual])?.setAttribute('data-passo-titulo', '');
+    // O que fica para a revisão: o marcado, e a linha do botão principal.
+    const doFim: HTMLElement[] = [...el.querySelectorAll<HTMLElement>('[data-passo-acao]')];
+    el.querySelectorAll<HTMLElement>('.btn-primario').forEach((b) => {
+      if (b.closest('[data-passo-ui]')) return;
+      if (blocos.some((p) => p.some((bl) => bl.contains(b)))) return;
+      if (b.parentElement && b.parentElement !== el) doFim.push(b.parentElement);
     });
-    el.querySelectorAll<HTMLElement>('[data-passo-acao]').forEach((a) =>
-      a.toggleAttribute('data-passo-oculto', !revisao),
+    // O aviso de erro (o IXC recusou, faltou algo) aparece sempre.
+    const avisos = [...el.querySelectorAll<HTMLElement>('[data-aviso]')];
+    mostrarSo(
+      el,
+      !ativo
+        ? null
+        : revisao
+          ? [...doFim, ...avisos]
+          : [...blocos[atual], ...avisos],
     );
 
     if (revisao) {
@@ -222,7 +310,7 @@ function EmPassos({ children }: { children: ReactNode }) {
       }}
     >
       {total > 0 && (
-        <div className="mb-3 flex items-start gap-2">
+        <div className="mb-3 flex items-start gap-2" data-passo-ui>
           {onde > 0 && (
             <button
               type="button"
@@ -262,7 +350,7 @@ function EmPassos({ children }: { children: ReactNode }) {
       )}
 
       {naRevisao && (
-        <div className="lista-dividida mb-4 mt-1 rounded-xl border border-tinta-200">
+        <div className="lista-dividida mb-4 mt-1 rounded-xl border border-tinta-200" data-passo-ui>
           {passos.map((p, i) => (
             <button
               key={`${p.rotulo}-${i}`}
@@ -290,7 +378,7 @@ function EmPassos({ children }: { children: ReactNode }) {
 
 
       {total > 0 && !naRevisao && (
-        <div className="mt-4 space-y-2">
+        <div className="mt-4 space-y-2" data-passo-ui>
           {atual?.falta && (
             <p className="text-[13px] text-amber-700 dark:text-amber-300">{atual.falta}</p>
           )}

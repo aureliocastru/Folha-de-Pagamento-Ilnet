@@ -15,6 +15,7 @@ import type {
   ProdutoNoIxc,
 } from '../../lib/types';
 import { SeletorComBusca } from '../../components/SeletorComBusca';
+import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
 interface FornecedorIxc {
   idFornecedor: number;
@@ -1066,6 +1067,7 @@ export function NovoProduto({
 
   return (
     <Janela titulo="Novo produto no IXC" onFechar={onFechar}>
+      <FormularioEmPassos>
       {opcoes.isError && <Aviso tom="erro">{mensagemErro(opcoes.error)}</Aviso>}
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -1160,6 +1162,7 @@ export function NovoProduto({
           {criar.isPending ? 'Cadastrando no IXC…' : 'Cadastrar no IXC'}
         </button>
       </div>
+      </FormularioEmPassos>
     </Janela>
   );
 }

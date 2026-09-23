@@ -28,6 +28,7 @@ import type {
   ResultadoLoteDiarias,
   SyncDiaristasResult,
 } from '../../lib/types';
+import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
 /** Cadastro em branco: a forma habitual começa no IXC, que é a rastreável. */
 const CADASTRO_VAZIO = {
@@ -445,6 +446,7 @@ export function Diaristas() {
           titulo={editandoNovo ? 'Novo diarista' : 'Editar cadastro'}
           className="surgir mb-6"
         >
+          <FormularioEmPassos>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <Campo label="Nome" span2>
               <input
@@ -575,6 +577,7 @@ export function Diaristas() {
               Cancelar
             </button>
           </div>
+          </FormularioEmPassos>
         </Bloco>
       )}
 
@@ -1343,6 +1346,7 @@ function FormularioDiaria({
 
   return (
     <Janela titulo={`Pagar — ${diarista.nome}`} onFechar={onCancelar}>
+      <FormularioEmPassos>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Campo label="Data do acerto">
           <CampoDeData
@@ -1518,6 +1522,7 @@ function FormularioDiaria({
           </strong>
         </span>
       </div>
+      </FormularioEmPassos>
     </Janela>
   );
 }

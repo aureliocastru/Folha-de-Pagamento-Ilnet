@@ -14,6 +14,7 @@ import {
 import { api, mensagemErro } from '../../lib/api';
 import { combina, semAcento } from '../../lib/busca';
 import type { EstanteRh, PastaRh } from '../../lib/types';
+import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
 /**
  * A estante: a pasta da empresa, a gaveta dos funcionários e as de assunto.
@@ -164,11 +165,13 @@ export function PastasRh() {
 
       {criando && (
         <Janela titulo="Nova pasta" onFechar={() => setCriando(false)}>
+          <FormularioEmPassos>
           <FormularioDaPasta
             pendente={criar.isPending}
             erro={erro}
             onSalvar={(dados) => criar.mutate(dados)}
           />
+          </FormularioEmPassos>
         </Janela>
       )}
     </Pagina>

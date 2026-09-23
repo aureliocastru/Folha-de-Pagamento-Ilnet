@@ -21,6 +21,7 @@ import type {
   PessoaDoAlmoxarifado,
 } from '../../lib/types';
 import { SeletorComBusca } from '../../components/SeletorComBusca';
+import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
 /** "há 3 dias", "hoje" — o tempo como quem cobra a ferramenta o conta. */
 function haQuantoTempo(dias: number): string {
@@ -387,6 +388,7 @@ function FormularioDaFerramenta({
       titulo={ferramenta ? ferramenta.nome : 'Nova ferramenta'}
       onFechar={onFechar}
     >
+      <FormularioEmPassos>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -474,6 +476,7 @@ function FormularioDaFerramenta({
           </button>
         </div>
       </form>
+      </FormularioEmPassos>
     </Janela>
   );
 }
@@ -501,6 +504,7 @@ function FormularioDeEmprestimo({
 
   return (
     <Janela titulo={`Emprestar — ${ferramenta.nome}`} onFechar={onFechar}>
+      <FormularioEmPassos>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -591,6 +595,7 @@ function FormularioDeEmprestimo({
           </button>
         </div>
       </form>
+      </FormularioEmPassos>
     </Janela>
   );
 }

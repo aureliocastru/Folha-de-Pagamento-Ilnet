@@ -24,6 +24,7 @@ import type {
   ValeComSaldo,
   ValeParcela,
 } from '../../lib/types';
+import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
 type Situacao = 'ABERTO' | 'QUITADO' | 'CANCELADO' | 'TODOS';
 
@@ -485,6 +486,7 @@ function NovoVale({ onCriado }: { onCriado: () => void }) {
 
   return (
     <Bloco titulo="Novo vale ou acerto" className="surgir surgir-2">
+      <FormularioEmPassos>
       <div className="mb-5 inline-flex rounded-xl bg-tinta-100 p-1">
         <BotaoSentido
           ativo={sentido === 'DESCONTO'}
@@ -591,6 +593,7 @@ function NovoVale({ onCriado }: { onCriado: () => void }) {
         )}
       </div>
       {erro && <p className="mt-3 text-sm text-rose-600">{erro}</p>}
+      </FormularioEmPassos>
     </Bloco>
   );
 }

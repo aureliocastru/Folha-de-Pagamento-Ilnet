@@ -1197,6 +1197,7 @@ export function Aviso({
   };
   return (
     <div
+      data-aviso
       className={`surgir mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm ${cores[tom]}`}
     >
       <span>{children}</span>

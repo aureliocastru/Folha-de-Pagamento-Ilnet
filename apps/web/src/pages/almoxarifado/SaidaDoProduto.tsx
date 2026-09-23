@@ -7,6 +7,7 @@ import type { HistoricoDeSaidas, ItemDeEstoque } from '../../lib/types';
 import { numeroDigitado, quantidade } from './ProdutoNoIxc';
 import { DiaDoLancamento, diaRetroativo } from './transferencia-comum';
 import { CampoComSugestoes } from '../../components/CampoComSugestoes';
+import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
 /**
  * A saída de um produto, e o histórico de todas as saídas dele.
@@ -91,6 +92,7 @@ export function SaidaDoProduto({
 
   return (
     <Janela titulo={item.descricao} onFechar={onFechar}>
+      <FormularioEmPassos>
       <div className="mx-auto w-full max-w-xl">
         {origens.length === 0 ? (
           <Aviso tom="atencao">Não tem saldo deste produto em almoxarifado nenhum para sair.</Aviso>
@@ -247,6 +249,7 @@ export function SaidaDoProduto({
           )}
         </div>
       </div>
+      </FormularioEmPassos>
     </Janela>
   );
 }

@@ -19,6 +19,7 @@ import {
   motivoDoBlob,
   nomeDeArquivo,
 } from './Pasta';
+import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
 /** A prateleira dentro da pasta do mês, para a estante mostrar o que é. */
 const TIPO_DA_NOTA = 'Nota fiscal';
@@ -474,6 +475,7 @@ function JanelaDoMes({
 
   return (
     <Janela titulo="Abrir um mês" onFechar={onFechar}>
+      <FormularioEmPassos>
       <div className="space-y-4">
         {erro && <Aviso tom="erro">{erro}</Aviso>}
         <p className="text-sm text-tinta-500">
@@ -503,6 +505,7 @@ function JanelaDoMes({
           </button>
         </div>
       </div>
+      </FormularioEmPassos>
     </Janela>
   );
 }

@@ -26,6 +26,7 @@ import { CartaoDaPasta, FormularioDaPasta } from './Pastas';
 import { CampoDeData } from '../../components/CampoDeData';
 import { CampoComSugestoes } from '../../components/CampoComSugestoes';
 import { SeletorComBusca } from '../../components/SeletorComBusca';
+import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
 /** O que a pasta aceita — o mesmo que a API guarda. */
 const ACEITOS =
@@ -718,6 +719,7 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
           titulo={`Renomear — ${pasta.nome}`}
           onFechar={() => setRenomeando(false)}
         >
+          <FormularioEmPassos>
           <FormularioDaPasta
             pasta={pasta}
             /* Subpasta é divisória, e não pessoa: ali o CPF não quer dizer
@@ -734,6 +736,7 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
                 : undefined
             }
           />
+          </FormularioEmPassos>
         </Janela>
       )}
 
@@ -759,6 +762,7 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
             setSoltos([]);
           }}
         >
+          <FormularioEmPassos>
           <FormularioDoDocumento
             arquivosIniciais={soltos}
             tipos={estante.data?.tipos ?? []}
@@ -766,6 +770,7 @@ export function PastaRhAberta({ pastaId }: { pastaId?: string } = {}) {
             erro={erro}
             onSalvar={(documentos) => guardar.mutate(documentos)}
           />
+          </FormularioEmPassos>
         </Janela>
       )}
 

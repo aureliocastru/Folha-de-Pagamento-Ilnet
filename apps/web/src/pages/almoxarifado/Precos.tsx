@@ -23,6 +23,7 @@ import type {
   UnidadeProduto,
 } from '../../lib/types';
 import { SeletorComBusca } from '../../components/SeletorComBusca';
+import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
 /**
  * As unidades, por extenso e abreviadas.
@@ -709,6 +710,7 @@ function FormularioProduto({
 
   return (
     <Janela titulo="Novo produto" onFechar={onFechar}>
+      <FormularioEmPassos>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -804,6 +806,7 @@ function FormularioProduto({
           </button>
         </div>
       </form>
+      </FormularioEmPassos>
     </Janela>
   );
 }

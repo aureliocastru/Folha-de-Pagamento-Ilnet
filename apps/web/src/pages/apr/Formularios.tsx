@@ -13,6 +13,7 @@ import {
 import { api, mensagemErro } from '../../lib/api';
 import { CATEGORIA_APR_LABEL } from '../../lib/status';
 import type { CategoriaItemApr, ItemApr, ModeloApr } from '../../lib/types';
+import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
 /**
  * O formulário em branco, editado pela tela.
@@ -448,6 +449,7 @@ function NovoFormulario({
 
   return (
     <Janela titulo="Novo formulário" onFechar={onFechar}>
+      <FormularioEmPassos>
       <div className="space-y-4">
         <div>
           <label className="rotulo" htmlFor="novo-nome">
@@ -531,6 +533,7 @@ function NovoFormulario({
           {criar.isPending ? 'Criando…' : 'Criar formulário'}
         </button>
       </div>
+      </FormularioEmPassos>
     </Janela>
   );
 }

@@ -22,6 +22,7 @@ import { formatBRL, formatData } from '../../lib/format';
 import type { CategoriaDespesa } from '../../lib/types';
 import { CampoDeData } from '../../components/CampoDeData';
 import { SeletorComBusca } from '../../components/SeletorComBusca';
+import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
 /** Um fornecedor do IXC, como a busca por nome o devolve. */
 interface FornecedorIxc {
@@ -1318,6 +1319,7 @@ function CadastroDoCartao({
       titulo={editando ? `Editar — ${cartao!.apelido}` : 'Cadastrar cartão'}
       onFechar={onFechar}
     >
+      <FormularioEmPassos>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>
           <label className="rotulo" htmlFor="cartao-apelido">
@@ -1550,6 +1552,7 @@ function CadastroDoCartao({
           </button>
         </div>
       </div>
+      </FormularioEmPassos>
     </Janela>
   );
 }

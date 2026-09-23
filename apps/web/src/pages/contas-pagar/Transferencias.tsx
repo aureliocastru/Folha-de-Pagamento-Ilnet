@@ -15,6 +15,7 @@ import { api, mensagemErro } from '../../lib/api';
 import { formatBRL, formatData } from '../../lib/format';
 import type { CaixaIxc, TransferenciaEntreContas } from '../../lib/types';
 import { CampoDeData } from '../../components/CampoDeData';
+import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
 /** Hoje, em "AAAA-MM-DD". */
 function diaDeHoje(): string {
@@ -204,6 +205,7 @@ function Transferir() {
   return (
     <>
       <Bloco titulo="Nova transferência" className="surgir mb-5">
+        <FormularioEmPassos>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label className="rotulo" htmlFor="origem">
@@ -341,6 +343,7 @@ function Transferir() {
             </Aviso>
           </div>
         )}
+        </FormularioEmPassos>
       </Bloco>
 
       <Bloco titulo="Transferências feitas por aqui" className="surgir">

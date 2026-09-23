@@ -26,6 +26,7 @@ import {
   contarLeva,
   guardarLeva,
 } from './Pasta';
+import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
 /** A gaveta do papel trocado não entra na montagem: ela é o que já não vale. */
 const SUBSTITUIDOS = 'substituídos';
@@ -264,6 +265,7 @@ export function Licitacoes() {
       {/* --- Passo 1: o nome da licitação --------------------------------- */}
       {nomeando && (
         <Janela titulo="Nova licitação" onFechar={() => setNomeando(false)}>
+          <FormularioEmPassos>
           <form
             onSubmit={(e) => {
               e.preventDefault();
@@ -306,6 +308,7 @@ export function Licitacoes() {
               </button>
             </div>
           </form>
+          </FormularioEmPassos>
         </Janela>
       )}
 

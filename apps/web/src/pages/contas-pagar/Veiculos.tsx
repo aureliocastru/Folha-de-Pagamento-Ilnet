@@ -28,6 +28,7 @@ import {
 } from '../../lib/format';
 import { juntarFotos } from '../../lib/foto';
 import { NovaDespesa } from './NovaDespesa';
+import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
 type TipoVeiculo =
   | 'MOTO'
@@ -752,6 +753,7 @@ function LancarAbastecimento({
 
   return (
     <Janela titulo={`Abastecimento — ${veiculo.apelido}`} onFechar={onFechar}>
+      <FormularioEmPassos>
       <div className="grid gap-4 sm:grid-cols-2">
         {!ehGalao && (
           <div>
@@ -836,6 +838,7 @@ function LancarAbastecimento({
           {lancar.isPending ? 'Enviando…' : 'Lançar abastecimento'}
         </button>
       </div>
+      </FormularioEmPassos>
     </Janela>
   );
 }

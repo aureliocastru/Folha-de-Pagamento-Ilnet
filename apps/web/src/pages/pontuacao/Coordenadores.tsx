@@ -14,6 +14,7 @@ import { api, mensagemErro } from '../../lib/api';
 import { useTermoAdiado } from '../../lib/busca';
 import { formatData } from '../../lib/format';
 import { mascararCpf } from '../../lib/pontos';
+import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
 interface Coordenador {
   id: string;
@@ -262,6 +263,7 @@ function CadastroDeCoordenador({
 
   return (
     <Janela titulo="Cadastrar coordenador" onFechar={onFechar}>
+      <FormularioEmPassos>
       <label className="rotulo" htmlFor="coord-busca">
         Puxar do cadastro de funcionários
       </label>
@@ -351,6 +353,7 @@ function CadastroDeCoordenador({
           {salvar.isPending ? 'Salvando…' : 'Cadastrar'}
         </button>
       </div>
+      </FormularioEmPassos>
     </Janela>
   );
 }

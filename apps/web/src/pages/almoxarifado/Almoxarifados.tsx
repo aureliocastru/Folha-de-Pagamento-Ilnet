@@ -22,6 +22,7 @@ import type {
 import { MoverTudo } from './MoverTudo';
 import { quantidade } from './ProdutoNoIxc';
 import { SeletorComBusca } from '../../components/SeletorComBusca';
+import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
 interface DadosDoFormulario {
   descricao: string;
@@ -719,6 +720,7 @@ function FormularioAlmoxarifado({
       titulo={almoxarifado ? almoxarifado.descricao : 'Novo almoxarifado'}
       onFechar={onFechar}
     >
+      <FormularioEmPassos>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -875,6 +877,7 @@ function FormularioAlmoxarifado({
           </div>
         </div>
       </form>
+      </FormularioEmPassos>
     </Janela>
   );
 }
