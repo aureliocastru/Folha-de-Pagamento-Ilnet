@@ -27,6 +27,7 @@ import {
   medidorNumero,
 } from '../../lib/format';
 import { juntarFotos } from '../../lib/foto';
+import { ManutencaoDoVeiculo } from './ManutencaoDoVeiculo';
 import { NovaDespesa } from './NovaDespesa';
 import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
@@ -122,6 +123,8 @@ interface VeiculoNaLista {
   consumo: Consumo | null;
   /** A média que se espera dele. Em branco, nada de alerta. */
   consumoIdeal: number | null;
+  /** Quantas trocas da manutenção estão vencidas ou perto. Só na lista. */
+  manutencao?: { vencidos: number; perto: number };
 }
 
 interface Abastecimento {
@@ -434,6 +437,16 @@ export function Veiculos() {
                         <span className="ml-1.5 font-sans font-normal text-tinta-300">&rsaquo;</span>
                       </span>
                       <span className="mt-0.5 block text-xs text-tinta-400">{identificacao(v)}</span>
+                      {/* A troca vencida aparece na lista, sem precisar abrir a ficha. */}
+                      {v.ativo && (v.manutencao?.vencidos ?? 0) + (v.manutencao?.perto ?? 0) > 0 && (
+                        <span className="mt-1 inline-block">
+                          <Selo pequeno tom={v.manutencao!.vencidos > 0 ? 'erro' : 'atencao'}>
+                            {v.manutencao!.vencidos > 0
+                              ? `${v.manutencao!.vencidos} troca(s) vencida(s)`
+                              : `${v.manutencao!.perto} troca(s) perto`}
+                          </Selo>
+                        </span>
+                      )}
                       {!v.ativo && (
                         <span className="mt-1 inline-block">
                           <Selo pequeno tom="neutro">
@@ -853,10 +866,24 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
   const [editando, setEditando] = useState(false);
   const [lancando, setLancando] = useState(false);
   const [abastecendo, setAbastecendo] = useState(false);
+  const [manutencao, setManutencao] = useState(false);
 
   const ficha = useQuery({
     queryKey: ['veiculos', 'ficha', id],
     queryFn: async () => (await api.get<Ficha>(`/veiculos/${id}`)).data,
+  });
+
+  // O resumo da manutenção, para o botão dizer se há troca vencida. É a mesma
+  // leitura que a área de manutenção faz: abrir o botão já a encontra pronta.
+  const alertas = useQuery({
+    queryKey: ['veiculos', 'manutencao', id],
+    queryFn: async () =>
+      (
+        await api.get<{ resumo: { vencidos: number; perto: number; semRegistro: number } }>(
+          `/veiculos/${id}/manutencao`,
+        )
+      ).data,
+    enabled: !!ficha.data && ficha.data.veiculo.tipo !== 'GALAO',
   });
 
   const apagarAbastecimento = useMutation({
@@ -878,6 +905,9 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
     return (
       <LancarAbastecimento veiculo={ficha.data.veiculo} onFechar={() => setAbastecendo(false)} />
     );
+  }
+  if (manutencao) {
+    return <ManutencaoDoVeiculo veiculoId={id} onFechar={() => setManutencao(false)} />;
   }
   if (editando && ficha.data) {
     return (
@@ -918,6 +948,25 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
             <button onClick={() => setEditando(true)} className="btn btn-neutro">
               Editar
             </button>
+            {/* O galão não anda: não tem óleo, pneu nem correia. */}
+            {d.veiculo.tipo !== 'GALAO' && (
+              <button
+                onClick={() => setManutencao(true)}
+                className="btn btn-neutro"
+                title="Óleo, filtros, pneus, correia: quando foi a última troca e quanto falta para a próxima"
+              >
+                Manutenção
+                {alertas.data && alertas.data.resumo.vencidos > 0 ? (
+                  <span className="ml-1.5 rounded-full bg-rose-600 px-1.5 text-[11px] font-bold text-white">
+                    {alertas.data.resumo.vencidos}
+                  </span>
+                ) : alertas.data && alertas.data.resumo.perto > 0 ? (
+                  <span className="ml-1.5 rounded-full bg-amber-500 px-1.5 text-[11px] font-bold text-white">
+                    {alertas.data.resumo.perto}
+                  </span>
+                ) : null}
+              </button>
+            )}
           </div>
 
           <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
