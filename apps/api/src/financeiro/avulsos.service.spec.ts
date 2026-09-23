@@ -448,6 +448,38 @@ describe('pagamento em mãos', () => {
     expect(pago).toMatchObject({ contaPagarId: 'cp1' });
   });
 
+  it('em mãos sai do caixa escolhido na tela', async () => {
+    const { service, contasPagar } = montarServico();
+
+    await service.pagar('b1', {
+      valorServico: 350,
+      descricao: 'carreto',
+      forma: FormaPagamento.EM_MAOS,
+      contaPagamento: 24,
+    });
+
+    expect(contasPagar.criar.mock.calls[0][0].itens[0]).toMatchObject({
+      contaPagamento: 24,
+      tipoPagamentoIxc: 'Dinheiro',
+    });
+  });
+
+  it('pelo IXC sai do banco escolhido na tela', async () => {
+    const { service, contasPagar } = montarServico();
+
+    await service.pagar('b1', {
+      valorServico: 350,
+      descricao: 'carreto',
+      contaPagamento: 14,
+      tipoPagamento: 'Boleto',
+    });
+
+    expect(contasPagar.criar.mock.calls[0][0].itens[0]).toMatchObject({
+      contaPagamento: 14,
+      tipoPagamentoIxc: 'Boleto',
+    });
+  });
+
   /** Pelo banco continua na conta de pagamento padrão, sem tipo próprio. */
   it('pelo IXC não mexe na conta de pagamento', async () => {
     const { service, contasPagar } = montarServico();

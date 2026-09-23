@@ -143,6 +143,16 @@ export class PagarAvulsoDto {
    */
   @IsOptional() @IsString() @MaxLength(40) tipoPagamento?: string;
 
+  /**
+   * De onde o dinheiro sai (`contas` do IXC): o banco, pelo IXC, ou o caixa, em
+   * mãos. Vazio = o padrão das Configurações para a forma escolhida.
+   */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsInt()
+  @Min(1)
+  contaPagamento?: number;
+
   /** Vazio = a conta contábil de avulsos da configuração. */
   @IsOptional()
   @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))

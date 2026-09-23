@@ -41,6 +41,11 @@ export interface ContaDePagamento {
   ativa: boolean;
   /** É uma das que costumam pagar os débitos — aparece no topo da lista. */
   usual: boolean;
+  /**
+   * É caixa (dinheiro em mãos), e não banco. É o que separa as duas listas no
+   * pagamento: em mãos se escolhe o caixa, pelo IXC se escolhe o banco.
+   */
+  caixa: boolean;
 }
 
 /**
@@ -473,6 +478,8 @@ export class ContasAbertasService {
           nome: String(r.conta ?? r.descricao ?? `Conta ${id}`).trim(),
           ativa: String(r.ativo ?? 'S').toUpperCase() !== 'N',
           usual: CONTAS_QUE_COSTUMAM_PAGAR.includes(id),
+          // "C" no cadastro do IXC; "B" é banco.
+          caixa: /^c/i.test(String(r.tipo ?? '').trim()),
         };
       })
       .filter((c) => Number.isInteger(c.id) && c.id > 0 && c.nome)

@@ -35,6 +35,7 @@ import type {
   PagamentoAvulso,
 } from '../../lib/types';
 import { CampoComSugestoes } from '../../components/CampoComSugestoes';
+import { useAssistente } from '../../components/Assistente';
 
 /** Cadastro em branco: começa no IXC, que é a forma rastreável. */
 const CADASTRO_VAZIO = {
@@ -1307,12 +1308,20 @@ function FormularioPagamento({
   const [descricaoExtra, setDescricaoExtra] = useState('');
   const [descricao, setDescricao] = useState('');
   const [forma, setForma] = useState<FormaPagamento>(beneficiario.formaPagamento);
+  /** De onde sai: o banco, pelo IXC; o caixa, em mãos. Vazio = o padrão. */
+  const [contaPagamento, setContaPagamento] = useState('');
   const [chavePix, setChavePix] = useState(beneficiario.chavePix ?? '');
   const [tipoChavePix, setTipoChavePix] = useState(
     beneficiario.tipoChavePix ?? '',
   );
   const [contaContabil, setContaContabil] = useState('');
   const [lendoQr, setLendoQr] = useState(false);
+  /*
+   * Conta contábil e serviço por fora quase nunca mudam: ficam fechados, e a
+   * tela mostra só o que se preenche em todo pagamento. Um extra já digitado
+   * mantém a gaveta aberta, para ele não sumir da vista.
+   */
+  const [maisOpcoes, setMaisOpcoes] = useState(false);
 
   const categorias = useQuery({
     queryKey: ['categorias-despesa'],
@@ -1333,6 +1342,14 @@ function FormularioPagamento({
         await api.get<Array<{ id: number; nome: string }>>(
           '/contas-abertas/plano-de-contas',
         )
+      ).data,
+  });
+
+  const contas = useQuery({
+    queryKey: ['contas-pagamento'],
+    queryFn: async () =>
+      (
+        await api.get<ContaDePagamentoIxc[]>('/contas-abertas/contas-pagamento')
       ).data,
   });
 
@@ -1370,111 +1387,154 @@ function FormularioPagamento({
   /** A conta contábil que vai valer: a escolhida, ou a padrão da configuração. */
   const contaEmUso = Number(contaContabil) || config.data?.contaContabilAvulso;
   const nomeDaConta = plano.data?.find((c) => c.id === contaEmUso)?.nome;
+  const nomeDaCategoria = categorias.data?.find((c) => c.id === categoriaId);
+
+  /*
+   * De onde o dinheiro sai. Em mãos, só os caixas (o do Werick e o do
+   * Aurélio); pelo IXC, só os bancos. Misturar as duas listas deixava escolher
+   * "pelo IXC, saindo do caixa", que não é nenhuma das duas coisas.
+   */
+  const emMaos = forma === 'EM_MAOS';
+  const opcoesDeConta = (contas.data ?? []).filter(
+    (c) => c.ativa && c.caixa === emMaos,
+  );
+  const contaPadrao = emMaos
+    ? config.data?.contaPagamentoCaixaId
+    : config.data?.contaPagamentoId;
+  const contaEscolhida = Number(contaPagamento) || contaPadrao;
+  const nomeDaSaida = contas.data?.find((c) => c.id === contaEscolhida)?.nome;
+
+  /*
+   * No celular, uma pergunta por vez e a revisão no fim — como o lançar conta
+   * do Contas a Pagar. No computador o formulário é o de sempre, inteiro.
+   */
+  const passo = useAssistente([
+    { rotulo: 'Data', resumo: formatData(data) },
+    {
+      rotulo: 'Como vai pagar',
+      resumo: `${emMaos ? 'Em mãos' : 'Pelo IXC'}${nomeDaSaida ? ` — ${nomeDaSaida}` : ''}`,
+    },
+    {
+      rotulo: 'Valor',
+      resumo: servico > 0 ? formatBRL(servico) : undefined,
+      falta:
+        soValor && servico < 0.01 ? 'Informe o valor do pagamento.' : undefined,
+    },
+    {
+      rotulo: 'Vendas',
+      resumo:
+        comissao > 0
+          ? `${vendas} × ${formatBRL(Number(valorPorVenda))} = ${formatBRL(comissao)}`
+          : undefined,
+      falta:
+        total < 0.01 ? 'Informe o valor ou as vendas: o pagamento está em zero.' : undefined,
+      pular: soValor,
+    },
+    {
+      rotulo: 'Do que se trata',
+      resumo: descricao.trim(),
+      falta:
+        descricao.trim().length < 3
+          ? 'Escreva do que se trata — é o que vai para o IXC.'
+          : undefined,
+    },
+    {
+      rotulo: 'A que se refere',
+      resumo: nomeDaCategoria
+        ? nomeDaCategoria.pai
+          ? `${nomeDaCategoria.pai.nome} › ${nomeDaCategoria.nome}`
+          : nomeDaCategoria.nome
+        : undefined,
+      falta: semCategoria
+        ? 'Escolha a categoria: sem ela o gasto cai em "Sem categoria" no dashboard.'
+        : undefined,
+    },
+    {
+      rotulo: 'Como o IXC vai pagar',
+      resumo: `${tipoPagamento}${vaiDePix && chavePix.trim() ? ` — ${chavePix.trim()}` : ''}`,
+      falta: semPix
+        ? 'Sem chave PIX o banco não paga por PIX — informe a chave ou troque a forma.'
+        : undefined,
+      pular: emMaos,
+    },
+    {
+      rotulo: 'Mais opções',
+      resumo: [
+        `Conta contábil ${contaEmUso ?? ''}${nomeDaConta ? ` · ${nomeDaConta}` : ''}`,
+        extra > 0
+          ? `extra ${formatBRL(extra)}${descricaoExtra ? ` (${descricaoExtra})` : ''}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(' — '),
+    },
+  ]);
+
+  const verMais = passo.celular || maisOpcoes || extra > 0 || !!contaContabil;
 
   return (
     <Janela titulo={`Pagar — ${beneficiario.nome}`} onFechar={onCancelar}>
+      {passo.cabecalho}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Campo label="Data">
-          <CampoDeData
-            valor={data}
-            onChange={setData}
-            className="campo"
-          />
-        </Campo>
-        <Campo label="Como vai pagar">
-          <select
-            value={forma}
-            onChange={(e) => setForma(e.target.value as FormaPagamento)}
-            className="campo"
-          >
-            <option value="IXC">Pelo IXC (conta a pagar)</option>
-            <option value="EM_MAOS">Em mãos (desconta do caixa)</option>
-          </select>
-        </Campo>
-        <Campo label="Conta contábil no IXC">
-          <select
-            value={contaContabil}
-            onChange={(e) => setContaContabil(e.target.value)}
-            className="campo"
-            disabled={plano.isLoading}
-          >
-            <option value="">
-              {config.data
-                ? `Padrão — ${config.data.contaContabilAvulso}${
-                    plano.data?.find(
-                      (c) => c.id === config.data!.contaContabilAvulso,
-                    )?.nome
-                      ? ` · ${plano.data.find((c) => c.id === config.data!.contaContabilAvulso)!.nome}`
-                      : ''
-                  }`
-                : 'Padrão das Configurações'}
-            </option>
-            {(plano.data ?? []).map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.id} · {c.nome}
-              </option>
-            ))}
-          </select>
-          <p className="ajuda">
-            {plano.error
-              ? 'Não deu para ler o plano de contas do IXC — o padrão vale.'
-              : nomeDaConta
-                ? `Vai lançar em "${nomeDaConta}".`
-                : 'É a conta do plano de contas do IXC onde a despesa entra.'}
-          </p>
-        </Campo>
-      </div>
-
-      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Campo label="A que se refere — categoria daqui">
-          <SeletorDeCategoria
-            categorias={categorias.data}
-            value={categoriaId}
-            vazio="Escolha a categoria…"
-            carregando={categorias.isLoading}
-            onChange={setCategoriaId}
-            title="É por ela que o dashboard separa os gastos. Fica guardada aqui — o IXC não tem onde recebê-la."
-          />
-          <p className="ajuda">
-            {beneficiario.categoriaId
-              ? 'Veio do cadastro dessa pessoa. Trocando aqui, o próximo pagamento já vem com a nova.'
-              : 'É por ela que o dashboard do Contas a Pagar separa os gastos — e fica guardada no cadastro para a próxima vez. Não achou a certa? Crie na própria lista.'}
-          </p>
-        </Campo>
-
-        {forma === 'IXC' && (
-          <Campo label="Como o IXC vai pagar">
-            <CampoComSugestoes
-              value={tipoPagamento}
-              onChange={setTipoPagamento}
-              sugestoes={['Pix', 'Boleto', 'Dinheiro', 'Transferência', 'Cartão']}
-              placeholder="Pix"
-            />
-            <p className="ajuda">
-              O rótulo tem de ser o mesmo do seu IXC. Fora do PIX, a chave não é
-              exigida.
-            </p>
+        {passo.mostrar(0) && (
+          <Campo label="Data">
+            <CampoDeData valor={data} onChange={setData} className="campo" />
           </Campo>
         )}
-      </div>
 
-      <Parte titulo="Valor" valor={servico}>
-        <Campo label="Valor (R$)" span2>
-          <CampoDinheiro valor={valorServico} onChange={setValorServico} />
-        </Campo>
-      </Parte>
+        {passo.mostrar(1) && (
+          <>
+            <Campo label="Como vai pagar">
+              <select
+                value={forma}
+                onChange={(e) => {
+                  setForma(e.target.value as FormaPagamento);
+                  // A conta de uma forma não serve à outra: volta ao padrão.
+                  setContaPagamento('');
+                }}
+                className="campo"
+              >
+                <option value="IXC">Pelo IXC (conta a pagar)</option>
+                <option value="EM_MAOS">Em mãos (sai do caixa)</option>
+              </select>
+            </Campo>
+            <Campo label={emMaos ? 'De qual caixa sai' : 'De qual conta sai'}>
+              <select
+                value={contaPagamento}
+                onChange={(e) => setContaPagamento(e.target.value)}
+                className="campo"
+                disabled={contas.isLoading}
+              >
+                <option value="">
+                  {nomeDaSaida && !contaPagamento
+                    ? `${nomeDaSaida} (padrão)`
+                    : 'Padrão das Configurações'}
+                </option>
+                {opcoesDeConta
+                  .filter((c) => c.id !== contaPadrao)
+                  .map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nome}
+                    </option>
+                  ))}
+              </select>
+            </Campo>
+          </>
+        )}
 
-      {!soValor && (
-        <>
-          <Parte
-            titulo="Vendas"
-            valor={comissao}
-            nota="Cliente da empresa também vende e recebe comissão. Deixe em zero quando o acerto não tiver venda."
-          >
+        {passo.mostrar(2) && (
+          <Campo label={soValor ? 'Valor (R$)' : 'Valor do serviço (R$)'}>
+            <CampoDinheiro valor={valorServico} onChange={setValorServico} />
+          </Campo>
+        )}
+
+        {!soValor && passo.mostrar(3) && (
+          <>
             <Campo label="Quantas vendas">
               <input
                 type="number"
                 min="0"
+                inputMode="numeric"
                 value={vendas}
                 onChange={(e) => setVendas(e.target.value)}
                 placeholder="0"
@@ -1492,188 +1552,243 @@ function FormularioPagamento({
                 }
               />
             </Campo>
-          </Parte>
+          </>
+        )}
 
-          <Parte
-            titulo="Serviço por fora"
-            valor={extra}
-            nota="Aquele trabalho a mais que rendeu um troco no mesmo acerto."
-          >
-            <Campo label="Valor extra (R$)">
-              <CampoDinheiro valor={valorExtra} onChange={setValorExtra} />
-            </Campo>
-            <Campo label="O que foi">
-              <input
-                value={descricaoExtra}
-                onChange={(e) => setDescricaoExtra(e.target.value)}
-                className="campo"
-                placeholder="Ex.: instalação"
-                autoComplete="off"
+        {passo.mostrar(4) && (
+          <Campo label="Do que se trata" span2={!passo.celular}>
+            <input
+              value={descricao}
+              onChange={(e) => setDescricao(e.target.value)}
+              className="campo"
+              placeholder="Ex.: troca do padrão de energia"
+              autoComplete="off"
+            />
+          </Campo>
+        )}
+
+        {passo.mostrar(5) && (
+          <Campo label="A que se refere">
+            <SeletorDeCategoria
+              categorias={categorias.data}
+              value={categoriaId}
+              vazio="Escolha a categoria…"
+              carregando={categorias.isLoading}
+              onChange={setCategoriaId}
+              title="É por ela que o dashboard separa os gastos. Fica guardada no cadastro para a próxima vez."
+            />
+          </Campo>
+        )}
+
+        {!emMaos && passo.mostrar(6) && (
+          <>
+            <Campo label="Como o IXC vai pagar">
+              <CampoComSugestoes
+                value={tipoPagamento}
+                onChange={setTipoPagamento}
+                sugestoes={['Pix', 'Boleto', 'Dinheiro', 'Transferência', 'Cartão']}
+                placeholder="Pix"
               />
             </Campo>
-          </Parte>
-        </>
-      )}
-
-      <div className="mt-5 grid grid-cols-1 gap-4 border-t border-tinta-100 pt-5 sm:grid-cols-2 lg:grid-cols-3">
-        <Campo label="Do que se trata — vai para o IXC" span2>
-          <input
-            value={descricao}
-            onChange={(e) => setDescricao(e.target.value)}
-            className="campo"
-            placeholder="Ex.: troca do padrão de energia"
-            autoComplete="off"
-          />
-        </Campo>
-        {forma === 'IXC' && (
-          <>
-            <Campo label="Chave PIX — vai exata para o IXC">
-              <div className="flex gap-2">
-                <input
-                  value={chavePix}
-                  onChange={(e) => setChavePix(e.target.value)}
-                  className="campo"
-                  placeholder="Ex.: (99) 99230-0993"
-                  autoComplete="off"
-                />
-                {/* Cobrança com QR: o "copia e cola" lido substitui a chave
-                    fixa da pessoa, porque é ele que carrega valor e destino
-                    daquele pagamento. */}
-                {leitorDeCodigoSuportado() && (
-                  <button
-                    type="button"
-                    onClick={() => setLendoQr(true)}
-                    className="btn btn-ferramenta shrink-0"
-                    title="Ler o QR Code do PIX com a câmera"
-                  >
-                    QR
-                  </button>
-                )}
-              </div>
-            </Campo>
-            <Campo label="Tipo da chave">
-              <select
-                value={tipoChavePix}
-                onChange={(e) => setTipoChavePix(e.target.value)}
-                className="campo"
-              >
-                <option value="">Pelo formato da chave</option>
-                {TIPOS_CHAVE_PIX.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-            </Campo>
+            {/* A chave só aparece quando é o PIX que paga: boleto e
+                transferência não pedem chave nenhuma. */}
+            {vaiDePix && (
+              <Campo label="Chave PIX">
+                <div className="flex gap-2">
+                  <input
+                    value={chavePix}
+                    onChange={(e) => setChavePix(e.target.value)}
+                    className="campo"
+                    placeholder="Ex.: (99) 99230-0993"
+                    autoComplete="off"
+                  />
+                  {/* Cobrança com QR: o "copia e cola" lido substitui a chave
+                      fixa da pessoa, porque é ele que carrega valor e destino
+                      daquele pagamento. */}
+                  {leitorDeCodigoSuportado() && (
+                    <button
+                      type="button"
+                      onClick={() => setLendoQr(true)}
+                      className="btn btn-ferramenta shrink-0"
+                      title="Ler o QR Code do PIX com a câmera"
+                    >
+                      QR
+                    </button>
+                  )}
+                </div>
+                <select
+                  value={tipoChavePix}
+                  onChange={(e) => setTipoChavePix(e.target.value)}
+                  className="campo mt-2"
+                  aria-label="Tipo da chave"
+                >
+                  <option value="">Tipo da chave: pelo formato</option>
+                  {TIPOS_CHAVE_PIX.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </Campo>
+            )}
           </>
         )}
       </div>
 
-      <p className="mt-4 text-xs leading-relaxed text-tinta-500">
-        {forma === 'IXC'
-          ? 'Vai virar uma conta a pagar só no IXC: a pessoa é cadastrada como fornecedor e o pagamento passa pela auditoria, como o da folha. A chave e o tipo ficam gravados no cadastro para a próxima vez.'
-          : 'Vira a mesma conta a pagar no IXC, mudando só de onde o dinheiro sai: a conta do caixa em vez da do banco, em dinheiro. Sem chave PIX, e passando pela auditoria como as outras.'}
-      </p>
-
-      <div className="mt-5 flex flex-wrap items-center gap-4 border-t border-tinta-100 pt-4">
-        <button
-          onClick={() =>
-            onConfirmar({
-              data,
-              valorServico: valorServico || undefined,
-              // Sem as partes na tela, nada de comissão nem extra no pedido: o
-              // valor digitado é o pagamento inteiro.
-              ...(soValor
-                ? {}
-                : {
-                    vendas: Number(vendas) || 0,
-                    valorPorVenda: valorPorVenda || undefined,
-                    valorExtra: valorExtra || undefined,
-                    descricaoExtra: descricaoExtra || undefined,
-                  }),
-              descricao,
-              forma,
-              contaContabil: contaContabil || undefined,
-              categoriaId: categoriaId || undefined,
-              ...(forma === 'IXC'
-                ? { chavePix, tipoChavePix, tipoPagamento: tipoPagamento || undefined }
-                : {}),
-            })
-          }
-          disabled={!valido || ocupado}
-          className="btn btn-primario"
-        >
-          {ocupado ? 'Registrando…' : 'Confirmar pagamento'}
-        </button>
-        <button onClick={onCancelar} className="btn btn-neutro">
-          Cancelar
-        </button>
-        {lendoQr && (
-          <LeitorDeCodigo
-            alvo="pix"
-            onLido={(codigo) => {
-              setChavePix(codigo);
-              setTipoChavePix('Código copia e cola');
-              setLendoQr(false);
-            }}
-            onFechar={() => setLendoQr(false)}
-          />
-        )}
-
-        {semPix ? (
-          <span className="text-sm text-rose-600">
-            Sem chave PIX o banco não paga por PIX — informe a chave, escolha
-            outro tipo de pagamento (boleto, transferência) ou pague em mãos.
-          </span>
-        ) : semCategoria ? (
-          <span className="text-sm text-rose-600">
-            Escolha a que se refere, lá em cima: sem categoria este gasto cai
-            em “Sem categoria” no dashboard do Contas a Pagar.
-          </span>
+      {passo.mostrar(7) &&
+        (verMais ? (
+          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <Campo label="Conta contábil no IXC">
+              <select
+                value={contaContabil}
+                onChange={(e) => setContaContabil(e.target.value)}
+                className="campo"
+                disabled={plano.isLoading}
+              >
+                <option value="">
+                  {config.data
+                    ? `Padrão — ${config.data.contaContabilAvulso}${
+                        plano.data?.find(
+                          (c) => c.id === config.data!.contaContabilAvulso,
+                        )?.nome
+                          ? ` · ${plano.data.find((c) => c.id === config.data!.contaContabilAvulso)!.nome}`
+                          : ''
+                      }`
+                    : 'Padrão das Configurações'}
+                </option>
+                {(plano.data ?? []).map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.id} · {c.nome}
+                  </option>
+                ))}
+              </select>
+            </Campo>
+            {!soValor && (
+              <>
+                <Campo label="Serviço por fora (R$)">
+                  <CampoDinheiro valor={valorExtra} onChange={setValorExtra} />
+                </Campo>
+                <Campo label="O que foi">
+                  <input
+                    value={descricaoExtra}
+                    onChange={(e) => setDescricaoExtra(e.target.value)}
+                    className="campo"
+                    placeholder="Ex.: instalação"
+                    autoComplete="off"
+                  />
+                </Campo>
+              </>
+            )}
+          </div>
         ) : (
-          <span className="ml-auto text-sm text-tinta-500">
-            Vai sair{' '}
-            <strong className="valor text-lg text-tinta-900">
-              {formatBRL(total)}
-            </strong>
-          </span>
-        )}
-      </div>
+          <button
+            type="button"
+            onClick={() => setMaisOpcoes(true)}
+            className="btn btn-sutil btn-p mt-3"
+          >
+            Mais opções — conta contábil{soValor ? '' : ', serviço por fora'}
+          </button>
+        ))}
+
+      {passo.resumo}
+      {passo.barra}
+
+      {/* Fora dos botões: no celular eles só aparecem na revisão, e o QR é
+          lido no passo da chave. */}
+      {lendoQr && (
+        <LeitorDeCodigo
+          alvo="pix"
+          onLido={(codigo) => {
+            setChavePix(codigo);
+            setTipoChavePix('Código copia e cola');
+            setLendoQr(false);
+          }}
+          onFechar={() => setLendoQr(false)}
+        />
+      )}
+
+      {passo.mostrarAcao && (
+        <div className="mt-5 flex flex-wrap items-center gap-4 border-t border-tinta-100 pt-4">
+          <button
+            onClick={() =>
+              onConfirmar({
+                data,
+                valorServico: valorServico || undefined,
+                // Sem as partes na tela, nada de comissão nem extra no pedido:
+                // o valor digitado é o pagamento inteiro.
+                ...(soValor
+                  ? {}
+                  : {
+                      vendas: Number(vendas) || 0,
+                      valorPorVenda: valorPorVenda || undefined,
+                      valorExtra: valorExtra || undefined,
+                      descricaoExtra: descricaoExtra || undefined,
+                    }),
+                descricao,
+                forma,
+                contaPagamento: contaPagamento || undefined,
+                contaContabil: contaContabil || undefined,
+                categoriaId: categoriaId || undefined,
+                ...(forma === 'IXC'
+                  ? {
+                      chavePix,
+                      tipoChavePix,
+                      tipoPagamento: tipoPagamento || undefined,
+                    }
+                  : {}),
+              })
+            }
+            disabled={!valido || ocupado}
+            className="btn btn-primario"
+          >
+            {ocupado ? 'Registrando…' : 'Confirmar pagamento'}
+          </button>
+          <button onClick={onCancelar} className="btn btn-neutro">
+            Cancelar
+          </button>
+
+          {semPix ? (
+            <span className="text-sm text-rose-600">
+              Sem chave PIX o banco não paga por PIX — informe a chave ou troque
+              a forma de pagar.
+            </span>
+          ) : semCategoria ? (
+            <span className="text-sm text-rose-600">
+              Escolha a que se refere: sem categoria o gasto some do dashboard.
+            </span>
+          ) : (
+            <span className="ml-auto text-sm text-tinta-500">
+              Vai sair{' '}
+              <strong className="valor text-lg text-tinta-900">
+                {formatBRL(total)}
+              </strong>
+              {comissao > 0 || extra > 0 ? (
+                <span className="block text-xs text-tinta-400">
+                  {[
+                    servico > 0 ? `serviço ${formatBRL(servico)}` : null,
+                    comissao > 0 ? `vendas ${formatBRL(comissao)}` : null,
+                    extra > 0 ? `extra ${formatBRL(extra)}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' + ')}
+                </span>
+              ) : null}
+            </span>
+          )}
+        </div>
+      )}
     </Janela>
   );
 }
 
-/**
- * Uma parte do pagamento, com o que ela soma à direita. Ver as três somas
- * separadas é o que permite conferir o total sem refazer a conta de cabeça.
- */
-function Parte({
-  titulo,
-  valor,
-  nota,
-  children,
-}: {
-  titulo: string;
-  valor: number;
-  nota?: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="mt-5 rounded-xl border border-tinta-100 p-4">
-      <div className="mb-3 flex items-baseline justify-between gap-3">
-        <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-tinta-500">
-          {titulo}
-        </h3>
-        <span
-          className={`valor text-sm ${valor > 0 ? 'text-tinta-800' : 'text-tinta-300'}`}
-        >
-          {formatBRL(valor)}
-        </span>
-      </div>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">{children}</div>
-      {nota && <p className="mt-3 text-xs text-tinta-400">{nota}</p>}
-    </section>
-  );
+/** Uma conta de onde o dinheiro sai, como `/contas-abertas/contas-pagamento` a devolve. */
+interface ContaDePagamentoIxc {
+  id: number;
+  nome: string;
+  ativa: boolean;
+  usual: boolean;
+  /** Caixa (dinheiro em mãos), e não banco. */
+  caixa: boolean;
 }
 
 function Campo({

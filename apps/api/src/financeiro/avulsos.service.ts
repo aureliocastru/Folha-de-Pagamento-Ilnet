@@ -608,6 +608,7 @@ export class AvulsosService {
       usuarioId,
       tipoEscolhido,
       categoriaId,
+      dto.contaPagamento,
     );
     await this.guardarCategoriaPadrao(beneficiario, categoriaId);
     return pagamento;
@@ -708,6 +709,11 @@ export class AvulsosService {
     tipoPagamento?: string,
     /** A que se refere — a etiqueta desta casa, presa ao título lá do IXC. */
     categoriaId?: string | null,
+    /**
+     * De onde o dinheiro sai, escolhido na tela: o caixa do Werick ou o do
+     * Aurélio, em mãos; o banco, pelo IXC. Vazio = o padrão de cada forma.
+     */
+    contaPagamento?: number,
   ): Promise<PagamentoAvulsoLancado> {
     const emMaos = base.forma === FormaPagamento.EM_MAOS;
     const [conta] = await this.contasPagar.criar(
@@ -723,12 +729,13 @@ export class AvulsosService {
             contaContabil: base.contaContabil,
             ...(emMaos
               ? {
-                  contaPagamento: cfg.contaPagamentoCaixaId,
+                  contaPagamento: contaPagamento ?? cfg.contaPagamentoCaixaId,
                   tipoPagamentoIxc: TIPO_PAGAMENTO_EM_MAOS,
                 }
-              : tipoPagamento
-                ? { tipoPagamentoIxc: tipoPagamento }
-                : {}),
+              : {
+                  ...(contaPagamento ? { contaPagamento } : {}),
+                  ...(tipoPagamento ? { tipoPagamentoIxc: tipoPagamento } : {}),
+                }),
             observacao: montarObservacaoPagamento({
               ...partes,
               descricao: base.descricao,
