@@ -1785,6 +1785,38 @@ describe('saídas atrasadas na fila de conferir', () => {
     });
   });
 
+  /*
+   * O pagamento da Adriana: o retrato guardou 21/09, e depois a baixa foi
+   * refeita no IXC com 22/09. A mesma saída aparecia na lista do dia 22 e,
+   * de novo, como atrasada do dia 21.
+   */
+  it('a saída que o IXC já mostra no recorte não aparece de novo como atrasada', async () => {
+    const { service, prisma } = montarServico({
+      lancamentos: [saidaEm(1752659, 50, new Date(2026, 8, 22, 10))],
+      conferencias: [
+        {
+          id: 'cf-adriana',
+          idLancamentoIxc: 1752659,
+          conferido: false,
+          dataLancamento: new Date(2026, 8, 21),
+          valor: 50,
+          historico: 'Pag. Adriana',
+          qtdNotas: 1,
+        },
+      ],
+    });
+
+    const extrato = await service.extrato(7, '2026-09-22', '2026-09-23');
+
+    expect(extrato.atrasados).toHaveLength(0);
+    expect(extrato.lancamentos.map((l) => l.id)).toEqual([1752659]);
+    // O retrato passa a ter a data de lá.
+    expect(prisma.conferenciaCaixa.update).toHaveBeenCalledWith({
+      where: { id: 'cf-adriana' },
+      data: { dataLancamento: new Date(2026, 8, 22, 10) },
+    });
+  });
+
   it('o que já foi conferido não fica na fila', async () => {
     const { service } = montarServico({
       conferencias: [

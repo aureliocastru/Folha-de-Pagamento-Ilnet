@@ -317,6 +317,35 @@ export class FechamentoCaixaService {
     });
 
     /*
+     * O retrato envelhece: a data guardada é a que o lançamento tinha quando
+     * alguém o conferiu ou anexou a nota. Se depois ele foi estornado e baixado
+     * de novo com outra data, o IXC diz uma coisa e o retrato outra — e a mesma
+     * saída aparecia duas vezes na tela, uma na lista do dia e outra aqui,
+     * "atrasada", num dia em que ela nem está mais.
+     *
+     * O que a leitura do IXC acabou de trazer manda. Estando na lista, não é
+     * atrasado; e o retrato é corrigido para a data de lá, para não voltar.
+     */
+    const lidosAgora = new Map(todos.map((l) => [l.id, l]));
+    const noRecorte = new Set(lancamentos.map((l) => l.id));
+    for (const c of atrasados) {
+      const lido = lidosAgora.get(c.idLancamentoIxc);
+      if (
+        lido &&
+        c.dataLancamento &&
+        lido.data.getTime() !== c.dataLancamento.getTime()
+      ) {
+        await this.prisma.conferenciaCaixa.update({
+          where: { id: c.id },
+          data: { dataLancamento: lido.data },
+        });
+      }
+    }
+    const atrasadosDeFato = atrasados.filter(
+      (c) => !noRecorte.has(c.idLancamentoIxc),
+    );
+
+    /*
      * Até onde este caixa já está conferido, seja qual for o recorte na tela.
      *
      * Sem isto, "não achei o anterior" tem duas causas e uma frase só: o caixa
@@ -495,7 +524,7 @@ export class FechamentoCaixaService {
       ate,
       lancamentos: comConferencia,
       /** Saídas por conferir de dias anteriores ao recorte. Ver `atrasados`. */
-      atrasados: atrasados.map((c) => ({
+      atrasados: atrasadosDeFato.map((c) => ({
         id: c.id,
         idLancamentoIxc: c.idLancamentoIxc,
         dataLancamento: c.dataLancamento,
