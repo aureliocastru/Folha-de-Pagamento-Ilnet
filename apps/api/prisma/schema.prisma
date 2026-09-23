@@ -2176,6 +2176,11 @@ model FechamentoCaixa {
   /// contar, e aí o calculado é que segue.
   saldoContado Decimal? @map("saldo_contado") @db.Decimal(14, 2)
 
+  /// O maior id de lançamento que o caixa tinha no IXC ao fechar. O que vier
+  /// acima dele com data do período já assinado foi lançado depois da
+  /// contagem, e entra na gaveta seguinte em vez de sumir.
+  ultimoIdLancamento Int? @map("ultimo_id_lancamento")
+
   observacao String?
 
   fechadoPor String?  @map("fechado_por")

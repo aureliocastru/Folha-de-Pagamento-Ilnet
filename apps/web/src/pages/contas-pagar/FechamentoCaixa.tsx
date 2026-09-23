@@ -1298,6 +1298,15 @@ function LinhaDoLancamento({
               entrada
             </Selo>
           )}
+          {l.depoisDoFechamento && (
+            <Selo
+              pequeno
+              tom="atencao"
+              titulo="Lançado no IXC depois que este dia já estava fechado. Entra na gaveta de agora e no próximo fechamento."
+            >
+              lançado depois do fechamento
+            </Selo>
+          )}
           {/* O selo fica na linha, e não escondido num detalhe: um valor que
               não entra na conta precisa se anunciar onde a conta é lida. */}
           {l.foraDaGaveta && (

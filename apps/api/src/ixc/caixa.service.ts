@@ -175,7 +175,21 @@ export class CaixaService {
     de: Date,
     ate: Date,
     cfg: { caixaTabelaMovimento: string; caixaTabelaContas?: string },
-  ): Promise<{ tabela: string; lancamentos: LancamentoDoCaixa[] }> {
+    opcoes: {
+      /**
+       * Traz também, qualquer que seja a data, o que tem id acima deste: o
+       * lançamento feito depois de um fechamento com data de um dia que ele
+       * já assinou. Ver `extrato` em `fechamento-caixa.service`.
+       */
+      tardiosAcimaDe?: number | null;
+    } = {},
+  ): Promise<{
+    tabela: string;
+    lancamentos: LancamentoDoCaixa[];
+    /** O maior id que o caixa tem hoje no IXC — null se ele está vazio. */
+    maiorId: number | null;
+  }> {
+    const tardiosAcimaDe = opcoes.tardiosAcimaDe ?? null;
     /*
      * Exceção do Nest, e não `Error` pelado: o que sai daqui vai direto para a
      * tela de quem está batendo o caixa, e `Error` vira "Internal server
@@ -283,7 +297,13 @@ export class CaixaService {
         .map((r) => parseIxcDate(r[campos.data]))
         .filter((d): d is Date => d !== null);
       // Página inteira anterior ao início: daqui para trás só há mais antigo.
-      if (datas.length > 0 && datas.every((d) => d < inicio)) break;
+      // Menos se ainda há lançamento tardio pela frente: ele tem data velha e
+      // id alto, e é pelo id que se para de procurá-lo.
+      const ultimoId = parseIxcId(res.registros[res.registros.length - 1].id);
+      const aindaHaTardio =
+        tardiosAcimaDe !== null && ultimoId !== null && ultimoId > tardiosAcimaDe;
+      if (datas.length > 0 && datas.every((d) => d < inicio) && !aindaHaTardio)
+        break;
       if (res.registros.length < PAGINA) break;
     }
 
@@ -323,10 +343,20 @@ export class CaixaService {
         };
       })
       .filter((l): l is LancamentoDoCaixa => l !== null)
-      .filter((l) => l.data >= inicio && l.data <= fim)
+      .filter(
+        (l) =>
+          l.data <= fim &&
+          (l.data >= inicio ||
+            (tardiosAcimaDe !== null && l.id > tardiosAcimaDe)),
+      )
       .sort((a, b) => a.data.getTime() - b.data.getTime() || a.id - b.id);
 
-    return { tabela, lancamentos };
+    const ids = brutos
+      .map((r) => parseIxcId(r.id))
+      .filter((id): id is number => id !== null);
+    const maiorId = ids.length > 0 ? Math.max(...ids) : null;
+
+    return { tabela, lancamentos, maiorId };
   }
 
   /** A conta do razão de um caixa (`contas.id_planejamento`). */

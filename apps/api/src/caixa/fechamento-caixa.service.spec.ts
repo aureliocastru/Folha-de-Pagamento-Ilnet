@@ -307,18 +307,32 @@ function montarServico(
      * Devolver tudo a qualquer intervalo esconderia justamente a diferença
      * entre o que a gaveta soma e o que a tela mostra.
      */
-    listarLancamentos: jest.fn(async (_caixa: number, de: Date, ate: Date) => {
-      const inicio = new Date(de);
-      inicio.setHours(0, 0, 0, 0);
-      const fim = new Date(ate);
-      fim.setHours(23, 59, 59, 999);
-      return {
-        tabela: 'fn_lancamento_caixa',
-        lancamentos: lancamentos.filter(
-          (l) => l.data >= inicio && l.data <= fim,
-        ),
-      };
-    }),
+    listarLancamentos: jest.fn(
+      async (
+        _caixa: number,
+        de: Date,
+        ate: Date,
+        _cfg?: unknown,
+        opcoes: { tardiosAcimaDe?: number | null } = {},
+      ) => {
+        const inicio = new Date(de);
+        inicio.setHours(0, 0, 0, 0);
+        const fim = new Date(ate);
+        fim.setHours(23, 59, 59, 999);
+        const acima = opcoes.tardiosAcimaDe ?? null;
+        return {
+          tabela: 'fn_lancamento_caixa',
+          lancamentos: lancamentos.filter(
+            (l) =>
+              l.data <= fim &&
+              (l.data >= inicio || (acima !== null && l.id > acima)),
+          ),
+          maiorId: lancamentos.length
+            ? Math.max(...lancamentos.map((l) => l.id))
+            : null,
+        };
+      },
+    ),
     resolverCaixa: jest.fn().mockResolvedValue(7),
   };
 
@@ -1339,6 +1353,74 @@ describe('o saldo que deve estar na gaveta', () => {
     // O recorte continua mandando no resto da tela: o dia 31 está na lista.
     expect(desde31.resumo.saidas).toBe(1184);
     expect(desde31.resumo.lancamentos).toBe(3);
+  });
+
+  /*
+   * O caso do CX - Werick em 23/09: contado e fechado até 22/09 com R$ 2.070,
+   * e depois disso alguém lançou no IXC, com data de 22/09, uma transferência
+   * de R$ 1.500 e um pagamento de R$ 50. A gaveta começava no dia 23 e os dois
+   * sumiam: a tela dizia R$ 2.100 numa gaveta com R$ 550.
+   */
+  it('o lançado depois do fechamento com data de antes dele sai da gaveta', async () => {
+    const caso = {
+      anteriores: [
+        {
+          saldoFinal: 2070,
+          saldoContado: 2070,
+          ultimoIdLancamento: 3,
+          ate: new Date(2026, 8, 22, 23, 59, 59, 999),
+        },
+      ],
+      lancamentos: [
+        // Já assinados no fechamento de 22/09.
+        entradaEm(1, 95, new Date(2026, 8, 22, 9)),
+        saidaEm(3, 20, new Date(2026, 8, 22, 11)),
+        // Lançados depois da contagem, datados do dia fechado.
+        saidaEm(4, 1500, new Date(2026, 8, 22, 12)),
+        entradaEm(5, 30, new Date(2026, 8, 23, 9)),
+        saidaEm(6, 50, new Date(2026, 8, 22, 15)),
+      ],
+    };
+
+    // O recorte que a tela abria, 22 a 23.
+    const r1 = await montarServico(caso).service.extrato(
+      7,
+      '2026-09-22',
+      '2026-09-23',
+    );
+    expect(r1.resumo.saldoEsperado).toBe(550);
+
+    // Só o período aberto: os dois tardios entram na lista, para conferir.
+    const r2 = await montarServico(caso).service.extrato(
+      7,
+      '2026-09-23',
+      '2026-09-23',
+    );
+    expect(r2.resumo.saldoEsperado).toBe(550);
+    expect(r2.lancamentos.map((l) => l.id).sort()).toEqual([4, 5, 6]);
+    expect(r2.lancamentos.filter((l) => l.depoisDoFechamento).map((l) => l.id))
+      .toEqual([4, 6]);
+    expect(r2.resumo.saidas).toBe(1550);
+    expect(r2.resumo.maiorIdLido).toBe(6);
+  });
+
+  it('fechamento antigo, sem o último id guardado, conta como antes', async () => {
+    const { service } = montarServico({
+      anteriores: [
+        {
+          saldoFinal: 2070,
+          saldoContado: 2070,
+          ate: new Date(2026, 8, 22, 23, 59, 59, 999),
+        },
+      ],
+      lancamentos: [
+        saidaEm(4, 1500, new Date(2026, 8, 22, 12)),
+        entradaEm(5, 30, new Date(2026, 8, 23, 9)),
+      ],
+    });
+
+    const r = await service.extrato(7, '2026-09-23', '2026-09-23');
+    expect(r.resumo.saldoEsperado).toBe(2100);
   });
 
   it('o que saiu com alguém fora do recorte também falta na gaveta', async () => {

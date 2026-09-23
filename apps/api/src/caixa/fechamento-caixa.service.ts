@@ -47,6 +47,11 @@ export interface LancamentoConferido extends LancamentoDoCaixa {
    */
   foraDaGaveta: boolean;
   motivoForaDaGaveta: string | null;
+  /**
+   * Lançado no IXC depois do último fechamento, com data de um dia que ele já
+   * tinha assinado. Conta na gaveta de agora, e não na daquele dia.
+   */
+  depoisDoFechamento: boolean;
 }
 
 /**
@@ -192,17 +197,49 @@ export class FechamentoCaixaService {
      * percorrer de novo tudo o que a primeira já tinha percorrido — nesta
      * página, que já caiu uma vez com 502, isso se paga caro.
      */
-    const { lancamentos: todos } = await this.caixa.listarLancamentos(
-      caixaId,
-      gavetaDesde && gavetaDesde < inicio ? gavetaDesde : inicio,
-      fim,
-      cfg,
+    /*
+     * O lançamento que chegou depois do fechamento com data de antes dele.
+     *
+     * O caixa foi contado e assinado às 16h; às 17h alguém transferiu R$ 1.500
+     * para outro caixa e lançou no IXC com a data daquele mesmo dia. O dinheiro
+     * saiu da gaveta depois da contagem, mas a janela da gaveta começa no dia
+     * seguinte ao fechamento — e o lançamento, datado do dia já assinado,
+     * ficava de fora de tudo: nem no fechamento que passou, nem na gaveta de
+     * agora. A tela mostrava R$ 2.100 numa gaveta com R$ 550.
+     *
+     * Pela data não há como separá-lo dos que o fechamento já contou. Pelo id
+     * há: o IXC numera em ordem de lançamento, e o fechamento guarda o maior id
+     * que o caixa tinha quando foi assinado. Acima dele, é posterior.
+     */
+    const ultimoIdFechado = anterior?.ultimoIdLancamento ?? null;
+    const tardio = (l: { id: number; data: Date }) =>
+      ultimoIdFechado !== null &&
+      !!gavetaDesde &&
+      l.id > ultimoIdFechado &&
+      l.data < gavetaDesde;
+
+    const { lancamentos: todos, maiorId } =
+      await this.caixa.listarLancamentos(
+        caixaId,
+        gavetaDesde && gavetaDesde < inicio ? gavetaDesde : inicio,
+        fim,
+        cfg,
+        { tardiosAcimaDe: gavetaDesde ? ultimoIdFechado : null },
+      );
+    /*
+     * O recorte pedido: é ele que a tela lista e confere.
+     *
+     * O tardio entra no período aberto mesmo com a data de antes dele: é o
+     * próximo fechamento que o assina, e a saída precisa ser conferida como
+     * qualquer outra — senão ninguém nunca a vê.
+     */
+    const lancamentos = todos.filter(
+      (l) =>
+        l.data >= inicio || (tardio(l) && !!gavetaDesde && inicio >= gavetaDesde),
     );
-    /** O recorte pedido: é ele que a tela lista e confere. */
-    const lancamentos = todos.filter((l) => l.data >= inicio);
     /** A janela da gaveta: o que ela viu desde o fechamento. */
     const daGaveta = gavetaDesde
-      ? todos.filter((l) => l.data >= gavetaDesde)
+      ? todos.filter((l) => l.data >= gavetaDesde || tardio(l))
       : [];
 
     const conferencias = await this.prisma.conferenciaCaixa.findMany({
@@ -230,6 +267,7 @@ export class FechamentoCaixaService {
         // mesmo jeito: é uma saída que aconteceu.
         foraDaGaveta: c?.foraDaGaveta ?? false,
         motivoForaDaGaveta: c?.motivoForaDaGaveta ?? null,
+        depoisDoFechamento: tardio(l),
       };
     });
 
@@ -515,6 +553,8 @@ export class FechamentoCaixaService {
          * há de onde partir.
          */
         gavetaDesde: gavetaDesde ? diaISO(gavetaDesde) : null,
+        /** O maior id do caixa no IXC nesta leitura; o fechamento o guarda. */
+        maiorIdLido: maiorId,
         /**
          * O que deve estar na gaveta agora. Null enquanto falta o inicial.
          *
@@ -1636,6 +1676,7 @@ export class FechamentoCaixaService {
         saldoFinal: new Prisma.Decimal(saldoFinal),
         saldoContado:
           saldoContado === null ? null : new Prisma.Decimal(saldoContado),
+        ultimoIdLancamento: extrato.resumo.maiorIdLido,
         observacao: dados.observacao?.trim() || null,
         fechadoPor: usuarioId ?? null,
       },

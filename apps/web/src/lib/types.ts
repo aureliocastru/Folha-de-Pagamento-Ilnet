@@ -1513,6 +1513,11 @@ export interface LancamentoDoCaixa {
    */
   foraDaGaveta: boolean;
   motivoForaDaGaveta: string | null;
+  /**
+   * Lançado no IXC depois do último fechamento, com data de um dia que ele já
+   * tinha assinado. Pesa na gaveta de agora e entra no próximo fechamento.
+   */
+  depoisDoFechamento?: boolean;
 }
 
 /**
