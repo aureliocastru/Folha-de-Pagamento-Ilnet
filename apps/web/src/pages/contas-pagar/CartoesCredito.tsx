@@ -21,6 +21,7 @@ import { useTermoAdiado } from '../../lib/busca';
 import { formatBRL, formatData } from '../../lib/format';
 import type { CategoriaDespesa } from '../../lib/types';
 import { CampoDeData } from '../../components/CampoDeData';
+import { SeletorComBusca } from '../../components/SeletorComBusca';
 
 /** Um fornecedor do IXC, como a busca por nome o devolve. */
 interface FornecedorIxc {
@@ -1451,22 +1452,18 @@ function CadastroDoCartao({
           <label className="rotulo" htmlFor="cartao-contabil">
             Conta contábil no IXC
           </label>
-          <select
+          <SeletorComBusca
             id="cartao-contabil"
             value={contaContabil}
-            onChange={(e) => setContaContabil(e.target.value)}
-            className="campo"
-            disabled={plano.isLoading}
-          >
-            <option value="">
-              {nomeDaContaContabilPadrao(config.data, plano.data)}
-            </option>
-            {(plano.data ?? []).map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.id} — {p.nome}
-              </option>
-            ))}
-          </select>
+            onChange={setContaContabil}
+            carregando={plano.isLoading}
+            vazio={nomeDaContaContabilPadrao(config.data, plano.data)}
+            opcoes={(plano.data ?? []).map((p) => ({
+              valor: String(p.id),
+              rotulo: `${p.id} — ${p.nome}`,
+            }))}
+            procurar="Procurar pelo nome ou pelo código…"
+          />
         </div>
 
         <div>

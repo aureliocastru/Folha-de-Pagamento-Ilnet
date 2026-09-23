@@ -61,18 +61,48 @@ export function useAssistente(passos: PassoDoAssistente[]) {
   const mostrar = (indice: number) =>
     !celular || (!!atual && atual.indice === indice);
 
+  /*
+   * A seta de voltar, no alto, ao lado do "Passo 2 de 8" (pedido do dono em
+   * 23/09/2026). O "Voltar" de baixo continua, mas fica depois do campo — com
+   * o teclado aberto, ele some atrás dele, e a seta do alto não.
+   */
+  const podeVoltar = onde > 0;
   const cabecalho = celular ? (
-    <div className="mb-3">
-      <p className="eyebrow">
-        {naRevisao
-          ? 'Confira antes de finalizar'
-          : `Passo ${onde + 1} de ${fila.length}`}
-      </p>
-      {atual && (
-        <h3 className="font-display text-base font-semibold text-tinta-900">
-          {atual.passo.rotulo}
-        </h3>
+    <div className="mb-3 flex items-start gap-2">
+      {podeVoltar && (
+        <button
+          type="button"
+          onClick={() => setPosicao(onde - 1)}
+          aria-label="Voltar ao passo anterior"
+          className="-ml-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-tinta-600 transition active:bg-tinta-100"
+        >
+          <svg
+            width="22"
+            height="22"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+          >
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
+        </button>
       )}
+      <div className="min-w-0">
+        <p className="eyebrow">
+          {naRevisao
+            ? 'Confira antes de finalizar'
+            : `Passo ${onde + 1} de ${fila.length}`}
+        </p>
+        {atual && (
+          <h3 className="font-display text-base font-semibold text-tinta-900">
+            {atual.passo.rotulo}
+          </h3>
+        )}
+      </div>
     </div>
   ) : null;
 

@@ -24,6 +24,7 @@ import { EMPRESA } from '../../lib/empresa';
 import { formatBRL, formatData } from '../../lib/format';
 import type { CategoriaDespesa } from '../../lib/types';
 import { CampoDeData } from '../../components/CampoDeData';
+import { SeletorComBusca } from '../../components/SeletorComBusca';
 
 /** Um fornecedor do IXC, como a busca por nome o devolve. */
 interface FornecedorIxc {
@@ -1647,25 +1648,21 @@ function CadastroDoEndereco({
           <label className="rotulo" htmlFor="cc-contabil">
             Conta contábil no IXC
           </label>
-          <select
+          {/* O padrão é dito pelo nome, e não como "o padrão": quem
+              escolhe precisa saber em que conta a despesa vai cair sem ter
+              de abrir as Configurações noutra aba. */}
+          <SeletorComBusca
             id="cc-contabil"
             value={contaContabil}
-            onChange={(e) => setContaContabil(e.target.value)}
-            className="campo"
-            disabled={plano.isLoading}
-          >
-            {/* O padrão é dito pelo nome, e não como "o padrão": quem
-                escolhe precisa saber em que conta a despesa vai cair sem ter
-                de abrir as Configurações noutra aba. */}
-            <option value="">
-              {nomeDaContaContabilPadrao(config.data, plano.data)}
-            </option>
-            {(plano.data ?? []).map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.id} — {p.nome}
-              </option>
-            ))}
-          </select>
+            onChange={setContaContabil}
+            carregando={plano.isLoading}
+            vazio={nomeDaContaContabilPadrao(config.data, plano.data)}
+            opcoes={(plano.data ?? []).map((p) => ({
+              valor: String(p.id),
+              rotulo: `${p.id} — ${p.nome}`,
+            }))}
+            procurar="Procurar pelo nome ou pelo código…"
+          />
         </div>
 
         <div>
@@ -2077,22 +2074,18 @@ function ImportarDoHistorico({
               <label className="rotulo" htmlFor="imp-contabil">
                 Conta contábil no IXC
               </label>
-              <select
+              <SeletorComBusca
                 id="imp-contabil"
                 value={contaContabil}
-                onChange={(e) => setContaContabil(e.target.value)}
-                className="campo"
-                disabled={plano.isLoading}
-              >
-                <option value="">
-                  {nomeDaContaContabilPadrao(config.data, plano.data)}
-                </option>
-                {(plano.data ?? []).map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.id} — {p.nome}
-                  </option>
-                ))}
-              </select>
+                onChange={setContaContabil}
+                carregando={plano.isLoading}
+                vazio={nomeDaContaContabilPadrao(config.data, plano.data)}
+                opcoes={(plano.data ?? []).map((p) => ({
+                  valor: String(p.id),
+                  rotulo: `${p.id} — ${p.nome}`,
+                }))}
+                procurar="Procurar pelo nome ou pelo código…"
+              />
             </div>
             <div>
               <label className="rotulo" htmlFor="imp-conta">

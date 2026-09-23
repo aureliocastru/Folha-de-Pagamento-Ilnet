@@ -36,6 +36,7 @@ import type {
 } from '../../lib/types';
 import { CampoComSugestoes } from '../../components/CampoComSugestoes';
 import { useAssistente } from '../../components/Assistente';
+import { SeletorComBusca } from '../../components/SeletorComBusca';
 
 /** Cadastro em branco: começa no IXC, que é a forma rastreável. */
 const CADASTRO_VAZIO = {
@@ -1380,6 +1381,9 @@ function FormularioPagamento({
   /** A conta contábil que vai valer: a escolhida, ou a padrão da configuração. */
   const contaEmUso = Number(contaContabil) || config.data?.contaContabilAvulso;
   const nomeDaConta = plano.data?.find((c) => c.id === contaEmUso)?.nome;
+  const nomeDoPadrao = plano.data?.find(
+    (c) => c.id === config.data?.contaContabilAvulso,
+  )?.nome;
   const nomeDaCategoria = categorias.data?.find((c) => c.id === categoriaId);
 
   /*
@@ -1624,29 +1628,23 @@ function FormularioPagamento({
         (verMais ? (
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <Campo label="Conta contábil no IXC">
-              <select
+              <SeletorComBusca
                 value={contaContabil}
-                onChange={(e) => setContaContabil(e.target.value)}
-                className="campo"
-                disabled={plano.isLoading}
-              >
-                <option value="">
-                  {config.data
+                onChange={setContaContabil}
+                carregando={plano.isLoading}
+                vazio={
+                  config.data
                     ? `Padrão — ${config.data.contaContabilAvulso}${
-                        plano.data?.find(
-                          (c) => c.id === config.data!.contaContabilAvulso,
-                        )?.nome
-                          ? ` · ${plano.data.find((c) => c.id === config.data!.contaContabilAvulso)!.nome}`
-                          : ''
+                        nomeDoPadrao ? ` · ${nomeDoPadrao}` : ''
                       }`
-                    : 'Padrão das Configurações'}
-                </option>
-                {(plano.data ?? []).map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.id} · {c.nome}
-                  </option>
-                ))}
-              </select>
+                    : 'Padrão das Configurações'
+                }
+                opcoes={(plano.data ?? []).map((c) => ({
+                  valor: String(c.id),
+                  rotulo: `${c.id} · ${c.nome}`,
+                }))}
+                procurar="Procurar pelo nome ou pelo código…"
+              />
             </Campo>
             {!soValor && (
               <>
