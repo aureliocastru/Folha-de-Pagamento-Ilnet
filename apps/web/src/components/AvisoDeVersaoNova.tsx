@@ -15,6 +15,24 @@ function pacoteDaPagina(doc: Document): string | null {
   return script ? new URL(script.src, location.origin).pathname : null;
 }
 
+/**
+ * Recarrega buscando a página no servidor, e não na memória do aparelho.
+ *
+ * `location.reload()` pode devolver o `index.html` guardado — foi o que prendeu
+ * o iPhone na versão velha. Um endereço que nunca foi aberto não tem cópia
+ * guardada: o `?atualizar=` com a hora obriga a ir ao servidor.
+ */
+export function recarregarDoServidor(): void {
+  location.replace(`/?atualizar=${Date.now()}`);
+}
+
+/**
+ * Chave da trava contra recarregar em círculo: guarda para qual pacote já se
+ * recarregou uma vez nesta aba. Se mesmo assim a página voltar velha, o aviso
+ * aparece com o botão, em vez de recarregar de novo para sempre.
+ */
+const TRAVA = 'versao.recarregouPara';
+
 /** O pacote que o servidor entrega agora, lido do `index.html` de hoje. */
 async function pacoteNoServidor(): Promise<string | null> {
   const resposta = await fetch(`/index.html?v=${Date.now()}`, {
@@ -37,6 +55,7 @@ async function pacoteNoServidor(): Promise<string | null> {
  * app aberto, ele é conferido de tempos em tempos e sempre que o app volta
  * para a frente. Havendo novo:
  *
+ * - ao abrir o app, recarrega sem perguntar: ainda não há nada digitado;
  * - voltando depois de muito tempo fora, recarrega sem perguntar — ninguém
  *   deixou um formulário pela metade por dez minutos esperando encontrá-lo;
  * - fora isso, aparece o aviso com o botão. Recarregar por conta própria no
@@ -55,22 +74,42 @@ export function AvisoDeVersaoNova() {
     let ultimaPergunta = 0;
     let saiuEm: number | null = null;
 
-    const conferir = async (voltouDepoisDeMuitoTempo = false) => {
-      if (Date.now() - ultimaPergunta < ESPERA_MINIMA_MS && !voltouDepoisDeMuitoTempo)
+    // Abriu pelo botão de atualizar: tira o `?atualizar=` do endereço.
+    if (new URLSearchParams(location.search).has('atualizar')) {
+      history.replaceState(history.state, '', location.pathname);
+    }
+
+    const conferir = async (podeRecarregar = false) => {
+      if (Date.now() - ultimaPergunta < ESPERA_MINIMA_MS && !podeRecarregar)
         return;
       ultimaPergunta = Date.now();
       try {
         const noServidor = await pacoteNoServidor();
         if (!noServidor || noServidor === atual) return;
-        if (voltouDepoisDeMuitoTempo) {
-          location.reload();
-          return;
+        if (podeRecarregar) {
+          let jaTentou = true;
+          try {
+            jaTentou = sessionStorage.getItem(TRAVA) === noServidor;
+            if (!jaTentou) sessionStorage.setItem(TRAVA, noServidor);
+          } catch {
+            // Sem armazenamento não há trava: vale o aviso, que não depende dela.
+          }
+          if (!jaTentou) {
+            recarregarDoServidor();
+            return;
+          }
         }
         setHaNova(true);
       } catch {
         // Sem rede agora: a próxima volta pergunta de novo.
       }
     };
+
+    /*
+     * Logo ao abrir. Se a página veio da memória do aparelho e já existe outra,
+     * recarrega na hora: ninguém digitou nada ainda.
+     */
+    void conferir(true);
 
     const aoMudarVisibilidade = () => {
       if (document.visibilityState === 'hidden') {
@@ -110,7 +149,7 @@ export function AvisoDeVersaoNova() {
         </p>
         <button
           type="button"
-          onClick={() => location.reload()}
+          onClick={recarregarDoServidor}
           className="btn btn-primario shrink-0"
         >
           Atualizar

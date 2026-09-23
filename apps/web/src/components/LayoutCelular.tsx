@@ -258,6 +258,7 @@ function GavetaDoModulo({
               </span>
             </span>
           </NavLink>
+          <p className="mt-2 text-[10px] text-white/35">Versão de {__VERSAO__}</p>
           <div className="mt-3 flex gap-2">
             <button
               type="button"

@@ -1,5 +1,6 @@
 import { Link, Navigate } from 'react-router-dom';
 import { IconeBomba, IconeChecklist, IconeTrofeu, type Icone } from '../components/icones';
+import { recarregarDoServidor } from '../components/AvisoDeVersaoNova';
 import { CabecalhoDeFora } from '../components/TelaDeFora';
 import { useAuth } from '../lib/auth';
 import { cartoesDoColaborador, useInicioDoColaborador } from '../lib/colaborador';
@@ -112,6 +113,22 @@ export function Modulos() {
               tom={c.tom}
             />
           ))}
+        </div>
+
+        {/*
+          Atualizar à mão, pedido do dono em 23/09/2026: o app da tela inicial
+          do iPhone seguia na versão velha depois de uma mudança, e não havia
+          onde tocar para buscar a nova. A data diz qual versão está aberta.
+        */}
+        <div className="mt-8 flex items-center justify-between gap-3 border-t border-white/10 pt-4">
+          <span className="text-[12px] text-white/40">Versão de {__VERSAO__}</span>
+          <button
+            type="button"
+            onClick={recarregarDoServidor}
+            className="rounded-lg border border-white/15 px-4 py-2.5 text-[13px] font-semibold text-white/80 transition hover:bg-white/5 active:bg-white/10"
+          >
+            Atualizar o sistema
+          </button>
         </div>
       </main>
     </div>
