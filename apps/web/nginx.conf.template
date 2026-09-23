@@ -29,6 +29,14 @@ server {
         default_type application/manifest+json;
     }
 
+    # O index.html é conferido a cada abertura. Sem cabeçalho nenhum, o
+    # navegador do celular o guardava por conta própria e seguia abrindo o
+    # pacote velho — é ele que diz qual `/assets/index-*.js` é o atual. Os
+    # pacotes continuam com cache longo: o nome deles muda a cada versão.
+    location = /index.html {
+        add_header Cache-Control "no-cache";
+    }
+
     # SPA: qualquer rota cai no index.html
     location / {
         try_files $uri $uri/ /index.html;

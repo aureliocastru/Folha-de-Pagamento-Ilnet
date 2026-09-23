@@ -3,6 +3,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App';
+import { AvisoDeVersaoNova } from './components/AvisoDeVersaoNova';
 import { BlocoDeNotas } from './components/BlocoDeNotas';
 import './index.css';
 import { AuthProvider } from './lib/auth';
@@ -25,6 +26,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               que estava escrito continua escrito — e aparece em tudo que se
               abre depois de entrar. Ver o `BlocoDeNotas`. */}
           <BlocoDeNotas />
+          <AvisoDeVersaoNova />
         </AuthProvider>
       </BrowserRouter>
     </QueryClientProvider>
