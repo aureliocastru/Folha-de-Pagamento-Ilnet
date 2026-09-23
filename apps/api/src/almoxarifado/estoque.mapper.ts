@@ -26,6 +26,24 @@ export interface LinhaDeEstoqueIxc {
   saldo?: string;
 }
 
+/**
+ * O cadastro do produto (`produtos`), no que a lista usa dele.
+ *
+ * A linha de saldo traz uma cópia do nome e do resto, e a cópia envelhece: o
+ * produto 1421 foi um freezer e virou "DIVISOR OPTICO PLC 1X2" no cadastro, e
+ * a linha de saldo seguiu dizendo freezer — a conferência mostrava "FREEZ...
+ * código 1421" com 16 unidades, que no IXC eram do divisor (23/09/2026). O
+ * cadastro é o que o IXC mostra na tela dele, e é ele que vale.
+ */
+export interface CadastroDoProdutoIxc {
+  descricao?: unknown;
+  ativo?: unknown;
+  tipo?: unknown;
+  controla_estoque?: unknown;
+  unidade?: unknown;
+  preco_base?: unknown;
+}
+
 /** Uma linha crua de `estoque_min_max_almox`. */
 export interface LinhaDeMinimoIxc {
   id_produto?: string;
@@ -158,6 +176,8 @@ export function montarEstoque(
   linhas: LinhaDeEstoqueIxc[],
   minimos: LinhaDeMinimoIxc[] = [],
   unidades: Map<number, string> = new Map(),
+  /** id → cadastro atual. Sem ele (o IXC não respondeu), vale a cópia da linha. */
+  cadastros: Map<number, CadastroDoProdutoIxc> = new Map(),
 ): ItemDeEstoque[] {
   /** produtoId → almoxId → mínimo/máximo */
   const limites = new Map<string, { minimo: number | null; maximo: number | null }>();
@@ -177,19 +197,27 @@ export function montarEstoque(
     // agrupá-la sob o id 0 criaria um "produto" que soma tudo o que sobrou.
     if (produtoId === 0) continue;
 
+    const cad = cadastros.get(produtoId);
+    const texto = (v: unknown) => (v == null ? '' : String(v).trim());
+    const descricao = texto(cad?.descricao) || texto(l.produto_descricao);
+    const tipo = (cad ? texto(cad.tipo) : texto(l.produto_tipo)).toUpperCase();
+    const preco = cad ? cad.preco_base : l.produto_preco_base;
     const item =
       porProduto.get(produtoId) ??
       ({
         produtoId,
-        descricao: (l.produto_descricao ?? '').trim() || `Produto ${produtoId}`,
-        unidade: unidades.get(numeroDoIxc(l.produto_unidade)) ?? null,
-        precoBase: l.produto_preco_base ? numeroDoIxc(l.produto_preco_base) : null,
+        descricao: descricao || `Produto ${produtoId}`,
+        unidade: unidades.get(numeroDoIxc(cad ? cad.unidade : l.produto_unidade)) ?? null,
+        precoBase: preco ? numeroDoIxc(preco) : null,
         // "S" é o ativo do IXC. Ausente conta como ativo: o cadastro antigo de
         // lá tem linha sem a coluna, e escondê-las seria esconder estoque.
-        ativo: (l.produto_ativo ?? 'S') !== 'N',
-        servico: (l.produto_tipo ?? '').trim().toUpperCase() === 'S',
-        tipo: (l.produto_tipo ?? '').trim().toUpperCase(),
-        controlaEstoque: (l.produto_controla_estoque ?? 'S').trim().toUpperCase() !== 'N',
+        ativo: (cad ? texto(cad.ativo) || 'S' : (l.produto_ativo ?? 'S')).toUpperCase() !== 'N',
+        servico: tipo === 'S',
+        tipo,
+        controlaEstoque:
+          (cad ? texto(cad.controla_estoque) || 'S' : (l.produto_controla_estoque ?? 'S'))
+            .trim()
+            .toUpperCase() !== 'N',
         saldos: [],
         total: 0,
         abaixoDoMinimo: false,

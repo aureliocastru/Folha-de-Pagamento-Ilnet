@@ -49,6 +49,62 @@ describe('numeroDoIxc', () => {
 });
 
 describe('montarEstoque', () => {
+  /*
+   * O caso do 1421 (23/09/2026): a linha de saldo dizia "FREEZ.V.CONS.231L"
+   * e o cadastro do IXC já era o divisor óptico. A conferência mostrava o
+   * freezer com as 16 unidades do divisor.
+   */
+  it('o nome e o resto vêm do cadastro atual, e não da cópia da linha de saldo', () => {
+    const [item] = montarEstoque(
+      [
+        linha({
+          id_produto: '1421',
+          produto_descricao: 'FREEZ.V.CONS.231L CVU26F 220V',
+          produto_tipo: 'C',
+          saldo: '16',
+        }),
+      ],
+      [],
+      new Map([[1, 'UND'], [14, 'UN']]),
+      new Map([
+        [
+          1421,
+          {
+            descricao: 'DIVISOR OPTICO PLC 1X2 BLI A/B G-657A1 NC/NC',
+            tipo: 'C',
+            ativo: 'S',
+            controla_estoque: 'S',
+            unidade: '1',
+            preco_base: '12.50',
+          },
+        ],
+      ]),
+    );
+
+    expect(item).toMatchObject({
+      produtoId: 1421,
+      descricao: 'DIVISOR OPTICO PLC 1X2 BLI A/B G-657A1 NC/NC',
+      unidade: 'UND',
+      precoBase: 12.5,
+      total: 16,
+    });
+  });
+
+  it('sem o cadastro, vale o que a linha de saldo diz', () => {
+    const [item] = montarEstoque([linha({ produto_descricao: 'Conector SC/APC' })]);
+    expect(item.descricao).toBe('Conector SC/APC');
+  });
+
+  it('inativo e sem controle de estoque também vêm do cadastro', () => {
+    const [item] = montarEstoque(
+      [linha({ produto_ativo: 'S', produto_controla_estoque: 'S' })],
+      [],
+      new Map(),
+      new Map([[49, { descricao: 'Conector SC/APC', ativo: 'N', controla_estoque: 'N', tipo: 'C' }]]),
+    );
+    expect(item).toMatchObject({ ativo: false, controlaEstoque: false });
+  });
+
   it('o que foi para Saídas ou Perdas não soma no que a casa tem', () => {
     const [item] = montarEstoque([
       linha({ id_almox: '1', almox_descricao: 'Estoque', saldo: '10' }),

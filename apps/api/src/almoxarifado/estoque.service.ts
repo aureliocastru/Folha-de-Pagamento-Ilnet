@@ -5,6 +5,7 @@ import {
   montarEstoque,
   numeroDoIxc,
   resumirEstoque,
+  type CadastroDoProdutoIxc,
   type ItemDeEstoque,
   type LinhaDeEstoqueIxc,
   type LinhaDeMinimoIxc,
@@ -123,7 +124,15 @@ export class EstoqueService {
       },
       { pageSize: 200, maxPages: 5 },
     );
-    const [item] = montarEstoque(linhas, [], await this.lerUnidades());
+    const cadastro = await this.ixc
+      .getById<CadastroDoProdutoIxc>('produtos', 'produtos.id', produtoId)
+      .catch(() => null);
+    const [item] = montarEstoque(
+      linhas,
+      [],
+      await this.lerUnidades(),
+      cadastro ? new Map([[produtoId, cadastro]]) : new Map(),
+    );
     return item ?? null;
   }
 
@@ -138,7 +147,7 @@ export class EstoqueService {
       return this.guardado.itens;
     }
 
-    const [linhas, minimos, unidades] = await Promise.all([
+    const [linhas, minimos, unidades, cadastros] = await Promise.all([
       this.ixc.listAll<LinhaDeEstoqueIxc>(
         'estoque_produtos_almox_filial',
         {
@@ -175,9 +184,10 @@ export class EstoqueService {
           return [] as LinhaDeMinimoIxc[];
         }),
       this.lerUnidades(),
+      this.lerCadastros(),
     ]);
 
-    const itens = montarEstoque(linhas, minimos, unidades);
+    const itens = montarEstoque(linhas, minimos, unidades, cadastros);
     this.logger.log(
       `Estoque lido do IXC: ${linhas.length} linhas, ${itens.length} produtos.`,
     );
@@ -195,6 +205,31 @@ export class EstoqueService {
    */
   async almoxarifadosConhecidos(): Promise<Array<{ id: number; nome: string }>> {
     return almoxarifadosDe(await this.doIxc(false));
+  }
+
+  /**
+   * id do produto → cadastro atual. O nome da linha de saldo é uma cópia que
+   * envelhece (ver `CadastroDoProdutoIxc`); sem o cadastro, ela é o que resta.
+   */
+  private async lerCadastros(): Promise<Map<number, CadastroDoProdutoIxc>> {
+    try {
+      const linhas = await this.ixc.listAll<CadastroDoProdutoIxc & { id?: unknown }>(
+        'produtos',
+        { qtype: 'produtos.id', query: '0', oper: '>', sortname: 'produtos.id', sortorder: 'asc' },
+        { pageSize: POR_PAGINA },
+      );
+      return new Map(
+        linhas
+          .map((p) => [numeroDoIxc(p.id as string), p] as const)
+          .filter(([id]) => id > 0),
+      );
+    } catch (e) {
+      this.logger.warn(
+        `Sem o cadastro de produtos do IXC (${e instanceof Error ? e.message : e}); ` +
+          'os nomes saem da linha de saldo, que pode estar velha.',
+      );
+      return new Map();
+    }
   }
 
   /** id da unidade → sigla ("UN", "M"). Some sem barulho se o IXC recusar. */
