@@ -20,6 +20,7 @@ import type {
   Ferramenta,
   PessoaDoAlmoxarifado,
 } from '../../lib/types';
+import { SeletorComBusca } from '../../components/SeletorComBusca';
 
 /** "há 3 dias", "hoje" — o tempo como quem cobra a ferramenta o conta. */
 function haQuantoTempo(dias: number): string {
@@ -517,22 +518,20 @@ function FormularioDeEmprestimo({
           <label className="rotulo" htmlFor="empr-quem">
             Quem está levando *
           </label>
-          <select
+          <SeletorComBusca
             id="empr-quem"
             value={funcionarioId}
-            onChange={(e) => {
-              setFuncionarioId(e.target.value);
-              if (e.target.value) setQuem('');
+            onChange={(v) => {
+              setFuncionarioId(v);
+              if (v) setQuem('');
             }}
-            className="campo"
-          >
-            <option value="">Escolha quem, ou escreva abaixo…</option>
-            {pessoas.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.apelido ? `${p.nome} (${p.apelido})` : p.nome}
-              </option>
-            ))}
-          </select>
+            vazio="Escolha quem, ou escreva abaixo…"
+            opcoes={pessoas.map((p) => ({
+              valor: p.id,
+              rotulo: p.apelido ? `${p.nome} (${p.apelido})` : p.nome,
+            }))}
+            procurar="Procurar pelo nome ou apelido…"
+          />
           {/* O campo escrito existe para quem não está no cadastro: o
               terceirizado da obra, o eletricista contratado por fora. */}
           <input

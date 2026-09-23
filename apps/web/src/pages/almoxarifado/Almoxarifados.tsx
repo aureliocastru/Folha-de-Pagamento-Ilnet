@@ -21,6 +21,7 @@ import type {
 } from '../../lib/types';
 import { MoverTudo } from './MoverTudo';
 import { quantidade } from './ProdutoNoIxc';
+import { SeletorComBusca } from '../../components/SeletorComBusca';
 
 interface DadosDoFormulario {
   descricao: string;
@@ -635,22 +636,17 @@ function UsuariosDoAlmoxarifado({
       )}
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <select
+        <SeletorComBusca
           value={novo}
-          onChange={(e) => setNovo(e.target.value)}
-          className="campo w-auto min-w-[14rem] flex-1"
-          disabled={opcoesCarregando || mexendo}
+          onChange={setNovo}
+          className="min-w-[14rem] flex-1"
+          carregando={opcoesCarregando}
+          desabilitado={mexendo}
           aria-label="Usuário do IXC para ligar a este almoxarifado"
-        >
-          <option value="">
-            {opcoesCarregando ? 'Lendo os usuários do IXC…' : 'Ligar alguém a este almoxarifado…'}
-          </option>
-          {paraLigar.map((u) => (
-            <option key={u.id} value={u.id}>
-              {u.nome}
-            </option>
-          ))}
-        </select>
+          vazio="Ligar alguém a este almoxarifado…"
+          opcoes={paraLigar.map((u) => ({ valor: String(u.id), rotulo: u.nome }))}
+          procurar="Procurar usuário…"
+        />
         <label className="opcao text-[12px]" title="É de onde a OS dele passa a tirar material">
           <input
             type="checkbox"
@@ -784,20 +780,15 @@ function FormularioAlmoxarifado({
               <label className="rotulo" htmlFor="almox-tecnico">
                 Técnico (opcional)
               </label>
-              <select
+              <SeletorComBusca
                 id="almox-tecnico"
                 value={tecnico}
-                onChange={(e) => setTecnico(e.target.value)}
-                className="campo"
-                disabled={opcoesCarregando}
-              >
-                <option value="">Nenhum — almoxarifado da casa</option>
-                {tecnicos.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.nome}
-                  </option>
-                ))}
-              </select>
+                onChange={setTecnico}
+                carregando={opcoesCarregando}
+                vazio="Nenhum — almoxarifado da casa"
+                opcoes={tecnicos.map((t) => ({ valor: String(t.id), rotulo: t.nome }))}
+                procurar="Procurar técnico…"
+              />
             </div>
           )}
 

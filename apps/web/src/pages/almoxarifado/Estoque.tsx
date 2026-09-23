@@ -17,6 +17,7 @@ import type { AlmoxarifadoCadastro, EstoqueNaTela, ItemDeEstoque } from '../../l
 import { AcertarNegativos } from './AcertarNegativos';
 import { JanelaDoProduto, NovoProduto, quantidade } from './ProdutoNoIxc';
 import { SaidaDoProduto } from './SaidaDoProduto';
+import { SeletorComBusca } from '../../components/SeletorComBusca';
 
 /**
  * O estoque de material, do IXC.
@@ -223,19 +224,15 @@ export function Estoque() {
             className="campo min-w-0 flex-1"
             autoComplete="off"
           />
-          <select
+          <SeletorComBusca
             value={almox}
-            onChange={(e) => setAlmox(e.target.value)}
-            className="campo w-auto min-w-[12rem]"
-            title="Ver o saldo de um almoxarifado só"
-          >
-            <option value="">Todos os almoxarifados</option>
-            {almoxarifadosDoFiltro.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.nome}
-              </option>
-            ))}
-          </select>
+            onChange={setAlmox}
+            className="min-w-[12rem]"
+            aria-label="Ver o saldo de um almoxarifado só"
+            vazio="Todos os almoxarifados"
+            opcoes={almoxarifadosDoFiltro.map((a) => ({ valor: String(a.id), rotulo: a.nome }))}
+            procurar="Procurar almoxarifado…"
+          />
           <label
             className="opcao text-[12px]"
             title="O que não tem em almoxarifado nenhum, ou está abaixo do mínimo cadastrado"

@@ -14,6 +14,7 @@ import type {
   OpcoesDoEstoque,
   ProdutoNoIxc,
 } from '../../lib/types';
+import { SeletorComBusca } from '../../components/SeletorComBusca';
 
 interface FornecedorIxc {
   idFornecedor: number;
@@ -525,31 +526,29 @@ function Mover({
           <label className="rotulo" htmlFor="mover-de">
             Sai de
           </label>
-          <select id="mover-de" value={de} onChange={(e) => setDe(e.target.value)} className="campo">
-            {comSaldo.map((s) => (
-              <option key={s.almoxId} value={s.almoxId}>
-                {s.almoxarifado} ({quantidade(s.saldo)})
-              </option>
-            ))}
-          </select>
+          <SeletorComBusca
+            id="mover-de"
+            value={de}
+            onChange={setDe}
+            opcoes={comSaldo.map((s) => ({
+              valor: String(s.almoxId),
+              rotulo: `${s.almoxarifado} (${quantidade(s.saldo)})`,
+            }))}
+            procurar="Procurar almoxarifado…"
+          />
         </div>
         <div>
           <label className="rotulo" htmlFor="mover-para">
             Vai para
           </label>
-          <select
+          <SeletorComBusca
             id="mover-para"
             value={para}
-            onChange={(e) => setPara(e.target.value)}
-            className="campo"
-          >
-            <option value="">Escolha…</option>
-            {destinos.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.nome}
-              </option>
-            ))}
-          </select>
+            onChange={setPara}
+            vazio="Escolha…"
+            opcoes={destinos.map((a) => ({ valor: String(a.id), rotulo: a.nome }))}
+            procurar="Procurar almoxarifado…"
+          />
         </div>
         <div>
           <label className="rotulo" htmlFor="mover-qtde">
@@ -756,18 +755,13 @@ function DarEntrada({
           <label className="rotulo" htmlFor="entrada-almox">
             Entra em
           </label>
-          <select
+          <SeletorComBusca
             id="entrada-almox"
             value={almoxId}
-            onChange={(e) => setAlmoxId(e.target.value)}
-            className="campo"
-          >
-            {ativos.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.nome}
-              </option>
-            ))}
-          </select>
+            onChange={setAlmoxId}
+            opcoes={ativos.map((a) => ({ valor: String(a.id), rotulo: a.nome }))}
+            procurar="Procurar almoxarifado…"
+          />
         </div>
         <div>
           <label className="rotulo" htmlFor="entrada-qtde">

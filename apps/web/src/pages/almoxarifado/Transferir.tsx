@@ -33,6 +33,7 @@ import {
   useAndamento,
   useConteudo,
 } from './transferencia-comum';
+import { SeletorComBusca } from '../../components/SeletorComBusca';
 
 /** Quantas linhas a lista da origem mostra de uma vez — a busca estreita o resto. */
 const MOSTRAR_ATE = 150;
@@ -369,40 +370,32 @@ function TransferirDoCoordenador() {
             <label className="rotulo" htmlFor="transf-de">
               Sai de
             </label>
-            <select
+            <SeletorComBusca
               id="transf-de"
               value={de}
-              onChange={(e) => trocarOrigem(e.target.value)}
-              className="campo"
-              disabled={almoxarifados.isLoading}
-            >
-              <option value="">Escolha…</option>
-              {liberados.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.descricao}
-                  {a.ativo ? '' : ' (inativo)'}
-                </option>
-              ))}
-            </select>
+              onChange={trocarOrigem}
+              carregando={almoxarifados.isLoading}
+              vazio="Escolha…"
+              opcoes={liberados.map((a) => ({
+                valor: String(a.id),
+                rotulo: `${a.descricao}${a.ativo ? '' : ' (inativo)'}`,
+              }))}
+              procurar="Procurar almoxarifado…"
+            />
           </div>
           <div>
             <label className="rotulo" htmlFor="transf-para">
               Vai para
             </label>
-            <select
+            <SeletorComBusca
               id="transf-para"
               value={para}
-              onChange={(e) => setPara(e.target.value)}
-              className="campo"
-              disabled={!de}
-            >
-              <option value="">Escolha…</option>
-              {destinos.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.descricao}
-                </option>
-              ))}
-            </select>
+              onChange={setPara}
+              desabilitado={!de}
+              vazio="Escolha…"
+              opcoes={destinos.map((a) => ({ valor: String(a.id), rotulo: a.descricao }))}
+              procurar="Procurar almoxarifado…"
+            />
           </div>
         </div>
         {/*

@@ -13,6 +13,7 @@ import type {
   CategoriaDespesa,
   ConfigFinanceira,
 } from '../../lib/types';
+import { SeletorComBusca } from '../../components/SeletorComBusca';
 
 export function Configuracoes() {
   const qc = useQueryClient();
@@ -32,6 +33,10 @@ export function Configuracoes() {
     queryFn: async () =>
       (await api.get<CategoriaDespesa[]>('/categorias-despesa')).data,
   });
+  const opcoesDeCategoria = (categorias.data ?? []).map((c) => ({
+    valor: c.id,
+    rotulo: c.pai ? `${c.pai.nome} · ${c.nome}` : c.nome,
+  }));
 
   useEffect(() => {
     if (data) setForm(data);
@@ -278,24 +283,18 @@ export function Configuracoes() {
             <label className="rotulo" htmlFor="categoria-da-folha">
               Categoria padrão dos pagamentos da folha
             </label>
-            <select
+            <SeletorComBusca
               id="categoria-da-folha"
               value={form.categoriaFolhaId ?? ''}
-              disabled={categorias.isLoading}
-              onChange={(e) =>
-                setForm((f) =>
-                  f ? { ...f, categoriaFolhaId: e.target.value || null } : f,
-                )
+              carregando={categorias.isLoading}
+              onChange={(v) =>
+                setForm((f) => (f ? { ...f, categoriaFolhaId: v || null } : f))
               }
-              className="campo max-w-sm"
-            >
-              <option value="">Sem etiqueta (a folha nasce sem categoria)</option>
-              {(categorias.data ?? []).map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.pai ? `${c.pai.nome} · ${c.nome}` : c.nome}
-                </option>
-              ))}
-            </select>
+              className="max-w-sm"
+              vazio="Sem etiqueta (a folha nasce sem categoria)"
+              opcoes={opcoesDeCategoria}
+              procurar="Procurar categoria…"
+            />
             <p className="ajuda">
               Vale para o tipo que não tiver categoria própria abaixo. Diária e
               avulso não entram: a categoria deles é escolhida na própria tela.
@@ -320,24 +319,17 @@ export function Configuracoes() {
                   <label className="rotulo" htmlFor={campo}>
                     {rotulo}
                   </label>
-                  <select
+                  <SeletorComBusca
                     id={campo}
                     value={form[campo] ?? ''}
-                    disabled={categorias.isLoading}
-                    onChange={(e) =>
-                      setForm((f) =>
-                        f ? { ...f, [campo]: e.target.value || null } : f,
-                      )
+                    carregando={categorias.isLoading}
+                    onChange={(v) =>
+                      setForm((f) => (f ? { ...f, [campo]: v || null } : f))
                     }
-                    className="campo"
-                  >
-                    <option value="">usa a padrão acima</option>
-                    {(categorias.data ?? []).map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.pai ? `${c.pai.nome} · ${c.nome}` : c.nome}
-                      </option>
-                    ))}
-                  </select>
+                    vazio="usa a padrão acima"
+                    opcoes={opcoesDeCategoria}
+                    procurar="Procurar categoria…"
+                  />
                 </div>
               ))}
             </div>

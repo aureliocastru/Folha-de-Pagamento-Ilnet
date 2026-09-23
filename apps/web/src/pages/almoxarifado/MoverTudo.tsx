@@ -12,6 +12,7 @@ import {
   useAndamento,
   useConteudo,
 } from './transferencia-comum';
+import { SeletorComBusca } from '../../components/SeletorComBusca';
 
 /**
  * Mover tudo o que um almoxarifado tem para outro — para arrumar o estoque de
@@ -156,19 +157,14 @@ export function MoverTudo({
                 <label className="rotulo" htmlFor="mover-tudo-para">
                   Vai para
                 </label>
-                <select
+                <SeletorComBusca
                   id="mover-tudo-para"
                   value={para}
-                  onChange={(e) => setPara(e.target.value)}
-                  className="campo"
-                >
-                  <option value="">Escolha…</option>
-                  {destinos.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.descricao}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setPara}
+                  vazio="Escolha…"
+                  opcoes={destinos.map((d) => ({ valor: String(d.id), rotulo: d.descricao }))}
+                  procurar="Procurar almoxarifado…"
+                />
                 <p className="ajuda">Só aparecem os ativos e liberados para o sistema.</p>
               </div>
               <div>

@@ -22,6 +22,7 @@ import type {
   PerfilUsuario,
   UsuarioAdmin,
 } from '../../lib/types';
+import { SeletorComBusca } from '../../components/SeletorComBusca';
 
 const PERFIS: PerfilUsuario[] = ['ADMIN', 'RH', 'VISUALIZADOR', 'TECNICO'];
 
@@ -90,15 +91,17 @@ function SeletorDeColaborador({
   onChange: (valor: string) => void;
 }) {
   return (
-    <select id={id} value={valor} onChange={(e) => onChange(e.target.value)} className="campo">
-      <option value="">Achar pelo nome</option>
-      {colaboradores.map((c) => (
-        <option key={c.id} value={c.id}>
-          {c.nome}
-          {c.apelido ? ` (${c.apelido})` : ''}
-        </option>
-      ))}
-    </select>
+    <SeletorComBusca
+      id={id}
+      value={valor}
+      onChange={onChange}
+      vazio="Achar pelo nome"
+      opcoes={colaboradores.map((c) => ({
+        valor: c.id,
+        rotulo: c.apelido ? `${c.nome} (${c.apelido})` : c.nome,
+      }))}
+      procurar="Procurar pelo nome ou apelido…"
+    />
   );
 }
 

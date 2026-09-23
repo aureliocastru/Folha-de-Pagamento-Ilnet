@@ -22,6 +22,7 @@ import type {
   ProdutoCotadoDetalhado,
   UnidadeProduto,
 } from '../../lib/types';
+import { SeletorComBusca } from '../../components/SeletorComBusca';
 
 /**
  * As unidades, por extenso e abreviadas.
@@ -591,19 +592,14 @@ function FormularioDePreco({
               <label className="rotulo" htmlFor="preco-fornecedor">
                 Fornecedor *
               </label>
-              <select
+              <SeletorComBusca
                 id="preco-fornecedor"
                 value={fornecedorId}
-                onChange={(e) => setFornecedorId(e.target.value)}
-                className="campo"
-              >
-                <option value="">Escolha…</option>
-                {fornecedores.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.nome}
-                  </option>
-                ))}
-              </select>
+                onChange={setFornecedorId}
+                vazio="Escolha…"
+                opcoes={fornecedores.map((f) => ({ valor: String(f.id), rotulo: f.nome }))}
+                procurar="Procurar fornecedor…"
+              />
             </div>
 
             <div>

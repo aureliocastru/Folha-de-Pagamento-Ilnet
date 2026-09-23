@@ -29,6 +29,9 @@ export function SeletorComBusca({
   carregando = false,
   id,
   procurar = 'Procurar…',
+  className = 'min-w-0',
+  desabilitado = false,
+  'aria-label': ariaLabel,
 }: {
   opcoes: OpcaoComBusca[];
   value: string;
@@ -39,6 +42,10 @@ export function SeletorComBusca({
   id?: string;
   /** O que o campo de busca diz antes de digitar. */
   procurar?: string;
+  /** A largura no lugar onde ela entra ("flex-1", "max-w-sm"…). */
+  className?: string;
+  desabilitado?: boolean;
+  'aria-label'?: string;
 }) {
   const [aberta, setAberta] = useState(false);
   const botao = useRef<HTMLButtonElement>(null);
@@ -46,12 +53,13 @@ export function SeletorComBusca({
   const rotulo = escolhida?.rotulo ?? (value === '' ? vazio : value) ?? '';
 
   return (
-    <div className="min-w-0">
+    <div className={className}>
       <button
         ref={botao}
         id={id}
         type="button"
-        disabled={carregando}
+        disabled={carregando || desabilitado}
+        aria-label={ariaLabel}
         onClick={() => setAberta(true)}
         aria-haspopup="listbox"
         aria-expanded={aberta}

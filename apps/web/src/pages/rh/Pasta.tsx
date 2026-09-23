@@ -25,6 +25,7 @@ import type {
 import { CartaoDaPasta, FormularioDaPasta } from './Pastas';
 import { CampoDeData } from '../../components/CampoDeData';
 import { CampoComSugestoes } from '../../components/CampoComSugestoes';
+import { SeletorComBusca } from '../../components/SeletorComBusca';
 
 /** O que a pasta aceita — o mesmo que a API guarda. */
 const ACEITOS =
@@ -944,22 +945,18 @@ function ParaOndeMover({
             Ou numa pasta que já existe
           </label>
           <div className="flex flex-wrap gap-2">
-            <select
+            <SeletorComBusca
               id="pasta-de-destino"
               value={escolhida}
-              onChange={(e) => {
-                setEscolhida(e.target.value);
-                if (e.target.value) setNovaPasta('');
+              onChange={(v) => {
+                setEscolhida(v);
+                if (v) setNovaPasta('');
               }}
-              className="campo flex-1"
-            >
-              <option value="">Escolha a pasta…</option>
-              {destinos.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {caminhoLegivel(todas, p)}
-                </option>
-              ))}
-            </select>
+              className="min-w-0 flex-1"
+              vazio="Escolha a pasta…"
+              opcoes={destinos.map((p) => ({ valor: p.id, rotulo: caminhoLegivel(todas, p) }))}
+              procurar="Procurar pasta…"
+            />
             <button
               type="button"
               disabled={!escolhida || pendente}
