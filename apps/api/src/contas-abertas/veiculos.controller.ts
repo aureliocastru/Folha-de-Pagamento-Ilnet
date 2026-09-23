@@ -13,6 +13,12 @@ import {
 import type { Request } from 'express';
 import { AbastecimentosService } from './abastecimentos.service';
 import {
+  AtualizarItemDeManutencaoDto,
+  CriarItemDeManutencaoDto,
+  RegistrarTrocaDto,
+} from './dto/manutencao.dto';
+import { ManutencaoService } from './manutencao.service';
+import {
   AtualizarVeiculoDto,
   ConferirAbastecimentoDto,
   CriarVeiculoDto,
@@ -34,12 +40,57 @@ export class VeiculosController {
   constructor(
     private readonly service: VeiculosService,
     private readonly abastecimentos: AbastecimentosService,
+    private readonly manutencao: ManutencaoService,
   ) {}
 
-  /** `?ativos=true` traz só os ligados — é a lista do "Lançar conta". */
+  /**
+   * `?ativos=true` traz só os ligados — é a lista do "Lançar conta". Cada um
+   * vem com quantas trocas estão vencidas ou perto: o selo da lista da frota.
+   */
   @Get()
-  listar(@Query('ativos') ativos?: string) {
-    return this.service.listar(ativos !== 'true');
+  async listar(@Query('ativos') ativos?: string) {
+    const [veiculos, alertas] = await Promise.all([
+      this.service.listar(ativos !== 'true'),
+      this.manutencao.alertasDaFrota(),
+    ]);
+    return veiculos.map((v) => ({
+      ...v,
+      manutencao: alertas.get(v.id) ?? { vencidos: 0, perto: 0 },
+    }));
+  }
+
+  /** Um item da manutenção mudado: nome, intervalo. Antes do `:id`. */
+  @Patch('manutencao/:itemId')
+  atualizarItemDeManutencao(
+    @Param('itemId') itemId: string,
+    @Body() dto: AtualizarItemDeManutencaoDto,
+  ) {
+    return this.manutencao.atualizarItem(itemId, dto);
+  }
+
+  @Delete('manutencao/:itemId')
+  @HttpCode(200)
+  async apagarItemDeManutencao(@Param('itemId') itemId: string) {
+    await this.manutencao.apagarItem(itemId);
+    return { ok: true };
+  }
+
+  /** "Troquei": o km e o dia da troca. */
+  @Post('manutencao/:itemId/trocas')
+  @HttpCode(201)
+  registrarTroca(
+    @Param('itemId') itemId: string,
+    @Body() dto: RegistrarTrocaDto,
+    @Req() req: Request,
+  ) {
+    return this.manutencao.registrarTroca(itemId, dto, usuarioId(req));
+  }
+
+  @Delete('manutencao/trocas/:trocaId')
+  @HttpCode(200)
+  async desfazerTroca(@Param('trocaId') trocaId: string) {
+    await this.manutencao.desfazerTroca(trocaId);
+    return { ok: true };
   }
 
   /** Quem pode ficar responsável por um veículo. Antes do `:id`. */
@@ -89,6 +140,25 @@ export class VeiculosController {
   async apagarAbastecimento(@Param('id') id: string) {
     await this.abastecimentos.apagar(id);
     return { ok: true };
+  }
+
+  /** A manutenção do veículo: o que se troca, e quanto falta para cada um. */
+  @Get(':id/manutencao')
+  manutencaoDoVeiculo(@Param('id') id: string) {
+    return this.manutencao.doVeiculo(id);
+  }
+
+  @Post(':id/manutencao')
+  @HttpCode(201)
+  criarItemDeManutencao(@Param('id') id: string, @Body() dto: CriarItemDeManutencaoDto) {
+    return this.manutencao.criarItem(id, dto);
+  }
+
+  /** Traz de volta o que falta da lista padrão do tipo. */
+  @Post(':id/manutencao/padrao')
+  @HttpCode(200)
+  async completarManutencao(@Param('id') id: string) {
+    return { adicionados: await this.manutencao.completarComPadrao(id) };
   }
 
   /** O veículo com cada gasto, a soma por categoria e os abastecimentos. */

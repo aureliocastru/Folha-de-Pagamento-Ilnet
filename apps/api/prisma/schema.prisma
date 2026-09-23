@@ -1456,12 +1456,73 @@ model Veiculo {
   /// O que saiu deste galão para as máquinas.
   saidas         Abastecimento[] @relation("saidas_do_galao")
 
+  /// O que se troca de tempos em tempos: óleo, filtros, pneus, correia.
+  manutencao ItemDeManutencao[]
+  /// A lista padrão do tipo já foi posta uma vez. Sem esta marca, apagar
+  /// todos os itens faria a lista padrão voltar sozinha na próxima abertura.
+  manutencaoIniciada Boolean @default(false) @map("manutencao_iniciada")
+
   criadoPor String?  @map("criado_por")
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@index([ativo])
   @@map("veiculos")
+}
+
+/// Uma peça ou serviço que o veículo troca de tempos em tempos.
+///
+/// A vida útil é medida no que o veículo marca — km no painel, horas no
+/// horímetro da máquina — e, quando faz sentido, também em meses: o óleo
+/// vence em 10.000 km ou 12 meses, o que chegar primeiro. O km de agora vem
+/// do último abastecimento, e é por ele que cada abastecimento novo já mostra
+/// quanto falta.
+model ItemDeManutencao {
+  id String @id @default(uuid())
+
+  veiculo   Veiculo @relation(fields: [veiculoId], references: [id], onDelete: Cascade)
+  veiculoId String  @map("veiculo_id")
+
+  /// "Óleo do motor", "Pneus", "Correia dentada"
+  nome String
+  /// De quantos em quantos km (horas, na máquina) se troca. Nulo = só por tempo.
+  intervaloMedidor Int? @map("intervalo_medidor")
+  /// De quantos em quantos meses. Nulo = só por km.
+  intervaloMeses   Int? @map("intervalo_meses")
+
+  /// A última troca: com quanto no painel, e em que dia. Nulos até alguém
+  /// dizer — sem isso não há de onde contar.
+  ultimaTrocaMedidor Decimal?  @map("ultima_troca_medidor") @db.Decimal(10, 1)
+  ultimaTrocaEm      DateTime? @map("ultima_troca_em") @db.Date
+
+  observacao String?
+  ordem      Int     @default(0)
+
+  trocas TrocaDeManutencao[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([veiculoId])
+  @@map("itens_de_manutencao")
+}
+
+/// Uma troca feita: o histórico de cada item, para saber quanto durou cada um.
+model TrocaDeManutencao {
+  id String @id @default(uuid())
+
+  item   ItemDeManutencao @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  itemId String           @map("item_id")
+
+  medidor    Decimal? @db.Decimal(10, 1)
+  data       DateTime @db.Date
+  observacao String?
+
+  criadoPor String?  @map("criado_por")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([itemId, data])
+  @@map("trocas_de_manutencao")
 }
 
 /// Um responsável de um veículo. Um veículo pode ter vários; uma pessoa,

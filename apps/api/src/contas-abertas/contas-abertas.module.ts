@@ -24,6 +24,7 @@ import { RecorrentesController } from './recorrentes.controller';
 import { RecorrentesService } from './recorrentes.service';
 import { VeiculosController } from './veiculos.controller';
 import { VeiculosService } from './veiculos.service';
+import { ManutencaoService } from './manutencao.service';
 
 @Module({
   // O financeiro entra por causa da despesa lançada à mão: ela vira conta a
@@ -77,6 +78,7 @@ import { VeiculosService } from './veiculos.service';
     CartoesCreditoService,
     VeiculosService,
     AbastecimentosService,
+    ManutencaoService,
   ],
   // O fechamento de caixa lanca a despesa do dinheiro que voltou da rua pelo
   // mesmo caminho desta tela: mesma auditoria, mesma baixa, mesmo titulo no
