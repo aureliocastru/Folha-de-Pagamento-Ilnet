@@ -34,6 +34,7 @@ import type {
   PaginaFornecedoresParaPagar,
   PagamentoAvulso,
 } from '../../lib/types';
+import { CampoComSugestoes } from '../../components/CampoComSugestoes';
 
 /** Cadastro em branco: começa no IXC, que é a forma rastreável. */
 const CADASTRO_VAZIO = {
@@ -1443,21 +1444,12 @@ function FormularioPagamento({
 
         {forma === 'IXC' && (
           <Campo label="Como o IXC vai pagar">
-            <input
-              list="tipos-pagamento-avulso"
+            <CampoComSugestoes
               value={tipoPagamento}
-              onChange={(e) => setTipoPagamento(e.target.value)}
-              className="campo"
+              onChange={setTipoPagamento}
+              sugestoes={['Pix', 'Boleto', 'Dinheiro', 'Transferência', 'Cartão']}
               placeholder="Pix"
-              autoComplete="off"
             />
-            <datalist id="tipos-pagamento-avulso">
-              <option value="Pix" />
-              <option value="Boleto" />
-              <option value="Dinheiro" />
-              <option value="Transferência" />
-              <option value="Cartão" />
-            </datalist>
             <p className="ajuda">
               O rótulo tem de ser o mesmo do seu IXC. Fora do PIX, a chave não é
               exigida.

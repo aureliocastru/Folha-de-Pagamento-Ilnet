@@ -6,6 +6,7 @@ import { formatData } from '../../lib/format';
 import type { HistoricoDeSaidas, ItemDeEstoque } from '../../lib/types';
 import { numeroDigitado, quantidade } from './ProdutoNoIxc';
 import { DiaDoLancamento, diaRetroativo } from './transferencia-comum';
+import { CampoComSugestoes } from '../../components/CampoComSugestoes';
 
 /**
  * A saída de um produto, e o histórico de todas as saídas dele.
@@ -158,36 +159,26 @@ export function SaidaDoProduto({
               <label className="rotulo" htmlFor="saida-destino">
                 Pra onde vai
               </label>
-              <input
+              <CampoComSugestoes
                 id="saida-destino"
                 value={destino}
-                onChange={(e) => setDestino(e.target.value)}
-                className="campo"
+                onChange={setDestino}
+                sugestoes={dados?.destinos ?? []}
                 placeholder="Obra, cliente, POP…"
-                list="saida-destinos"
-                autoComplete="off"
               />
-              <datalist id="saida-destinos">
-                {dados?.destinos.map((d) => <option key={d} value={d} />)}
-              </datalist>
             </div>
 
             <div>
               <label className="rotulo" htmlFor="saida-quem">
                 Quem pegou
               </label>
-              <input
+              <CampoComSugestoes
                 id="saida-quem"
                 value={quemPegou}
-                onChange={(e) => setQuemPegou(e.target.value)}
-                className="campo"
+                onChange={setQuemPegou}
+                sugestoes={dados?.pessoas ?? []}
                 placeholder="Nome de quem levou"
-                list="saida-pessoas"
-                autoComplete="off"
               />
-              <datalist id="saida-pessoas">
-                {dados?.pessoas.map((p) => <option key={p} value={p} />)}
-              </datalist>
             </div>
 
             <div>

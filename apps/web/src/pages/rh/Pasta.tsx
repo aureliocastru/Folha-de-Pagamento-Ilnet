@@ -24,6 +24,7 @@ import type {
 } from '../../lib/types';
 import { CartaoDaPasta, FormularioDaPasta } from './Pastas';
 import { CampoDeData } from '../../components/CampoDeData';
+import { CampoComSugestoes } from '../../components/CampoComSugestoes';
 
 /** O que a pasta aceita — o mesmo que a API guarda. */
 const ACEITOS =
@@ -1671,20 +1672,13 @@ export function FormularioDoDocumento({
           <label className="rotulo" htmlFor="tipo-do-documento">
             Tipo
           </label>
-          <input
+          <CampoComSugestoes
             id="tipo-do-documento"
             value={tipo}
-            onChange={(e) => setTipo(e.target.value)}
+            onChange={setTipo}
+            sugestoes={[...tipos, ...SUGESTOES]}
             placeholder="Ex.: Contrato"
-            list="tipos-de-documento"
-            className="campo"
-            autoComplete="off"
           />
-          <datalist id="tipos-de-documento">
-            {[...new Set([...tipos, ...SUGESTOES])].map((t) => (
-              <option key={t} value={t} />
-            ))}
-          </datalist>
         </div>
         <div className="sm:col-span-2">
           <label className="rotulo" htmlFor="descricao-do-documento">

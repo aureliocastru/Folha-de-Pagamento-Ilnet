@@ -15,6 +15,7 @@ import {
 } from '../../lib/format';
 import { juntarFotos } from '../../lib/foto';
 import { apiPontos } from '../../lib/pontos';
+import { CampoComSugestoes } from '../../components/CampoComSugestoes';
 
 export interface AbastecimentoDoPortal {
   id: string;
@@ -514,22 +515,16 @@ export function FormularioDeAbastecimento({
             />
             {paraOutroDestino && (
               <>
-                <input
+                <CampoComSugestoes
                   id="abast-outro-destino"
                   value={outroDestino}
-                  onChange={(e) => setOutroDestino(e.target.value.slice(0, 80))}
+                  onChange={(v) => setOutroDestino(v.slice(0, 80))}
+                  sugestoes={consulta.data?.outrosDestinos ?? []}
                   className="campo mt-2 h-12 text-base"
                   placeholder="Roçadeira, cortador de grama, sítio, fazenda…"
                   aria-label="Outro destino"
-                  list="abast-outros-destinos"
-                  autoComplete="off"
                   autoFocus
                 />
-                <datalist id="abast-outros-destinos">
-                  {(consulta.data?.outrosDestinos ?? []).map((d) => (
-                    <option key={d} value={d} />
-                  ))}
-                </datalist>
                 <p className="mt-1 text-xs text-tinta-500">
                   O que não é veículo da frota não tem painel: vão só os litros.
                 </p>
