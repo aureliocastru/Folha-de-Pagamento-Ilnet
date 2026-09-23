@@ -7,6 +7,7 @@ import {
   IconeRaio,
   IconeRelogio,
 } from '../../components/icones';
+import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
 import {
   Aviso,
@@ -1182,8 +1183,12 @@ export function CadastroDoConsorcio({
       }
       onFechar={onFechar}
     >
+      <FormularioEmPassos>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div className="sm:col-span-2">
+        <div
+          className="sm:col-span-2"
+          data-passo-falta={fornecedor ? undefined : 'Escolha o fornecedor no IXC.'}
+        >
           <label className="rotulo" htmlFor="co-fornecedor">
             Fornecedor no IXC
           </label>
@@ -1282,7 +1287,7 @@ export function CadastroDoConsorcio({
           </p>
         </div>
 
-        <div>
+        <div data-passo-falta={Number(valor) > 0 ? undefined : 'Informe o valor.'}>
           <label className="rotulo" htmlFor="co-valor">
             {mensal ? 'Valor por mês' : 'Valor de cada parcela'}
           </label>
@@ -1315,7 +1320,7 @@ export function CadastroDoConsorcio({
         </div>
         )}
 
-        <div>
+        <div data-passo-falta={diaValido ? undefined : 'Informe o dia do vencimento, de 1 a 31.'}>
           <label className="rotulo" htmlFor="co-dia">
             Vence todo dia
           </label>
@@ -1449,7 +1454,10 @@ export function CadastroDoConsorcio({
           />
         </div>
 
-        <label className="flex items-center gap-2 text-sm text-tinta-700 sm:col-span-2">
+        <label
+          className="flex items-center gap-2 text-sm text-tinta-700 sm:col-span-2"
+          data-passo="Só em dia útil"
+        >
           <input
             type="checkbox"
             className="h-4 w-4 accent-brand-600"
@@ -1462,7 +1470,7 @@ export function CadastroDoConsorcio({
 
       {/* O que vai acontecer, antes de acontecer. */}
       {previa && (
-        <div className="mt-4 rounded-2xl bg-tinta-50 p-4 text-sm text-tinta-600">
+        <div className="mt-4 rounded-2xl bg-tinta-50 p-4 text-sm text-tinta-600" data-passo-acao>
           {previa.quitado ? (
             <>Todas as parcelas já saíram — este consórcio não gera mais nada.</>
           ) : (
@@ -1492,7 +1500,10 @@ export function CadastroDoConsorcio({
       )}
 
       {irmas.length > 0 && (
-        <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-500/30 dark:bg-amber-500/10">
+        <div
+          className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 dark:border-amber-500/30 dark:bg-amber-500/10"
+          data-passo-acao
+        >
           <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
             {fornecedor!.nome} já tem {irmas.length} repetição(ões) mensal(is)
           </p>
@@ -1533,7 +1544,7 @@ export function CadastroDoConsorcio({
 
       {salvar.isError && <Aviso tom="erro">{mensagemErro(salvar.error)}</Aviso>}
 
-      <div className="mt-5 flex justify-end gap-2">
+      <div className="mt-5 flex justify-end gap-2" data-passo-acao>
         <button onClick={onFechar} className="btn btn-neutro">
           Cancelar
         </button>
@@ -1555,6 +1566,7 @@ export function CadastroDoConsorcio({
                     : 'Cadastrar consórcio'}
         </button>
       </div>
+      </FormularioEmPassos>
     </Janela>
   );
 }

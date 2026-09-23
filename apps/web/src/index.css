@@ -950,3 +950,14 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* O passo a passo do celular (`FormularioEmPassos`): o que não é a vez fica
+   fora da tela, mas continua montado — o que foi digitado não se perde. */
+[data-em-passos] [data-passo-oculto] {
+  display: none !important;
+}
+
+/* O nome do campo já é o título do passo, logo acima. */
+[data-em-passos] [data-passo-atual] > label.rotulo:first-child {
+  display: none;
+}
