@@ -68,6 +68,13 @@ type EscolhaFornecedor =
    */
   | { tipo: 'NOVO'; apesarDeExistir?: boolean };
 
+/**
+ * Quanto vale cada venda de um avulso. É sempre isto (o dono, 23/09/2026: "a
+ * venda sempre é 50, então não precisa daquele campo") — a tela pede só
+ * quantas foram.
+ */
+const VALOR_DA_VENDA = 50;
+
 function hojeISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -634,18 +641,6 @@ export function Avulsos({
                 ))}
               </select>
             </Campo>
-            {/* Só na folha: é lá que o pagamento se divide em serviço, venda e
-                extra. No Contas a Pagar ele é de um valor só, e este campo
-                pedia um combinado que aquela tela nunca usa. */}
-            {!soValor && (
-              <Campo label="Valor por venda (R$)">
-                <CampoDinheiro
-                  valor={form.valorPorVenda}
-                  onChange={(v) => setForm({ ...form, valorPorVenda: v })}
-                  placeholder="Se essa pessoa também vende"
-                />
-              </Campo>
-            )}
             <Campo label="Categoria dos pagamentos" span2>
               <SeletorDeCategoria
                 categorias={categorias.data}
@@ -1301,9 +1296,7 @@ function FormularioPagamento({
   const [tipoPagamento, setTipoPagamento] = useState('');
   const [valorServico, setValorServico] = useState('');
   const [vendas, setVendas] = useState('');
-  const [valorPorVenda, setValorPorVenda] = useState(
-    beneficiario.valorPorVenda ?? '',
-  );
+  const valorPorVenda = VALOR_DA_VENDA;
   const [valorExtra, setValorExtra] = useState('');
   const [descricaoExtra, setDescricaoExtra] = useState('');
   const [descricao, setDescricao] = useState('');
@@ -1363,7 +1356,7 @@ function FormularioPagamento({
   }, [config.data, tipoPagamento]);
 
   const servico = Number(valorServico) || 0;
-  const comissao = (Number(vendas) || 0) * (Number(valorPorVenda) || 0);
+  const comissao = (Number(vendas) || 0) * valorPorVenda;
   const extra = Number(valorExtra) || 0;
   const total = servico + comissao + extra;
   const vaiDePix = /pix/i.test(tipoPagamento);
@@ -1424,7 +1417,7 @@ function FormularioPagamento({
       rotulo: 'Vendas',
       resumo:
         comissao > 0
-          ? `${vendas} × ${formatBRL(Number(valorPorVenda))} = ${formatBRL(comissao)}`
+          ? `${vendas} × ${formatBRL(valorPorVenda)} = ${formatBRL(comissao)}`
           : undefined,
       falta:
         total < 0.01 ? 'Informe o valor ou as vendas: o pagamento está em zero.' : undefined,
@@ -1530,7 +1523,7 @@ function FormularioPagamento({
 
         {!soValor && passo.mostrar(3) && (
           <>
-            <Campo label="Quantas vendas">
+            <Campo label={`Quantas vendas (${formatBRL(valorPorVenda)} cada)`}>
               <input
                 type="number"
                 min="0"
@@ -1540,23 +1533,15 @@ function FormularioPagamento({
                 placeholder="0"
                 className="campo"
               />
-            </Campo>
-            <Campo label="Valor de cada venda (R$)">
-              <CampoDinheiro
-                valor={valorPorVenda}
-                onChange={setValorPorVenda}
-                placeholder={
-                  beneficiario.valorPorVenda
-                    ? `combinado ${formatBRL(beneficiario.valorPorVenda)}`
-                    : 'ex.: 50,00'
-                }
-              />
+              {comissao > 0 && (
+                <p className="ajuda">= {formatBRL(comissao)} de comissão</p>
+              )}
             </Campo>
           </>
         )}
 
         {passo.mostrar(4) && (
-          <Campo label="Do que se trata" span2={!passo.celular}>
+          <Campo label="Do que se trata">
             <input
               value={descricao}
               onChange={(e) => setDescricao(e.target.value)}
@@ -1720,7 +1705,7 @@ function FormularioPagamento({
                   ? {}
                   : {
                       vendas: Number(vendas) || 0,
-                      valorPorVenda: valorPorVenda || undefined,
+                      valorPorVenda,
                       valorExtra: valorExtra || undefined,
                       descricaoExtra: descricaoExtra || undefined,
                     }),
