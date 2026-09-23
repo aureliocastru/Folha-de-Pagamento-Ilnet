@@ -64,6 +64,8 @@ function montarServico(
     contas?: unknown[];
     /** As antecipações gravadas deste contrato. */
     antecipadasSalvas?: unknown[];
+    /** Os títulos que já têm etiqueta. */
+    classificadas?: number[];
   } = {},
 ) {
   const atualizacoes: Array<Record<string, unknown>> = [];
@@ -86,6 +88,11 @@ function montarServico(
     contaPagar: {
       findMany: jest.fn(async () => opts.contas ?? []),
       update: jest.fn(async ({ data }: { data: unknown }) => data),
+    },
+    classificacaoConta: {
+      findMany: jest.fn(async () =>
+        (opts.classificadas ?? []).map((idFnApagar) => ({ idFnApagar })),
+      ),
     },
     parcelaAntecipada: {
       findMany: jest.fn(async () => opts.antecipadasSalvas ?? []),
@@ -251,6 +258,22 @@ describe('RecorrentesService.gerarPendentes', () => {
     await service.gerarPendentes('u1');
 
     expect(categorias.classificar).toHaveBeenCalledWith(7777, 'cat-1', 'u1');
+  });
+
+  it('a conta que nasceu sem categoria ganha a dela na rodada seguinte', async () => {
+    const { service, categorias } = montarServico({
+      lista: [],
+      contas: [
+        { idFnApagarIxc: 37529, recorrente: { categoriaId: 'cat-1' } },
+        { idFnApagarIxc: 37500, recorrente: { categoriaId: 'cat-1' } },
+      ],
+      classificadas: [37500],
+    });
+
+    await service.gerarPendentes('u1');
+
+    expect(categorias.classificar).toHaveBeenCalledTimes(1);
+    expect(categorias.classificar).toHaveBeenCalledWith(37529, 'cat-1', 'u1');
   });
 });
 

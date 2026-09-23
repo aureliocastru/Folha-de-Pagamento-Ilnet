@@ -714,7 +714,62 @@ export class RecorrentesService {
       }
     }
 
+    await this.completarCategorias(usuarioId);
     return resultado;
+  }
+
+  /**
+   * Põe a categoria da recorrente nas contas dela que nasceram sem.
+   *
+   * A etiqueta é gravada logo depois que o IXC devolve o número do título, e
+   * uma falha nesse instante (o banco ou o IXC oscilando de madrugada) deixava
+   * a parcela "sem classificação" para sempre: a conta já tinha nascido, e
+   * nenhuma rodada seguinte olhava para ela de novo. Aqui cada rodada confere.
+   *
+   * Só as da última semana: uma etiqueta tirada à mão, dias depois, é decisão
+   * de alguém, e a rotina não a desfaz.
+   */
+  private async completarCategorias(usuarioId?: string): Promise<void> {
+    try {
+      const semana = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const contas = await this.prisma.contaPagar.findMany({
+        where: {
+          createdAt: { gte: semana },
+          idFnApagarIxc: { not: null },
+          recorrente: { categoriaId: { not: null } },
+        },
+        select: {
+          idFnApagarIxc: true,
+          recorrente: { select: { categoriaId: true } },
+        },
+      });
+      if (contas.length === 0) return;
+
+      const jaTem = new Set(
+        (
+          await this.prisma.classificacaoConta.findMany({
+            where: {
+              idFnApagar: { in: contas.map((c) => c.idFnApagarIxc!) },
+            },
+            select: { idFnApagar: true },
+          })
+        ).map((c) => c.idFnApagar),
+      );
+
+      for (const c of contas) {
+        const id = c.idFnApagarIxc!;
+        const categoriaId = c.recorrente?.categoriaId;
+        if (jaTem.has(id) || !categoriaId) continue;
+        await this.categorias.classificar(id, categoriaId, usuarioId);
+        this.logger.log(`Conta ${id} ganhou a categoria que faltou ao nascer.`);
+      }
+    } catch (err) {
+      this.logger.warn(
+        `Não deu para completar as categorias: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 }
 
