@@ -5,6 +5,7 @@ import {
   MODULO_CONTAS_PAGAR,
   MODULO_ALMOXARIFADO,
   MODULO_FOLHA,
+  MODULO_OS,
   MODULO_PONTUACAO,
   MODULO_RH,
   MODULO_SEGURANCA,
@@ -24,6 +25,12 @@ import {
 } from './pages/apr/Campo';
 import { Formularios } from './pages/apr/Formularios';
 import { Assinar } from './pages/Assinar';
+import { CampoMinhasOs, CampoOs } from './pages/os/NoCampo';
+import { Materiais as MateriaisDeOs } from './pages/os/Materiais';
+import { Recolhidos } from './pages/os/Recolhidos';
+import { Registros as RegistrosDeOs } from './pages/os/Registros';
+import { Relatorio as RelatorioDeOs } from './pages/os/Relatorio';
+import { Tecnicos as TecnicosDeOs } from './pages/os/Tecnicos';
 import { Login } from './pages/Login';
 import { Modulos } from './pages/Modulos';
 import { TelaDeFora } from './components/TelaDeFora';
@@ -246,6 +253,26 @@ export default function App() {
         <Route path="minha-conta" element={<MinhaConta />} />
       </Route>
 
+      {/* Ordens de Serviço, do lado da base. O técnico anota pelo celular, em
+          /campo/os; daqui se acompanha o que ficou pendente, se recebe o que
+          voltou de cliente e se tira o relatório do mês. */}
+      <Route
+        path="/os"
+        element={
+          <Protegida>
+            <Layout modulo={MODULO_OS} />
+          </Protegida>
+        }
+      >
+        <Route index element={<Navigate to="registros" replace />} />
+        <Route path="registros" element={<RegistrosDeOs />} />
+        <Route path="recolhidos" element={<Recolhidos />} />
+        <Route path="tecnicos" element={<TecnicosDeOs />} />
+        <Route path="materiais" element={<MateriaisDeOs />} />
+        <Route path="relatorio" element={<RelatorioDeOs />} />
+        <Route path="minha-conta" element={<MinhaConta />} />
+      </Route>
+
       {/* O endereço antigo das cotações continua valendo.
 
           Elas nasceram como módulo próprio e viraram uma aba do almoxarifado.
@@ -318,6 +345,8 @@ export default function App() {
         <Route path="pontuacao" element={<CampoPontuacao />} />
         <Route path="pontuar" element={<CampoPontuar />} />
         <Route path="abastecimento" element={<CampoAbastecimento />} />
+        <Route path="os" element={<CampoMinhasOs />} />
+        <Route path="os/:osId" element={<CampoOs />} />
         <Route path="aprs" element={<CampoAprs />} />
         <Route path="nova" element={<CampoNova />} />
         <Route path="minha-conta" element={<MinhaConta />} />

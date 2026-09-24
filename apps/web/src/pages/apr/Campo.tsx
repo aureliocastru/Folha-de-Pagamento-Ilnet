@@ -3,6 +3,7 @@ import { useState, type ReactNode } from 'react';
 import { Link, NavLink, Outlet, useNavigate, useParams } from 'react-router-dom';
 import {
   IconeBomba,
+  IconeOs,
   IconeCapacete,
   IconeChecklist,
   IconeTrofeu,
@@ -116,6 +117,8 @@ export function Campo() {
  * - **Minha pontuação** — só a dele, quando o login está ligado ao cadastro;
  * - **Abastecimento** — só quando algum veículo da frota está no nome dele;
  * - **Pontuar** — para o coordenador;
+ * - **Ordens de serviço** — as OS dele no IXC: o aparelho que instala, o que
+ *   retira e o material que gasta;
  * - **Análise de risco** — a de sempre, para quem já a abria. O coordenador
  *   não a vê: pontuar é o serviço dele, e subir no poste não.
  *
@@ -150,8 +153,8 @@ export function CampoInicio() {
       {inicio.isSuccess && cartoes.faltaLigar && (
         <Aviso tom="atencao">
           Seu login ainda não está ligado ao seu cadastro de funcionário, e por isso a
-          sua pontuação não aparece. Peça ao administrador para ligar, na tela de
-          Usuários.
+          sua pontuação e as suas ordens de serviço não aparecem. Peça ao
+          administrador para ligar, na tela de Usuários.
         </Aviso>
       )}
 
@@ -182,6 +185,15 @@ export function CampoInicio() {
               tom="bg-emerald-500/15 text-emerald-600 dark:text-emerald-300"
               titulo="Pontuar"
               descricao="Dar ou tirar pontos dos funcionários, com o motivo e a foto"
+            />
+          )}
+          {cartoes.os && (
+            <CartaoDaArea
+              para="/campo/os"
+              icone={IconeOs}
+              tom="bg-sky-500/15 text-sky-600 dark:text-sky-300"
+              titulo="Ordens de serviço"
+              descricao="O aparelho que instalou, o que retirou e o material que gastou em cada OS"
             />
           )}
           {apr && (
@@ -231,7 +243,7 @@ function CartaoDaArea({
 }
 
 /** A volta para a tela inicial, no alto de cada uma das três. */
-function VoltarAoInicio({ children }: { children?: ReactNode }) {
+export function VoltarAoInicio({ children }: { children?: ReactNode }) {
   const { usuario } = useAuth();
   // Quem trabalha nos módulos chegou pelo cartão de lá, e volta para lá.
   const tecnico = usuario?.role === 'TECNICO';

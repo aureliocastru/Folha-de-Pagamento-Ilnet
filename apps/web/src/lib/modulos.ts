@@ -16,6 +16,7 @@ import {
   IconeGuia,
   IconeMartelo,
   IconeMoeda,
+  IconeOs,
   IconePainel,
   IconePasta,
   IconePessoas,
@@ -23,6 +24,7 @@ import {
   IconePrecos,
   IconePredio,
   IconeRecibo,
+  IconeRecolhido,
   IconeSaida,
   IconeSol,
   IconeTransferencia,
@@ -298,6 +300,43 @@ const almoxarifado: Modulo = {
 };
 
 /**
+ * Ordens de Serviço — o que o técnico instala, retira e gasta em cada OS do
+ * IXC, do lado da base.
+ *
+ * O técnico não entra por aqui: ele anota e grava pelo celular, na Minha área
+ * (`/campo/os`), com a marca "Ordens de serviço" do login. Daqui a base
+ * acompanha o que ficou pendente ou foi recusado pelo IXC, recebe os aparelhos
+ * que voltaram de cliente, confere a van de cada técnico, cuida da lista de
+ * materiais e tira o relatório do mês.
+ *
+ * Integrado ao almoxarifado sem copiar nada dele: o saldo, a peça e o
+ * comodato são os do IXC, lidos na hora.
+ */
+const os: Modulo = {
+  id: 'os',
+  nome: 'Ordens de Serviço',
+  descricao:
+    'O que cada técnico instala, retira e gasta nas OS, os aparelhos que voltam ' +
+    'de cliente e o relatório de material do mês',
+  base: '/os',
+  inicio: 'registros',
+  icone: IconeOs,
+  tom: 'bg-sky-500/15 text-sky-300',
+  papeis: ['ADMIN', 'RH', 'VISUALIZADOR'],
+  menu: [
+    { to: 'registros', label: 'OS registradas', icone: IconeOs },
+    // O aparelho que o técnico trouxe do cliente e ainda está na van: a base
+    // confirma que recebeu, e ele vai para a triagem.
+    { to: 'recolhidos', label: 'Recolhidos', icone: IconeRecolhido },
+    // Técnico por técnico: o almoxarifado dele no IXC e o que tem dentro.
+    { to: 'tecnicos', label: 'Técnicos', icone: IconePessoas },
+    // Os modelos de aparelho que vão para cliente e os materiais que se gastam.
+    { to: 'materiais', label: 'Lista da OS', icone: IconeEtiqueta },
+    { to: 'relatorio', label: 'Relatório do mês', icone: IconePainel },
+  ],
+};
+
+/**
  * Pontuação — os coordenadores pontuam os funcionários.
  *
  * Por dentro do sistema, só o ADMIN entra, e sem login novo: é ele quem vê
@@ -327,6 +366,7 @@ export const MODULOS: Modulo[] = [
   folha,
   contasPagar,
   almoxarifado,
+  os,
   rh,
   seguranca,
   pontuacao,
@@ -346,6 +386,7 @@ export const MODULOS_DISTRIBUIVEIS: Modulo[] = MODULOS.filter(
 export const MODULO_FOLHA = folha;
 export const MODULO_CONTAS_PAGAR = contasPagar;
 export const MODULO_ALMOXARIFADO = almoxarifado;
+export const MODULO_OS = os;
 export const MODULO_RH = rh;
 export const MODULO_SEGURANCA = seguranca;
 export const MODULO_PONTUACAO = pontuacao;

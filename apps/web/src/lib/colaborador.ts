@@ -21,6 +21,7 @@ export const AREAS_DO_COLABORADOR = [
   { id: 'pontuacao', nome: 'Pontuação' },
   { id: 'abastecimento', nome: 'Abastecimento' },
   { id: 'pontuar', nome: 'Pontuar' },
+  { id: 'os', nome: 'Ordens de serviço' },
 ] as const;
 
 /** O padrão de um login novo: o que todo colaborador tem. Pontuar, não. */
@@ -55,18 +56,22 @@ export function cartoesDoColaborador(
   const coordena = areas.includes('pontuar');
   const noModulo = !!usuario && modulosDoUsuario(usuario).some((m) => m.id === 'pontuacao');
   const pontuar = coordena && !noModulo;
+  // As OS são da pessoa (o `id_tecnico` do IXC é o cadastro dela): sem o login
+  // ligado ao cadastro não há de quem mostrar.
+  const os = ligado && areas.includes('os');
   return {
     pontuacao,
     abastecimento,
     pontuar,
+    os,
     /** Este login pontua os outros, com cartão ou pelo módulo. */
     coordena,
-    algum: pontuacao || abastecimento || pontuar,
+    algum: pontuacao || abastecimento || pontuar || os,
     /**
      * Marcou a pontuação, que é da pessoa, mas o login não está ligado a ela.
      * O abastecimento não entra aqui: ele anda pelo veículo no nome do login.
      */
-    faltaLigar: !ligado && areas.includes('pontuacao'),
+    faltaLigar: !ligado && (areas.includes('pontuacao') || areas.includes('os')),
   };
 }
 

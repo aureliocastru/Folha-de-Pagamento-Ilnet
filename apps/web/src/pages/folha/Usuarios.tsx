@@ -777,7 +777,19 @@ function NovoUsuario({
           <label className="rotulo" htmlFor="u-perfil">
             Perfil
           </label>
-          <SeletorDeAcesso id="u-perfil" valor={acesso} perfis={perfis} onChange={setAcesso} />
+          <SeletorDeAcesso
+            id="u-perfil"
+            valor={acesso}
+            perfis={perfis}
+            onChange={(valor) => {
+              setAcesso(valor);
+              // O técnico de campo é quem instala e retira aparelho: a tela das
+              // OS já vem marcada, como vem no script dos logins de campo.
+              if (valor === 'TECNICO') {
+                setMinhaArea((areas) => (areas.includes('os') ? areas : [...areas, 'os']));
+              }
+            }}
+          />
         </div>
       </div>
 

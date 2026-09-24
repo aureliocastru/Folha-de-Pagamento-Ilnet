@@ -58,7 +58,7 @@ function pareceCopiaECola(texto: string): boolean {
 }
 
 /** O que se está lendo: muda o formato aceito, a mira e o texto da tela. */
-export type AlvoDaLeitura = 'boleto' | 'pix';
+export type AlvoDaLeitura = 'boleto' | 'pix' | 'etiqueta';
 
 const ALVOS = {
   boleto: {
@@ -80,6 +80,22 @@ const ALVOS = {
     formatosNativos: ['qr_code'],
     formatosZxing: ['QR_CODE'],
     aceitar: (bruto: string) => (pareceCopiaECola(bruto) ? bruto.trim() : null),
+  },
+  /*
+   * A etiqueta do aparelho (ONU, roteador): o MAC e a série vêm em Code 128 —
+   * às vezes Code 39 —, e os fabricantes mais novos põem um QR ou um
+   * DataMatrix do lado. Qualquer texto que pareça código serve: quem decide se
+   * é MAC, série ou número da casa é a busca do IXC.
+   */
+  etiqueta: {
+    titulo: 'Aponte para a etiqueta do aparelho',
+    ajuda: 'O MAC ou a série da etiqueta. Assim que for lido, o aparelho é procurado no IXC.',
+    formatosNativos: ['code_128', 'code_39', 'qr_code', 'data_matrix', 'ean_13'],
+    formatosZxing: ['CODE_128', 'CODE_39', 'QR_CODE', 'DATA_MATRIX', 'EAN_13'],
+    aceitar: (bruto: string) => {
+      const limpo = bruto.trim();
+      return limpo.length >= 3 && limpo.length <= 80 ? limpo : null;
+    },
   },
 } as const;
 

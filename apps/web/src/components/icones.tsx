@@ -556,3 +556,27 @@ export function IconeLapis({ className }: IconeProps) {
     </svg>
   );
 }
+
+/** A prancheta da OS com o roteador em cima: o serviço no cliente. */
+export function IconeOs({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M8 4.5H6.5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-12a2 2 0 0 0-2-2H16" />
+      <rect x="8" y="3" width="8" height="3" rx="1" />
+      <rect x="7.5" y="12" width="9" height="4.5" rx="1.2" />
+      <path d="M10 9.5v2.5M14 9.5v2.5" />
+      <path d="M10 14.25h.01M12.5 14.25h.01" />
+    </svg>
+  );
+}
+
+/** A caixa voltando: o aparelho que saiu do cliente e vem para a base. */
+export function IconeRecolhido({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M3.5 8.5 12 4l8.5 4.5v7L12 20l-8.5-4.5z" />
+      <path d="M3.5 8.5 12 13l8.5-4.5M12 13v7" />
+      <path d="M17 17.5h-4l1.5-1.5M13 17.5l1.5 1.5" />
+    </svg>
+  );
+}
