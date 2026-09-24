@@ -24,7 +24,7 @@ export function createIxcHttp(ixc: AppConfig['ixc']): AxiosInstance {
 
   const token = Buffer.from(ixc.token || '').toString('base64');
 
-  return axios.create({
+  const http = axios.create({
     baseURL: `https://${ixc.host}/webservice/v1`,
     timeout: ixc.timeoutMs,
     headers: {
@@ -34,6 +34,32 @@ export function createIxcHttp(ixc: AppConfig['ixc']): AxiosInstance {
     // O IXC pode devolver 200 com { type: "error" }; deixamos o cliente tratar.
     validateStatus: (s) => s >= 200 && s < 500,
   });
+
+  if (ixc.somenteLeitura) {
+    logger.warn('IXC em modo só leitura (IXC_SOMENTE_LEITURA): toda escrita será recusada.');
+    http.interceptors.request.use(recusarEscrita);
+  }
+  return http;
+}
+
+/**
+ * A trava do modo só leitura: toda chamada que não é listagem é recusada antes
+ * de sair daqui.
+ *
+ * Existe para subir um ambiente de teste apontando para o IXC de produção — o
+ * único que a casa tem — sem depender de lembrar que botão não apertar. As
+ * listagens do IXC são GET (com corpo); inserir, editar, apagar e os botões
+ * (baixa, auditoria) são POST, PUT e DELETE.
+ */
+export function recusarEscrita<T extends { method?: string; url?: string }>(pedido: T): T {
+  const metodo = (pedido.method ?? 'get').toLowerCase();
+  if (metodo !== 'get') {
+    throw new Error(
+      `IXC em modo só leitura: ${metodo.toUpperCase()} ${pedido.url ?? ''} não foi enviado ` +
+        '(tire IXC_SOMENTE_LEITURA do .env para gravar).',
+    );
+  }
+  return pedido;
 }
 
 export { AxiosInstance };
