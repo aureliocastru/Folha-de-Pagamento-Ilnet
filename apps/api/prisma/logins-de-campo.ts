@@ -118,6 +118,9 @@ async function main() {
           // Vazio de propósito: o TECNICO não tem lista de módulos, tem a
           // Segurança do Trabalho — ver `MODULO_DO_TECNICO` no `ModulosGuard`.
           modulos: [],
+          // O de todo colaborador, e as ordens de serviço: é a equipe de campo
+          // que instala e retira aparelho.
+          minhaArea: ['pontuacao', 'abastecimento', 'os'],
         },
       });
       abertos += 1;

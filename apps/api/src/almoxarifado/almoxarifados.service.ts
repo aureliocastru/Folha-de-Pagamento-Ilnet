@@ -2,7 +2,13 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { AppConfig } from '../config/configuration';
 import { IxcClient } from '../ixc/ixc.client';
-import { ehAlmoxDeSaidas, NOME_DO_ALMOX_DE_SAIDAS, numeroDoIxc } from './estoque.mapper';
+import {
+  ehAlmoxDeRecolhidos,
+  ehAlmoxDeSaidas,
+  NOME_DO_ALMOX_DE_RECOLHIDOS,
+  NOME_DO_ALMOX_DE_SAIDAS,
+  numeroDoIxc,
+} from './estoque.mapper';
 import { EstoqueService } from './estoque.service';
 import {
   montarEdicaoAlmoxarifado,
@@ -337,33 +343,64 @@ export class AlmoxarifadosService {
    * nascer, criariam duas — e cada uma ficaria com metade do que saiu.
    */
   almoxDeSaidas(filialId: number, quem: Quem): Promise<{ id: number; nome: string }> {
-    const vez = this.saidasEmAndamento.then(() => this.acharOuCriarSaidas(filialId, quem));
-    this.saidasEmAndamento = vez.catch(() => undefined);
-    return vez;
+    return this.almoxDoSistema(
+      { nome: NOME_DO_ALMOX_DE_SAIDAS, eh: ehAlmoxDeSaidas, paraQue: 'as saídas' },
+      filialId,
+      quem,
+    );
   }
 
-  private saidasEmAndamento: Promise<unknown> = Promise.resolve();
+  /**
+   * O almoxarifado "Recolhidos (triagem)" — para onde vai o aparelho que voltou
+   * de cliente quando a base confirma que o recebeu. Mesmo jeito do "Saídas":
+   * acha pelo nome, e cria no primeiro recebimento.
+   */
+  almoxDeRecolhidos(filialId: number, quem: Quem): Promise<{ id: number; nome: string }> {
+    return this.almoxDoSistema(
+      {
+        nome: NOME_DO_ALMOX_DE_RECOLHIDOS,
+        eh: ehAlmoxDeRecolhidos,
+        paraQue: 'os aparelhos recolhidos de cliente',
+      },
+      filialId,
+      quem,
+    );
+  }
 
-  private async acharOuCriarSaidas(
+  /** Uma criação por vez, de qualquer um deles — ver `almoxDeSaidas`. */
+  private almoxDoSistema(
+    qual: { nome: string; eh: (nome: string) => boolean; paraQue: string },
     filialId: number,
     quem: Quem,
   ): Promise<{ id: number; nome: string }> {
-    const existente = (await this.listar()).find((a) => ehAlmoxDeSaidas(a.descricao));
+    const vez = this.criacaoEmAndamento.then(() => this.acharOuCriar(qual, filialId, quem));
+    this.criacaoEmAndamento = vez.catch(() => undefined);
+    return vez;
+  }
+
+  private criacaoEmAndamento: Promise<unknown> = Promise.resolve();
+
+  private async acharOuCriar(
+    qual: { nome: string; eh: (nome: string) => boolean; paraQue: string },
+    filialId: number,
+    quem: Quem,
+  ): Promise<{ id: number; nome: string }> {
+    const existente = (await this.listar()).find((a) => qual.eh(a.descricao));
     if (existente) {
       if (!existente.liberado) await this.garantirAcesso([existente.id]);
       else if (!existente.ativo) {
         throw new BadRequestException(
           `O almoxarifado "${existente.descricao}" está desativado no IXC, e é para lá que vão ` +
-            'as saídas. Ative-o na aba Almoxarifados.',
+            `${qual.paraQue}. Ative-o na aba Almoxarifados.`,
         );
       }
       return { id: existente.id, nome: existente.descricao };
     }
 
-    const criado = await this.criar({ descricao: NOME_DO_ALMOX_DE_SAIDAS, filialId }, quem);
+    const criado = await this.criar({ descricao: qual.nome, filialId }, quem);
     this.estoque.esquecer();
     this.logger.log(
-      `Almoxarifado "${NOME_DO_ALMOX_DE_SAIDAS}" criado no IXC (#${criado.id}) para a primeira saída.`,
+      `Almoxarifado "${qual.nome}" criado no IXC (#${criado.id}) para ${qual.paraQue}.`,
     );
     return { id: criado.id, nome: criado.descricao };
   }

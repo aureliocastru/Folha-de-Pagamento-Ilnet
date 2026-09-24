@@ -210,6 +210,71 @@ pela NR-10. Transcrito do formulário impresso da casa, sem tirar nada dele.
       recusa de quem está vencido na hora de montar a equipe
 - [ ] Painel de riscos por período: o que mais se marca, onde, com que equipe
 
+## 🚧 Módulo Ordens de Serviço — integrado ao almoxarifado (escrito, falta a prova no IXC)
+
+O técnico registra, pelo celular, o que fez com material em cada OS do IXC: o
+aparelho que tirou do cliente, o que instalou no lugar e o material que gastou.
+Tudo é escrito **na própria OS do IXC**, saindo e voltando do almoxarifado dele.
+
+- [x] **As OS do técnico, do IXC**: as abertas com ele (`id_tecnico`) e as
+      finalizadas nos últimos 3 dias — é comum o atendimento fechar antes de o
+      técnico lançar o material. Um técnico não mexe na OS de outro
+- [x] **O almoxarifado de cada técnico**, achado pelo caminho do IXC
+      (colaborador → usuário → ligação padrão), com a opção de fixar à mão
+      quando o IXC não diz um só. Perdas, Saídas e a triagem nunca são van
+- [x] **Retirar**: o técnico escolhe entre os comodatos do contrato e diz como
+      o aparelho voltou (funcionando, com defeito, sem testar). A baixa devolve
+      a peça à van **dele**, que responde por ela até a base receber
+- [x] **Aparelho fora da lista**: o que o técnico trouxe e o IXC não tem no
+      contrato fica anotado (com o que o IXC sabe da peça) para a base conferir,
+      sem escrever nada no IXC
+- [x] **Instalar**: bipa a etiqueta pela câmera (ou toca na lista da van). Só
+      entra aparelho que está na van dele, na prateleira, e **não** um recolhido
+      que ainda não passou pela base — é o que impede levar o defeito de um
+      cliente para outro
+- [x] **Material**: lista curta montada pela base (conector, drop, esticador),
+      com o saldo da van e um teto por OS — acima dele, o técnico escreve o
+      porquê. O que está anotado e não enviado conta contra o saldo
+- [x] **Anotar e enviar são dois passos**: anotar confere contra o IXC e
+      guarda; o "Enviar ao IXC" grava na ordem instalado → retirado → material.
+      Troca condicional no banco (dois toques não gravam duas vezes), releitura
+      do IXC quando ele responde erro (gravou? não gravou? não dá para saber →
+      "conferir") e conferência depois de gravar (o IXC aceitou e não fez →
+      aviso)
+- [x] **Recolhidos**: a base confirma que recebeu, e o aparelho vai por
+      transferência da van para "Recolhidos (triagem)" (criado no primeiro
+      recebimento) ou outro almoxarifado
+- [x] **Técnico por técnico**: a van de cada um no IXC — aparelhos, recolhidos,
+      saldo de cada material, o negativo em destaque
+- [x] **Relatório do mês**: por técnico, por material (com a média por OS), os
+      aparelhos (e quantos voltaram com defeito), o porquê de quem passou do
+      normal, e a planilha para baixar
+- [x] **Rodado contra a base real, em modo só leitura** (24/09/2026): os 6
+      técnicos de campo acham a van, as OS e o comodato de cada contrato; o
+      "Enviar" foi barrado pela trava e a releitura confirmou que nada gravou.
+      O teste achou e corrigiu: o `tipo` errado da documentação, a listagem de
+      material que ignora o filtro de OS, o formato de data do filtro, a mesma
+      pessoa em dois cadastros (4 dos 6 técnicos) e a ferramenta da van que
+      aparecia para "instalar" — agora só entra o modelo da lista de aparelhos
+- [ ] **Troca de teste numa OS e num contrato de teste**, conferindo no IXC o
+      comodato, a van e o saldo (ver `docs/ixc/README.md`). As três escritas
+      da OS ainda não foram gravadas de verdade nesta base
+- [ ] **Liberar para a equipe**, depois da troca de teste: montar a Lista da OS
+      (os modelos de aparelho e os materiais) e marcar "Ordens de serviço" no
+      login de cada técnico, em Usuários. O deploy sozinho não libera ninguém
+- [ ] **Material de consumo nas vans**: hoje o conector, o drop e o esticador
+      ficam no almoxarifado ILNET, e as vans quase não têm saldo deles no IXC.
+      Como o material da OS sai da van, cada técnico precisa receber por
+      transferência o que carrega — senão a tela recusa por falta de saldo
+- [ ] Foto da etiqueta do aparelho retirado e da instalação, anexada na OS
+      (`su_oss_chamado_arquivos` — o `IxcClient.upload` já sabe mandar)
+- [ ] Kit sugerido por assunto de OS (instalação: 1 drop, 2 conectores…) para
+      o técnico só confirmar
+- [ ] Finalizar a OS pelo app (`su_oss_chamado_fechar`), se um dia a casa quiser
+      tirar isso do IXC
+- [ ] Aparelho em comodato sem número de peça (produto comum, pela quantidade)
+      na instalação — hoje só a retirada aceita
+
 ## Notas técnicas / decisões
 
 - **PostgreSQL + Prisma**: valores monetários em `Decimal(14,2)`; migrations

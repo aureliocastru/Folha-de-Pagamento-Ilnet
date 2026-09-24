@@ -178,7 +178,12 @@ function logado(req: Request) {
 /** A parte da Minha área que o administrador deu a este login. */
 function exigir(req: Request, area: AreaDoColaborador): void {
   if (!(logado(req).minhaArea ?? []).includes(area)) {
-    const nome = { pontuacao: 'Pontuação', abastecimento: 'Abastecimento', pontuar: 'Pontuar' }[area];
+    const nome = {
+      pontuacao: 'Pontuação',
+      abastecimento: 'Abastecimento',
+      pontuar: 'Pontuar',
+      os: 'Ordens de serviço',
+    }[area];
     throw new ForbiddenException(
       `Seu login não abre "${nome}". Peça ao administrador para marcar, nos módulos do seu login.`,
     );

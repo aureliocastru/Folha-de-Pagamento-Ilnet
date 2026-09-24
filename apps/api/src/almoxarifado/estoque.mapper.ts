@@ -106,6 +106,18 @@ export function ehAlmoxForaDaCasa(nome: string | null | undefined): boolean {
   return ehAlmoxDePerdas(nome) || ehAlmoxDeSaidas(nome);
 }
 
+/**
+ * O almoxarifado dos aparelhos que voltaram de cliente e a base recebeu: a
+ * triagem, antes de testar, resetar e voltar à prateleira. Criado pelo sistema
+ * no primeiro recebimento. Soma no que a casa tem — o aparelho é dela —, mas
+ * não é de técnico nenhum, e não se instala daqui.
+ */
+export const NOME_DO_ALMOX_DE_RECOLHIDOS = 'Recolhidos (triagem)';
+
+export function ehAlmoxDeRecolhidos(nome: string | null | undefined): boolean {
+  return nomeComparavel(nome) === nomeComparavel(NOME_DO_ALMOX_DE_RECOLHIDOS);
+}
+
 /** Um item do estoque, com o saldo de cada almoxarifado. */
 export interface ItemDeEstoque {
   produtoId: number;

@@ -89,6 +89,14 @@ export class ComodatoService {
   }
 
   /**
+   * Joga fora a leitura guardada — depois de a OS instalar ou baixar comodato
+   * no IXC, a aba Comodato tem de mostrar o que ficou lá.
+   */
+  esquecer(): void {
+    this.guardado = null;
+  }
+
+  /**
    * Os registros de uma tabela pelos ids. Poucos: um a um, para não trazer a
    * base inteira de clientes para achar dez nomes. Muitos: a tabela inteira de
    * uma vez, que aí custa menos que centenas de consultas.

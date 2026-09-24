@@ -8,9 +8,10 @@ organizado em módulos. Depois do login você escolhe em qual trabalhar:
 | Folha de Pagamento    | `/folha`        | Funcionários, diaristas, vales, férias, impostos e a folha  |
 | Contas a Pagar        | `/contas-pagar` | Todas as saídas da empresa                                  |
 | Almoxarifado          | `/almoxarifado` | Estoque (lido do IXC), ferramentas e cotações de preços     |
+| Ordens de Serviço     | `/os`           | O que o técnico instala, retira e gasta em cada OS do IXC   |
 | RH                    | `/rh`           | A estante de documentos: a pasta de cada funcionário        |
 | Segurança do Trabalho | `/seguranca`    | As análises de risco (APR) dos serviços e o formulário      |
-| — (tela do técnico)   | `/campo`        | A APR no celular, para quem trabalha em campo               |
+| — (tela do técnico)   | `/campo`        | A APR e as OS no celular, para quem trabalha em campo       |
 
 Um módulo novo se declara em `apps/web/src/lib/modulos.ts` — o cartão na tela
 de escolha e a barra lateral saem dali. O `/campo` é a exceção, e de propósito:
@@ -45,6 +46,7 @@ folha-pagamento/
 | `apr`          | Análise de risco: catálogo, APRs preenchidas e o PDF         |
 | `cotacoes`     | Catálogo de preços: produto, fornecedor daqui e a comparação |
 | `almoxarifado` | Estoque lido do IXC e o caderno de ferramentas emprestadas   |
+| `os`           | Aparelho e material dentro da OS do IXC, recolhidos, relatório |
 | `auth`         | Login JWT; todas as rotas protegidas por padrão             |
 | `prisma`       | Acesso ao PostgreSQL                                         |
 

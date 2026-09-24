@@ -14,6 +14,7 @@ export const MODULOS = [
   'rh',
   'seguranca',
   'almoxarifado',
+  'os',
 ] as const;
 export type ModuloId = (typeof MODULOS)[number];
 
@@ -45,8 +46,9 @@ const ESCRITA = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
  *
  * O que não está aqui é livre: login, saúde, gerenciamento de usuários, o
  * bloco de notas (`agenda`, que abre em qualquer tela e é de quem escreveu), a
- * tela do colaborador (`colaborador`, que só devolve o que é de quem entrou)
- * e a assinatura pública do recibo não pertencem a módulo nenhum.
+ * tela do colaborador (`colaborador`, que só devolve o que é de quem entrou),
+ * as OS do técnico (`minhas-os`, idem) e a assinatura pública do recibo não
+ * pertencem a módulo nenhum.
  */
 const MODULO_DA_ROTA: Array<[string, ModuloId[]]> = [
   ['rh', ['rh']],
@@ -59,6 +61,11 @@ const MODULO_DA_ROTA: Array<[string, ModuloId[]]> = [
   // quebraria o favorito de quem já as usa.
   ['almoxarifado', ['almoxarifado']],
   ['cotacoes', ['almoxarifado']],
+
+  // As ordens de serviço, do lado da base. O lado do técnico (`minhas-os`)
+  // fica de fora de propósito: é da pessoa que entrou, como a tela do
+  // colaborador, e quem decide é a marca "Ordens de serviço" da Minha área.
+  ['os', ['os']],
 
   ['contas-abertas', ['contas-pagar']],
   ['pagamentos-feitos', ['contas-pagar']],

@@ -37,5 +37,14 @@ import { TransferenciasService } from './transferencias.service';
     ConferenciaService,
     SaidasService,
   ],
+  // As ordens de serviço leem e mexem no mesmo estoque do IXC: a van do
+  // técnico, a peça bipada, o comodato do contrato, a transferência.
+  exports: [
+    EstoqueService,
+    ProdutosService,
+    ComodatoService,
+    AlmoxarifadosService,
+    TransferenciasService,
+  ],
 })
 export class AlmoxarifadoModule {}

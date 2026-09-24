@@ -212,6 +212,10 @@ model Funcionario {
   ferramentas   EmprestimoDeFerramenta[]
   /// Os pontos que os coordenadores deram a esta pessoa.
   pontos        LancamentoDePontos[]
+  /// O que esta pessoa instalou, retirou e gastou nas ordens de serviço.
+  itensDeOs     ItemDeOs[]
+  /// O almoxarifado dela no IXC, quando o administrador o fixou à mão.
+  almoxFixado   AlmoxDoTecnico?
 
   @@index([ativo])
   @@index([nome])
@@ -3171,6 +3175,185 @@ model SaidaDeEstoque {
 
   @@index([produtoId, data])
   @@map("saidas_de_estoque")
+}
+
+// ---------------------------------------------------------------------------
+// Ordens de serviço — o que o técnico instala, retira e gasta em cada OS
+// ---------------------------------------------------------------------------
+//
+// A OS é do IXC: nasce lá, no atendimento, e é finalizada lá. O que se grava
+// aqui é o que o técnico fez com material dentro dela — e tudo isso é escrito
+// na própria OS do IXC (comodato novo, comodato baixado, produto gasto), saindo
+// e voltando do almoxarifado dele. A cópia daqui existe por três motivos: o
+// que ainda não foi ao IXC (o sinal cai onde se trabalha), o que o IXC recusou
+// e precisa de outra tentativa, e o relatório do mês, que não pode depender de
+// varrer o IXC OS por OS.
+
+enum TipoItemDeOs {
+  /// Aparelho novo: sai do almoxarifado do técnico e fica em comodato no contrato.
+  INSTALADO
+  /// Aparelho que estava em comodato no contrato e voltou com o técnico.
+  RETIRADO
+  /// Material que se gasta e não volta: conector, drop, esticador.
+  MATERIAL
+  /// Aparelho que o técnico trouxe do cliente e que o IXC não tem em comodato
+  /// no contrato. Não se escreve no IXC — alguém da base confere.
+  DIVERGENCIA
+}
+
+enum SituacaoItemDeOs {
+  /// Anotado, ainda não foi ao IXC.
+  PENDENTE
+  /// Indo ao IXC agora. É a trava: só quem passou o item de PENDENTE para cá
+  /// o grava, mesmo com duas instâncias da API.
+  GRAVANDO
+  /// Está no IXC.
+  GRAVADO
+  /// O IXC recusou, e relido não gravou. Pode tentar de novo.
+  FALHOU
+  /// O IXC deu erro e, relido, não dá para dizer se gravou. Repetir poderia
+  /// gravar duas vezes — alguém confere no IXC antes.
+  CONFERIR
+}
+
+/// Como o aparelho retirado voltou, na palavra do técnico.
+enum CondicaoDoRetirado {
+  FUNCIONANDO
+  DEFEITO
+  NAO_TESTADO
+}
+
+/// Uma OS do IXC em que algum material foi mexido por aqui.
+model RegistroDeOs {
+  id String @id @default(uuid())
+
+  /// `su_oss_chamado.id`. Uma OS, um registro.
+  osIxcId    Int     @unique @map("os_ixc_id")
+  protocolo  String?
+  assunto    String?
+  /// O cliente e o contrato da OS, com o nome escrito: o cadastro de lá muda.
+  clienteId  Int?    @map("cliente_id")
+  cliente    String?
+  contratoId Int?    @map("contrato_id")
+  endereco   String?
+  filialId   Int     @map("filial_id")
+
+  itens ItemDeOs[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([createdAt])
+  @@map("registros_de_os")
+}
+
+/// Um aparelho ou um material dentro da OS.
+model ItemDeOs {
+  id String @id @default(uuid())
+
+  registro   RegistroDeOs @relation(fields: [registroId], references: [id], onDelete: Cascade)
+  registroId String       @map("registro_id")
+
+  tipo     TipoItemDeOs
+  situacao SituacaoItemDeOs @default(PENDENTE)
+
+  /// Quem fez, e o almoxarifado dele no IXC: de onde o material saiu, para
+  /// onde o retirado voltou. No item, e não na OS: a OS pode trocar de técnico.
+  tecnico      Funcionario @relation(fields: [tecnicoId], references: [id], onDelete: Restrict)
+  tecnicoId    String      @map("tecnico_id")
+  almoxId      Int         @map("almox_id")
+  almoxarifado String
+
+  /// O produto do IXC. Nulo só na divergência de aparelho que o IXC não conhece.
+  produtoId     Int?     @map("produto_id")
+  descricao     String
+  unidade       String?
+  quantidade    Decimal  @db.Decimal(18, 5)
+  /// O preço do cadastro no dia — é o que o relatório soma.
+  valorUnitario Decimal? @map("valor_unitario") @db.Decimal(14, 4)
+
+  /// A peça, quando é patrimônio (ONU, roteador).
+  patrimonioId      Int?    @map("patrimonio_id")
+  numeroPatrimonial String? @map("numero_patrimonial")
+  mac               String?
+  numeroSerie       String? @map("numero_serie")
+
+  /// RETIRADO: a linha de comodato que foi baixada. INSTALADO: a que nasceu.
+  comodatoIxcId  Int? @map("comodato_ixc_id")
+  /// MATERIAL: a linha de produto gasto na OS.
+  movimentoIxcId Int? @map("movimento_ixc_id")
+
+  condicao   CondicaoDoRetirado?
+  /// O que o técnico disse: o porquê de gastar mais que o normal, o defeito.
+  observacao String?
+
+  erro       String?
+  /// O IXC aceitou, mas a releitura não mostrou o que se esperava (a peça
+  /// ainda na prateleira, o saldo que não baixou). Gravado, com uma ressalva
+  /// que alguém precisa ler.
+  aviso      String?
+  tentativas Int       @default(0)
+  gravadoEm  DateTime? @map("gravado_em")
+
+  /// RETIRADO: a chegada na base. O aparelho volta ao almoxarifado do técnico
+  /// (é com ele que está), e só sai de lá quando alguém da base confirma que
+  /// recebeu — até isso, não se instala em outro cliente.
+  recebidoEm         DateTime? @map("recebido_em")
+  recebidoPor        String?   @map("recebido_por")
+  destinoAlmoxId     Int?      @map("destino_almox_id")
+  destinoAlmox       String?   @map("destino_almox")
+  transferenciaIxcId Int?      @map("transferencia_ixc_id")
+
+  registradoPor String   @map("registrado_por")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([registroId])
+  @@index([tipo, situacao])
+  @@index([tecnicoId, gravadoEm])
+  @@index([patrimonioId])
+  @@map("itens_de_os")
+}
+
+/// A lista da OS: os descartáveis que o técnico escolhe numa lista curta, em
+/// vez de procurar no cadastro inteiro do IXC — e os modelos de aparelho que
+/// se instalam em cliente.
+model MaterialDeOs {
+  id String @id @default(uuid())
+
+  produtoId   Int      @unique @map("produto_id")
+  descricao   String
+  unidade     String?
+  /// Aparelho de cliente (ONU, roteador): vai em comodato, peça por peça. Falso
+  /// é material que se gasta. Existe porque no IXC a ferramenta da van (a
+  /// escada, a caneta de limpeza) é patrimônio igual à ONU, no mesmo subgrupo —
+  /// sem esta marca, a caneta aparecia para "instalar" no cliente.
+  aparelho    Boolean  @default(false)
+  /// Acima disto numa OS só, o técnico precisa dizer o porquê. Nulo = sem teto.
+  maximoPorOs Decimal? @map("maximo_por_os") @db.Decimal(18, 5)
+  ativo       Boolean  @default(true)
+  ordem       Int      @default(0)
+
+  criadoPor String   @map("criado_por")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("materiais_de_os")
+}
+
+/// O almoxarifado de um técnico, escolhido à mão. Sem isto vale o padrão dele
+/// no IXC (o usuário ligado ao colaborador, e a ligação marcada como padrão).
+model AlmoxDoTecnico {
+  funcionario   Funcionario @relation(fields: [funcionarioId], references: [id], onDelete: Cascade)
+  funcionarioId String      @id @map("funcionario_id")
+
+  almoxId      Int    @map("almox_id")
+  almoxarifado String
+
+  definidoPor String   @map("definido_por")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("almox_do_tecnico")
 }
 
 // ---------------------------------------------------------------------------

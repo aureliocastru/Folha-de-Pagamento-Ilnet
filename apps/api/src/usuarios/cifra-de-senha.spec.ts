@@ -42,6 +42,8 @@ describe('permissões do perfil', () => {
       rh: 'nao',
       seguranca: 'nao',
       almoxarifado: 'mexer',
+      // Módulo que nasceu depois do perfil (as OS) fica fechado até alguém abrir.
+      os: 'nao',
     });
   });
 });

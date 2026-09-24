@@ -5,12 +5,15 @@
  * - `pontuacao`: a pontuação da própria pessoa;
  * - `abastecimento`: o abastecimento do veículo que está no nome dela;
  * - `pontuar`: é coordenador — pontua os outros, transfere entre
- *   almoxarifados, e não vê a análise de risco.
+ *   almoxarifados, e não vê a análise de risco;
+ * - `os`: as ordens de serviço dele no IXC — o aparelho que instala, o que
+ *   retira e o material que gasta, saindo da van dele. O técnico de campo já
+ *   nasce com ela.
  *
  * Mora à parte de `MODULOS` de propósito: lá, lista vazia é "todos", e aqui
  * isso daria o painel de pontuar a qualquer login esquecido.
  */
-export const AREAS_DO_COLABORADOR = ['pontuacao', 'abastecimento', 'pontuar'] as const;
+export const AREAS_DO_COLABORADOR = ['pontuacao', 'abastecimento', 'pontuar', 'os'] as const;
 export type AreaDoColaborador = (typeof AREAS_DO_COLABORADOR)[number];
 
 /**

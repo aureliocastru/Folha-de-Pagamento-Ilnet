@@ -37,6 +37,61 @@ Troque `BUSCA` pelo que procura (`baixa`, `fornecedor`, `auditoria`…).
 | Conferência de estoque: o que faltou | `transf_almox_top` + `transf_almox_item` para "Perdas e Falhas" | documentado; é a transferência que já andava |
 | Conferência de estoque: o que sobrou | `entrada` + `movimento_produtos` (compra de acerto) | documentado; o saldo sobe com a compra ainda aberta |
 | Inventário do IXC (ajustar saldo ao contado) | `inventario_estoque` | **não documentado; grava errado pela API** (ver abaixo) |
+| OS do técnico (ler) | `su_oss_chamado` por `id_tecnico` | documentado; `id_tecnico` é o `funcionarios.id` (o `ixcId` daqui) |
+| Aparelho instalado na OS | `su_oss_mov_comodato_wiz` (POST) | documentado — **ainda não conferido contra a base** (ver abaixo) |
+| Aparelho retirado do cliente | `baixar_comodato_23069` | documentado — **ainda não conferido contra a base** |
+| Material gasto na OS | `su_oss_mov_produto` (POST) | documentado — **ainda não conferido contra a base** |
+| O almoxarifado do técnico | `usuarios.funcionario` → `almox_usuario` (padrão) | documentado (fluxo "Produtos do técnico") |
+
+### As escritas da OS ainda não foram provadas nesta base
+
+O módulo Ordens de Serviço (`apps/api/src/os`) escreve em três recursos que
+este app nunca tinha usado, e **nenhum deles foi testado contra o IXC de
+verdade** quando o módulo foi escrito — os corpos seguem a coleção campo a
+campo (`os/os-ixc.ts`), mas a coleção já errou antes (ver o Inventário acima).
+
+**O que a leitura da base já mostrou** (24/09/2026, só leitura, pelas linhas que
+o próprio IXC grava quando o técnico mexe na OS):
+
+- **O comodato vale quando a linha nasce, e não ao finalizar a OS.** Na OS
+  92279, ainda encaminhada, a linha 1016480 de `su_oss_mov_comodato_wiz` já
+  tinha a ONU em comodato (situação 4), fora da van.
+- **O `tipo` do exemplo da documentação está errado.** O exemplo manda `"C"`; a
+  linha real tem `tipo: "S"` (o tipo do movimento — saída), `tipo_produto:
+  "P"`, `garantia_oss: "N"` e `ultima_situacao_patrimonio` com a situação de
+  antes ("7"). O corpo daqui segue a linha real (`os/os-ixc.ts`).
+- **A listagem de `su_oss_mov_produto` ignora o filtro por OS** — devolve zero
+  até para a OS que tem linha. Quem precisa das linhas de uma OS lê
+  `movimento_produtos` com `movimento_produtos.id_oss_chamado` (esse filtra
+  certo, mas não devolve `id_oss_chamado` nem `status_comodato` nas colunas).
+  `su_oss_mov_comodato_wiz` filtra certo e devolve tudo.
+
+- **Filtro de data em `grid_param` é "AAAA-MM-DD HH:MM:SS".** Os exemplos da
+  coleção ("OS finalizadas por técnico/mês") usam "DD/MM/AAAA"; com esse
+  formato o IXC não reclama, mas não filtra — devolveu 7.392 OS finalizadas de
+  um técnico, contra 17 com a data no formato certo.
+- **A ferramenta da van é patrimônio igual à ONU**, no mesmo subgrupo (7):
+  escada, caneta de limpeza, carrinho de drop. Não há campo do IXC que separe;
+  quem separa é a lista de aparelhos que a base monta na tela "Lista da OS".
+
+Continua sem prova o `baixar_comodato_23069` e o material na OS, que nenhuma
+linha lida mostrou.
+
+**Como testar sem risco.** Com `IXC_SOMENTE_LEITURA=1` no `.env`, toda escrita é
+recusada antes de sair do app (`ixc/ixc.http.ts`). Foi assim que o módulo
+inteiro rodou contra a base real em 24/09/2026: técnicos, vans, OS, comodato
+do contrato, anotações, e o "Enviar ao IXC" recusado pela trava — com a
+releitura do IXC confirmando, item a item, que nada foi gravado. Por isso cada escrita é **relida** logo depois
+(`OsService.conferirDepoisDeGravar`): a peça instalada tem de aparecer em
+comodato (situação 4), a retirada de volta na van, e o saldo do material mais
+baixo. O que não bater fica gravado **com aviso**, visível na OS e na tela da
+base — nunca em silêncio.
+
+**Antes de soltar para a equipe**, faça uma troca de teste numa OS e num
+contrato de teste, e confira no IXC: o comodato na aba da OS e na do contrato,
+a peça nova fora da van, a velha de volta na van, o conector saindo do saldo.
+Se o IXC gravar diferente do esperado, os avisos dizem o quê — e o corpo a
+acertar está em `os/os-ixc.ts`.
 
 ### `data_pagamento` não é o dia em que o dinheiro saiu
 
