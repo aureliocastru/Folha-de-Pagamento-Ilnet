@@ -74,6 +74,61 @@ describe('montarEdicao', () => {
     );
   });
 
+  /*
+   * Editar abre a mesma tela de lançar: tudo que ela mostra, ela salva.
+   */
+  it('troca fornecedor, emissão e número da nota', async () => {
+    const p = await montarEdicao(ATUAL, {
+      idFornecedor: 311,
+      dataEmissao: '2026-08-20',
+      numeroNota: '1234',
+    });
+
+    expect(p).toMatchObject({
+      id_fornecedor: '311',
+      data_emissao: '20/08/2026',
+      numero_nota: '1234',
+    });
+  });
+
+  /*
+   * O PUT reescreve a linha inteira. O rádio do tipo da chave em branco é um
+   * pagamento que o banco não faz; o `comunicado` em branco tira o pagamento
+   * da conciliação. Nenhum dos dois era da edição, e os dois se perdiam.
+   */
+  it('devolve o tipo da chave e o comunicado como estavam', async () => {
+    const p = await montarEdicao(
+      { ...ATUAL, tipo_pix: 'CPF_CNPJ', comunicado: 'N', eh_despesa_veiculo: 'N' },
+      { valor: 200 },
+    );
+
+    expect(p).toMatchObject({
+      tipo_pix: 'CPF_CNPJ',
+      comunicado: 'N',
+      eh_despesa_veiculo: 'N',
+    });
+  });
+
+  it('coluna que o registro não tem não é inventada', async () => {
+    const p = await montarEdicao(ATUAL, { valor: 200 });
+
+    expect(p).not.toHaveProperty('comunicado');
+    expect(p).not.toHaveProperty('tipo_pix');
+  });
+
+  it('o tipo da chave trocado vai com o código do IXC', async () => {
+    const p = await montarEdicao(
+      { ...ATUAL, tipo_pix: 'CPF_CNPJ' },
+      { chavePix: 'financeiro@exemplo.com', tipoChavePix: 'E-mail' },
+      { tipoChave: 'E-mail', mapaTipoChave: null },
+    );
+
+    expect(p).toMatchObject({
+      chave_pix: 'financeiro@exemplo.com',
+      tipo_pix: 'EMAIL',
+    });
+  });
+
   it('registro que já veio com data brasileira não é remexido', async () => {
     const p = await montarEdicao(
       { ...ATUAL, data_vencimento: '14/09/2026' },
@@ -92,7 +147,9 @@ describe('montarEdicao', () => {
  * ela deixa de ser pagável.
  */
 describe('editar conta aprovada', () => {
-  function montar(opts: { auditoria?: string; erroAoEditar?: string } = {}) {
+  function montar(
+    opts: { auditoria?: string; erroAoEditar?: string; semLocal?: boolean } = {},
+  ) {
     const passos: string[] = [];
     const ixc = {
       getById: jest.fn().mockResolvedValue({
@@ -111,13 +168,21 @@ describe('editar conta aprovada', () => {
         return {};
       }),
     };
+    const contaPagar = {
+      deleteMany: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: opts.semLocal ? 0 : 1 }),
+    };
+    const contasPagar = {
+      apagarLocalPorTituloIxc: jest.fn(),
+      mapaDoTipoChavePix: jest.fn().mockResolvedValue(null),
+    };
     const service = new PagamentosService(
       ixc as never,
       { obter: jest.fn().mockResolvedValue({}) } as never,
-      { contaPagar: { deleteMany: jest.fn() } } as never,
-      { apagarLocalPorTituloIxc: jest.fn() } as never,
+      { contaPagar } as never,
+      contasPagar as never,
     );
-    return { service, passos };
+    return { service, passos, ixc, contaPagar };
   }
 
   it('reprova, edita e aprova de novo', async () => {
@@ -147,5 +212,44 @@ describe('editar conta aprovada', () => {
 
     // Sem o terceiro passo, a conta ficaria reprovada e sem poder ser paga.
     expect(passos).toEqual(['auditoria:R', 'editar', 'auditoria:A']);
+  });
+
+  /*
+   * O veículo mora só aqui. Trocá-lo não é motivo para reprovar e reaprovar
+   * a conta no IXC — lá nada mudou.
+   */
+  it('só o veículo: grava aqui e não toca no IXC', async () => {
+    const { service, passos, contaPagar } = montar();
+
+    const r = await service.editar(4242, { veiculoId: 'v1' });
+
+    expect(contaPagar.updateMany).toHaveBeenCalledWith({
+      where: { idFnApagarIxc: 4242 },
+      data: { veiculoId: 'v1' },
+    });
+    expect(passos).toEqual([]);
+    expect(r.reaprovada).toBe(false);
+  });
+
+  it('veículo em conta que não foi lançada aqui é recusado antes do IXC', async () => {
+    const { service, passos } = montar({ semLocal: true });
+
+    await expect(
+      service.editar(4242, { veiculoId: 'v1', valor: 300 }),
+    ).rejects.toThrow(/não foi lançada por este app/);
+    expect(passos).toEqual([]);
+  });
+
+  it('chave trocada sem tipo leva o tipo pelo formato dela', async () => {
+    const { service, ixc } = montar({ auditoria: '' });
+
+    await service.editar(4242, { chavePix: 'financeiro@exemplo.com' });
+
+    const [, , corpo] = ixc.update.mock.calls[0] as unknown as [
+      string,
+      number,
+      Record<string, unknown>,
+    ];
+    expect(corpo.tipo_pix).toBe('EMAIL');
   });
 });

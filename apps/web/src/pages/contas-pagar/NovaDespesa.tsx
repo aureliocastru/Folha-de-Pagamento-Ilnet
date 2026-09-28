@@ -16,7 +16,74 @@ import {
   TIPOS_CHAVE_PIX,
   type CategoriaDespesa,
   type ConfigFinanceira,
+  type ContaAberta,
 } from '../../lib/types';
+
+/**
+ * Uma conta que já está no IXC, aberta nesta mesma tela para mudar.
+ *
+ * Era outra janela, menor, com metade dos campos: quem lançou uma conta com o
+ * fornecedor, a emissão ou o número da nota errados não tinha onde corrigir.
+ * Agora editar é lançar de novo por cima — a mesma tela, já preenchida.
+ */
+export interface EdicaoDaConta {
+  conta: ContaAberta;
+  /** O título cru, como o IXC o devolve. */
+  campos: Record<string, unknown>;
+  tipoChavePix: string | null;
+  /** Lançada por este app: só nela cabe o veículo, que mora aqui. */
+  lancadaAqui: boolean;
+  veiculoId: string | null;
+}
+
+/** O que a conta tinha ao abrir, para mandar ao IXC só o que mudou. */
+interface ValoresDaConta {
+  idFornecedor: number | null;
+  valor: number;
+  emissao: string;
+  vencimento: string;
+  observacao: string;
+  tipoPagamento: string;
+  contaPagamento: string;
+  chavePix: string;
+  tipoChavePix: string;
+  codigoBarras: string;
+  documento: string;
+  numeroNota: string;
+  categoriaId: string;
+  veiculoId: string;
+}
+
+function valoresDaConta(e: EdicaoDaConta): ValoresDaConta {
+  const texto = (v: unknown) => String(v ?? '').trim();
+  return {
+    idFornecedor: e.conta.fornecedor.id ?? (Number(texto(e.campos.id_fornecedor)) || null),
+    valor: e.conta.valor,
+    emissao:
+      diaDoIxc(e.campos.data_emissao) || diaDoIxc(e.conta.emissao) || hoje(),
+    vencimento: diaDoIxc(e.conta.vencimento) || diaDoIxc(e.campos.data_vencimento) || hoje(),
+    observacao: e.conta.observacao ?? texto(e.campos.obs),
+    tipoPagamento: texto(e.campos.tipo_pagamento),
+    contaPagamento: texto(e.campos.id_contas),
+    chavePix: texto(e.campos.chave_pix),
+    tipoChavePix: e.tipoChavePix ?? '',
+    codigoBarras: texto(e.campos.codigo_barras),
+    documento: texto(e.campos.documento),
+    numeroNota: texto(e.campos.numero_nota),
+    categoriaId: e.conta.classificacao?.id ?? '',
+    veiculoId: e.veiculoId ?? '',
+  };
+}
+
+/** A data do IXC — "AAAA-MM-DD" ou "DD/MM/AAAA" — no formato do campo. */
+function diaDoIxc(v: unknown): string {
+  const s = String(v ?? '').trim();
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (iso && iso[1] !== '0000') return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const br = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(s);
+  if (br) return `${br[3]}-${br[2]}-${br[1]}`;
+  return '';
+}
 
 /** Um fornecedor achado no IXC pela busca desta tela. */
 interface FornecedorIxc {
@@ -121,6 +188,7 @@ export function NovaDespesa({
   veiculoInicial,
   inicial,
   onLancada,
+  edicao,
 }: {
   onFechar: () => void;
   /** Lançada de dentro da ficha de um veículo: ele já vem escolhido. */
@@ -143,34 +211,60 @@ export function NovaDespesa({
   };
   /** A conta nasceu: quem abriu fica sabendo, e com que valor ela saiu. */
   onLancada?: (dados: DespesaLancada, valorLancado: number) => void;
+  /** Uma conta que já está no IXC: a tela abre nela e salva por cima. */
+  edicao?: EdicaoDaConta;
 }) {
   const queryClient = useQueryClient();
 
+  /*
+   * O que a conta tinha ao abrir. Anda junto quando se salva: se a nota falhar
+   * depois, a segunda tentativa não reenvia ao IXC o que já foi para lá.
+   */
+  const [original, setOriginal] = useState<ValoresDaConta | null>(() =>
+    edicao ? valoresDaConta(edicao) : null,
+  );
+  const o = original;
+
   const [termo, setTermo] = useState('');
   const [fornecedor, setFornecedor] = useState<FornecedorIxc | null>(
-    inicial?.fornecedor
-      ? { ...inicial.fornecedor, nomeFantasia: null, cpfCnpj: null }
-      : null,
+    edicao
+      ? {
+          idFornecedor: o!.idFornecedor ?? 0,
+          nome: edicao.conta.fornecedor.nome,
+          nomeFantasia: null,
+          cpfCnpj: null,
+        }
+      : inicial?.fornecedor
+        ? { ...inicial.fornecedor, nomeFantasia: null, cpfCnpj: null }
+        : null,
   );
-  const [valor, setValor] = useState(inicial?.valor ?? '');
-  const [emissao, setEmissao] = useState(hoje);
-  const [vencimento, setVencimento] = useState(inicial?.vencimento ?? hoje);
-  const [categoriaId, setCategoriaId] = useState(inicial?.categoriaId ?? '');
+  const [valor, setValor] = useState(o ? String(o.valor) : (inicial?.valor ?? ''));
+  const [emissao, setEmissao] = useState(o?.emissao ?? hoje);
+  const [vencimento, setVencimento] = useState(
+    o?.vencimento ?? inicial?.vencimento ?? hoje,
+  );
+  const [categoriaId, setCategoriaId] = useState(
+    o?.categoriaId ?? inicial?.categoriaId ?? '',
+  );
   /**
    * Em qual veículo da frota foi o gasto. Não depende da categoria: ela diz com
    * o que (peça, mão de obra do mecânico), o veículo diz em qual.
    */
   const [veiculoId, setVeiculoId] = useState(
-    veiculoInicial?.id ?? inicial?.veiculoId ?? '',
+    o?.veiculoId ?? veiculoInicial?.id ?? inicial?.veiculoId ?? '',
   );
-  const [tipoPagamento, setTipoPagamento] = useState(inicial?.tipoPagamento ?? '');
-  const [observacao, setObservacao] = useState(inicial?.observacao ?? '');
-  const [codigoBarras, setCodigoBarras] = useState('');
-  const [documento, setDocumento] = useState('');
-  const [numeroNota, setNumeroNota] = useState('');
-  const [chavePix, setChavePix] = useState('');
-  const [tipoChavePix, setTipoChavePix] = useState('');
-  const [contaPagamento, setContaPagamento] = useState('');
+  const [tipoPagamento, setTipoPagamento] = useState(
+    o?.tipoPagamento ?? inicial?.tipoPagamento ?? '',
+  );
+  const [observacao, setObservacao] = useState(
+    o?.observacao ?? inicial?.observacao ?? '',
+  );
+  const [codigoBarras, setCodigoBarras] = useState(o?.codigoBarras ?? '');
+  const [documento, setDocumento] = useState(o?.documento ?? '');
+  const [numeroNota, setNumeroNota] = useState(o?.numeroNota ?? '');
+  const [chavePix, setChavePix] = useState(o?.chavePix ?? '');
+  const [tipoChavePix, setTipoChavePix] = useState(o?.tipoChavePix ?? '');
+  const [contaPagamento, setContaPagamento] = useState(o?.contaPagamento ?? '');
   /** Qual leitor está aberto: o do boleto, o do QR do PIX, ou nenhum. */
   const [lendo, setLendo] = useState<'boleto' | 'pix' | null>(null);
 
@@ -238,11 +332,14 @@ export function NovaDespesa({
   // O tipo de pagamento começa no padrão das Configurações e fica editável: a
   // folha sai por PIX, mas a conta de energia costuma ser boleto, e mandar o
   // rótulo errado deixa o pagamento preso no IXC.
+  //
+  // Na edição, não: a conta sem tipo no IXC continua sem tipo até alguém
+  // escolher, e o padrão entrando sozinho viraria uma mudança que ninguém fez.
   useEffect(() => {
-    if (config.data && !tipoPagamento) {
+    if (config.data && !tipoPagamento && !edicao) {
       setTipoPagamento(config.data.tipoPagamentoPadrao);
     }
-  }, [config.data, tipoPagamento]);
+  }, [config.data, tipoPagamento, edicao]);
 
   // A busca só sai depois que quem digita para de digitar: cada tecla aqui é
   // uma consulta ao IXC, que é lento e não é nosso.
@@ -281,18 +378,27 @@ export function NovaDespesa({
 
   const pixDoCadastro = bancoDoFornecedor.data?.chavePix?.trim() || '';
 
+  /** Na edição, o fornecedor foi trocado — e a chave do novo passa a valer. */
+  const trocouFornecedor =
+    !!o && !!fornecedor && fornecedor.idFornecedor !== o.idFornecedor;
+
   /**
    * Preenche a chave assim que ela chega — mas nunca por cima do que já está
    * escrito. Quem colou um copia-e-cola de cobrança ou leu um QR Code escolheu
    * aquela chave para esta conta; o cadastro do fornecedor é o padrão, não a
    * última palavra.
+   *
+   * Na edição, só depois de trocar o fornecedor: a conta sem chave no IXC paga
+   * pela do cadastro de todo jeito, e preenchê-la sozinho viraria uma mudança
+   * que ninguém pediu.
    */
   useEffect(() => {
     if (!pixDoCadastro) return;
+    if (edicao && !trocouFornecedor) return;
     setChavePix((atual) => atual || pixDoCadastro);
     const tipo = bancoDoFornecedor.data?.tipoChavePix?.trim();
     if (tipo) setTipoChavePix((atual) => atual || tipo);
-  }, [pixDoCadastro, bancoDoFornecedor.data?.tipoChavePix]);
+  }, [pixDoCadastro, bancoDoFornecedor.data?.tipoChavePix, edicao, trocouFornecedor]);
 
   /**
    * O dia em que o dinheiro saiu passa a valer como emissão e vencimento.
@@ -409,6 +515,107 @@ export function NovaDespesa({
       void queryClient.invalidateQueries({ queryKey: ['categorias-despesa'] });
       void queryClient.invalidateQueries({ queryKey: ['recorrentes'] });
       void queryClient.invalidateQueries({ queryKey: ['veiculos'] });
+    },
+  });
+
+  /**
+   * Salvar a edição: só o que mudou vai para o IXC.
+   *
+   * Mandar tudo de volta faria o IXC reprovar e reaprovar a conta por causa de
+   * uma edição que não mudou nada. A categoria é nossa e vai por outro
+   * caminho; a nota sobe por último, como no lançamento.
+   */
+  const salvar = useMutation({
+    mutationFn: async () => {
+      const id = edicao!.conta.idFnApagar;
+      const antes = original!;
+      const tipoChave = ehCopiaECola ? 'Código copia e cola' : tipoChavePix;
+      const depois: ValoresDaConta = {
+        idFornecedor: fornecedor?.idFornecedor ?? antes.idFornecedor,
+        valor: Number(valor),
+        emissao,
+        vencimento,
+        observacao: observacao.trim(),
+        tipoPagamento,
+        contaPagamento,
+        chavePix: chavePix.trim(),
+        tipoChavePix: tipoChave,
+        codigoBarras: digitos(codigoBarras),
+        documento: documento.trim(),
+        numeroNota: numeroNota.trim(),
+        categoriaId,
+        veiculoId,
+      };
+
+      const mudancas: Record<string, unknown> = {};
+      if (depois.idFornecedor !== antes.idFornecedor) {
+        mudancas.idFornecedor = depois.idFornecedor;
+      }
+      if (depois.valor !== antes.valor) mudancas.valor = depois.valor;
+      if (depois.emissao !== antes.emissao) mudancas.dataEmissao = depois.emissao;
+      if (depois.vencimento !== antes.vencimento) {
+        mudancas.dataVencimento = depois.vencimento;
+      }
+      if (depois.observacao !== antes.observacao.trim()) {
+        mudancas.observacao = depois.observacao;
+      }
+      if (depois.tipoPagamento && depois.tipoPagamento !== antes.tipoPagamento) {
+        mudancas.tipoPagamento = depois.tipoPagamento;
+      }
+      if (depois.contaPagamento !== antes.contaPagamento) {
+        // "Padrão" é a conta das Configurações — no IXC não existe padrão.
+        const conta = depois.contaPagamento
+          ? Number(depois.contaPagamento)
+          : config.data?.contaPagamentoId;
+        if (conta) mudancas.contaPagamento = conta;
+      }
+      if (depois.chavePix !== antes.chavePix) mudancas.chavePix = depois.chavePix;
+      if (depois.tipoChavePix && depois.tipoChavePix !== antes.tipoChavePix) {
+        mudancas.tipoChavePix = depois.tipoChavePix;
+      }
+      if (depois.codigoBarras !== digitos(antes.codigoBarras)) {
+        mudancas.codigoBarras = depois.codigoBarras;
+      }
+      if (depois.documento !== antes.documento) mudancas.documento = depois.documento;
+      if (depois.numeroNota !== antes.numeroNota) {
+        mudancas.numeroNota = depois.numeroNota;
+      }
+      if (depois.veiculoId !== antes.veiculoId) {
+        mudancas.veiculoId = depois.veiculoId || null;
+      }
+
+      if (Object.keys(mudancas).length > 0) {
+        await api.patch(`/contas-abertas/${id}`, mudancas);
+      }
+      if (depois.categoriaId !== antes.categoriaId) {
+        await api.put(`/contas-abertas/${id}/categoria`, {
+          categoriaId: depois.categoriaId || null,
+        });
+      }
+      setOriginal(depois);
+
+      if (nota) {
+        try {
+          await api.post(`/contas-abertas/${id}/nota`, {
+            arquivo: nota.dados,
+            nome: nota.nome,
+            descricao: depois.observacao.slice(0, 100) || 'Nota',
+          });
+          setNota(null);
+        } catch (err) {
+          setAvisoDaNota(
+            `A conta foi salva, mas a nota não subiu: ${mensagemErro(err)}`,
+          );
+          return false;
+        }
+      }
+      return true;
+    },
+    onSuccess: (tudoCerto) => {
+      void queryClient.invalidateQueries({ queryKey: ['contas-abertas'] });
+      void queryClient.invalidateQueries({ queryKey: ['categorias-despesa'] });
+      void queryClient.invalidateQueries({ queryKey: ['veiculos'] });
+      if (tudoCerto) onFechar();
     },
   });
 
@@ -533,7 +740,9 @@ export function NovaDespesa({
   const podeLancar =
     !!fornecedor &&
     Number(valor) > 0 &&
-    observacao.trim().length >= 3 &&
+    // Na edição não se exige: conta lançada no IXC sem observação continua
+    // podendo ser corrigida no que ela tem de errado.
+    (!!edicao || observacao.trim().length >= 3) &&
     // Boleto com código pela metade não é recusado aqui, mas com código errado
     // sim: a conta chegaria ao IXC com um número que o banco não reconhece.
     (!ehBoleto || !codigoBarras || boletoValido) &&
@@ -595,6 +804,8 @@ export function NovaDespesa({
     },
     {
       rotulo: 'Repetir ou parcelar',
+      // Uma conta que já existe não vira regra nem se parte em parcelas.
+      pular: !!edicao,
       resumo: recorrente
         ? 'repete todo mês'
         : parcelado
@@ -605,7 +816,7 @@ export function NovaDespesa({
       rotulo: 'Observação e nota',
       resumo: observacao.trim() || undefined,
       falta:
-        observacao.trim().length >= 3
+        edicao || observacao.trim().length >= 3
           ? undefined
           : 'Escreva a observação — é o que se lê na lista de contas do IXC.',
     },
@@ -682,7 +893,24 @@ export function NovaDespesa({
   }
 
   return (
-    <Janela titulo="Lançar conta a pagar" onFechar={onFechar}>
+    <Janela
+      titulo={edicao ? 'Editar conta a pagar' : 'Lançar conta a pagar'}
+      onFechar={onFechar}
+    >
+      {edicao && (
+        <p className="mb-4 text-sm text-tinta-500">
+          A mudança vai direto para o título nº {edicao.conta.idFnApagar} no
+          IXC. Os campos abrem com o que está lá agora.
+          {edicao.conta.statusAuditoria === 'A' && (
+            <>
+              {' '}
+              Como ela já está aprovada, o IXC não deixa editar direto: a conta
+              é reprovada, alterada e aprovada de novo — sozinha, sem sair
+              daqui.
+            </>
+          )}
+        </p>
+      )}
       {a.cabecalho}
 
       {/* --- Fornecedor --- */}
@@ -812,11 +1040,21 @@ export function NovaDespesa({
             }}
             className="campo"
           >
+            {/* Conta que chegou ao IXC sem tipo continua sem tipo até alguém
+                escolher — e o tipo que está lá entra na lista mesmo se a tela
+                não o conhece, senão a edição o trocaria sem ninguém pedir. */}
+            {edicao && !o?.tipoPagamento && (
+              <option value="">sem tipo definido</option>
+            )}
             {TIPOS_DE_PAGAMENTO.map((t) => (
               <option key={t.valor} value={t.valor}>
                 {t.rotulo}
               </option>
             ))}
+            {o?.tipoPagamento &&
+              !TIPOS_DE_PAGAMENTO.some((t) => t.valor === o.tipoPagamento) && (
+                <option value={o.tipoPagamento}>{o.tipoPagamento}</option>
+              )}
           </select>
         </div>
 
@@ -868,6 +1106,9 @@ export function NovaDespesa({
             onde o dinheiro saiu —, e separá-las fazia marcar a caixa sem olhar
             para a conta que ia ser debitada.
           */}
+          {/* Na edição, pagar é o botão "Pagar" da lista — é ele que sabe
+              baixar uma conta que já existe. */}
+          {!edicao && (
           <label
             className="opcao mt-2.5"
             title="A conta é criada, aprovada e baixada como paga no IXC de uma vez, e as três datas passam a ser o dia em que o dinheiro saiu"
@@ -883,6 +1124,7 @@ export function NovaDespesa({
             />
             Já foi paga
           </label>
+          )}
           {jaPaga && (
             <div className="mt-2">
               <label className="rotulo" htmlFor="data-pagamento">
@@ -1106,7 +1348,9 @@ export function NovaDespesa({
 
           {/* Só aparece quando há frota cadastrada — ou quando a conta nasceu
               dentro de um veículo, e aí ele já vem marcado. */}
-          {(veiculoInicial || (veiculos.data?.length ?? 0) > 0) && (
+          {(edicao
+            ? edicao.lancadaAqui
+            : veiculoInicial || (veiculos.data?.length ?? 0) > 0) && (
             <div className="sm:col-span-2">
               <label className="rotulo" htmlFor="veiculo">
                 Veículo da frota
@@ -1135,7 +1379,7 @@ export function NovaDespesa({
         )}
 
         {/* --- Serviço que se repete todo mês --- */}
-        {a.mostrar(6) && !parcelado && (
+        {a.mostrar(6) && !edicao && !parcelado && (
           <div className="sm:col-span-2">
             <label
               className="opcao"
@@ -1167,7 +1411,7 @@ export function NovaDespesa({
         )}
 
         {/* --- Parcelamento --- */}
-        {a.mostrar(6) && !recorrente && (
+        {a.mostrar(6) && !edicao && !recorrente && (
         <div className="sm:col-span-2">
           <label
             className="opcao"
@@ -1522,6 +1766,11 @@ export function NovaDespesa({
           {mensagemErro(lancar.error)}
         </p>
       )}
+      {salvar.isError && (
+        <p className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {mensagemErro(salvar.error)}
+        </p>
+      )}
 
       {avisoDaNota && (
         <p className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">
@@ -1537,7 +1786,7 @@ export function NovaDespesa({
               ? 'Escolha o fornecedor para continuar.'
               : !(Number(valor) > 0)
                 ? 'Informe o valor.'
-                : observacao.trim().length < 3
+                : !edicao && observacao.trim().length < 3
                   ? 'Escreva a observação (o que é essa conta).'
                   : parcelado && parcelas.length === 0
                     ? modoParcela === 'consorcio'
@@ -1559,6 +1808,15 @@ export function NovaDespesa({
           pagar ia procurar o pagamento na lista depois — pagando de novo o que
           já tinha saído.
         */}
+        {edicao ? (
+          <button
+            onClick={() => salvar.mutate()}
+            disabled={!podeLancar || salvar.isPending}
+            className="btn btn-primario"
+          >
+            {salvar.isPending ? 'Salvando no IXC…' : 'Salvar no IXC'}
+          </button>
+        ) : (
         <button
           onClick={() => lancar.mutate()}
           disabled={!podeLancar || lancar.isPending}
@@ -1580,6 +1838,7 @@ export function NovaDespesa({
                 ? `Lançar ${parcelas.length} contas`
                 : 'Lançar conta'}
         </button>
+        )}
       </div>
       )}
 
@@ -1593,7 +1852,7 @@ export function NovaDespesa({
         </p>
       )}
 
-      {fornecedor && (
+      {fornecedor && !edicao && (
         <p className="mt-3 text-right text-xs text-tinta-400">
           A conta vai para o IXC agora.{' '}
           <Selo pequeno tom="atencao">

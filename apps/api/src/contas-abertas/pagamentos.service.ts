@@ -10,12 +10,17 @@ import { IxcClient } from '../ixc/ixc.client';
 import {
   buildAuditoriaPayload,
   buildBaixaContaPagarPayload,
+  camposDoTipoChavePix,
   codigoTipoPagamentoBaixa,
   descontoQueOIxcAceita,
   descontosQueCabem,
+  inferirTipoChavePix,
   lerSituacaoContaPagar,
   lerStatusAuditoria,
   montarHistoricoBaixa,
+  normalizarTipoChavePix,
+  type MapaTipoChavePix,
+  type TipoChavePix,
 } from '../ixc/ixc.financeiro';
 import { parseIxcId } from '../ixc/ixc.parse';
 import { PrismaService } from '../prisma/prisma.service';
@@ -35,6 +40,12 @@ export interface EdicaoDoTitulo {
   chavePix?: string;
   codigoBarras?: string;
   documento?: string;
+  idFornecedor?: number;
+  dataEmissao?: string;
+  numeroNota?: string;
+  tipoChavePix?: string;
+  /** Só daqui: o IXC não tem onde guardar. `null` desfaz o vínculo. */
+  veiculoId?: string | null;
 }
 
 /** O que aconteceu com o título no IXC. */
@@ -584,12 +595,49 @@ export class PagamentosService {
       );
     }
 
+    const { veiculoId, ...doIxc } = mudancas;
+    // Vazio conta como mudança: é o documento ou o boleto sendo apagados.
     const alterado = Object.entries(mudancas)
-      .filter(([, v]) => v !== undefined && v !== '')
+      .filter(([, v]) => v !== undefined)
       .map(([k]) => k);
-    if (alterado.length === 0) {
+    if (alterado.length === 0 && veiculoId === undefined) {
       throw new BadRequestException('Nada foi alterado.');
     }
+
+    /*
+     * O veículo mora na conta que este app lançou, e não no IXC. Vai antes do
+     * título: é a parte que pode ser recusada sem ter mexido em nada lá.
+     */
+    if (veiculoId !== undefined) {
+      const { count } = await this.prisma.contaPagar.updateMany({
+        where: { idFnApagarIxc: idFnApagar },
+        data: { veiculoId },
+      });
+      if (count === 0) {
+        throw new BadRequestException(
+          'Esta conta não foi lançada por este app, e o veículo só se guarda ' +
+            'nas que foram. Nada foi alterado.',
+        );
+      }
+    }
+
+    const mudouNoIxc = Object.values(doIxc).some((v) => v !== undefined);
+    if (!mudouNoIxc) {
+      this.logger.log(`Título ${idFnApagar}: veículo alterado, só aqui.`);
+      return { idFnApagar, alterado: ['veiculoId'], reaprovada: false };
+    }
+
+    /*
+     * O rádio do tipo da chave vai com o código que o lançamento usaria: uma
+     * chave trocada sem tipo, ou com o tipo escrito do jeito da tela, deixa o
+     * rádio em branco no IXC — e o banco não paga.
+     */
+    const tipoChave =
+      normalizarTipoChavePix(doIxc.tipoChavePix) ??
+      (doIxc.chavePix ? inferirTipoChavePix(doIxc.chavePix) : null);
+    const mapaTipoChave = tipoChave
+      ? await this.contasPagar.mapaDoTipoChavePix(tipoChave)
+      : null;
 
     /*
      * O IXC recusa editar conta com auditoria aprovada — e as contas lançadas
@@ -611,7 +659,7 @@ export class PagamentosService {
       await this.ixc.update(
         'fn_apagar',
         idFnApagar,
-        await montarEdicao(raw, mudancas),
+        await montarEdicao(raw, doIxc, { tipoChave, mapaTipoChave }),
       );
     } finally {
       if (estavaAprovada) {
@@ -885,13 +933,42 @@ export function marcaDeBaixa(raw: Record<string, unknown>): string | null {
  */
 export async function montarEdicao(
   atual: Record<string, unknown>,
-  mudancas: EdicaoDoTitulo,
+  mudancas: Omit<EdicaoDoTitulo, 'veiculoId'>,
+  pix: {
+    tipoChave: TipoChavePix | null;
+    mapaTipoChave: MapaTipoChavePix | null;
+  } = { tipoChave: null, mapaTipoChave: null },
 ): Promise<Record<string, unknown>> {
   const texto = (v: unknown) => String(v ?? '').trim();
 
+  /*
+   * O que o PUT apagaria sem ninguém pedir.
+   *
+   * Ele reescreve a linha inteira, e estas colunas não passavam pela edição:
+   * o rádio do tipo da chave ficava em branco (o banco não paga assim) e o
+   * `comunicado` vazio tirava o pagamento da conciliação. Voltam como
+   * estavam — e só as que o registro tem, para não inventar coluna. O tipo da
+   * chave vai por qualquer coluna com esse jeito de nome, porque qual delas é
+   * o rádio varia por instalação (ver `camposDoTipoChavePix`).
+   */
+  const preservadas: Record<string, string> = {};
+  for (const coluna of Object.keys(atual)) {
+    const doTipoDaChave = /tipo_?(chave_?)?pix|pix_?tipo/i.test(coluna);
+    if (doTipoDaChave || ['comunicado', 'eh_despesa_veiculo'].includes(coluna)) {
+      preservadas[coluna] = texto(atual[coluna]);
+    }
+  }
+
   return {
-    id_fornecedor: texto(atual.id_fornecedor),
-    data_emissao: formatDataIxcDeIso(texto(atual.data_emissao)),
+    ...preservadas,
+    // O tipo da chave mudou (ou a chave, e o tipo vem do formato dela).
+    ...(pix.tipoChave
+      ? camposDoTipoChavePix(pix.tipoChave, pix.mapaTipoChave)
+      : {}),
+    id_fornecedor: String(mudancas.idFornecedor ?? texto(atual.id_fornecedor)),
+    data_emissao: mudancas.dataEmissao
+      ? formatDataIxcDeIso(mudancas.dataEmissao)
+      : formatDataIxcDeIso(texto(atual.data_emissao)),
     data_vencimento: mudancas.dataVencimento
       ? formatDataIxcDeIso(mudancas.dataVencimento)
       : formatDataIxcDeIso(texto(atual.data_vencimento)),
@@ -909,7 +986,7 @@ export async function montarEdicao(
         ? mudancas.codigoBarras.replace(/\D/g, '')
         : texto(atual.codigo_barras),
     documento: mudancas.documento ?? texto(atual.documento),
-    numero_nota: texto(atual.numero_nota),
+    numero_nota: mudancas.numeroNota ?? texto(atual.numero_nota),
     obs: mudancas.observacao ?? texto(atual.obs),
     // O que decide se a conta existe para o financeiro do IXC não é mexido
     // aqui: uma edição de meio de pagamento não pode cancelar nem "desliberar"

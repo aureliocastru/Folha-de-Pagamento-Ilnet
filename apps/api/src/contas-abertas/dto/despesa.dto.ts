@@ -16,6 +16,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 
@@ -150,6 +151,38 @@ export class EditarTituloDto {
   @IsOptional() @IsString() @MaxLength(60) codigoBarras?: string;
 
   @IsOptional() @IsString() @MaxLength(40) documento?: string;
+
+  /*
+   * O resto do que a tela de lançar tem. Editar abre a mesma tela, e um campo
+   * que se vê e não se salva é pior do que um que não aparece.
+   */
+
+  /** Trocar de quem recebe — o fornecedor errado escolhido no lançamento. */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsInt()
+  @Min(1)
+  idFornecedor?: number;
+
+  @IsOptional() @IsISO8601() dataEmissao?: string;
+
+  @IsOptional() @IsString() @MaxLength(40) numeroNota?: string;
+
+  /** O rádio "Tipo da chave Pix", como no lançamento. */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : value))
+  @IsIn([...TIPOS_CHAVE_PIX])
+  tipoChavePix?: string;
+
+  /**
+   * O veículo da frota. Mora só aqui — o IXC não tem onde guardá-lo —, e só
+   * existe para conta que foi lançada por este app. `null` desfaz o vínculo.
+   */
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null)
+  @IsString()
+  @MaxLength(40)
+  veiculoId?: string | null;
 }
 
 /**

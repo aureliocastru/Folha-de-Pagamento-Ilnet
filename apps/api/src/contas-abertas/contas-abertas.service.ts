@@ -1,7 +1,11 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { TipoLancamento } from '@prisma/client';
 import { IxcClient } from '../ixc/ixc.client';
-import { lerSituacaoContaPagar } from '../ixc/ixc.financeiro';
+import {
+  lerSituacaoContaPagar,
+  normalizarTipoChavePix,
+  type TipoChavePix,
+} from '../ixc/ixc.financeiro';
 import { PrismaService } from '../prisma/prisma.service';
 import { CategoriasService } from './categorias.service';
 import { descontoDoTitulo } from './historico-pagamentos.mapper';
@@ -21,6 +25,16 @@ import {
 export interface DetalheDoTitulo {
   campos: Record<string, unknown>;
   filtro: AvaliacaoDoFiltro;
+  /**
+   * O que a tela de editar precisa e não sai legível dos campos crus: o tipo
+   * da chave como a tela o escreve, e o que só existe aqui.
+   */
+  edicao: {
+    tipoChavePix: TipoChavePix | null;
+    /** A conta foi lançada por este app — só nela cabe o veículo. */
+    lancadaAqui: boolean;
+    veiculoId: string | null;
+  };
 }
 
 /** O que a tela recebe de uma vez. */
@@ -392,7 +406,27 @@ export class ContasAbertasService {
           `filtro desta tela.`,
       );
     }
-    return { campos: raw, filtro: explicarFiltro(raw) };
+    const local = await this.prisma.contaPagar.findFirst({
+      where: { idFnApagarIxc: idFnApagar },
+      select: { veiculoId: true },
+    });
+    // O rádio mora numa coluna que varia por instalação; a primeira com esse
+    // jeito de nome que se deixe ler é a que vale.
+    const tipoChavePix =
+      Object.keys(raw)
+        .filter((c) => /tipo_?(chave_?)?pix|pix_?tipo/i.test(c))
+        .map((c) => normalizarTipoChavePix(raw[c]))
+        .find((t) => t !== null) ?? null;
+
+    return {
+      campos: raw,
+      filtro: explicarFiltro(raw),
+      edicao: {
+        tipoChavePix,
+        lancadaAqui: !!local,
+        veiculoId: local?.veiculoId ?? null,
+      },
+    };
   }
 
   /**

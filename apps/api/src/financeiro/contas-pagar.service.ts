@@ -1427,6 +1427,17 @@ export class ContasPagarService {
    * das mais recentes do IXC. Só se volta lá quando falta justamente o código
    * do tipo que está para ser enviado.
    */
+  /**
+   * O mapa do rádio "Tipo da chave Pix" para um tipo, para quem não está
+   * criando conta — a edição de um título, que precisa marcar o mesmo rádio
+   * que o lançamento marcaria.
+   */
+  async mapaDoTipoChavePix(
+    tipo: TipoChavePix | null,
+  ): Promise<MapaTipoChavePix | null> {
+    return this.mapaTipoChavePix(await this.config.obter(), tipo);
+  }
+
   private async mapaTipoChavePix(
     cfg: {
       pixCampoTipoChave: string;
