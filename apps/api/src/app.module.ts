@@ -19,6 +19,7 @@ import { TransferenciasModule } from './transferencias/transferencias.module';
 import { AuthModule } from './auth/auth.module';
 import { UsuariosModule } from './usuarios/usuarios.module';
 import { AgendaModule } from './agenda/agenda.module';
+import { AReceberModule } from './a-receber/a-receber.module';
 import { RhModule } from './rh/rh.module';
 import { AprModule } from './apr/apr.module';
 import { CotacoesModule } from './cotacoes/cotacoes.module';
@@ -42,6 +43,7 @@ import { HealthController } from './health/health.controller';
     AuthModule,
     UsuariosModule,
     AgendaModule,
+    AReceberModule,
     IxcModule,
     SyncModule,
     FuncionariosModule,

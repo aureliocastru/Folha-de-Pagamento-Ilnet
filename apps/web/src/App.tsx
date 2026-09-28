@@ -48,6 +48,7 @@ import { Dashboard as ContasPagarDashboard } from './pages/contas-pagar/Dashboar
 import { FechamentoCaixa } from './pages/contas-pagar/FechamentoCaixa';
 import { Transferencias } from './pages/contas-pagar/Transferencias';
 import { HistoricoDePagamentos } from './pages/contas-pagar/HistoricoDePagamentos';
+import { Controle } from './pages/contas-pagar/Controle';
 import { CartoesCredito } from './pages/contas-pagar/CartoesCredito';
 import { ContasContrato } from './pages/contas-pagar/ContasContrato';
 import { Recorrentes } from './pages/contas-pagar/Recorrentes';
@@ -190,6 +191,8 @@ export default function App() {
         <Route path="inicio" element={<ContasPagarInicio />} />
         {/* A outra metade da mesma tabela do IXC: o que já saiu. */}
         <Route path="pagos" element={<HistoricoDePagamentos />} />
+        {/* Quem deve a quem está logado: lembrete particular, sem soma. */}
+        <Route path="controle" element={<Controle />} />
         <Route path="dashboard" element={<ContasPagarDashboard />} />
         {/* O caminho antigo continua valendo: quem tem a tela no favorito ou
             aberta numa aba não pode cair num "não encontrado" por causa de uma

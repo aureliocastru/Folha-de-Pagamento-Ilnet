@@ -168,6 +168,9 @@ const contasPagar: Modulo = {
       icone: IconeTransferencia,
       somenteAdmin: true,
     },
+    // Quem deve a quem está logado, e quanto — o empréstimo feito a alguém.
+    // Lembrete de cada login: não soma em lugar nenhum nem vai ao IXC.
+    { to: 'controle', label: 'Controle', icone: IconeChecklist },
   ],
 };
 

@@ -77,6 +77,7 @@ const MODULO_DA_ROTA: Array<[string, ModuloId[]]> = [
   ['contas-contrato', ['contas-pagar']],
   ['transferencias', ['contas-pagar']],
   ['caixa', ['contas-pagar']],
+  ['a-receber', ['contas-pagar']],
 
   ['funcionarios', ['folha']],
   ['diaristas', ['folha']],

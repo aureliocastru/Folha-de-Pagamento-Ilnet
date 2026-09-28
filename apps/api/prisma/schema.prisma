@@ -81,6 +81,8 @@ model User {
 
   /// O bloco de notas deste login. Ver o modelo `Agenda`.
   agenda Agenda?
+  /// O que os outros devem a este login — a aba Controle do Contas a Pagar.
+  aReceber DinheiroAReceber[]
 
   /// Os veículos no nome deste login — de quem anda com eles sem ser
   /// funcionário. Ver `VeiculoDoLogin`.
@@ -3471,4 +3473,34 @@ model MotivoDePontos {
   createdAt DateTime @default(now()) @map("created_at")
 
   @@map("motivos_de_pontos")
+}
+
+// ---------------------------------------------------------------------------
+// Controle: dinheiro que alguém deve a quem está logado
+// ---------------------------------------------------------------------------
+
+/// Um lembrete de quem deve e quanto — o empréstimo feito a alguém.
+///
+/// Não tem data de receber, não entra em soma nenhuma e não vai a lugar
+/// nenhum: nem ao IXC, nem aos painéis. É de quem cadastrou, como o bloco de
+/// notas — outro login não vê.
+model DinheiroAReceber {
+  id String @id @default(uuid())
+
+  /// `Cascade`: é lembrete particular, e não registro da empresa.
+  usuario   User   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  usuarioId String @map("usuario_id")
+
+  pessoa     String
+  valor      Decimal @db.Decimal(14, 2)
+  observacao String?
+
+  /// Quando foi pago de volta. Null = ainda deve.
+  recebidoEm DateTime? @map("recebido_em")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([usuarioId, recebidoEm])
+  @@map("dinheiro_a_receber")
 }

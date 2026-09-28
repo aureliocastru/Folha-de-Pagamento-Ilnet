@@ -2662,3 +2662,14 @@ export interface ProdutoAchadoParaConferir {
   descricao: string;
   patrimonio: boolean;
 }
+
+/** Um lembrete da aba Controle: quem deve a quem está logado, e quanto. */
+export interface AReceber {
+  id: string;
+  pessoa: string;
+  valor: number;
+  observacao: string | null;
+  /** Null = ainda deve. */
+  recebidoEm: string | null;
+  createdAt: string;
+}
