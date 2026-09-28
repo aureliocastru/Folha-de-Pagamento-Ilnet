@@ -352,6 +352,8 @@ function PagarConta({
       setFeito(r);
       setConfirmando(false);
       void queryClient.invalidateQueries({ queryKey: ['contas-abertas'] });
+      void queryClient.invalidateQueries({ queryKey: ['pagas-no-mes'] });
+      void queryClient.invalidateQueries({ queryKey: ['pagamentos-feitos'] });
     },
     onError: () => setConfirmando(false),
   });

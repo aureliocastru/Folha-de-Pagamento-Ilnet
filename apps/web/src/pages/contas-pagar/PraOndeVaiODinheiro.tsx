@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BarrasComparadas, PALETA } from '../../components/graficos';
 import {
   Aviso,
@@ -115,11 +115,20 @@ export function PraOndeVaiODinheiro({ contas }: { contas: ContaAberta[] }) {
   const [aberto, setAberto] = useState<string | null>(null);
 
   /*
-   * O que já saiu só é lido quando alguém pede.
+   * O que já saiu é lido em segundo plano, logo depois de o painel abrir.
    *
-   * É outra ida ao IXC, e ela é lenta: quem abre o painel para ver o que vence
-   * esta semana não pode pagar por uma leitura que não pediu.
+   * É outra ida ao IXC, e ela é lenta: esperar o clique em "Já pago" para
+   * começar deixava quem clicou olhando "Lendo os pagamentos no IXC…". Quem
+   * abre o painel para ver o que vence esta semana não espera por ela — a
+   * leitura começa depois que a tela dele já está desenhada, e quando ele
+   * clica o número já está lá, ou quase.
    */
+  const [aquecer, setAquecer] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setAquecer(true), 2000);
+    return () => clearTimeout(t);
+  }, []);
+
   const pagos = useQuery({
     queryKey: ['pagamentos-feitos', periodo.de, periodo.ate],
     queryFn: async () =>
@@ -128,7 +137,11 @@ export function PraOndeVaiODinheiro({ contas }: { contas: ContaAberta[] }) {
           params: { de: periodo.de, ate: periodo.ate },
         })
       ).data,
-    enabled: recorte === 'pagas',
+    enabled: recorte === 'pagas' || aquecer,
+    // Ir e voltar entre "A pagar" e "Já pago" não relê o IXC. Pagar uma conta
+    // por aqui invalida esta leitura, então ela não fica velha pelo motivo
+    // que importa.
+    staleTime: 5 * 60 * 1000,
     retry: 0,
   });
 

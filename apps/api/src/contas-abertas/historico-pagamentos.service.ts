@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { emParalelo } from '../almoxarifado/mover-tudo';
 import { IxcClient } from '../ixc/ixc.client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
@@ -46,6 +47,16 @@ export interface HistoricoPagamentosResposta {
  */
 const TETO_DE_TITULOS = 4000;
 const PAGINA = 500;
+
+/**
+ * Quantas perguntas avulsas ao IXC vão ao mesmo tempo.
+ *
+ * Eram uma de cada vez: um mês com cinquenta lançamentos atrasados eram
+ * cinquenta idas e voltas em fila, e o "Já pago" ficava parado em "Lendo os
+ * pagamentos no IXC". Seis por vez é o que o IXC já aguenta nas inserções do
+ * almoxarifado, e leitura pesa menos que inserção.
+ */
+const PERGUNTAS_AO_MESMO_TEMPO = 6;
 
 /** Por quanto tempo vale o que se descobriu sobre a coluna da baixa. */
 const VALIDADE_DA_SONDA_MS = 30 * 60 * 1000;
@@ -121,10 +132,25 @@ export class HistoricoPagamentosService {
     const avisos: string[] = [];
     const lidoEm = new Date();
 
-    const filtro = await this.filtroDeBaixa();
-    const leitura = filtro
-      ? await this.lerJanela(filtro, periodo)
-      : await this.lerPorStatus();
+    /*
+     * Os títulos e as baixas são duas leituras que não dependem uma da outra,
+     * e iam em fila. Juntas, a tela espera pela mais lenta, e não pela soma.
+     *
+     * A das baixas começa antes do período de propósito. O título lançado
+     * dentro dele pode ter sido pago antes, e é justamente esse o caso que se
+     * veio consertar — sem a baixa dele no índice, cada um viraria uma
+     * pergunta separada ao IXC. Uma janela mais larga custa uma página a mais
+     * de leitura e responde por todos.
+     */
+    const [leitura, baixas] = await Promise.all([
+      this.filtroDeBaixa().then((filtro) =>
+        filtro ? this.lerJanela(filtro, periodo) : this.lerPorStatus(),
+      ),
+      this.baixas.daJanela(
+        recuar(periodo.de, MARGEM_DE_LANCAMENTO_DIAS),
+        periodo.ate,
+      ),
+    ]);
 
     if (leitura.cortado) {
       avisos.push(
@@ -138,18 +164,7 @@ export class HistoricoPagamentosService {
      * O dia em que o dinheiro saiu vem da baixa; o título só sabe o dia em que
      * ela foi registrada. É a diferença entre "pagou atrasado" e "lançou
      * atrasado", e a segunda não é problema de ninguém.
-     *
-     * A leitura começa antes do período de propósito. O título lançado dentro
-     * dele pode ter sido pago antes, e é justamente esse o caso que se veio
-     * consertar — sem a baixa dele no índice, cada um viraria uma pergunta
-     * separada ao IXC, e dezenas de lançamentos atrasados num mês são dezenas
-     * de idas e voltas numa abertura de tela. Uma janela mais larga custa uma
-     * página a mais de leitura e responde por todos.
      */
-    const baixas = await this.baixas.daJanela(
-      recuar(periodo.de, MARGEM_DE_LANCAMENTO_DIAS),
-      periodo.ate,
-    );
 
     // Cada título que fica de fora é contado pelo motivo e pela coluna que
     // decidiu — a mesma disciplina da tela de contas em aberto, onde foi assim
@@ -251,10 +266,14 @@ export class HistoricoPagamentosService {
       );
     }
 
-    await this.marcarConferidos(pagamentos);
-    await this.completarNomes(pagamentos, avisos);
-    await this.aplicarClassificacoes(pagamentos);
-    await this.marcarOrigemNaFolha(pagamentos);
+    // Cada um preenche um pedaço diferente do pagamento — podem ir juntos.
+    await Promise.all([
+      this.marcarConferidos(pagamentos),
+      this.completarNomes(pagamentos, avisos),
+      this.completarCategoriasECaixas(pagamentos),
+      this.aplicarClassificacoes(pagamentos),
+      this.marcarOrigemNaFolha(pagamentos),
+    ]);
 
     return {
       pagamentos: ordenarPorPagamento(pagamentos),
@@ -311,17 +330,19 @@ export class HistoricoPagamentosService {
   ): Promise<number> {
     let semResposta = 0;
 
-    for (const [i, pagamento] of semPar.entries()) {
-      const baixa =
-        i < TETO_DE_BAIXAS_AVULSAS
-          ? await this.baixas.doTitulo(pagamento.idFnApagar)
-          : null;
-
-      if (baixa) {
-        aplicarBaixa(pagamento, baixa);
-      } else {
-        semResposta += 1;
-      }
+    await emParalelo(
+      semPar.slice(0, TETO_DE_BAIXAS_AVULSAS),
+      PERGUNTAS_AO_MESMO_TEMPO,
+      async (pagamento) => {
+        const baixa = await this.baixas.doTitulo(pagamento.idFnApagar);
+        if (baixa) aplicarBaixa(pagamento, baixa);
+        else semResposta += 1;
+        this.guardar(pagamento, periodo, pagamentos, contagem);
+      },
+    );
+    // Os que passaram do teto nem são perguntados: ficam com o registro.
+    for (const pagamento of semPar.slice(TETO_DE_BAIXAS_AVULSAS)) {
+      semResposta += 1;
       this.guardar(pagamento, periodo, pagamentos, contagem);
     }
 
@@ -356,26 +377,30 @@ export class HistoricoPagamentosService {
     );
     if (faltantes.length === 0) return;
 
-    for (const baixa of faltantes.slice(0, TETO_DE_BAIXAS_AVULSAS)) {
-      const raw = await this.ixc
-        .getById<Record<string, unknown>>(
-          'fn_apagar',
-          'fn_apagar.id',
-          baixa.idFnApagar,
-        )
-        .catch(() => null);
-      if (!raw) continue;
+    await emParalelo(
+      faltantes.slice(0, TETO_DE_BAIXAS_AVULSAS),
+      PERGUNTAS_AO_MESMO_TEMPO,
+      async (baixa) => {
+        const raw = await this.ixc
+          .getById<Record<string, unknown>>(
+            'fn_apagar',
+            'fn_apagar.id',
+            baixa.idFnApagar,
+          )
+          .catch(() => null);
+        if (!raw) return;
 
-      // O título vem do mesmo filtro que o resto da tela: baixa estornada não
-      // é dinheiro que saiu, mesmo tendo linha de pagamento.
-      if (motivoDeNaoSerPagamento(raw)) continue;
+        // O título vem do mesmo filtro que o resto da tela: baixa estornada
+        // não é dinheiro que saiu, mesmo tendo linha de pagamento.
+        if (motivoDeNaoSerPagamento(raw)) return;
 
-      const pagamento = mapPagamento(raw);
-      if (!pagamento) continue;
+        const pagamento = mapPagamento(raw);
+        if (!pagamento) return;
 
-      aplicarBaixa(pagamento, baixa);
-      this.guardar(pagamento, periodo, pagamentos, contagem);
-    }
+        aplicarBaixa(pagamento, baixa);
+        this.guardar(pagamento, periodo, pagamentos, contagem);
+      },
+    );
 
     if (faltantes.length > TETO_DE_BAIXAS_AVULSAS) {
       avisos.push(
@@ -658,24 +683,31 @@ export class HistoricoPagamentosService {
       }
     }
 
+  }
+
+  /** O nome da conta de despesa e o do caixa, onde o título só trouxe o código. */
+  private async completarCategoriasECaixas(
+    pagamentos: PagamentoFeito[],
+  ): Promise<void> {
     const semCategoria = pagamentos.filter(
       (p) => !p.categoria.nome && p.categoria.id !== null,
     );
-    if (semCategoria.length > 0) {
-      const nomes = await this.contasAbertas.nomesDasContasDeDespesa();
-      for (const p of semCategoria) {
-        p.categoria.nome = nomes.get(p.categoria.id!) ?? null;
-      }
-    }
-
     const semCaixa = pagamentos.filter(
       (p) => !p.caixa.nome && p.caixa.id !== null,
     );
-    if (semCaixa.length > 0) {
-      const nomes = await this.nomesDosCaixas();
-      for (const p of semCaixa) {
-        p.caixa.nome = nomes.get(p.caixa.id!) ?? null;
-      }
+
+    const [categorias, caixas] = await Promise.all([
+      semCategoria.length > 0
+        ? this.contasAbertas.nomesDasContasDeDespesa()
+        : null,
+      semCaixa.length > 0 ? this.nomesDosCaixas() : null,
+    ]);
+
+    for (const p of semCategoria) {
+      p.categoria.nome = categorias?.get(p.categoria.id!) ?? null;
+    }
+    for (const p of semCaixa) {
+      p.caixa.nome = caixas?.get(p.caixa.id!) ?? null;
     }
   }
 

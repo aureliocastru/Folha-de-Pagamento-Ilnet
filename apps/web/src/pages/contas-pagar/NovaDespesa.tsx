@@ -512,6 +512,10 @@ export function NovaDespesa({
       // registrado como o que se pagou por ela.
       onLancada?.(data, Number(valor));
       void queryClient.invalidateQueries({ queryKey: ['contas-abertas'] });
+      if (data.baixa) {
+        void queryClient.invalidateQueries({ queryKey: ['pagas-no-mes'] });
+        void queryClient.invalidateQueries({ queryKey: ['pagamentos-feitos'] });
+      }
       void queryClient.invalidateQueries({ queryKey: ['categorias-despesa'] });
       void queryClient.invalidateQueries({ queryKey: ['recorrentes'] });
       void queryClient.invalidateQueries({ queryKey: ['veiculos'] });

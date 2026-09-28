@@ -225,6 +225,9 @@ export function PagarEmMaos({
       });
       void queryClient.invalidateQueries({ queryKey: ['contas-abertas'] });
       void queryClient.invalidateQueries({ queryKey: ['pagas-no-mes'] });
+      // O "Já pago" guarda a leitura por alguns minutos: a conta paga agora
+      // tem de aparecer lá sem esperar.
+      void queryClient.invalidateQueries({ queryKey: ['pagamentos-feitos'] });
     },
   });
 
