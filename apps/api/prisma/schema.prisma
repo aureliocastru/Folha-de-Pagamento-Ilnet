@@ -1345,6 +1345,12 @@ model ContaPagar {
   veiculo   Veiculo? @relation(fields: [veiculoId], references: [id], onDelete: SetNull)
   veiculoId String?  @map("veiculo_id")
 
+  /// As férias que este pagamento quita. Só no tipo FERIAS, e é o que responde
+  /// "as férias dela já foram pagas?" sem depender do mês — as férias podem
+  /// ser pagas adiantadas, semanas antes de começarem.
+  feriasMarcada   FeriasMarcada? @relation(fields: [feriasMarcadaId], references: [id], onDelete: SetNull)
+  feriasMarcadaId String?        @map("ferias_marcada_id")
+
   status StatusContaPagar @default(RASCUNHO)
   erro   String?
 
@@ -1382,6 +1388,7 @@ model ContaPagar {
   @@index([contaContratoId, competencia])
   @@index([cartaoCreditoId, competencia])
   @@index([veiculoId])
+  @@index([feriasMarcadaId])
   @@map("contas_pagar")
 }
 
@@ -1816,8 +1823,9 @@ model ItemPrevisaoFerias {
   @@map("itens_previsao_ferias")
 }
 
-/// Alguém mandado para férias. Registra aqui quem está fora e até quando; não
-/// paga nada nem mexe na folha — o pagamento das férias é da contabilidade.
+/// Alguém mandado para férias: quem está fora e até quando. O valor é o que a
+/// contabilidade apura; o pagamento sai pelo Gerar Folha, ligado a este
+/// registro (ver `ContaPagar.feriasMarcadaId`).
 model FeriasMarcada {
   id String @id @default(uuid())
 
@@ -1840,6 +1848,9 @@ model FeriasMarcada {
   periodoFim    DateTime @map("periodo_fim")
 
   observacao String?
+
+  /// Os pagamentos destas férias, gerados pelo Gerar Folha.
+  pagamentos ContaPagar[]
 
   criadoPor String?  @map("criado_por")
   createdAt DateTime @default(now()) @map("created_at")

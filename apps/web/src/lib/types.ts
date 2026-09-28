@@ -311,6 +311,39 @@ export interface ContaJaGerada {
   pagoEm: string | null;
 }
 
+/**
+ * Umas férias programadas que ainda não terminaram — a lista do "Férias" no
+ * Gerar Folha —, com o pagamento delas quando já foi gerado.
+ */
+export interface FeriasAPagar {
+  feriasId: string;
+  nome: string;
+  apelido: string | null;
+  /** null = o nome do relatório não casou com cadastro; não dá para pagar daqui. */
+  funcionarioId: string | null;
+  inicio: string;
+  fim: string;
+  dias: number;
+  emCurso: boolean;
+  /** Dias até começar; 0 quando já começou. */
+  diasParaComecar: number;
+  /** "AAAA-MM" com que o pagamento entra. */
+  competencia: string;
+  /** Ponto de partida; o certo é o que a contabilidade apurou. */
+  valorSugerido: number | null;
+  contaContabil: number;
+  observacao: string;
+  pagamento: {
+    contaId: string;
+    situacao: 'PAGO' | 'PENDENTE';
+    status: StatusContaPagar;
+    valor: number;
+    pagoEm: string | null;
+    idFnApagarIxc: number | null;
+    geradoEm: string;
+  } | null;
+}
+
 export interface PreviewFuncionario {
   funcionarioId: string;
   nome: string;

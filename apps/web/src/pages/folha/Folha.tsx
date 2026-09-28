@@ -15,6 +15,7 @@ import { semAcento } from '../../lib/busca';
 import { mesAnterior, mesAtual, mesSeguinte, nomeDoMes } from '../../lib/folha';
 import { formatBRL, formatData } from '../../lib/format';
 import { STATUS_LABEL, TIPO_LABEL } from '../../lib/status';
+import { FeriasAPagar } from './FeriasAPagar';
 import type {
   ComposicaoSalario,
   ContaJaGerada,
@@ -749,6 +750,11 @@ function mesTrabalhadoInicial(modo: ModoPagamento): string {
 
 export function Folha() {
   const navigate = useNavigate();
+  /*
+   * As férias são um terceiro pagamento, e não um mês trabalhado: saem quando
+   * a pessoa vai sair, por isso a lista delas não tem mês nem prévia.
+   */
+  const [verFerias, setVerFerias] = useState(false);
   const [modo, setModo] = useState<ModoPagamento>(modoInicial());
   const [mesTrabalhado, setMesTrabalhado] = useState(() =>
     mesTrabalhadoInicial(modoInicial()),
@@ -1062,6 +1068,54 @@ export function Folha() {
 
   const marcados = itens.filter(vaiGerar).length;
 
+  const seletorDePagamento = (
+    <div>
+      <span className="rotulo">Pagamento</span>
+      <div className="inline-flex flex-wrap rounded-xl bg-tinta-100 p-1">
+        <BotaoModo
+          ativo={!verFerias && modo === 'DIA_25'}
+          onClick={() => {
+            setVerFerias(false);
+            trocarModo('DIA_25');
+          }}
+        >
+          Dia 25
+        </BotaoModo>
+        <BotaoModo
+          ativo={!verFerias && modo === 'QUINTO_DIA'}
+          onClick={() => {
+            setVerFerias(false);
+            trocarModo('QUINTO_DIA');
+          }}
+        >
+          Quinto dia
+        </BotaoModo>
+        <BotaoModo ativo={verFerias} onClick={() => setVerFerias(true)}>
+          Férias
+        </BotaoModo>
+      </div>
+    </div>
+  );
+
+  if (verFerias) {
+    return (
+      <Pagina>
+        <CabecalhoPagina secao="Gerar folha" titulo="Pagamento de férias" />
+
+        <div className="surgir surgir-1 card mb-6 p-5">
+          <div className="flex flex-wrap items-end gap-5">{seletorDePagamento}</div>
+          <p className="mt-4 border-t border-tinta-100 pt-4 text-sm leading-relaxed text-tinta-600">
+            Quem foi programado na tela de Férias, do mais próximo de sair ao
+            mais distante. O pagamento pode sair antes de as férias começarem;
+            quem já voltou não aparece mais.
+          </p>
+        </div>
+
+        <FeriasAPagar />
+      </Pagina>
+    );
+  }
+
   return (
     <Pagina>
       <CabecalhoPagina
@@ -1073,23 +1127,7 @@ export function Folha() {
 
       <div className="surgir surgir-1 card mb-6 p-5">
         <div className="flex flex-wrap items-end gap-5">
-          <div>
-            <span className="rotulo">Pagamento</span>
-            <div className="inline-flex rounded-xl bg-tinta-100 p-1">
-              <BotaoModo
-                ativo={modo === 'DIA_25'}
-                onClick={() => trocarModo('DIA_25')}
-              >
-                Dia 25
-              </BotaoModo>
-              <BotaoModo
-                ativo={modo === 'QUINTO_DIA'}
-                onClick={() => trocarModo('QUINTO_DIA')}
-              >
-                Quinto dia
-              </BotaoModo>
-            </div>
-          </div>
+          {seletorDePagamento}
           <div>
             <label className="rotulo" htmlFor="mes-folha">
               Mês trabalhado

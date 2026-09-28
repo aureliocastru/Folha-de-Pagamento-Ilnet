@@ -49,6 +49,15 @@ export class ContasPagarController {
   }
 
   /**
+   * As férias que ainda não terminaram, com o pagamento de cada uma — o
+   * "Férias" do Gerar Folha. Antes de ":id" para não ser lido como id.
+   */
+  @Get('ferias-a-pagar')
+  feriasAPagar() {
+    return this.service.feriasAPagar();
+  }
+
+  /**
    * Etiqueta como despesa de folha o que ficou sem categoria.
    *
    * A conta da folha já nasce etiquetada; isto é para o que veio antes disso,

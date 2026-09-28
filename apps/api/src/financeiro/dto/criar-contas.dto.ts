@@ -56,6 +56,12 @@ export class ItemContaPagarDto {
   @IsOptional()
   @Matches(/^\d{4}-\d{2}$/, { message: 'competencia deve estar no formato AAAA-MM' })
   competencia?: string;
+
+  /**
+   * As férias que este pagamento quita — a lista de férias do Gerar Folha.
+   * Só no tipo FERIAS; é o que impede pagar as mesmas férias duas vezes.
+   */
+  @IsOptional() @IsString() feriasMarcadaId?: string;
 }
 
 export class CriarContasPagarDto {

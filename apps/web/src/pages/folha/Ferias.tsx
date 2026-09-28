@@ -704,9 +704,9 @@ function JanelaMandarParaFerias({
     <Janela titulo={`Mandar ${pessoa.nome} para férias`} onFechar={onFechar}>
       <FormularioEmPassos>
       <p className="text-sm text-tinta-500">
-        Fica registrado aqui quem está fora e até quando. O pagamento das férias
-        (e o terço constitucional) continua saindo pela contabilidade — esta tela
-        não paga nada.
+        Fica registrado aqui quem está fora e até quando. Marcadas, as férias
+        aparecem na hora em Gerar Folha → Férias, para o pagamento poder sair
+        adiantado — com o valor que a contabilidade apurou.
       </p>
 
       <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-3">

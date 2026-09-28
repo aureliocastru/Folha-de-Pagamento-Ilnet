@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -97,6 +98,45 @@ export interface FeriasNaFolha {
   /** Conta contábil e observação com que o lançamento de férias sai no IXC. */
   contaContabil: number;
   observacao: string;
+}
+
+/**
+ * Umas férias marcadas que ainda não terminaram, com o pagamento delas.
+ *
+ * É a lista do "Férias" no Gerar Folha: aparece quem foi programado — mesmo
+ * que as férias só comecem daqui a semanas, para o pagamento poder sair
+ * adiantado — e some quando a pessoa volta.
+ */
+export interface FeriasAPagar {
+  feriasId: string;
+  /** O nome do cadastro daqui, ou o do relatório quando não há cadastro. */
+  nome: string;
+  apelido: string | null;
+  /** null = o nome do relatório não casou com cadastro nenhum; não dá para pagar daqui. */
+  funcionarioId: string | null;
+  inicio: Date;
+  fim: Date;
+  dias: number;
+  /** Está de férias hoje. */
+  emCurso: boolean;
+  /** Dias até começar; 0 quando já começou. */
+  diasParaComecar: number;
+  /** Competência com que o pagamento entra — a mesma do quinto dia daquele mês. */
+  competencia: string;
+  /** Ponto de partida do valor (o certo vem da contabilidade); null sem cadastro. */
+  valorSugerido: number | null;
+  contaContabil: number;
+  observacao: string;
+  /** O pagamento destas férias, quando já foi gerado. */
+  pagamento: {
+    contaId: string;
+    situacao: 'PAGO' | 'PENDENTE';
+    status: StatusContaPagar;
+    valor: number;
+    pagoEm: Date | null;
+    idFnApagarIxc: number | null;
+    geradoEm: Date;
+  } | null;
 }
 
 export interface PreviewFuncionario {
@@ -288,6 +328,19 @@ export class ContasPagarService {
     );
     // Quem a tela de Férias já mandou para férias dentro deste mês.
     const feriasMarcadas = await this.feriasDoMes(mesTrabalhado, ids);
+    /*
+     * O pagamento que saiu adiantado, pela lista de férias, antes do mês.
+     *
+     * Ele não tem a competência do mês trabalhado — nasceu semanas antes —, e
+     * sem isto o quinto dia do mês de férias oferecia pagá-las outra vez.
+     * Vale só no mês que as férias tomam (o que pega o dia 25): é esse o mês
+     * cujo salário as férias substituem.
+     */
+    const feriasAdiantadas = await this.pagamentosDasFerias(
+      [...feriasMarcadas.values()]
+        .filter((m) => pegaODia25(m, mesTrabalhado))
+        .map((m) => m.id),
+    );
 
     // Vales e acertos só mexem no salário; no dia 25 não há o que abater.
     const acertosVale: Map<string, AcertoValeCompetencia> =
@@ -377,7 +430,11 @@ export class ContasPagarService {
         bonusJaGerado: montarContaJaGerada(contasBonus.get(f.id) ?? null),
         ferias: montarFeriasNaFolha({
           marcada: feriasMarcadas.get(f.id) ?? null,
-          jaGerado: montarContaJaGerada(contasFerias.get(f.id) ?? null),
+          jaGerado: montarContaJaGerada(
+            contasFerias.get(f.id) ??
+              feriasAdiantadas.get(feriasMarcadas.get(f.id)?.id ?? '') ??
+              null,
+          ),
           mesTrabalhado,
           composicao,
           contaContabil: cfg.contaContabilFerias,
@@ -386,6 +443,164 @@ export class ContasPagarService {
         lancamentos,
       };
     });
+  }
+
+  /**
+   * As férias que ainda não terminaram, com o pagamento de cada uma.
+   *
+   * Entra quem a tela de Férias programou, por mais longe que o começo esteja:
+   * é o que deixa pagar adiantado. Sai quem já voltou — o `fim` passou.
+   *
+   * O valor sugerido é o mesmo que o quinto dia sugeriria para o mês em que as
+   * férias começam (`baseParaFerias`): um ponto de partida, porque o certo é o
+   * que a contabilidade apura.
+   */
+  async feriasAPagar(agora = new Date()): Promise<FeriasAPagar[]> {
+    const hoje = diaDeHojeNoFuso(agora);
+    const marcadas = await this.prisma.feriasMarcada.findMany({
+      where: { fim: { gte: hoje } },
+      orderBy: { inicio: 'asc' },
+      include: {
+        funcionario: { select: { id: true, nome: true, apelido: true } },
+      },
+    });
+    if (marcadas.length === 0) return [];
+
+    const cfg = await this.config.obter();
+    const ligadas = await this.pagamentosDasFerias(marcadas.map((m) => m.id));
+    const doMes = await this.feriasPagasPeloMes(marcadas);
+
+    // O valor sugerido sai da mesma conta do quinto dia, um mês por vez.
+    const sugerido = new Map<string, number>();
+    const porMes = new Map<string, string[]>();
+    for (const m of marcadas) {
+      if (!m.funcionarioId) continue;
+      const mes = mesDoDia(m.inicio);
+      porMes.set(mes, [...(porMes.get(mes) ?? []), m.funcionarioId]);
+    }
+    for (const [mes, funcionarioIds] of porMes) {
+      const previa = await this.prepararFolha({
+        competencia: competenciaSeguinte(mes),
+        mesTrabalhado: mes,
+        funcionarioIds,
+        incluirAdiantamento: false,
+        incluirSalario: true,
+        incluirBonus: false,
+      });
+      for (const p of previa) {
+        sugerido.set(`${mes}|${p.funcionarioId}`, p.ferias.valorSugerido);
+      }
+    }
+
+    return marcadas.map((m) => {
+      const mes = mesDoDia(m.inicio);
+      const pagamento = ligadas.get(m.id) ?? doMes.get(m.id) ?? null;
+      const diasParaComecar = Math.max(
+        0,
+        Math.round((m.inicio.getTime() - hoje.getTime()) / UM_DIA_MS),
+      );
+      return {
+        feriasId: m.id,
+        nome: m.funcionario?.nome ?? m.nome,
+        apelido: m.funcionario?.apelido ?? null,
+        funcionarioId: m.funcionarioId,
+        inicio: m.inicio,
+        fim: m.fim,
+        dias: m.dias,
+        emCurso: m.inicio.getTime() <= hoje.getTime(),
+        diasParaComecar,
+        competencia: competenciaSeguinte(mes),
+        valorSugerido: m.funcionarioId
+          ? (sugerido.get(`${mes}|${m.funcionarioId}`) ?? null)
+          : null,
+        contaContabil: cfg.contaContabilFerias,
+        observacao: renderObs(cfg.obsFeriasTemplate, mes),
+        pagamento,
+      };
+    });
+  }
+
+  /**
+   * O pagamento ligado a cada uma destas férias — o que o Gerar Folha criou a
+   * partir da lista de férias. Cancelado e reprovado não contam: não vão virar
+   * pagamento, e gerar de novo é o certo.
+   */
+  private async pagamentosDasFerias(
+    feriasIds: string[],
+  ): Promise<Map<string, NonNullable<FeriasAPagar['pagamento']> & ContaAdiantamento>> {
+    if (feriasIds.length === 0) return new Map();
+    const contas = await this.prisma.contaPagar.findMany({
+      where: {
+        tipo: TipoLancamento.FERIAS,
+        feriasMarcadaId: { in: feriasIds },
+        status: {
+          notIn: [StatusContaPagar.CANCELADO, StatusContaPagar.REPROVADO],
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const mapa = new Map<
+      string,
+      NonNullable<FeriasAPagar['pagamento']> & ContaAdiantamento
+    >();
+    for (const c of contas) {
+      if (!c.feriasMarcadaId) continue;
+      const atual = mapa.get(c.feriasMarcadaId);
+      // Havendo mais de um, o pago vence; senão fica o mais recente.
+      if (atual && (atual.pago || c.status !== StatusContaPagar.PAGO)) continue;
+      mapa.set(c.feriasMarcadaId, pagamentoDaConta(c));
+    }
+    return mapa;
+  }
+
+  /**
+   * O pagamento de férias que saiu pelo quinto dia, antes de existir a lista.
+   *
+   * Aquele caminho não liga a conta às férias: ela é do funcionário e do mês
+   * (a competência seguinte ao mês trabalhado). Então vale o de mesmo
+   * funcionário numa competência que as férias alcançam — sem isto, quem já
+   * recebeu férias pelo quinto dia aparecia na lista como a pagar.
+   */
+  private async feriasPagasPeloMes(
+    marcadas: Array<{
+      id: string;
+      funcionarioId: string | null;
+      inicio: Date;
+      fim: Date;
+    }>,
+  ): Promise<Map<string, NonNullable<FeriasAPagar['pagamento']>>> {
+    const comCadastro = marcadas.filter((m) => m.funcionarioId);
+    if (comCadastro.length === 0) return new Map();
+
+    const contas = await this.prisma.contaPagar.findMany({
+      where: {
+        tipo: TipoLancamento.FERIAS,
+        feriasMarcadaId: null,
+        funcionarioId: { in: comCadastro.map((m) => m.funcionarioId!) },
+        status: {
+          notIn: [StatusContaPagar.CANCELADO, StatusContaPagar.REPROVADO],
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const mapa = new Map<string, NonNullable<FeriasAPagar['pagamento']>>();
+    for (const m of comCadastro) {
+      // Do mês em que começam ao seguinte ao que terminam: é onde o quinto dia
+      // de cada mês tocado por elas lançaria o pagamento.
+      const de = competenciaSeguinte(mesDoDia(m.inicio));
+      const ate = competenciaSeguinte(mesDoDia(m.fim));
+      const conta = contas.find(
+        (c) =>
+          c.funcionarioId === m.funcionarioId &&
+          !!c.competencia &&
+          c.competencia >= de &&
+          c.competencia <= ate,
+      );
+      if (conta) mapa.set(m.id, pagamentoDaConta(conta));
+    }
+    return mapa;
   }
 
   /**
@@ -635,6 +850,10 @@ export class ContasPagarService {
     const cfg = await this.config.obter();
     const hoje = hojeUtc();
 
+    if (item.feriasMarcadaId) {
+      await this.conferirFeriasAPagar(item);
+    }
+
     const contaContabil =
       item.contaContabil ?? contaContabilPorTipo(item.tipo, cfg);
     const observacao =
@@ -665,12 +884,52 @@ export class ContasPagarService {
         dataEmissao: hoje,
         dataVencimento: hoje,
         observacao,
+        feriasMarcadaId: item.feriasMarcadaId ?? null,
         status: StatusContaPagar.RASCUNHO,
         criadoPor: usuarioId ?? null,
       },
     });
 
     return this.enviarIxc(conta.id);
+  }
+
+  /**
+   * O pagamento de férias pedido pela lista: das férias certas, da pessoa
+   * certa, e uma vez só.
+   *
+   * A tela já esconde o botão de quem foi pago, mas duas abas abertas, ou um
+   * duplo clique, chegam aqui do mesmo jeito — e férias pagas duas vezes são
+   * um mês de salário a mais saindo do banco.
+   */
+  private async conferirFeriasAPagar(item: ItemContaPagarDto): Promise<void> {
+    if (item.tipo !== TipoLancamento.FERIAS) {
+      throw new BadRequestException(
+        'Só o pagamento de férias se liga a umas férias marcadas.',
+      );
+    }
+    const marcada = await this.prisma.feriasMarcada.findUnique({
+      where: { id: item.feriasMarcadaId! },
+    });
+    if (!marcada) {
+      throw new BadRequestException(
+        'Estas férias não estão mais marcadas — alguém as desfez na tela de Férias.',
+      );
+    }
+    if (marcada.funcionarioId && marcada.funcionarioId !== item.funcionarioId) {
+      throw new BadRequestException(
+        `Estas férias são de ${marcada.nome}, e o pagamento ia para outra pessoa.`,
+      );
+    }
+    const ja =
+      (await this.pagamentosDasFerias([marcada.id])).get(marcada.id) ??
+      (await this.feriasPagasPeloMes([marcada])).get(marcada.id);
+    if (ja) {
+      throw new ConflictException(
+        `As férias de ${marcada.nome} já têm pagamento gerado ` +
+          `(${ja.situacao === 'PAGO' ? 'pago' : 'aguardando pagamento'}). ` +
+          'Confira em Pagamentos da Folha antes de gerar outro.',
+      );
+    }
   }
 
   /** Garante fornecedor e cria o fn_apagar no IXC. */
@@ -1902,6 +2161,52 @@ export function statusPeloIxc(
 function hojeUtc(): Date {
   const now = new Date();
   return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()));
+}
+
+const UM_DIA_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Hoje, como dia (meia-noite UTC, igual às datas de férias), no horário de
+ * Brasília. O servidor roda em UTC: às 22h do dia da volta ele já está no dia
+ * seguinte, e a pessoa sumiria da lista três horas antes de voltar.
+ */
+function diaDeHojeNoFuso(agora: Date): Date {
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(agora);
+  const parte = (tipo: string) =>
+    Number(partes.find((p) => p.type === tipo)?.value);
+  return new Date(Date.UTC(parte('year'), parte('month') - 1, parte('day')));
+}
+
+/** "AAAA-MM" de uma data de férias (meia-noite UTC). */
+function mesDoDia(d: Date): string {
+  return d.toISOString().slice(0, 7);
+}
+
+/** Uma conta de férias do jeito que a lista a mostra. */
+function pagamentoDaConta(c: {
+  id: string;
+  status: StatusContaPagar;
+  valor: Prisma.Decimal;
+  pagoEm: Date | null;
+  idFnApagarIxc: number | null;
+  createdAt: Date;
+}): NonNullable<FeriasAPagar['pagamento']> & ContaAdiantamento {
+  const pago = c.status === StatusContaPagar.PAGO;
+  return {
+    contaId: c.id,
+    situacao: pago ? 'PAGO' : 'PENDENTE',
+    status: c.status,
+    pago,
+    valor: Number(c.valor),
+    pagoEm: c.pagoEm,
+    idFnApagarIxc: c.idFnApagarIxc,
+    geradoEm: c.createdAt,
+  };
 }
 
 function diasAtras(dias: number): Date {

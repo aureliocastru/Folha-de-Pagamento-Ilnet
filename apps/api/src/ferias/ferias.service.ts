@@ -280,8 +280,8 @@ export class FeriasService {
 
   /**
    * Manda alguém para férias: registra quem saiu, quando volta e por qual
-   * período aquisitivo. Não paga nada nem mexe na folha — as férias são pagas
-   * pela contabilidade; aqui fica quem está fora e até quando.
+   * período aquisitivo. Não paga nada daqui: o pagamento sai pelo Gerar Folha,
+   * que lista estas férias até a pessoa voltar (`feriasAPagar`).
    */
   async marcar(dto: MarcarFeriasDto, usuarioId?: string, hoje = new Date()) {
     const item = await this.prisma.itemPrevisaoFerias.findUnique({
