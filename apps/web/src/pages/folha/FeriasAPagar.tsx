@@ -97,11 +97,11 @@ export function FeriasAPagar() {
     return (
       <div className="card">
         <Vazio titulo="Ninguém com férias programadas">
-          Quem for mandado para férias na tela de{' '}
+          Marque as férias na tela de{' '}
           <Link to="/folha/ferias" className="underline">
             Férias
-          </Link>{' '}
-          aparece aqui na hora, para o pagamento poder sair adiantado.
+          </Link>
+          .
         </Vazio>
       </div>
     );
@@ -119,10 +119,8 @@ export function FeriasAPagar() {
         {aPagar === 0
           ? 'Todas as férias programadas já têm pagamento.'
           : aPagar === 1
-            ? '1 férias ainda sem pagamento.'
-            : `${aPagar} férias ainda sem pagamento.`}{' '}
-        O valor vem do salário do mês em que elas começam — o certo é o que a
-        contabilidade apurou.
+            ? '1 férias sem pagamento.'
+            : `${aPagar} férias sem pagamento.`}
       </p>
 
       <ul className="surgir surgir-2 card lista-dividida">
@@ -214,9 +212,7 @@ function LinhaDeFerias({
           </div>
         ) : !f.funcionarioId ? (
           <p className="max-w-xs text-right text-xs text-tinta-500">
-            O nome do relatório de férias não casou com nenhum cadastro daqui,
-            então não dá para pagar por esta tela. Confira o nome na ficha do
-            funcionário.
+            Sem cadastro de funcionário com este nome.
           </p>
         ) : confirmando ? (
           <>

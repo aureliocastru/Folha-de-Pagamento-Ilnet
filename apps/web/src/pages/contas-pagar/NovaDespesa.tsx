@@ -419,6 +419,28 @@ export function NovaDespesa({
     setVencimento(dia);
   }
 
+  /**
+   * A regra que faz a conta nascer sozinha todo mês, a partir do mês seguinte
+   * ao desta: a deste mês é a que está na tela, e registrar a partir do mesmo
+   * vencimento faria a rotina gerar hoje mesmo uma segunda conta igual.
+   */
+  async function registrarRepeticao() {
+    await api.post('/recorrentes', {
+      idFornecedorIxc: fornecedor!.idFornecedor,
+      fornecedorNome: fornecedor!.nome,
+      valor: Number(valor),
+      observacao: observacao.trim() || fornecedor!.nome,
+      proximoVencimento: mesSeguinte(vencimento),
+      contaPagamento: contaPagamento ? Number(contaPagamento) : undefined,
+      tipoPagamentoIxc: tipoPagamento.trim() || undefined,
+      categoriaId: categoriaId || undefined,
+      apenasDiasUteis: soDiasUteis,
+    });
+  }
+
+  /** Na edição, a repetição já criada numa tentativa anterior não se repete. */
+  const [repeticaoCriada, setRepeticaoCriada] = useState(false);
+
   const lancar = useMutation({
     mutationFn: async () => {
       const { data } = await api.post<DespesaLancada>(
@@ -466,19 +488,7 @@ export function NovaDespesa({
        * é a que acabou de ser lançada. Registrar a partir do mesmo vencimento
        * faria a rotina gerar hoje mesmo uma segunda conta igual.
        */
-      if (recorrente) {
-        await api.post('/recorrentes', {
-          idFornecedorIxc: fornecedor!.idFornecedor,
-          fornecedorNome: fornecedor!.nome,
-          valor: Number(valor),
-          observacao: observacao.trim(),
-          proximoVencimento: mesSeguinte(vencimento),
-          contaPagamento: contaPagamento ? Number(contaPagamento) : undefined,
-          tipoPagamentoIxc: tipoPagamento.trim() || undefined,
-          categoriaId: categoriaId || undefined,
-          apenasDiasUteis: soDiasUteis,
-        });
-      }
+      if (recorrente) await registrarRepeticao();
 
       /*
        * A nota sobe depois, e por rota própria.
@@ -597,6 +607,10 @@ export function NovaDespesa({
         });
       }
       setOriginal(depois);
+      if (recorrente && !repeticaoCriada) {
+        await registrarRepeticao();
+        setRepeticaoCriada(true);
+      }
 
       if (nota) {
         try {
@@ -619,6 +633,7 @@ export function NovaDespesa({
       void queryClient.invalidateQueries({ queryKey: ['contas-abertas'] });
       void queryClient.invalidateQueries({ queryKey: ['categorias-despesa'] });
       void queryClient.invalidateQueries({ queryKey: ['veiculos'] });
+      void queryClient.invalidateQueries({ queryKey: ['recorrentes'] });
       if (tudoCerto) onFechar();
     },
   });
@@ -808,8 +823,6 @@ export function NovaDespesa({
     },
     {
       rotulo: 'Repetir ou parcelar',
-      // Uma conta que já existe não vira regra nem se parte em parcelas.
-      pular: !!edicao,
       resumo: recorrente
         ? 'repete todo mês'
         : parcelado
@@ -901,20 +914,6 @@ export function NovaDespesa({
       titulo={edicao ? 'Editar conta a pagar' : 'Lançar conta a pagar'}
       onFechar={onFechar}
     >
-      {edicao && (
-        <p className="mb-4 text-sm text-tinta-500">
-          A mudança vai direto para o título nº {edicao.conta.idFnApagar} no
-          IXC. Os campos abrem com o que está lá agora.
-          {edicao.conta.statusAuditoria === 'A' && (
-            <>
-              {' '}
-              Como ela já está aprovada, o IXC não deixa editar direto: a conta
-              é reprovada, alterada e aprovada de novo — sozinha, sem sair
-              daqui.
-            </>
-          )}
-        </p>
-      )}
       {a.cabecalho}
 
       {/* --- Fornecedor --- */}
@@ -1383,7 +1382,7 @@ export function NovaDespesa({
         )}
 
         {/* --- Serviço que se repete todo mês --- */}
-        {a.mostrar(6) && !edicao && !parcelado && (
+        {a.mostrar(6) && !parcelado && (
           <div className="sm:col-span-2">
             <label
               className="opcao"

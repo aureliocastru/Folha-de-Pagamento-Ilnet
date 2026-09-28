@@ -1104,11 +1104,6 @@ export function Folha() {
 
         <div className="surgir surgir-1 card mb-6 p-5">
           <div className="flex flex-wrap items-end gap-5">{seletorDePagamento}</div>
-          <p className="mt-4 border-t border-tinta-100 pt-4 text-sm leading-relaxed text-tinta-600">
-            Quem foi programado na tela de Férias, do mais próximo de sair ao
-            mais distante. O pagamento pode sair antes de as férias começarem;
-            quem já voltou não aparece mais.
-          </p>
         </div>
 
         <FeriasAPagar />
