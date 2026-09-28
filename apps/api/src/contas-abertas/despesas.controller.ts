@@ -24,6 +24,7 @@ import {
   PagarLoteDto,
   PagarTituloDto,
 } from './dto/despesa.dto';
+import { HistoricoPagamentosService } from './historico-pagamentos.service';
 import { PagamentosService } from './pagamentos.service';
 
 function usuarioId(req: Request): string | undefined {
@@ -41,6 +42,8 @@ export class DespesasController {
     private readonly service: DespesasService,
     private readonly fornecedores: FornecedorService,
     private readonly pagamentos: PagamentosService,
+    // Pagar por aqui torna velha a leitura guardada do "Já pago".
+    private readonly historico: HistoricoPagamentosService,
   ) {}
 
   /**
@@ -49,12 +52,14 @@ export class DespesasController {
    */
   @Post('contas-abertas/:idFnApagar/pagar')
   @HttpCode(200)
-  pagar(
+  async pagar(
     @Param('idFnApagar', ParseIntPipe) idFnApagar: number,
     @Body() dto: PagarTituloDto,
     @Req() req: Request,
   ) {
-    return this.pagamentos.pagar(idFnApagar, dto, usuarioNome(req));
+    const r = await this.pagamentos.pagar(idFnApagar, dto, usuarioNome(req));
+    this.historico.esquecerLeituras();
+    return r;
   }
 
   /**
@@ -111,8 +116,8 @@ export class DespesasController {
   /** Paga várias de uma vez, todas pela mesma forma. */
   @Post('contas-abertas/pagar-lote')
   @HttpCode(200)
-  pagarLote(@Body() dto: PagarLoteDto, @Req() req: Request) {
-    return this.pagamentos.pagarEmLote(
+  async pagarLote(@Body() dto: PagarLoteDto, @Req() req: Request) {
+    const r = await this.pagamentos.pagarEmLote(
       dto.idsFnApagar,
       {
         contaPagamento: dto.contaPagamento,
@@ -122,6 +127,8 @@ export class DespesasController {
       },
       usuarioNome(req),
     );
+    this.historico.esquecerLeituras();
+    return r;
   }
 
   /** Muda o que dá para mudar num título ainda em aberto. */
@@ -182,9 +189,11 @@ export class DespesasController {
 
   @Post('contas-abertas/despesa')
   @HttpCode(201)
-  lancar(@Body() dto: CriarDespesaDto, @Req() req: Request) {
+  async lancar(@Body() dto: CriarDespesaDto, @Req() req: Request) {
     // O nome vai junto porque um lançamento já pago dá baixa no IXC, e a baixa
     // é assinada: quem conferir o extrato de lá precisa saber quem a fez.
-    return this.service.lancar(dto, usuarioId(req), usuarioNome(req));
+    const r = await this.service.lancar(dto, usuarioId(req), usuarioNome(req));
+    if (dto.jaPaga) this.historico.esquecerLeituras();
+    return r;
   }
 }

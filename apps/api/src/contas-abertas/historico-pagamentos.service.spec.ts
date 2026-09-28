@@ -367,3 +367,76 @@ describe('a ressalva já conferida', () => {
     );
   });
 });
+
+/*
+ * A leitura guardada. Ler um mês no IXC leva o tempo que o IXC leva, e a tela
+ * de pagamentos ficava parada em "Lendo o IXC" toda vez que abria. O que se
+ * protege aqui é que guardar não custe correção: o que é daqui (a conferência)
+ * aparece na hora, o Atualizar lê de verdade, e pagar por aqui faz a próxima
+ * abertura ler de novo.
+ */
+describe('a leitura guardada do IXC', () => {
+  const pagamentoDeAgosto = () => ({
+    brutos: [titulo()],
+    baixasLidas: [baixaEm(36949, '2026-08-15')],
+  });
+
+  it('a segunda abertura não vai ao IXC', async () => {
+    const { service, baixas } = montarServico(pagamentoDeAgosto());
+
+    const a = await service.listar(agosto());
+    const b = await service.listar(agosto());
+
+    expect(baixas.daJanela).toHaveBeenCalledTimes(1);
+    expect(b.pagamentos).toHaveLength(1);
+    expect(b.lidoEm).toEqual(a.lidoEm);
+  });
+
+  it('duas aberturas juntas fazem uma leitura só', async () => {
+    const { service, baixas } = montarServico(pagamentoDeAgosto());
+
+    await Promise.all([service.listar(agosto()), service.listar(agosto())]);
+
+    expect(baixas.daJanela).toHaveBeenCalledTimes(1);
+  });
+
+  it('o Atualizar lê o IXC de novo', async () => {
+    const { service, baixas } = montarServico(pagamentoDeAgosto());
+
+    await service.listar(agosto());
+    await service.listar(agosto(), { atualizar: true });
+
+    expect(baixas.daJanela).toHaveBeenCalledTimes(2);
+  });
+
+  it('depois de pagar por aqui, a próxima abertura lê de novo', async () => {
+    const { service, baixas } = montarServico(pagamentoDeAgosto());
+
+    await service.listar(agosto());
+    service.esquecerLeituras();
+    await service.listar(agosto());
+
+    expect(baixas.daJanela).toHaveBeenCalledTimes(2);
+  });
+
+  it('o que é daqui não fica guardado: a conferência aparece na hora', async () => {
+    const { service, prisma } = montarServico(pagamentoDeAgosto());
+
+    await service.listar(agosto());
+    // A segunda abertura pergunta de novo ao banco daqui, mesmo com o IXC
+    // guardado — é assim que o "já conferi" recém-dado aparece.
+    await service.listar(agosto());
+
+    expect(prisma.contaPagar.findMany).toHaveBeenCalledTimes(2);
+  });
+
+  it('o que uma tela escreve num pagamento não passa para a próxima', async () => {
+    const { service } = montarServico(pagamentoDeAgosto());
+
+    const a = await service.listar(agosto());
+    a.pagamentos[0].fornecedor.nome = 'MEXIDO NA TELA';
+    const b = await service.listar(agosto());
+
+    expect(b.pagamentos[0].fornecedor.nome).not.toBe('MEXIDO NA TELA');
+  });
+});

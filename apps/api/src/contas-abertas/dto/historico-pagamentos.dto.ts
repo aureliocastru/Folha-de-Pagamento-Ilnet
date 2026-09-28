@@ -1,4 +1,4 @@
-import { IsArray, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { IsArray, IsIn, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 
 /**
  * O período do histórico, em datas ISO ("2026-08-17").
@@ -20,6 +20,9 @@ export class PeriodoPagamentosDto {
     message: 'A data final precisa estar no formato AAAA-MM-DD.',
   })
   ate?: string;
+
+  /** "1" = o botão Atualizar: lê o IXC agora, sem a leitura guardada. */
+  @IsOptional() @IsIn(['1', 'true']) atualizar?: string;
 }
 
 /**

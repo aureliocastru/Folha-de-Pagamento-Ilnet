@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   Aviso,
   Bloco,
@@ -54,14 +54,29 @@ export function HistoricoDePagamentos() {
   /** Pagamento cuja ficha estamos olhando. */
   const [detalhando, setDetalhando] = useState<PagamentoFeito | null>(null);
 
+  /*
+   * O servidor guarda a última leitura do IXC e a devolve na hora. O botão
+   * Atualizar é o único que pede a leitura de agora, e espera por ela.
+   */
+  const lerAgora = useRef(false);
+
   const consulta = useQuery({
     queryKey: ['pagamentos-feitos', periodo.de, periodo.ate],
-    queryFn: async () =>
-      (
+    queryFn: async () => {
+      const atualizar = lerAgora.current;
+      lerAgora.current = false;
+      return (
         await api.get<HistoricoPagamentos>('/pagamentos-feitos', {
-          params: { de: periodo.de, ate: periodo.ate },
+          params: {
+            de: periodo.de,
+            ate: periodo.ate,
+            ...(atualizar ? { atualizar: '1' } : {}),
+          },
         })
-      ).data,
+      ).data;
+    },
+    // A mesma do painel: ir e voltar entre as telas não relê.
+    staleTime: 5 * 60 * 1000,
     // Sem retentativa automática, como na lista de contas em aberto: quando o
     // IXC não responde ele costuma não responder por 30 segundos até estourar o
     // tempo, e tentar de novo por baixo dobraria a espera com a tela parada.
@@ -91,7 +106,10 @@ export function HistoricoDePagamentos() {
               Baixar CSV
             </button>
             <button
-              onClick={() => consulta.refetch()}
+              onClick={() => {
+                lerAgora.current = true;
+                void consulta.refetch();
+              }}
               disabled={consulta.isFetching}
               className="btn btn-acao"
             >

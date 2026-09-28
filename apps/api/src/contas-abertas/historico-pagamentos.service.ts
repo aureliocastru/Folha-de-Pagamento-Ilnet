@@ -1,4 +1,12 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+  Optional,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import type { AppConfig } from '../config/configuration';
 import { emParalelo } from '../almoxarifado/mover-tudo';
 import { IxcClient } from '../ixc/ixc.client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -58,6 +66,33 @@ const PAGINA = 500;
  */
 const PERGUNTAS_AO_MESMO_TEMPO = 6;
 
+/**
+ * A leitura do IXC guardada, e por quanto tempo.
+ *
+ * Mesmo em paralelo, ler um mês de pagamentos no IXC leva o tempo que o IXC
+ * leva — e a tela de pagamentos ficava parada em "Lendo o IXC" toda vez que
+ * abria. Guardada, ela abre na hora: até `FRESCA_MS` o que está guardado vale
+ * sem conferir; até `VALIDA_MS` vale enquanto uma leitura nova corre por
+ * baixo, para a próxima abertura; depois disso, lê de novo e espera.
+ *
+ * Só o que vem do IXC é guardado. A conferência, a categoria e a origem na
+ * folha são daqui, baratas, e são refeitas a cada pedido — marcar "já
+ * conferi" aparece na hora, sem esperar a leitura vencer.
+ */
+const FRESCA_MS = 2 * 60 * 1000;
+const VALIDA_MS = 30 * 60 * 1000;
+
+/**
+ * De quanto em quanto tempo as leituras de sempre são renovadas sozinhas, para
+ * a primeira abertura do dia também ser rápida. Só no horário de trabalho —
+ * de madrugada ninguém abre, e o IXC não precisa da consulta.
+ */
+const RENOVAR_A_CADA_MS = 10 * 60 * 1000;
+const HORARIO_DE_TRABALHO = { de: 6, ate: 22 };
+
+/** Períodos pedidos há menos que isto entram na renovação automática. */
+const LEMBRAR_PEDIDO_MS = 3 * 60 * 60 * 1000;
+
 /** Por quanto tempo vale o que se descobriu sobre a coluna da baixa. */
 const VALIDADE_DA_SONDA_MS = 30 * 60 * 1000;
 
@@ -98,9 +133,31 @@ interface FiltroDeBaixa {
  * pedida é lida quase exata, não importa quantos anos de histórico existam
  * antes ou depois dela.
  */
+/** O que a leitura do IXC produz, antes do que é daqui. */
+interface LidoDoIxc {
+  pagamentos: PagamentoFeito[];
+  avisos: string[];
+  lidoEm: Date;
+  como: string;
+}
+
+/** Uma leitura guardada, e a que está correndo para substituí-la. */
+interface LeituraGuardada {
+  periodo: Periodo;
+  valor: LidoDoIxc | null;
+  em: number;
+  emCurso: Promise<LidoDoIxc> | null;
+  pedidaEm: number;
+}
+
 @Injectable()
-export class HistoricoPagamentosService {
+export class HistoricoPagamentosService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(HistoricoPagamentosService.name);
+
+  /** As leituras do IXC por período ("AAAA-MM-DD|AAAA-MM-DD"). */
+  private readonly guardadas = new Map<string, LeituraGuardada>();
+  private timer: NodeJS.Timeout | null = null;
+  private renovando = false;
 
   /**
    * O que a sonda descobriu. `null` guardado = sondou e nenhuma coluna
@@ -126,9 +183,180 @@ export class HistoricoPagamentosService {
     // exemplo, que não é o nome documentado. Uma cópia disso aqui erraria o
     // nome da tabela e mostraria código no lugar de nome.
     private readonly contasAbertas: ContasAbertasService,
+    @Optional() private readonly config?: ConfigService,
   ) {}
 
-  async listar(periodo: Periodo): Promise<HistoricoPagamentosResposta> {
+  onModuleInit(): void {
+    const ixc = this.config?.get<AppConfig['ixc']>('ixc');
+    if (!ixc?.host || !ixc?.token) return;
+    this.timer = setInterval(() => void this.renovarAsDeSempre(), RENOVAR_A_CADA_MS);
+    this.timer.unref?.();
+    // A primeira logo depois de subir: é a abertura da manhã que mais espera.
+    setTimeout(() => void this.renovarAsDeSempre(), 60_000).unref?.();
+  }
+
+  onModuleDestroy(): void {
+    if (this.timer) clearInterval(this.timer);
+  }
+
+  /**
+   * Os pagamentos do período, com o que é daqui aplicado por cima.
+   *
+   * `atualizar` é o botão "Atualizar" da tela: lê o IXC agora e espera.
+   */
+  async listar(
+    periodo: Periodo,
+    opcoes: { atualizar?: boolean } = {},
+  ): Promise<HistoricoPagamentosResposta> {
+    const lido = await this.lidoDoIxc(periodo, opcoes.atualizar ?? false);
+
+    // Uma cópia: o que vem abaixo escreve nos pagamentos, e a leitura guardada
+    // serve ao próximo pedido do jeito que veio do IXC.
+    const pagamentos = structuredClone(lido.pagamentos);
+
+    // Cada um preenche um pedaço diferente do pagamento — podem ir juntos.
+    await Promise.all([
+      this.marcarConferidos(pagamentos),
+      this.aplicarClassificacoes(pagamentos),
+      this.marcarOrigemNaFolha(pagamentos),
+    ]);
+
+    return {
+      pagamentos: ordenarPorPagamento(pagamentos),
+      resumo: resumirPagamentos(pagamentos),
+      periodo,
+      lidoEm: lido.lidoEm,
+      comoFoiLido: lido.como,
+      avisos: [...lido.avisos],
+    };
+  }
+
+  /**
+   * Um pagamento saiu por aqui: as leituras guardadas deixam de valer, e o
+   * próximo pedido lê o IXC de novo — senão a conta recém-paga demoraria a
+   * aparecer no "Já pago".
+   */
+  esquecerLeituras(): void {
+    for (const g of this.guardadas.values()) {
+      g.valor = null;
+      g.emCurso = null;
+    }
+  }
+
+  /** A leitura do período: a guardada, quando serve, ou uma nova. */
+  private async lidoDoIxc(periodo: Periodo, atualizar: boolean): Promise<LidoDoIxc> {
+    const chave = chaveDoPeriodo(periodo);
+    const agora = Date.now();
+    const guardada = this.guardadas.get(chave) ?? {
+      periodo,
+      valor: null,
+      em: 0,
+      emCurso: null,
+      pedidaEm: agora,
+    };
+    guardada.pedidaEm = agora;
+    this.guardadas.set(chave, guardada);
+    this.esquecerAsVelhas(agora);
+
+    const idade = guardada.valor ? agora - guardada.em : Infinity;
+    if (!atualizar && guardada.valor && idade < FRESCA_MS) return guardada.valor;
+    if (!atualizar && guardada.valor && idade < VALIDA_MS) {
+      // Serve a guardada agora e deixa a próxima abertura com uma mais nova.
+      this.renovar(guardada).catch((err: unknown) =>
+        this.logger.warn(
+          `Não deu para renovar os pagamentos em segundo plano: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        ),
+      );
+      return guardada.valor;
+    }
+    return this.renovar(guardada);
+  }
+
+  /** Lê o IXC para uma leitura guardada — uma vez só, mesmo com dois pedidos juntos. */
+  private renovar(guardada: LeituraGuardada): Promise<LidoDoIxc> {
+    if (guardada.emCurso) return guardada.emCurso;
+    const leitura = this.lerDoIxc(guardada.periodo)
+      .then((valor) => {
+        // Esquecida no meio do caminho (um pagamento saiu), esta leitura pode
+        // não ter visto o pagamento: serve a quem pediu, mas não fica.
+        if (guardada.emCurso === leitura) {
+          guardada.valor = valor;
+          guardada.em = Date.now();
+        }
+        return valor;
+      })
+      .finally(() => {
+        if (guardada.emCurso === leitura) guardada.emCurso = null;
+      });
+    guardada.emCurso = leitura;
+    return leitura;
+  }
+
+  /**
+   * Renova, fora do pedido de ninguém, as leituras que as telas abrem: o mês
+   * corrente (o painel), os últimos 30 dias (a tela de pagamentos) e o que
+   * alguém pediu nas últimas horas. Uma de cada vez, para não somar carga no
+   * IXC — é trabalho de fundo, e pressa aqui não serve a ninguém.
+   */
+  private async renovarAsDeSempre(agora = new Date()): Promise<void> {
+    if (this.renovando) return;
+    const hora = horaNoFuso(agora);
+    if (hora < HORARIO_DE_TRABALHO.de || hora >= HORARIO_DE_TRABALHO.ate) return;
+
+    this.renovando = true;
+    try {
+      const hoje = diaDeHojeNoFuso(agora);
+      const periodos = new Map<string, Periodo>();
+      for (const p of [
+        { de: new Date(Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth(), 1)), ate: hoje },
+        { de: recuar(hoje, 29), ate: hoje },
+      ]) {
+        periodos.set(chaveDoPeriodo(p), p);
+      }
+      for (const [chave, g] of this.guardadas) {
+        if (agora.getTime() - g.pedidaEm < LEMBRAR_PEDIDO_MS) {
+          periodos.set(chave, g.periodo);
+        }
+      }
+
+      for (const [chave, periodo] of periodos) {
+        const guardada = this.guardadas.get(chave) ?? {
+          periodo,
+          valor: null,
+          em: 0,
+          emCurso: null,
+          pedidaEm: 0,
+        };
+        this.guardadas.set(chave, guardada);
+        if (guardada.valor && agora.getTime() - guardada.em < FRESCA_MS) continue;
+        try {
+          await this.renovar(guardada);
+        } catch (err) {
+          this.logger.warn(
+            `Renovação dos pagamentos de ${chave} falhou: ${
+              err instanceof Error ? err.message : String(err)
+            }`,
+          );
+        }
+      }
+    } finally {
+      this.renovando = false;
+    }
+  }
+
+  /** Solta o que ninguém pede há um dia — período escolhido uma vez e esquecido. */
+  private esquecerAsVelhas(agora: number): void {
+    for (const [chave, g] of this.guardadas) {
+      if (agora - g.pedidaEm > 24 * 60 * 60 * 1000 && !g.emCurso) {
+        this.guardadas.delete(chave);
+      }
+    }
+  }
+
+  /** A leitura do IXC inteira: títulos, baixas, e os nomes que vêm de lá. */
+  private async lerDoIxc(periodo: Periodo): Promise<LidoDoIxc> {
     const avisos: string[] = [];
     const lidoEm = new Date();
 
@@ -266,22 +494,17 @@ export class HistoricoPagamentosService {
       );
     }
 
-    // Cada um preenche um pedaço diferente do pagamento — podem ir juntos.
+    // Os nomes também vêm do IXC, e por isso ficam na leitura guardada.
     await Promise.all([
-      this.marcarConferidos(pagamentos),
       this.completarNomes(pagamentos, avisos),
       this.completarCategoriasECaixas(pagamentos),
-      this.aplicarClassificacoes(pagamentos),
-      this.marcarOrigemNaFolha(pagamentos),
     ]);
 
     return {
-      pagamentos: ordenarPorPagamento(pagamentos),
-      resumo: resumirPagamentos(pagamentos),
-      periodo,
-      lidoEm,
-      comoFoiLido: `${leitura.como} ${baixas.como}`,
+      pagamentos,
       avisos,
+      lidoEm,
+      como: `${leitura.como} ${baixas.como}`,
     };
   }
 
@@ -962,4 +1185,39 @@ function formatarData(data: Date, formato: 'iso' | 'br'): string {
   const m = String(data.getUTCMonth() + 1).padStart(2, '0');
   const y = data.getUTCFullYear();
   return formato === 'iso' ? `${y}-${m}-${d}` : `${d}/${m}/${y}`;
+}
+
+/** A chave de uma leitura guardada: o período em dias. */
+function chaveDoPeriodo(periodo: Periodo): string {
+  return `${periodo.de.toISOString().slice(0, 10)}|${periodo.ate.toISOString().slice(0, 10)}`;
+}
+
+/** As partes da data e da hora agora, no horário de Brasília. */
+function partesNoFuso(agora: Date): Record<string, number> {
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(agora);
+  const mapa: Record<string, number> = {};
+  for (const p of partes) {
+    if (p.type !== 'literal') mapa[p.type] = Number(p.value);
+  }
+  return mapa;
+}
+
+/**
+ * Hoje em Brasília, à meia-noite UTC — o mesmo dia que a tela manda. O
+ * servidor roda em UTC, e às 22h ele já estaria no dia seguinte.
+ */
+function diaDeHojeNoFuso(agora: Date): Date {
+  const p = partesNoFuso(agora);
+  return new Date(Date.UTC(p.year, p.month - 1, p.day));
+}
+
+function horaNoFuso(agora: Date): number {
+  return partesNoFuso(agora).hour;
 }

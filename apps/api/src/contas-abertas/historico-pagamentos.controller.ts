@@ -34,7 +34,9 @@ export class HistoricoPagamentosController {
 
   @Get()
   listar(@Query() query: PeriodoPagamentosDto) {
-    return this.service.listar(resolverPeriodo(query));
+    return this.service.listar(resolverPeriodo(query), {
+      atualizar: !!query.atualizar,
+    });
   }
 
   /**
