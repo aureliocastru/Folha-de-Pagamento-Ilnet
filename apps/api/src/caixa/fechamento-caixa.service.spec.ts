@@ -44,24 +44,33 @@ interface ConsultaDeFechamento {
 }
 
 /**
- * As duas perguntas à tabela do dinheiro na rua: as contas abertas agora (sem
- * data) e as entregas de um intervalo. O `entregueEm` é o que as separa.
+ * As duas perguntas à tabela do dinheiro na rua: as contas abertas agora
+ * (`baixadoEm: null`) e as entregas de uma janela. Quem recorta a janela é o
+ * serviço, depois da busca: ela vem com folga, e o dia de cada entrega é
+ * decidido no fuso de quem bate o caixa.
  */
 interface ConsultaDeEntrega {
   where?: {
     caixaId?: number;
     baixadoEm?: null;
-    entregueEm?: { gte: Date; lte: Date };
+    OR?: Array<{ entregueEm?: { gte: Date; lte: Date } }>;
   };
 }
 
 /**
  * A entrega do teste que não diz quando aconteceu serve para qualquer
- * intervalo: a maioria dos casos não tem nada a dizer sobre datas, e datar
- * todas só para o filtro do dublê enterraria o que cada uma quer mostrar.
+ * janela: a maioria dos casos não tem nada a dizer sobre datas, e datar
+ * todas só para o filtro enterraria o que cada uma quer mostrar. Ela nasce no
+ * primeiro dia da janela perguntada.
  */
-const dentro = (d: Date | undefined, faixa: { gte: Date; lte: Date }) =>
-  d === undefined || (d >= faixa.gte && d <= faixa.lte);
+const naJanela = (
+  d: Record<string, unknown>,
+  consulta: ConsultaDeEntrega,
+) => {
+  if (d.entregueEm) return d;
+  const faixa = consulta.where?.OR?.find((o) => o.entregueEm)?.entregueEm;
+  return { ...d, entregueEm: faixa?.gte };
+};
 
 /** O filtro com que o serviço distingue as duas perguntas de conferência. */
 interface ConsultaDeConferencia {
@@ -195,14 +204,9 @@ function montarServico(
       // Qual das duas perguntas é, pelo filtro e não pela ordem: com a gaveta
       // somando dias fora do recorte, a das entregas vem mais de uma vez.
       findMany: jest.fn(async (args: ConsultaDeEntrega) =>
-        args.where?.entregueEm
-          ? (opts.entregasDoPeriodo ?? []).filter((d) =>
-              dentro(
-                d.entregueEm as Date | undefined,
-                args.where!.entregueEm!,
-              ),
-            )
-          : (opts.naRua ?? []).map((d) => ({ movimentos: [], ...d })),
+        args.where && 'baixadoEm' in args.where
+          ? (opts.naRua ?? []).map((d) => ({ movimentos: [], ...d }))
+          : (opts.entregasDoPeriodo ?? []).map((d) => naJanela(d, args)),
       ),
       findUnique: jest
         .fn()
@@ -459,18 +463,18 @@ describe('extrato do caixa', () => {
    * Só o que nasce com hora zerada escapava, que é por que demorou a aparecer.
    */
   it('o período vai até o fim do último dia, e não até a meia-noite dele', async () => {
-    const { service, prisma } = montarServico();
+    const { service } = montarServico({
+      anterior: { saldoFinal: 1000 },
+      entregasDoPeriodo: [
+        { valor: 50, entregueEm: new Date(2026, 7, 19, 14) },
+        // Do dia seguinte: não é deste período.
+        { valor: 70, entregueEm: new Date(2026, 7, 20, 9) },
+      ],
+    });
 
-    await service.extrato(7, '2026-08-19', '2026-08-19');
+    const e = await service.extrato(7, '2026-08-19', '2026-08-19');
 
-    // A segunda chamada é a das entregas do período.
-    const [consulta] = prisma.dinheiroNaRua.findMany.mock.calls[1] as Array<{
-      where: { entregueEm: { gte: Date; lte: Date } };
-    }>;
-    expect(consulta.where.entregueEm.gte).toEqual(new Date(2026, 7, 19));
-    expect(consulta.where.entregueEm.lte).toEqual(
-      new Date(2026, 7, 19, 23, 59, 59, 999),
-    );
+    expect(e.resumo.entregueNoPeriodo).toBe(50);
   });
 
   it('uma entrega da tarde de hoje entra no período de hoje', async () => {
@@ -734,6 +738,34 @@ describe('a conta de quem levou dinheiro', () => {
       // `\s` e não um espaço literal: o pt-BR separa o "R$" do número com
       // espaço não separável, e um espaço comum aqui nunca casaria.
     ).rejects.toThrow(/está com R\$\s204,00/);
+  });
+
+  /*
+   * A tela mandava no troco a data que tinha ficado no campo de uma nota
+   * antes de trocar o tipo. O dinheiro voltou hoje; datado de agosto, ele
+   * entrava num período já fechado.
+   */
+  it('troco e reforço são de hoje, mesmo que venha outra data', async () => {
+    const { service, prisma } = montarServico({ entrega: conta });
+
+    await service.lancarMovimento('r1', {
+      tipo: 'TROCO',
+      valor: 4,
+      data: '2026-08-01',
+    });
+    await service.lancarMovimento('r1', {
+      tipo: 'REFORCO',
+      valor: 10,
+      data: '2026-08-01',
+    });
+
+    const datas = prisma.movimentoDaRua.create.mock.calls.map(
+      ([{ data }]) => data.data as Date,
+    );
+    for (const d of datas) {
+      expect(d).not.toEqual(new Date(2026, 7, 1));
+      expect(d.getHours()).toBe(0);
+    }
   });
 
   it('o reforço pode passar do saldo: ele é dinheiro saindo, não acerto', async () => {
@@ -1402,6 +1434,160 @@ describe('o saldo que deve estar na gaveta', () => {
       .toEqual([4, 6]);
     expect(r2.resumo.saidas).toBe(1550);
     expect(r2.resumo.maiorIdLido).toBe(6);
+  });
+
+  /*
+   * O caso do CX - Werick em 28/09: a gaveta tinha R$ 148,00 e a tela dizia
+   * R$ 108,00, e o número caía a cada nota lançada.
+   *
+   * Fechado e contado até 22/09. Em 25/09 quem compra o gelo prestou contas
+   * da semana: notas de 17, 18, 19, 21 e 22/09 — antes do fechamento — e de
+   * 23, 24 e 25/09. Cada nota virou conta a pagar baixada no caixa, com a data
+   * da compra. As saídas de antes de 23/09 são tardias no IXC e saem da
+   * gaveta; a compensação delas ficava presa ao dia da compra, fora da janela,
+   * e não devolvia nada. R$ 40,00 descontados de um dinheiro que já tinha
+   * saído — na entrega de 17/09, já assinada, e na de 25/09.
+   */
+  describe('a nota com data de antes do fechamento, prestada depois dele', () => {
+    const FECHOU_EM = new Date(2026, 8, 22, 16, 45);
+    const PRESTOU_EM = new Date(2026, 8, 25, 8, 20);
+    const dia = (d: number) => new Date(2026, 8, d);
+    const nota = (valor: number, d: number, anotadaEm = PRESTOU_EM) => ({
+      tipo: 'NOTA',
+      valor,
+      data: dia(d),
+      gastoPagoEm: dia(d),
+      createdAt: anotadaEm,
+    });
+
+    const caso = () => ({
+      anteriores: [
+        {
+          saldoFinal: 2070,
+          saldoContado: 2070,
+          ultimoIdLancamento: 3,
+          createdAt: FECHOU_EM,
+          ate: new Date(2026, 8, 22, 23, 59, 59, 999),
+        },
+      ],
+      ultimo: { ate: new Date(2026, 8, 22, 23, 59, 59, 999) },
+      lancamentos: [
+        // Prestada em 21/09, antes do fechamento: ele já contou as duas pontas.
+        saidaEm(2, 8, dia(16)),
+        // As tardias: lançadas em 25/09 com a data da compra.
+        saidaEm(10, 12, dia(17)),
+        saidaEm(11, 8, dia(18)),
+        saidaEm(12, 4, dia(19)),
+        saidaEm(13, 8, dia(21)),
+        saidaEm(14, 8, dia(22)),
+        // As do período aberto.
+        saidaEm(15, 8, dia(23)),
+        saidaEm(16, 8, dia(24)),
+        saidaEm(17, 8, dia(25)),
+      ],
+      entregasDoPeriodo: [
+        // Antes do fechamento, e já descontada nele.
+        { valor: 12, entregueEm: dia(17), createdAt: new Date(2026, 8, 17, 9) },
+        { valor: 52, entregueEm: dia(25), createdAt: PRESTOU_EM },
+      ],
+      movimentosDoPeriodo: [
+        nota(8, 16, new Date(2026, 8, 21, 8)),
+        nota(12, 17),
+        nota(8, 18),
+        nota(4, 19),
+        nota(8, 21),
+        nota(8, 22),
+        nota(8, 23),
+        nota(8, 24),
+        nota(8, 25),
+      ],
+    });
+
+    // 2070 contados - 52 que saíram para o gelo em 25/09. As saídas das notas
+    // no IXC são o mesmo dinheiro das entregas, e não outro.
+    const ESPERADO = 2018;
+
+    it('não desconta da gaveta a nota que a entrega já tinha descontado', async () => {
+      const e = await montarServico(caso()).service.extrato(
+        7,
+        '2026-09-23',
+        '2026-09-28',
+      );
+
+      expect(e.resumo.saldoEsperado).toBe(ESPERADO);
+    });
+
+    it('dá o mesmo número com a tela aberta só no dia de hoje', async () => {
+      const e = await montarServico(caso()).service.extrato(
+        7,
+        '2026-09-28',
+        '2026-09-28',
+      );
+
+      expect(e.resumo.saldoEsperado).toBe(ESPERADO);
+    });
+
+    it('o fechamento assina o mesmo número que a tela mostra', async () => {
+      const dados = caso();
+      const { service, criados } = montarServico({
+        ...dados,
+        conferencias: dados.lancamentos.map((l) => ({
+          idLancamentoIxc: l.id,
+          conferido: true,
+        })),
+      });
+
+      await service.fechar({ caixaId: 7, de: '2026-09-23', ate: '2026-09-28' });
+
+      expect(Number(criados[0].saldoFinal)).toBe(ESPERADO);
+    });
+  });
+
+  /*
+   * O mesmo buraco pelo lado do dinheiro que sai: fechado às 16h45, e às 17h
+   * alguém levou R$ 30,00. A entrega é de 22/09, dia que o fechamento já
+   * assinou sem ela, e a janela da gaveta começa em 23/09 — ela não saía de
+   * lugar nenhum.
+   */
+  it('o que saiu com alguém depois do fechamento, no mesmo dia, sai da gaveta', async () => {
+    const { service } = montarServico({
+      anteriores: [
+        {
+          saldoFinal: 2070,
+          createdAt: new Date(2026, 8, 22, 16, 45),
+          ate: new Date(2026, 8, 22, 23, 59, 59, 999),
+        },
+      ],
+      entregasDoPeriodo: [
+        {
+          valor: 30,
+          entregueEm: new Date(2026, 8, 22),
+          createdAt: new Date(2026, 8, 22, 17),
+        },
+      ],
+    });
+
+    const e = await service.extrato(7, '2026-09-23', '2026-09-23');
+
+    expect(e.resumo.saldoEsperado).toBe(2040);
+  });
+
+  /*
+   * O servidor roda em UTC. A entrega anotada às 22h de 28/09 guardava o
+   * instante — 01h de 29/09 para ele — e sumia do saldo de hoje para aparecer
+   * no de amanhã.
+   */
+  it('a entrega anotada à noite é do dia em que foi anotada', async () => {
+    const { service } = montarServico({
+      anterior: { saldoFinal: 1000, ate: new Date(2026, 8, 27, 23, 59, 59, 999) },
+      entregasDoPeriodo: [
+        { valor: 40, entregueEm: new Date('2026-09-29T01:00:00Z') },
+      ],
+    });
+
+    const e = await service.extrato(7, '2026-09-28', '2026-09-28');
+
+    expect(e.resumo.saldoEsperado).toBe(960);
   });
 
   it('fechamento antigo, sem o último id guardado, conta como antes', async () => {

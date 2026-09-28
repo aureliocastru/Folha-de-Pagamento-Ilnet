@@ -369,65 +369,31 @@ export class FechamentoCaixaService {
      * do mesmo jeito. Por isso os dois entram nesta conta, e cada um no período
      * em que aconteceu — a entrega pela data em que saiu, o troco pela data da
      * prestação. Sem isso o número na tela não seria o que a pessoa tem na mão.
-     */
-    const entregasDoPeriodo = await this.prisma.dinheiroNaRua.findMany({
-      where: { caixaId, entregueEm: { gte: inicio, lte: fim } },
-      select: { valor: true },
-    });
-
-    /*
-     * Os acertos entram pelo dia em que aconteceram, e não pelo dia em que
-     * foram digitados: quem leva dinheiro na segunda presta contas na sexta, e
-     * a semana em que a gaveta mudou foi a da segunda.
-     */
-    const movimentosDoPeriodo = await this.prisma.movimentoDaRua.findMany({
-      where: {
-        entrega: { caixaId },
-        OR: [
-          { data: { gte: inicio, lte: fim } },
-          { gastoPagoEm: { gte: inicio, lte: fim } },
-        ],
-      },
-    });
-
-    const somaDosMovimentos = (
-      tipo: TipoMovimentoDaRua,
-      quando: (m: (typeof movimentosDoPeriodo)[number]) => Date | null,
-    ) =>
-      arredondar(
-        movimentosDoPeriodo
-          .filter((m) => {
-            if (m.tipo !== tipo) return false;
-            const d = quando(m);
-            return !!d && d >= inicio && d <= fim;
-          })
-          .reduce((s, m) => s + Number(m.valor), 0),
-      );
-
-    // O reforço sai da gaveta pelo mesmo motivo que a entrega: é dinheiro indo
-    // para a mão de alguém sem passar pelo IXC.
-    const entregueNoPeriodo = arredondar(
-      entregasDoPeriodo.reduce((s, d) => s + Number(d.valor), 0) +
-        somaDosMovimentos('REFORCO', (m) => m.data),
-    );
-    const trocoNoPeriodo = somaDosMovimentos('TROCO', (m) => m.data);
-
-    /*
-     * O gasto que a prestação lançou como conta a pagar volta para a conta.
      *
-     * Não porque o dinheiro voltou — ele foi gasto —, mas porque ele já saiu
-     * uma vez aqui, na entrega, e a conta a pagar baixada no caixa o faz sair
-     * de novo pelas saídas do IXC. Descontar os dois tiraria da gaveta o dobro
-     * do que a pessoa levou.
-     *
-     * A data que manda é a da baixa no IXC, e não a da prestação: é ela que
-     * decide em que período a saída aparece lá, e quem presta contas costuma
-     * fazê-lo dias depois de o dinheiro ter saído.
+     * E com a mesma regra do lançamento tardio do IXC: o que foi anotado aqui
+     * depois do fechamento, com data de um dia que ele já assinou, conta na
+     * gaveta de agora. A nota de gelo de 17/09 prestada em 25/09 criou no IXC
+     * uma saída de 17/09 — tardia, e por isso descontada da gaveta —, mas a
+     * compensação dela ficava presa ao dia 17, fora da janela. Cinco notas
+     * assim tiraram R$ 40,00 de uma gaveta que não tinha perdido nada: a tela
+     * dizia R$ 108,00 e a gaveta tinha R$ 148,00. O IXC olha o id para saber
+     * o que é posterior; aqui é o `createdAt`, que diz a mesma coisa.
      */
-    const gastoLancadoNoPeriodo = somaDosMovimentos(
-      'NOTA',
-      (m) => m.gastoPagoEm,
-    );
+    const tardiosDaRua =
+      anterior?.createdAt && gavetaDesde
+        ? { antesDe: gavetaDesde, anotadosDepoisDe: anterior.createdAt }
+        : null;
+
+    const ruaDoPeriodo = await this.ruaNaJanela(caixaId, {
+      de: inicio,
+      ate: fim,
+      // Como o tardio do IXC: entra no recorte quando ele está no período aberto.
+      tardios:
+        tardiosDaRua && inicio >= tardiosDaRua.antesDe ? tardiosDaRua : null,
+    });
+    const entregueNoPeriodo = ruaDoPeriodo.entregue;
+    const trocoNoPeriodo = ruaDoPeriodo.troco;
+    const gastoLancadoNoPeriodo = ruaDoPeriodo.gastoLancado;
 
     /*
      * O mesmo, na janela da gaveta.
@@ -435,17 +401,24 @@ export class FechamentoCaixaService {
      * Quando as duas começam no mesmo dia são a mesma, e não custa consulta
      * nenhuma: é a conta que a tela já fez. Diferindo — para trás, com dias
      * fora do recorte, ou para a frente, com dias que o fechamento já assinou
-     * —, pergunta-se pelo intervalo inteiro de uma vez: são duas leituras no
+     * —, pergunta-se pela janela inteira de uma vez: são duas leituras no
      * banco daqui, baratas ao lado da ida ao IXC.
      *
      * Para a frente importa tanto quanto para trás: o dinheiro entregue em
      * 31/08 saiu da gaveta antes do fechamento daquele dia e já está no saldo
      * dele. Contá-lo de novo aqui o faria sair duas vezes.
      */
-    const ruaDaGaveta =
-      gavetaDesde && gavetaDesde.getTime() !== inicio.getTime()
-        ? await this.ruaNoIntervalo(caixaId, gavetaDesde, fim)
-        : -entregueNoPeriodo + trocoNoPeriodo + gastoLancadoNoPeriodo;
+    const ruaDaGaveta = !gavetaDesde
+      ? 0
+      : efeitoNaGaveta(
+          gavetaDesde.getTime() === inicio.getTime()
+            ? ruaDoPeriodo
+            : await this.ruaNaJanela(caixaId, {
+                de: gavetaDesde,
+                ate: fim,
+                tardios: tardiosDaRua,
+              }),
+        );
 
     /*
      * O recibo assinado do diarista vale como nota do pagamento dele.
@@ -605,56 +578,101 @@ export class FechamentoCaixaService {
   }
 
   /**
-   * O que o dinheiro na rua fez com a gaveta num intervalo, num número só.
+   * O que o dinheiro na rua fez com a gaveta numa janela de dias.
    *
-   * O que saiu com alguém sai fisicamente sem virar saída no IXC; o troco
-   * volta do mesmo jeito; e o gasto que a prestação lançou como conta a pagar
-   * volta para a conta, porque a baixa dele no caixa o faz sair uma segunda
-   * vez pelas saídas de lá. Devolve o efeito líquido dos três.
+   * O que saiu com alguém sai fisicamente sem virar saída no IXC; o reforço
+   * também; o troco volta do mesmo jeito; e o gasto que a prestação lançou
+   * como conta a pagar volta para a conta, porque a baixa dele no caixa o faz
+   * sair uma segunda vez pelas saídas de lá.
    *
-   * Só é chamado quando o recorte da tela e a janela da gaveta começam em dias
-   * diferentes. No encaixe normal a conta já está feita, e este método não
-   * roda.
+   * Os acertos entram pelo dia em que aconteceram, e não pelo dia em que
+   * foram digitados: quem leva dinheiro na segunda presta contas na sexta, e a
+   * semana em que a gaveta mudou foi a da segunda. O gasto lançado entra pela
+   * data da baixa no IXC, que é a que decide onde a saída aparece lá.
+   *
+   * Com `tardios`, entra também o que foi anotado depois do último fechamento
+   * com data de antes dele — a mesma regra que a leitura do IXC aplica às
+   * saídas. As duas pontas do gasto lançado (a saída lá e a compensação aqui)
+   * têm de cair sempre na mesma gaveta, ou uma desconta sem a outra devolver.
+   *
+   * A busca no banco pega um dia a mais e quem decide é o filtro daqui, pelo
+   * dia no horário de Brasília: o que foi anotado sem data escolhida, antes
+   * desta versão, guardou o instante, e às 22h de 28/09 o servidor — que roda
+   * em UTC — já está em 29/09.
    */
-  private async ruaNoIntervalo(
+  private async ruaNaJanela(
     caixaId: number,
-    de: Date,
-    ate: Date,
-  ): Promise<number> {
+    janela: {
+      de: Date;
+      ate: Date;
+      tardios: { antesDe: Date; anotadosDepoisDe: Date } | null;
+    },
+  ): Promise<{ entregue: number; troco: number; gastoLancado: number }> {
+    const { de, ate, tardios } = janela;
+    const ateNaBusca = new Date(ate.getTime() + UM_DIA);
+    const anotadosDepois = tardios
+      ? [{ createdAt: { gt: tardios.anotadosDepoisDe } }]
+      : [];
+
     const entregas = await this.prisma.dinheiroNaRua.findMany({
-      where: { caixaId, entregueEm: { gte: de, lte: ate } },
-      select: { valor: true },
+      where: {
+        caixaId,
+        OR: [{ entregueEm: { gte: de, lte: ateNaBusca } }, ...anotadosDepois],
+      },
+      select: { valor: true, entregueEm: true, createdAt: true },
     });
     const movimentos = await this.prisma.movimentoDaRua.findMany({
       where: {
         entrega: { caixaId },
         OR: [
-          { data: { gte: de, lte: ate } },
-          { gastoPagoEm: { gte: de, lte: ate } },
+          { data: { gte: de, lte: ateNaBusca } },
+          { gastoPagoEm: { gte: de, lte: ateNaBusca } },
+          ...anotadosDepois,
         ],
       },
+      select: {
+        tipo: true,
+        valor: true,
+        data: true,
+        gastoPagoEm: true,
+        createdAt: true,
+      },
     });
+
+    const entra = (quando: Date | null, anotadoEm: Date | undefined) => {
+      if (!quando) return false;
+      const dia = diaNoFuso(quando);
+      if (dia > ate) return false;
+      if (dia >= de) return true;
+      return (
+        !!tardios &&
+        !!anotadoEm &&
+        dia < tardios.antesDe &&
+        anotadoEm > tardios.anotadosDepoisDe
+      );
+    };
     const somaDosMovimentos = (
       tipo: TipoMovimentoDaRua,
       quando: (m: (typeof movimentos)[number]) => Date | null,
     ) =>
       movimentos
-        .filter((m) => {
-          if (m.tipo !== tipo) return false;
-          const d = quando(m);
-          return !!d && d >= de && d <= ate;
-        })
+        .filter((m) => m.tipo === tipo && entra(quando(m), m.createdAt))
         .reduce((s, m) => s + Number(m.valor), 0);
 
-    const entregue =
-      entregas.reduce((s, d) => s + Number(d.valor), 0) +
-      somaDosMovimentos('REFORCO', (m) => m.data);
-
-    return arredondar(
-      -entregue +
-        somaDosMovimentos('TROCO', (m) => m.data) +
+    return {
+      // O reforço sai da gaveta pelo mesmo motivo que a entrega: é dinheiro
+      // indo para a mão de alguém sem passar pelo IXC.
+      entregue: arredondar(
+        entregas
+          .filter((e) => entra(e.entregueEm, e.createdAt))
+          .reduce((s, e) => s + Number(e.valor), 0) +
+          somaDosMovimentos('REFORCO', (m) => m.data),
+      ),
+      troco: arredondar(somaDosMovimentos('TROCO', (m) => m.data)),
+      gastoLancado: arredondar(
         somaDosMovimentos('NOTA', (m) => m.gastoPagoEm),
-    );
+      ),
+    };
   }
 
   /**
@@ -1023,9 +1041,10 @@ export class FechamentoCaixaService {
         caixaId: dados.caixaId,
         pessoa: dados.pessoa.trim(),
         valor: new Prisma.Decimal(dados.valor),
+        // O dia, e não o instante: ver `hojeNoFuso`. A hora fica no createdAt.
         entregueEm: dados.entregueEm
           ? dataDoDia(dados.entregueEm, 'da entrega')
-          : new Date(),
+          : hojeNoFuso(),
         motivo: dados.motivo?.trim() || null,
         criadoPor: usuarioId ?? null,
       },
@@ -1149,7 +1168,16 @@ export class FechamentoCaixaService {
       );
     }
 
-    const dia = dados.data ? dataDoDia(dados.data, 'do lançamento') : new Date();
+    /*
+     * Troco e reforço são de agora: o dinheiro está mudando de mão enquanto se
+     * digita. Só a nota tem dia escolhido, porque a compra pode ter sido antes
+     * — e a tela mandava junto, no troco, a data que tinha sido escolhida para
+     * uma nota antes de trocar o tipo.
+     */
+    const dia =
+      dados.data && dados.tipo === 'NOTA'
+        ? dataDoDia(dados.data, 'do lançamento')
+        : hojeNoFuso();
 
     /*
      * A despesa vai antes de gravar o movimento, de propósito.
@@ -1662,23 +1690,31 @@ export class FechamentoCaixaService {
     }
 
     /*
-     * O saldo assinado é o mesmo que a tela mostrava como esperado.
+     * O saldo assinado é o mesmo que a tela mostrava como esperado — o
+     * próprio número, e não uma segunda conta que deveria dar igual.
      *
-     * Sai das somas sem os lançamentos marcados fora da gaveta, e não dos
-     * totais do período: a saída de acerto existe no IXC para corrigir um
-     * saldo de lá, de um dinheiro que já saiu da gaveta por outro caminho.
-     * Descontá-la aqui tirava duas vezes o mesmo dinheiro — e como este
-     * número vira o ponto de partida do período seguinte, a diferença passava
-     * de fechamento em fechamento em vez de morrer onde nasceu.
+     * Eram duas, e divergiram mais de uma vez: primeiro com os lançamentos
+     * fora da gaveta, depois com os tardios. Cada divergência assinava um
+     * saldo diferente do que a tela mostrava, e como este número vira o ponto
+     * de partida do período seguinte, a diferença passava de fechamento em
+     * fechamento em vez de morrer onde nasceu. Havendo fechamento anterior, o
+     * período começa no dia seguinte a ele (recusado acima se não começar), e
+     * aí o esperado é exatamente o saldo deste período.
+     *
+     * Só o primeiro fechamento de um caixa não tem esperado — não há de onde
+     * partir —, e soma a partir do inicial informado. Sem anterior não existe
+     * tardio, e as somas do recorte são tudo o que há.
      */
-    const saldoFinal = arredondar(
-      saldoInicial +
-        Number(extrato.resumo.entradasNaGaveta) -
-        Number(extrato.resumo.saidasNaGaveta) -
-        extrato.resumo.entregueNoPeriodo +
-        extrato.resumo.trocoNoPeriodo +
-        extrato.resumo.gastoLancadoNoPeriodo,
-    );
+    const saldoFinal =
+      extrato.resumo.saldoEsperado ??
+      arredondar(
+        saldoInicial +
+          Number(extrato.resumo.entradasNaGaveta) -
+          Number(extrato.resumo.saidasNaGaveta) -
+          extrato.resumo.entregueNoPeriodo +
+          extrato.resumo.trocoNoPeriodo +
+          extrato.resumo.gastoLancadoNoPeriodo,
+      );
 
     if (dados.saldoContado !== undefined && dados.saldoContado < 0) {
       throw new BadRequestException('A gaveta não conta valor negativo.');
@@ -1989,6 +2025,61 @@ function diasEntreDatas(a: Date, b: Date): number {
   const dia = (d: Date) =>
     Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
   return Math.abs(Math.round((dia(a) - dia(b)) / umDia));
+}
+
+const UM_DIA = 24 * 60 * 60 * 1000;
+
+/** O fuso de quem bate o caixa, para saber em que dia um instante caiu. */
+const FUSO = 'America/Sao_Paulo';
+
+/** O que a rua fez com a gaveta, num número só: sai a entrega, volta o resto. */
+function efeitoNaGaveta(r: {
+  entregue: number;
+  troco: number;
+  gastoLancado: number;
+}): number {
+  return arredondar(-r.entregue + r.troco + r.gastoLancado);
+}
+
+/** "AAAA-MM-DD" do dia em que um instante caiu, no horário de Brasília. */
+function diaISONoFuso(d: Date): string {
+  const partes = new Intl.DateTimeFormat('en-CA', {
+    timeZone: FUSO,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(d);
+  const parte = (tipo: string) => partes.find((p) => p.type === tipo)?.value;
+  return `${parte('year')}-${parte('month')}-${parte('day')}`;
+}
+
+/**
+ * Hoje, como o dia que o caixa usa — meia-noite, igual às datas do IXC.
+ *
+ * `new Date()` era o que a entrega e o acerto sem data guardavam, e o servidor
+ * roda em UTC: o que se anotava depois das 21h caía no dia seguinte. A saída
+ * da noite não mexia no saldo de hoje e aparecia no de amanhã; anotada antes
+ * de um fechamento feito à noite, ficava fora dele e era descontada de novo
+ * no período seguinte.
+ */
+function hojeNoFuso(): Date {
+  return dataDoDia(diaISONoFuso(new Date()), 'de hoje');
+}
+
+/**
+ * O dia de um registro da rua, pronto para comparar com as pontas do período.
+ *
+ * O que já é dia (meia-noite em ponto, como tudo que nasceu de uma data
+ * escolhida ou de `hojeNoFuso`) passa como está. O instante — o que se
+ * guardava antes de `hojeNoFuso` existir — vira o dia em que caiu aqui.
+ */
+function diaNoFuso(d: Date): Date {
+  const jaEDia =
+    d.getHours() === 0 &&
+    d.getMinutes() === 0 &&
+    d.getSeconds() === 0 &&
+    d.getMilliseconds() === 0;
+  return jaEDia ? d : dataDoDia(diaISONoFuso(d), 'do registro');
 }
 
 /** O último instante do dia de uma data. */

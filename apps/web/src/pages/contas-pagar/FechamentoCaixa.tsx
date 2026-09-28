@@ -2083,7 +2083,9 @@ function AcertarConta({
           {
             tipo,
             valor: quanto,
-            data,
+            // Só a nota tem dia escolhido; troco e reforço são de agora, e a
+            // data que ficou no campo de uma nota não pode ir junto com eles.
+            data: ehNota ? data : undefined,
             notasFoto: fotos.length ? fotos : undefined,
             despesa: comDespesa
               ? {
