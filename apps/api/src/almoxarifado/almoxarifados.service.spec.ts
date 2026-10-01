@@ -371,3 +371,54 @@ describe('opcoes', () => {
     ]);
   });
 });
+
+describe('AlmoxarifadosService.pecasDoProduto', () => {
+  const linha = (id: number, over: Record<string, string> = {}) => ({
+    id: String(id),
+    id_produto: '70',
+    id_almoxarifado: '5',
+    situacao: '1',
+    serial: '',
+    serial_fornecedor: '',
+    id_mac: '',
+    ...over,
+  });
+
+  it('dá o tombo, a série e o MAC de cada equipamento — os da prateleira e os presos', async () => {
+    const { service, ixc } = montar();
+    const linhas = [
+      linha(1, { serial: 'T-100', serial_fornecedor: 'SN1', id_mac: 'AA:BB:CC:DD:EE:01' }),
+      linha(2, { situacao: '8', serial_fornecedor: 'SN2' }),
+      linha(3, { situacao: '4', serial: 'T-3' }), // em comodato: já saiu, o IXC nem é perguntado por ela
+      linha(4, { id_produto: '71', serial: 'T-4' }), // de outro produto
+      linha(5, { id_almoxarifado: '9', serial: 'T-5' }), // de outro almoxarifado
+    ];
+    ixc.listAll.mockImplementation((async (
+      tabela: string,
+      params?: { gridParam?: Array<{ TB: string; P: string }> },
+    ) => {
+      if (tabela !== 'patrimonio') return [];
+      const situacao = params?.gridParam?.find((g) => g.TB === 'patrimonio.situacao')?.P;
+      return linhas.filter((l) => l.situacao === situacao);
+    }) as never);
+
+    expect(await service.pecasDoProduto(5, 70)).toEqual([
+      {
+        patrimonioId: 1,
+        numeroPatrimonial: 'T-100',
+        numeroSerie: 'SN1',
+        mac: 'AA:BB:CC:DD:EE:01',
+        situacao: 'disponível',
+        naPrateleira: true,
+      },
+      {
+        patrimonioId: 2,
+        numeroPatrimonial: null,
+        numeroSerie: 'SN2',
+        mac: null,
+        situacao: 'indisponível',
+        naPrateleira: false,
+      },
+    ]);
+  });
+});

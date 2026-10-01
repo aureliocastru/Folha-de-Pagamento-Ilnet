@@ -2234,6 +2234,8 @@ export interface ItemDeEstoque {
   unidade: string | null;
   precoBase: number | null;
   ativo: boolean;
+  /** `produtos.tipo`: P é patrimônio — anda peça por peça, cada uma com tombo, série e MAC. */
+  tipo?: string;
   /** Um por almoxarifado, do maior saldo para o menor. */
   saldos: SaldoNoAlmoxarifado[];
   /** A soma de todos os almoxarifados — o "quanto a casa tem". */
@@ -2359,6 +2361,18 @@ export interface AlmoxarifadoCadastro {
   liberado: boolean;
   /** Quem está ligado a ele no IXC — o técnico dono, quando é de técnico. */
   usuarios: Array<{ id: number; nome: string; padrao: boolean }>;
+}
+
+/** Um equipamento (peça de patrimônio) de um produto num almoxarifado. */
+export interface PecaDoProduto {
+  patrimonioId: number;
+  /** O tombo: o "Número do patrimônio" da casa. */
+  numeroPatrimonial: string | null;
+  numeroSerie: string | null;
+  mac: string | null;
+  situacao: string;
+  /** Fora da prateleira (alocada, indisponível) ainda conta no saldo, mas não se move. */
+  naPrateleira: boolean;
 }
 
 /** Um produto com saldo num almoxarifado — o que "mover tudo" levaria. */

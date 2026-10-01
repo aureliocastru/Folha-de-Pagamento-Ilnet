@@ -10,6 +10,7 @@ import {
   numeroDoIxc,
 } from './estoque.mapper';
 import { EstoqueService } from './estoque.service';
+import { identidadeDaPeca, SITUACOES_LIDAS, situacaoDaPeca } from './mover-tudo';
 import {
   montarEdicaoAlmoxarifado,
   montarEdicaoDoVinculo,
@@ -43,6 +44,20 @@ export interface AlmoxarifadoNaTela {
   liberado: boolean;
   /** Quem está ligado a ele no IXC — o técnico dono, quando é de técnico. */
   usuarios: UsuarioDoAlmoxarifado[];
+}
+
+/** Uma peça de um produto de patrimônio num almoxarifado — o equipamento, como a tela o mostra. */
+export interface PecaDoProduto {
+  patrimonioId: number;
+  /** `patrimonio.serial` — o tombo, o "Número do patrimônio" da tela do IXC. */
+  numeroPatrimonial: string | null;
+  /** `patrimonio.serial_fornecedor` — o número de série de fábrica. */
+  numeroSerie: string | null;
+  mac: string | null;
+  /** "disponível", "alocada", "indisponível"… */
+  situacao: string;
+  /** Na prateleira, para mover — as outras ainda contam no saldo, mas estão presas. */
+  naPrateleira: boolean;
 }
 
 interface Vinculo {
@@ -128,6 +143,59 @@ export class AlmoxarifadosService {
     }
 
     return [...porId.values()].sort((a, b) => a.descricao.localeCompare(b.descricao, 'pt-BR'));
+  }
+
+  /**
+   * Os equipamentos de um produto de patrimônio num almoxarifado, lidos agora
+   * do IXC: os da prateleira e os presos (alocada, indisponível), que ainda
+   * contam no saldo. Vendida, em comodato e inutilizada já saíram — ver
+   * `SITUACOES_LIDAS`.
+   */
+  async pecasDoProduto(almoxId: number, produtoId: number): Promise<PecaDoProduto[]> {
+    const porSituacao = await Promise.all(
+      SITUACOES_LIDAS.map((situacao) =>
+        this.ixc.listAll<Record<string, unknown>>(
+          'patrimonio',
+          {
+            qtype: 'patrimonio.id_produto',
+            query: String(produtoId),
+            oper: '=',
+            sortname: 'patrimonio.id',
+            sortorder: 'asc',
+            gridParam: [
+              { TB: 'patrimonio.id_almoxarifado', OP: '=', P: String(almoxId) },
+              { TB: 'patrimonio.situacao', OP: '=', P: situacao },
+            ],
+          },
+          { pageSize: 500, maxPages: 20 },
+        ),
+      ),
+    );
+    // Uma peça, uma linha — e o filtro conferido de novo: peça de outro lugar não entra na lista deste.
+    const porId = new Map<number, Record<string, unknown>>();
+    for (const l of porSituacao.flat()) {
+      if (
+        numeroDoIxc(l.id) > 0 &&
+        numeroDoIxc(l.id_produto) === produtoId &&
+        numeroDoIxc(l.id_almoxarifado) === almoxId &&
+        SITUACOES_LIDAS.includes(String(l.situacao ?? '').trim())
+      ) {
+        porId.set(numeroDoIxc(l.id), l);
+      }
+    }
+    return [...porId.values()].map((l) => {
+      const { patrimonioId, numeroPatrimonial, mac, numeroSerie } = identidadeDaPeca(l);
+      const situacao = situacaoDaPeca(l.situacao);
+      return {
+        patrimonioId,
+        numeroPatrimonial,
+        numeroSerie,
+        mac,
+        // "indisponível (presa em transferência…)" é explicação demais para uma etiqueta.
+        situacao: situacao.nome.replace(/ \(.*\)$/, ''),
+        naPrateleira: situacao.naPrateleira,
+      };
+    });
   }
 
   /**

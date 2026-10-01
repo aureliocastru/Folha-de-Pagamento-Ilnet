@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { Bloco, CabecalhoPagina, Carregando, Pagina, Selo, Vazio } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { combina, semAcento } from '../../lib/busca';
@@ -137,11 +137,8 @@ export function AlmoxarifadoDetalhe() {
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                     {mostrados.map((i) => {
                       const saldo = i.saldos.reduce((s, x) => s + x.saldo, 0);
-                      return (
-                        <div
-                          key={i.produtoId}
-                          className="flex items-start justify-between gap-3 rounded-xl border border-tinta-200 bg-white p-3 dark:bg-tinta-50"
-                        >
+                      const cartao = (
+                        <>
                           <div className="min-w-0">
                             <div className="text-[13px] font-medium text-tinta-800">
                               {i.descricao}
@@ -161,7 +158,29 @@ export function AlmoxarifadoDetalhe() {
                             {i.unidade && (
                               <span className="ml-1 text-[11px] text-tinta-400">{i.unidade}</span>
                             )}
+                            {i.tipo === 'P' && (
+                              <span aria-hidden className="ml-2 text-tinta-400">
+                                ›
+                              </span>
+                            )}
                           </div>
+                        </>
+                      );
+                      const caixa =
+                        'flex items-start justify-between gap-3 rounded-xl border border-tinta-200 bg-white p-3 dark:bg-tinta-50';
+                      // Patrimônio abre os equipamentos dele — tombo, série e MAC de cada um.
+                      return i.tipo === 'P' ? (
+                        <Link
+                          key={i.produtoId}
+                          to={`/almoxarifado/almoxarifados/${id}/produtos/${i.produtoId}`}
+                          state={{ daLista: true }}
+                          className={`${caixa} transition hover:border-brand-400`}
+                        >
+                          {cartao}
+                        </Link>
+                      ) : (
+                        <div key={i.produtoId} className={caixa}>
+                          {cartao}
                         </div>
                       );
                     })}
@@ -176,7 +195,7 @@ export function AlmoxarifadoDetalhe() {
   );
 }
 
-function Fato({ rotulo, children }: { rotulo: string; children: ReactNode }) {
+export function Fato({ rotulo, children }: { rotulo: string; children: ReactNode }) {
   return (
     <div className="min-w-0">
       <dt className="mb-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-tinta-400">

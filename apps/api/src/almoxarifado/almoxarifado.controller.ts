@@ -429,6 +429,15 @@ export class AlmoxarifadoController {
     return this.transferencias.conteudo(id);
   }
 
+  /** Os equipamentos de um produto de patrimônio no almoxarifado: tombo, série e MAC de cada um. */
+  @Get('almoxarifados/:id/produtos/:produtoId/pecas')
+  pecasDoProduto(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('produtoId', ParseIntPipe) produtoId: number,
+  ) {
+    return this.almoxarifados.pecasDoProduto(id, produtoId);
+  }
+
   /**
    * Leva tudo do almoxarifado para outro, numa transferência do IXC —
    * patrimônio incluso, peça por peça. Volta na hora com o andamento.
