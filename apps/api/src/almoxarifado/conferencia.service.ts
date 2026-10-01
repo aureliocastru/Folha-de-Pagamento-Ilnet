@@ -129,6 +129,12 @@ export interface RodadaNaTela {
   conferidos: number;
 }
 
+/** A última rodada encerrada — o que o "Reabrir inventário" traz de volta. */
+export interface RodadaEncerradaNaTela extends RodadaNaTela {
+  encerradoEm: string;
+  encerradoPor: string | null;
+}
+
 /** Um produto na lista de conferir de um almoxarifado. */
 export interface ItemParaConferir {
   produtoId: number;
@@ -292,8 +298,26 @@ export class ConferenciaService {
 
     return {
       rodada: rodada ? this.rodadaNaTela(rodada, new Set(conferidas.map((c) => `${c.almoxId}:${c.produtoId}`)).size) : null,
+      encerrada: rodada ? null : await this.encerradaNaTela(inativos),
       perdas: perdas ? { id: perdas.id, nome: perdas.nome, ativo: perdas.ativo } : null,
       almoxarifados: lista,
+    };
+  }
+
+  /** A última rodada encerrada, com quanto ela tinha conferido — para quem a encerrou sem querer. */
+  private async encerradaNaTela(inativos: Set<number>): Promise<RodadaEncerradaNaTela | null> {
+    const r = await this.ultimaEncerrada();
+    if (!r?.encerradoEm) return null;
+    const feitas = (
+      await this.prisma.conferenciaDeEstoque.findMany({
+        where: { rodadaId: r.id, situacao: { not: SituacaoConferencia.DESFEITO } },
+        select: { almoxId: true, produtoId: true },
+      })
+    ).filter((c) => !inativos.has(c.produtoId));
+    return {
+      ...this.rodadaNaTela(r, new Set(feitas.map((c) => `${c.almoxId}:${c.produtoId}`)).size),
+      encerradoEm: r.encerradoEm.toISOString(),
+      encerradoPor: r.encerradoPor,
     };
   }
 
@@ -1041,10 +1065,45 @@ export class ConferenciaService {
     return { encerrado: rodada.id };
   }
 
+  /**
+   * Desfaz o "encerrar": a rodada encerrada mais recente volta a valer, com tudo
+   * o que já tinha conferido — encerrar só carimba a data, não apaga conferência.
+   * Só se não há outra aberta: a conferência que começou depois do encerramento
+   * já abriu um inventário novo, e são dois que não valem ao mesmo tempo.
+   */
+  async reabrirRodada(quem: Quem) {
+    if (await this.rodadaAberta()) {
+      throw new BadRequestException('Já há um inventário aberto — não dá para reabrir outro por cima.');
+    }
+    const rodada = await this.ultimaEncerrada();
+    if (!rodada) throw new BadRequestException('Não há inventário encerrado para reabrir.');
+    try {
+      await this.prisma.inventarioRodada.update({
+        where: { id: rodada.id },
+        data: { encerradoEm: null, encerradoPor: null },
+      });
+    } catch (err) {
+      // O índice deixa uma aberta só: uma conferência abriu outra entre a checagem e agora.
+      if (await this.rodadaAberta()) {
+        throw new ConflictException('Alguém começou um inventário agora há pouco — não dá para reabrir outro por cima.');
+      }
+      throw err;
+    }
+    this.logger.log(`${quem.nome} reabriu o inventário "${rodada.nome}".`);
+    return { reaberto: rodada.id };
+  }
+
   private rodadaAberta() {
     return this.prisma.inventarioRodada.findFirst({
       where: { encerradoEm: null },
       orderBy: { iniciadoEm: 'desc' },
+    });
+  }
+
+  private ultimaEncerrada() {
+    return this.prisma.inventarioRodada.findFirst({
+      where: { encerradoEm: { not: null } },
+      orderBy: { encerradoEm: 'desc' },
     });
   }
 

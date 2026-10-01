@@ -205,9 +205,18 @@ function montar(opts: { almoxarifados?: typeof PRINCIPAL[] } = {}) {
   let seq = 0;
   const prisma = {
     inventarioRodada: {
-      findFirst: jest.fn(async ({ where }: { where: Record<string, unknown> }) => rodadas.find((r) => casa(r, where)) ?? null),
+      findFirst: jest.fn(
+        async ({ where, orderBy }: { where: Record<string, unknown>; orderBy?: Record<string, 'asc' | 'desc'> }) => {
+          const [campo, sentido] = Object.entries(orderBy ?? {})[0] ?? [];
+          const achadas = rodadas.filter((r) => casa(r, where));
+          if (campo) {
+            achadas.sort((a, b) => (+(a[campo] as Date) - +(b[campo] as Date)) * (sentido === 'desc' ? -1 : 1));
+          }
+          return achadas[0] ?? null;
+        },
+      ),
       create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
-        const r = { id: `rodada-${rodadas.length + 1}`, iniciadoEm: new Date(), encerradoEm: null, ...data };
+        const r = { id: `rodada-${rodadas.length + 1}`, iniciadoEm: new Date(), encerradoEm: null, encerradoPor: null, ...data };
         rodadas.push(r);
         return r;
       }),
@@ -617,6 +626,55 @@ describe('ConferenciaService — rodada e lista', () => {
     expect(painel.perdas).toMatchObject({ id: 43 });
     expect(painel.almoxarifados.map((a) => a.id)).not.toContain(43);
     expect(painel.almoxarifados.find((a) => a.id === 1)).toMatchObject({ itens: 1, conferidos: 1 });
+  });
+
+  it('encerrar sem querer: reabrir traz de volta a rodada, com tudo o que já estava conferido', async () => {
+    const t = montar();
+    t.porSaldo(10, 1, 25);
+    t.porSaldo(70, 1, 0);
+    await t.service.conferir({ almoxId: 1, produtoId: 10, sistemaVisto: 25, contado: 20 }, eu);
+
+    await t.service.encerrarRodada(eu);
+    const fechado = await t.service.painel();
+    expect(fechado.rodada).toBeNull();
+    expect(fechado.encerrada).toMatchObject({ conferidos: 1, encerradoPor: 'Aurelio' });
+    expect(fechado.almoxarifados.find((a) => a.id === 1)).toMatchObject({ conferidos: 0 });
+
+    await t.service.reabrirRodada(eu);
+    const aberto = await t.service.painel();
+    expect(aberto.encerrada).toBeNull();
+    expect(aberto.rodada).toMatchObject({ iniciadoPor: 'Aurelio', conferidos: 1 });
+    expect(aberto.almoxarifados.find((a) => a.id === 1)).toMatchObject({ itens: 1, conferidos: 1 });
+    const lista = await t.service.doAlmoxarifado(1);
+    expect(lista.itens).toEqual([
+      expect.objectContaining({ produtoId: 10, conferencia: expect.objectContaining({ situacao: 'AJUSTADO' }) }),
+    ]);
+  });
+
+  it('reabre a rodada encerrada mais recente, e não uma antiga', async () => {
+    const t = montar();
+    t.porSaldo(10, 1, 25);
+    t.porSaldo(70, 1, 0);
+    await t.service.conferir({ almoxId: 1, produtoId: 10, sistemaVisto: 25, contado: 20 }, eu);
+    await t.service.encerrarRodada(eu);
+    await new Promise((r) => setTimeout(r, 5)); // dois encerramentos no mesmo milissegundo empatariam
+    await t.service.conferir({ almoxId: 1, produtoId: 10, sistemaVisto: 20, contado: 20 }, eu);
+    await t.service.encerrarRodada(eu);
+
+    const painel = await t.service.painel();
+    await t.service.reabrirRodada(eu);
+    expect((await t.service.painel()).rodada?.id).toBe(painel.encerrada?.id);
+    expect(painel.encerrada?.id).toBe('rodada-2');
+  });
+
+  it('reabrir recusa com inventário aberto, e quando não há nenhum encerrado', async () => {
+    const t = montar();
+    t.porSaldo(10, 1, 25);
+    t.porSaldo(70, 1, 0);
+    await expect(t.service.reabrirRodada(eu)).rejects.toThrow(/Não há inventário encerrado/);
+
+    await t.service.conferir({ almoxId: 1, produtoId: 10, sistemaVisto: 25, contado: 20 }, eu);
+    await expect(t.service.reabrirRodada(eu)).rejects.toThrow(/Já há um inventário aberto/);
   });
 
   it('inativo não entra: nem na lista, nem na conta, nem na busca — e não se lança nada dele', async () => {

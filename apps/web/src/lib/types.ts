@@ -2592,8 +2592,15 @@ export interface RodadaDeInventario {
   conferidos: number;
 }
 
+export interface RodadaEncerradaDeInventario extends RodadaDeInventario {
+  encerradoEm: string;
+  encerradoPor: string | null;
+}
+
 export interface PainelDaConferencia {
   rodada: RodadaDeInventario | null;
+  /** Sem inventário aberto: o último que foi encerrado, para reabrir. */
+  encerrada: RodadaEncerradaDeInventario | null;
   perdas: { id: number; nome: string; ativo: boolean } | null;
   almoxarifados: Array<{
     id: number;

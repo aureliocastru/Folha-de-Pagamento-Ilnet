@@ -26,6 +26,7 @@ import type {
   PecaParaConferir,
   ProdutoAchadoParaConferir,
   ProdutoParaConferir,
+  RodadaEncerradaDeInventario,
   SituacaoConferencia,
 } from '../../lib/types';
 import { JanelaDoProduto, quantidade } from './ProdutoNoIxc';
@@ -84,7 +85,13 @@ export function Conferencia() {
         titulo="Conferência de estoque"
         // Dentro de um almoxarifado, a seta volta para a escolha deles; fora, para a tela anterior.
         voltar={almoxId ? voltarDoAlmox : undefined}
-        acoes={painel.data?.rodada && <EncerrarInventario nome={painel.data.rodada.nome} />}
+        acoes={
+          painel.data?.rodada ? (
+            <EncerrarInventario nome={painel.data.rodada.nome} />
+          ) : (
+            painel.data?.encerrada && <ReabrirInventario encerrada={painel.data.encerrada} />
+          )
+        }
       />
 
       {painel.isError && <Aviso tom="erro">{mensagemErro(painel.error)}</Aviso>}
@@ -125,6 +132,8 @@ function EscolherAlmoxarifado({
   onEscolher: (id: number) => void;
 }) {
   const rodada = painel?.rodada;
+  // Terminado um almoxarifado, ele sai da escolha: fica só o que ainda falta conferir.
+  const aConferir = painel?.almoxarifados.filter((a) => !almoxPronto(a)) ?? [];
   return (
     <Bloco titulo="Qual almoxarifado você vai conferir?">
       <p className="mb-3 text-[13px] text-tinta-500">
@@ -144,10 +153,13 @@ function EscolherAlmoxarifado({
         <Vazio titulo="Nenhum almoxarifado">O sistema não enxerga almoxarifado nenhum no IXC.</Vazio>
       )}
 
+      {painel && painel.almoxarifados.length > 0 && aConferir.length === 0 && (
+        <Vazio titulo="Tudo conferido">Não falta nenhum almoxarifado.</Vazio>
+      )}
+
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-        {painel?.almoxarifados.map((a) => {
+        {aConferir.map((a) => {
           const pct = a.itens > 0 ? Math.round((Math.min(a.conferidos, a.itens) / a.itens) * 100) : 0;
-          const pronto = a.itens > 0 && a.conferidos >= a.itens;
           return (
             <button
               key={a.id}
@@ -158,7 +170,6 @@ function EscolherAlmoxarifado({
             >
               <div className="flex items-baseline justify-between gap-2">
                 <span className="truncate font-semibold text-tinta-800">{a.nome}</span>
-                {pronto && <Selo tom="pago" pequeno>conferido</Selo>}
                 {!a.ativo && a.liberado && <Selo tom="neutro" pequeno>inativo</Selo>}
               </div>
               <div className="mt-1 text-[12px] text-tinta-500">
@@ -171,7 +182,7 @@ function EscolherAlmoxarifado({
               {a.itens > 0 && (
                 <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-tinta-100">
                   <div
-                    className={`h-full ${pronto ? 'bg-emerald-500' : 'bg-brand-600'}`}
+                    className="h-full bg-brand-600"
                     style={{ width: `${pct}%` }}
                   />
                 </div>
@@ -182,6 +193,11 @@ function EscolherAlmoxarifado({
       </div>
     </Bloco>
   );
+}
+
+/** Tudo o que o IXC tem lá já foi conferido nesta rodada. */
+function almoxPronto(a: { itens: number; conferidos: number }): boolean {
+  return a.itens > 0 && a.conferidos >= a.itens;
 }
 
 type Filtro = 'faltam' | 'conferidos' | 'todos';
@@ -1473,6 +1489,34 @@ function EncerrarInventario({ nome }: { nome: string }) {
       }}
     >
       Encerrar inventário
+    </button>
+  );
+}
+
+function ReabrirInventario({ encerrada }: { encerrada: RodadaEncerradaDeInventario }) {
+  const qc = useQueryClient();
+  const reabrir = useMutation({
+    mutationFn: async () => (await api.post('/almoxarifado/conferencia/rodada/reabrir')).data,
+    onSuccess: () => void qc.invalidateQueries({ queryKey: CHAVE }),
+    onError: (e) => alert(mensagemErro(e)),
+  });
+  return (
+    <button
+      type="button"
+      className="btn btn-primario"
+      disabled={reabrir.isPending}
+      onClick={() => {
+        const n = encerrada.conferidos;
+        if (
+          confirm(
+            `Reabrir "${encerrada.nome}"? Voltam ${n} ${n === 1 ? 'produto conferido' : 'produtos conferidos'}, como estavam.`,
+          )
+        ) {
+          reabrir.mutate();
+        }
+      }}
+    >
+      Reabrir inventário
     </button>
   );
 }

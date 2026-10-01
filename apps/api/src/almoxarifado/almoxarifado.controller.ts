@@ -309,6 +309,13 @@ export class AlmoxarifadoController {
     return this.conferencia.encerrarRodada(quem(req));
   }
 
+  /** Desfaz o encerrar: a última rodada encerrada volta a ser a aberta, com o que já tinha conferido. */
+  @Post('conferencia/rodada/reabrir')
+  @HttpCode(200)
+  reabrirInventario(@Req() req: Request) {
+    return this.conferencia.reabrirRodada(quem(req));
+  }
+
   /** Confere e lança a diferença no IXC. Volta com o resultado, ou com o andamento. */
   @Post('conferencia')
   @HttpCode(200)
