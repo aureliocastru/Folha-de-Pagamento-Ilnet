@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Fragment, useState } from 'react';
+import { useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   Aviso,
   Bloco,
@@ -14,13 +15,8 @@ import { api, mensagemErro } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { combina, semAcento } from '../../lib/busca';
 import { transfereEntreAlmoxarifados } from '../../lib/modulos';
-import type {
-  AlmoxarifadoCadastro,
-  EstoqueNaTela,
-  OpcoesDoAlmoxarifado,
-} from '../../lib/types';
+import type { AlmoxarifadoCadastro, OpcoesDoAlmoxarifado } from '../../lib/types';
 import { MoverTudo } from './MoverTudo';
-import { quantidade } from './ProdutoNoIxc';
 import { SeletorComBusca } from '../../components/SeletorComBusca';
 import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
@@ -50,8 +46,7 @@ export function Almoxarifados() {
   const [criando, setCriando] = useState(false);
   /** A origem aberta na janela "Mover tudo". */
   const [movendo, setMovendo] = useState<AlmoxarifadoCadastro | null>(null);
-  /** A linha aberta, mostrando o que o almoxarifado tem dentro. */
-  const [aberto, setAberto] = useState<number | null>(null);
+  const navegar = useNavigate();
   const [feedback, setFeedback] = useState<string | null>(null);
   const [erro, setErro] = useState(false);
   /** Inativo some da lista por padrão — este botão pequeno traz de volta. */
@@ -270,22 +265,26 @@ export function Almoxarifados() {
               </thead>
               <tbody>
                 {itens.map((a) => (
-                  <Fragment key={a.id}>
-                  <tr className="linha">
+                  /* A linha toda abre a tela do almoxarifado. O nome segue sendo um
+                     link de verdade (teclado, nova aba) e por isso para o clique aqui:
+                     sem isso, ele navegaria e a linha navegaria de novo. */
+                  <tr
+                    key={a.id}
+                    className="linha cursor-pointer"
+                    onClick={() => navegar(`/almoxarifado/almoxarifados/${a.id}`, { state: { daLista: true } })}
+                  >
                     <td className="td">
-                      {/* Clicar no nome abre o que ele tem dentro, na própria linha. */}
-                      <button
-                        type="button"
-                        onClick={() => setAberto((x) => (x === a.id ? null : a.id))}
-                        className="text-left"
-                        aria-expanded={aberto === a.id}
-                        title="Ver o que tem dentro deste almoxarifado"
+                      <Link
+                        to={`/almoxarifado/almoxarifados/${a.id}`}
+                        state={{ daLista: true }}
+                        onClick={(e) => e.stopPropagation()}
+                        className="block text-left"
                       >
                         <div className="font-medium text-tinta-800 hover:underline">
                           {a.descricao}
                         </div>
                         <div className="num text-xs text-tinta-400">código {a.id}</div>
-                      </button>
+                      </Link>
                     </td>
                     <td className="td">
                       <Usuarios usuarios={a.usuarios} />
@@ -310,7 +309,8 @@ export function Almoxarifados() {
                         )}
                       </div>
                     </td>
-                    <td className="td text-right">
+                    {/* Os botões são da ação deles: não abrem a tela. */}
+                    <td className="td text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1.5">
                         {transfere && (
                           <button
@@ -353,14 +353,6 @@ export function Almoxarifados() {
                       </div>
                     </td>
                   </tr>
-                  {aberto === a.id && (
-                    <tr>
-                      <td colSpan={5} className="bg-tinta-50/80 px-4 pb-4">
-                        <ConteudoDoAlmoxarifado id={a.id} />
-                      </td>
-                    </tr>
-                  )}
-                  </Fragment>
                 ))}
               </tbody>
             </table>
@@ -400,86 +392,8 @@ export function Almoxarifados() {
   );
 }
 
-/**
- * O que o almoxarifado tem dentro, aberto na própria linha.
- *
- * É o mesmo saldo da tela Estoque, recortado a este almoxarifado — de
- * propósito na mesma chave de cache dela: quem vem de lá não faz o servidor
- * ler o IXC de novo. Zero não aparece (o produto está no cadastro, não na
- * prateleira); negativo aparece, porque é o que precisa de acerto.
- */
-function ConteudoDoAlmoxarifado({ id }: { id: number }) {
-  const conteudo = useQuery({
-    queryKey: ['almoxarifado', 'estoque', String(id)],
-    queryFn: async () =>
-      (
-        await api.get<EstoqueNaTela>('/almoxarifado/estoque', { params: { almox: id } })
-      ).data,
-    staleTime: 60_000,
-  });
-
-  if (conteudo.isLoading) return <Carregando texto="Lendo o que tem dentro…" />;
-  if (conteudo.isError) {
-    return <p className="py-3 text-[13px] text-rose-700">{mensagemErro(conteudo.error)}</p>;
-  }
-
-  /* Dentro do almoxarifado só cabe material da prateleira. Inativo no IXC
-     fica de fora — foi inativado justamente para sair da frente, e a tela
-     Estoque também o esconde por padrão. Serviço idem: o IXC não soma entrada
-     dele, o negativo não é falta de nada, e "Ativação de Fibra" não é coisa
-     que se guarde em prateleira. */
-  const itens = (conteudo.data?.itens ?? [])
-    .filter((i) => i.ativo && !i.servico && i.saldos.some((s) => s.saldo !== 0))
-    .sort((a, b) => a.descricao.localeCompare(b.descricao, 'pt-BR'));
-
-  if (itens.length === 0) {
-    return (
-      <p className="py-3 text-[13px] text-tinta-500">
-        Este almoxarifado está vazio — nenhum produto ativo com saldo no IXC.
-      </p>
-    );
-  }
-
-  return (
-    <div className="pt-3">
-      <div className="mb-2 text-[12px] font-semibold uppercase tracking-wide text-tinta-400">
-        {itens.length === 1 ? '1 produto dentro' : `${itens.length} produtos dentro`}
-      </div>
-      <div className="rolagem-fina max-h-72 overflow-y-auto rounded-xl border border-tinta-200">
-        <table className="w-full text-sm">
-          <tbody>
-            {itens.map((i) => {
-              const saldo = i.saldos.reduce((s, x) => s + x.saldo, 0);
-              return (
-                <tr key={i.produtoId} className="linha">
-                  <td className="td py-1.5">
-                    <div className="text-[13px] text-tinta-700">{i.descricao}</div>
-                    <div className="num text-[11px] text-tinta-400">código {i.produtoId}</div>
-                  </td>
-                  <td className="td whitespace-nowrap py-1.5 text-right">
-                    <span
-                      className={`valor text-[14px] ${
-                        saldo < 0 ? 'text-rose-600 dark:text-rose-300' : ''
-                      }`}
-                    >
-                      {quantidade(saldo)}
-                    </span>
-                    {i.unidade && (
-                      <span className="ml-1 text-[11px] text-tinta-400">{i.unidade}</span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
 /** Quem está ligado ao almoxarifado no IXC — o padrão do técnico marcado. */
-function Usuarios({ usuarios }: { usuarios: AlmoxarifadoCadastro['usuarios'] }) {
+export function Usuarios({ usuarios }: { usuarios: AlmoxarifadoCadastro['usuarios'] }) {
   if (usuarios.length === 0) return <span className="text-xs text-tinta-400">—</span>;
   const mostrados = usuarios.slice(0, 2);
   return (

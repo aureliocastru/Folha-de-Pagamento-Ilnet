@@ -38,6 +38,7 @@ import { Inicio as ContasPagarInicio } from './pages/contas-pagar/Inicio';
 import { Estoque } from './pages/almoxarifado/Estoque';
 import { Conferencia } from './pages/almoxarifado/Conferencia';
 import { Almoxarifados } from './pages/almoxarifado/Almoxarifados';
+import { AlmoxarifadoDetalhe } from './pages/almoxarifado/AlmoxarifadoDetalhe';
 import { Transferir } from './pages/almoxarifado/Transferir';
 import { Ferramentas } from './pages/almoxarifado/Ferramentas';
 import { Fornecedores as FornecedoresDeCotacao } from './pages/almoxarifado/Fornecedores';
@@ -248,6 +249,7 @@ export default function App() {
         <Route path="estoque" element={<Estoque />} />
         <Route path="conferencia" element={<Conferencia />} />
         <Route path="almoxarifados" element={<Almoxarifados />} />
+        <Route path="almoxarifados/:id" element={<AlmoxarifadoDetalhe />} />
         <Route path="transferir" element={<Transferir />} />
         <Route path="ferramentas" element={<Ferramentas />} />
         <Route path="comodato" element={<Comodato />} />
