@@ -121,7 +121,7 @@ export function LayoutCelular({ modulo }: { modulo: Modulo }) {
         </div>
       </header>
 
-      <main className="min-w-0 flex-1">
+      <main className="min-w-0 flex-1" data-modulo={modulo.id}>
         <Outlet />
       </main>
 

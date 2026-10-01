@@ -184,10 +184,7 @@ export function Fornecedores() {
         )}
 
         {!lista.isLoading && filtrados.length === 0 && (
-          <Vazio titulo="Nenhum fornecedor aqui">
-            Cadastre quem vende material para a casa — depois é neles que os
-            preços de cada produto vão pendurados.
-          </Vazio>
+          <Vazio titulo="Nenhum fornecedor aqui">Cadastre o primeiro fornecedor.</Vazio>
         )}
 
         {filtrados.length > 0 && (
@@ -199,7 +196,6 @@ export function Fornecedores() {
                   <th className="th">Contato</th>
                   <th className="th text-right">Produtos</th>
                   <th className="th text-right">Mais barato em</th>
-                  <th className="th text-right">Cotações</th>
                   <th className="th" />
                 </tr>
               </thead>
@@ -215,10 +211,8 @@ export function Fornecedores() {
                           </span>
                         )}
                       </div>
-                      {(f.nomeFantasia || f.cnpj) && (
-                        <div className="text-[12px] text-tinta-400">
-                          {[f.nomeFantasia, f.cnpj].filter(Boolean).join(' · ')}
-                        </div>
+                      {f.nomeFantasia && (
+                        <div className="text-[12px] text-tinta-400">{f.nomeFantasia}</div>
                       )}
                     </td>
                     <td className="td">
@@ -239,22 +233,19 @@ export function Fornecedores() {
                         <span className="text-tinta-400">—</span>
                       )}
                     </td>
-                    <td className="td num text-right text-tinta-400">
-                      {f.cotacoes}
-                    </td>
                     <td className="td text-right">
                       <div className="flex justify-end gap-1">
                         <button
                           type="button"
                           onClick={() => setEditando(f)}
-                          className="btn btn-p btn-neutro"
+                          className="btn btn-p btn-ferramenta"
                         >
                           Editar
                         </button>
                         <button
                           type="button"
                           onClick={() => alternarAtivo.mutate(f)}
-                          className="btn btn-p btn-sutil"
+                          className={`btn btn-p ${f.ativo ? 'btn-alerta' : 'btn-ok'}`}
                         >
                           {f.ativo ? 'Desativar' : 'Reativar'}
                         </button>

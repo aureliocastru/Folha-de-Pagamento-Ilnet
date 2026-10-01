@@ -140,7 +140,7 @@ export function PecasDoProduto() {
                   {mostradas.map((p) => (
                     <div
                       key={p.patrimonioId}
-                      className="rounded-xl border border-tinta-200 bg-white p-3 dark:bg-tinta-50"
+                      className={`cartao-item p-3 ${p.naPrateleira ? '' : 'border-l-amber-500'}`}
                     >
                       <dl className="space-y-2">
                         <Fato rotulo="Tombo">

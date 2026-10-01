@@ -140,7 +140,7 @@ export function AlmoxarifadoDetalhe() {
                       const cartao = (
                         <>
                           <div className="min-w-0">
-                            <div className="text-[13px] font-medium text-tinta-800">
+                            <div className="text-[14px] font-semibold text-tinta-900">
                               {i.descricao}
                             </div>
                             <div className="num mt-0.5 text-[11px] text-tinta-400">
@@ -149,7 +149,7 @@ export function AlmoxarifadoDetalhe() {
                           </div>
                           <div className="shrink-0 whitespace-nowrap text-right">
                             <span
-                              className={`valor text-[18px] ${
+                              className={`valor text-[20px] ${
                                 saldo < 0 ? 'text-rose-600 dark:text-rose-300' : ''
                               }`}
                             >
@@ -166,15 +166,16 @@ export function AlmoxarifadoDetalhe() {
                           </div>
                         </>
                       );
-                      const caixa =
-                        'flex items-start justify-between gap-3 rounded-xl border border-tinta-200 bg-white p-3 dark:bg-tinta-50';
+                      const caixa = `cartao-item flex items-start justify-between gap-3 p-3 ${
+                        saldo < 0 ? 'border-l-rose-500' : ''
+                      }`;
                       // Patrimônio abre os equipamentos dele — tombo, série e MAC de cada um.
                       return i.tipo === 'P' ? (
                         <Link
                           key={i.produtoId}
                           to={`/almoxarifado/almoxarifados/${id}/produtos/${i.produtoId}`}
                           state={{ daLista: true }}
-                          className={`${caixa} transition hover:border-brand-400`}
+                          className={`${caixa} transition hover:bg-brand-500/5`}
                         >
                           {cartao}
                         </Link>

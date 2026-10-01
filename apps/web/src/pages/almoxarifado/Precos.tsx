@@ -140,18 +140,15 @@ export function Precos() {
           acento
           rotulo="Produtos no catálogo"
           valor={produtos.length}
-          detalhe={`${produtos.length - semPreco} com preço`}
         />
         <Indicador
           rotulo="Sem cotação"
           valor={semPreco}
-          detalhe="ninguém deu preço ainda"
           alerta={semPreco > 0 ? 'não dá para comparar' : undefined}
         />
         <Indicador
           rotulo="Fornecedores"
           valor={fornecedores.data?.length ?? '—'}
-          detalhe="ativos no cadastro"
         />
       </div>
 
@@ -174,7 +171,7 @@ export function Precos() {
           <input
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
-            placeholder="Buscar por nome ou código — drop, ONU, roteador…"
+            placeholder="Buscar produto…"
             className="campo"
             autoComplete="off"
           />
@@ -188,10 +185,7 @@ export function Precos() {
         )}
 
         {!lista.isLoading && filtrados.length === 0 && (
-          <Vazio titulo="Nenhum produto aqui">
-            Comece cadastrando o que a casa compra — drop, roteador, ONU, OLT —
-            e depois lance o preço de cada fornecedor em cada um.
-          </Vazio>
+          <Vazio titulo="Nenhum produto aqui">Cadastre o primeiro produto.</Vazio>
         )}
 
         {filtrados.length > 0 && (
@@ -203,7 +197,6 @@ export function Precos() {
                   <th className="th text-right">Mais barato</th>
                   <th className="th">Onde</th>
                   <th className="th text-right">Economia</th>
-                  <th className="th text-right">Cotado por</th>
                   <th className="th">Última cotação</th>
                 </tr>
               </thead>
@@ -215,7 +208,7 @@ export function Precos() {
                     className="linha cursor-pointer"
                   >
                     <td className="td">
-                      <div className="font-semibold text-tinta-900">
+                      <div className="text-[15px] font-semibold text-tinta-900">
                         {p.nome}
                         {!p.ativo && (
                           <span className="ml-2">
@@ -232,7 +225,7 @@ export function Precos() {
 
                     <td className="td text-right">
                       {p.maisBarato ? (
-                        <span className="valor text-[15px]">
+                        <span className="valor text-[18px]">
                           {formatPrecoUnitario(p.maisBarato.valor)}
                         </span>
                       ) : (
@@ -262,14 +255,6 @@ export function Precos() {
                         </Selo>
                       ) : (
                         <span className="text-tinta-400">—</span>
-                      )}
-                    </td>
-
-                    <td className="td num text-right">
-                      {p.precos.length > 0 ? (
-                        p.precos.length
-                      ) : (
-                        <span className="text-tinta-400">0</span>
                       )}
                     </td>
 

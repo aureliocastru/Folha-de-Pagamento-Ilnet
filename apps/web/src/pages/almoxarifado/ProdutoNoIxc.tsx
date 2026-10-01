@@ -811,7 +811,7 @@ function DarEntrada({
               <button
                 type="button"
                 onClick={() => setFornecedor(null)}
-                className="btn btn-sutil btn-p"
+                className="btn btn-ferramenta btn-p"
               >
                 Trocar
               </button>
@@ -972,7 +972,7 @@ function EscolherModelo({
             {modelo.descricao}
             <span className="num ml-2 text-xs text-tinta-400">{modelo.produtoId}</span>
           </span>
-          <button type="button" onClick={() => onEscolher(null)} className="btn btn-sutil btn-p">
+          <button type="button" onClick={() => onEscolher(null)} className="btn btn-ferramenta btn-p">
             Trocar
           </button>
         </div>

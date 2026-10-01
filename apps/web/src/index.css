@@ -300,6 +300,20 @@
   .btn-ferramenta {
     @apply border border-brand-500/30 bg-brand-500/10 text-brand-700 hover:border-brand-500/50 hover:bg-brand-500/20 dark:text-brand-300;
   }
+  /*
+   * O verde e o vermelho que se veem sem passar o mouse — para o botão que mora
+   * em cada linha de uma lista. `btn-pagar` é sólido demais para se repetir
+   * vinte vezes numa tela, e `btn-perigo` só acende sob o cursor (no celular não
+   * há cursor). Véu da cor, como o `btn-ferramenta`: três cores, três papéis —
+   * azul abre ou edita, verde faz acontecer (mover, ativar), vermelho tira de
+   * circulação (inativar, limpar).
+   */
+  .btn-ok {
+    @apply border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 hover:border-emerald-500/50 hover:bg-emerald-500/20 dark:text-emerald-300;
+  }
+  .btn-alerta {
+    @apply border border-rose-500/30 bg-rose-500/10 text-rose-700 hover:border-rose-500/50 hover:bg-rose-500/20 dark:text-rose-300;
+  }
   .btn-sutil {
     @apply text-tinta-500 hover:bg-tinta-100 hover:text-tinta-800;
   }
@@ -473,6 +487,20 @@
    */
   .lista-dividida {
     @apply divide-y divide-tinta-200;
+  }
+  /*
+   * A lista em que cada item é um cartão solto, e não uma linha entre fios: o
+   * que separa um item do outro é o espaço e a borda inteira, e a faixa azul na
+   * lateral diz que o cartão é um item (e, quando abre, que abre). É o
+   * desenho que o Almoxarifado usa nas listas que não são tabela — nas
+   * tabelas, o mesmo efeito vem do bloco `data-modulo` mais abaixo.
+   */
+  .lista-cartoes {
+    @apply space-y-2.5 p-3 md:p-4;
+  }
+  .cartao-item {
+    @apply overflow-hidden rounded-xl border border-tinta-200 bg-papel shadow-sm;
+    border-left: 4px solid theme('colors.brand.500');
   }
   .item-dividido {
     @apply border-b border-tinta-200 last:border-0;
@@ -926,6 +954,49 @@
   }
   table:not(.tabela-fixa) td[data-papel='vazia'] {
     display: none;
+  }
+}
+
+/*
+ * --- As listas do Almoxarifado ---
+ *
+ * Uma lista de vinte almoxarifados, ou de quarenta ferramentas, é uma coluna de
+ * linhas parecidas: o que as separava era um fio de um pixel, e achar onde um
+ * item acaba e o outro começa dava trabalho. Só este módulo ganha o desenho
+ * mais marcado (`data-modulo`, posto pelos layouts): as outras listas do
+ * sistema têm donos que não pediram.
+ *
+ * No computador, a linha fica mais alta e acende uma faixa azul na borda sob o
+ * mouse — é a pista de que ela abre. No celular, cada linha é um cartão solto:
+ * com borda inteira, espaço entre um e outro e uma faixa azul na lateral.
+ */
+[data-modulo='almoxarifado'] tbody > tr.linha > td {
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+}
+[data-modulo='almoxarifado'] tbody > tr.linha:hover {
+  box-shadow: inset 3px 0 0 theme('colors.brand.500');
+}
+@media (max-width: 767px) {
+  [data-modulo='almoxarifado'] table:not(.tabela-fixa) > tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+    padding: 0.625rem;
+  }
+  [data-modulo='almoxarifado'] table:not(.tabela-fixa) > tbody > tr {
+    @apply rounded-xl border border-tinta-200 bg-papel px-3.5 py-3 shadow-sm;
+    border-left: 4px solid theme('colors.brand.500');
+  }
+  /* O fio entre cartões deixou de existir: agora há espaço e borda. */
+  [data-modulo='almoxarifado'] table:not(.tabela-fixa) > tbody > tr + tr {
+    border-top: 1px solid rgb(var(--tinta-200));
+  }
+  [data-modulo='almoxarifado'] table:not(.tabela-fixa) > tbody > tr > td[data-papel='titulo'] {
+    @apply text-[16px] font-semibold;
+  }
+  [data-modulo='almoxarifado'] table:not(.tabela-fixa) > tbody > tr > td[data-papel='acoes'] {
+    @apply border-t border-tinta-100 pt-3;
   }
 }
 

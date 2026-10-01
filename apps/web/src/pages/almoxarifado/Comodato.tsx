@@ -107,7 +107,7 @@ export function Comodato() {
   // A lista não se redesenha com a tecla, só com o termo adiado.
   const listaDesenhada = useMemo(
     () => (
-      <ul className="lista-dividida border-t border-tinta-200">
+      <ul className="lista-cartoes">
         {porProduto.map((g) => (
           <ProdutoEmComodato
             key={g.produtoId}
@@ -138,7 +138,7 @@ export function Comodato() {
                 );
             }}
             disabled={lista.isFetching}
-            className="btn btn-neutro"
+            className="btn btn-ferramenta"
           >
             {lista.isFetching ? 'Lendo o IXC…' : 'Atualizar'}
           </button>
@@ -157,7 +157,6 @@ export function Comodato() {
         <Indicador
           rotulo="Em contrato não ativo"
           valor={dados ? inativos : '—'}
-          detalhe="equipamento com quem já não é cliente"
           alerta={inativos > 0 ? 'vale buscar' : undefined}
         />
       </div>
@@ -226,7 +225,7 @@ const ProdutoEmComodato = memo(function ProdutoEmComodato({
   const [quantas, setQuantas] = useState(PECAS_POR_VEZ);
   const faltam = g.itens.length - quantas;
   return (
-    <li>
+    <li className="cartao-item">
       <button
         type="button"
         onClick={() => onAlternar((a) => (a === g.produtoId ? null : g.produtoId))}
@@ -234,11 +233,13 @@ const ProdutoEmComodato = memo(function ProdutoEmComodato({
         className="flex w-full items-center gap-3 px-3.5 py-3 text-left transition hover:bg-brand-500/5 md:px-5"
       >
         <span className="min-w-0 flex-1">
-          <span className="block font-medium text-tinta-900">{g.produto}</span>
+          <span className="block text-[15px] font-semibold text-tinta-900">{g.produto}</span>
           <span className="block text-xs text-tinta-400">{g.contratos} contrato(s)</span>
         </span>
-        <span className="valor text-[16px]">{quantidade(g.quantidade)}</span>
-        <span className="text-lg text-tinta-300" aria-hidden>
+        <span className="valor rounded-lg bg-brand-500/10 px-2.5 py-1 text-[18px]">
+          {quantidade(g.quantidade)}
+        </span>
+        <span className="text-lg text-tinta-400" aria-hidden>
           {expandido ? '▾' : '›'}
         </span>
       </button>
@@ -253,13 +254,10 @@ const ProdutoEmComodato = memo(function ProdutoEmComodato({
               <button
                 type="button"
                 onClick={() => setQuantas((q) => q + PECAS_POR_VEZ * 4)}
-                className="btn btn-p btn-sutil"
+                className="btn btn-p btn-ferramenta"
               >
                 Mostrar mais {Math.min(faltam, PECAS_POR_VEZ * 4)} — faltam {faltam}
               </button>
-              <span className="ml-2 text-[12px] text-tinta-400">
-                ou procure pelo cliente, série ou MAC
-              </span>
             </li>
           )}
         </ul>
@@ -274,24 +272,22 @@ function PecaEmComodato({ item }: { item: ItemEmComodato }) {
   return (
     <li className="px-3.5 py-2.5 md:px-8">
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-        <span className="font-medium text-tinta-800">{item.cliente}</span>
+        <span className="font-semibold text-tinta-900">{item.cliente}</span>
         <span className="num text-xs text-tinta-500">
           {quantidade(item.quantidade)} · contrato {item.contratoId}
         </span>
       </div>
       {item.endereco && <div className="text-[13px] text-tinta-600">{item.endereco}</div>}
-      <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-tinta-400">
+      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-tinta-600">
         {naoAtivo && (
           <Selo pequeno tom="atencao">
             contrato {status ?? item.contratoStatus}
           </Selo>
         )}
-        {item.plano && <span>{item.plano}</span>}
         {item.numeroSerie && <span className="num">série {item.numeroSerie}</span>}
         {item.mac && <span className="num">MAC {item.mac}</span>}
         {item.patrimonio && <span className="num">patrimônio {item.patrimonio}</span>}
         {item.desde && <span>desde {formatData(item.desde)}</span>}
-        {item.almoxarifado && <span>saiu de {item.almoxarifado}</span>}
       </div>
     </li>
   );

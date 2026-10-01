@@ -334,14 +334,14 @@ export function AcertarNegativos({ onFechar }: { onFechar: () => void }) {
                 <div className="flex gap-2 text-[12px]">
                   <button
                     type="button"
-                    className="btn btn-p btn-sutil"
+                    className="btn btn-p btn-ok"
                     onClick={() => setDesmarcados(new Set())}
                   >
                     Marcar todos
                   </button>
                   <button
                     type="button"
-                    className="btn btn-p btn-sutil"
+                    className="btn btn-p btn-alerta"
                     onClick={() => setDesmarcados(new Set(itens.map((i) => i.chave)))}
                   >
                     Desmarcar todos

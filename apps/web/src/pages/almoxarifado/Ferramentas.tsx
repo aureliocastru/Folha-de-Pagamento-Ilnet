@@ -163,17 +163,14 @@ export function Ferramentas() {
           acento
           rotulo="Ferramentas"
           valor={todas.length}
-          detalhe="no cadastro"
         />
         <Indicador
           rotulo="Na rua"
           valor={naRua}
-          detalhe="com alguém agora"
         />
         <Indicador
           rotulo="Atrasadas"
           valor={atrasadas}
-          detalhe="passou o dia combinado"
           alerta={atrasadas > 0 ? 'cobrar a devolução' : undefined}
         />
       </div>
@@ -220,10 +217,7 @@ export function Ferramentas() {
         )}
 
         {!lista.isLoading && ferramentas.length === 0 && (
-          <Vazio titulo="Nenhuma ferramenta aqui">
-            Cadastre as ferramentas da casa — a máquina de fusão, o alicate de
-            crimpar, a furadeira — e depois é só registrar quem levou cada uma.
-          </Vazio>
+          <Vazio titulo="Nenhuma ferramenta aqui">Cadastre a primeira ferramenta.</Vazio>
         )}
 
         {ferramentas.length > 0 && (
@@ -232,8 +226,8 @@ export function Ferramentas() {
               <thead>
                 <tr>
                   <th className="th">Ferramenta</th>
-                  <th className="th">Onde está</th>
-                  <th className="th">Desde</th>
+                  <th className="th" data-celular="sem-rotulo">Onde está</th>
+                  <th className="th" data-celular="sem-rotulo">Desde</th>
                   <th className="th text-right">Ação</th>
                 </tr>
               </thead>
@@ -247,7 +241,7 @@ export function Ferramentas() {
                         title="Ver o histórico desta ferramenta"
                         className="group text-left"
                       >
-                        <span className="flex items-center gap-1.5 font-medium text-tinta-800 transition group-hover:text-brand-700 dark:group-hover:text-brand-300">
+                        <span className="flex items-center gap-1.5 text-[15px] font-semibold text-tinta-900 transition group-hover:text-brand-700 dark:group-hover:text-brand-300">
                           {f.nome}
                           <span className="text-tinta-300 transition group-hover:text-brand-500">
                             &rsaquo;

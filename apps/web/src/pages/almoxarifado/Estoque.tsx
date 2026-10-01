@@ -150,7 +150,7 @@ export function Estoque() {
           <button
             type="button"
             onClick={() => setCadastrando(true)}
-            className="btn btn-acao"
+            className="btn btn-primario"
           >
             Novo produto
           </button>
@@ -164,7 +164,7 @@ export function Estoque() {
                 );
             }}
             disabled={lista.isFetching}
-            className="btn btn-neutro"
+            className="btn btn-ferramenta"
           >
             {lista.isFetching ? 'Lendo o IXC…' : 'Atualizar'}
           </button>
@@ -179,12 +179,10 @@ export function Estoque() {
           acento
           rotulo="Itens em estoque"
           valor={dados?.resumo.itens ?? '—'}
-          detalhe="produtos com saldo lançado"
         />
         <Indicador
           rotulo="Abaixo do mínimo"
           valor={dados?.resumo.abaixoDoMinimo ?? '—'}
-          detalhe="tem menos que o cadastrado"
           alerta={
             dados && dados.resumo.abaixoDoMinimo > 0 ? 'precisa comprar' : undefined
           }
@@ -192,12 +190,10 @@ export function Estoque() {
         <Indicador
           rotulo="Zerados"
           valor={dados?.resumo.semNenhum ?? '—'}
-          detalhe="não tem em almoxarifado nenhum"
         />
         <Indicador
           rotulo="Valor guardado"
           valor={formatBRL(dados?.resumo.valorEmEstoque)}
-          detalhe="pelo preço base do cadastro"
         />
       </div>
 
@@ -263,7 +259,7 @@ export function Estoque() {
           <button
             type="button"
             onClick={() => setAcertando(true)}
-            className="btn btn-p btn-neutro"
+            className="btn btn-p btn-alerta"
             title="Ver de onde veio cada negativo, zerar com uma compra de acerto, ou desfazer uma aberta"
           >
             Acertar negativos
@@ -301,8 +297,8 @@ export function Estoque() {
               <thead>
                 <tr>
                   <th className="th">Produto</th>
-                  <th className="th text-right">Tem</th>
-                  <th className="th">Onde</th>
+                  <th className="th text-right" data-celular="ao-lado">Tem</th>
+                  <th className="th" data-celular="sem-rotulo">Onde</th>
                   <th className="th">Situação</th>
                   <th className="th text-right">Ação</th>
                 </tr>
@@ -386,20 +382,17 @@ function LinhaDoItem({
         <button
           type="button"
           onClick={onSaida}
-          className="text-left font-medium text-tinta-800 hover:text-brand-700 hover:underline"
+          className="text-left text-[15px] font-semibold text-tinta-900 hover:text-brand-700 hover:underline"
           title="Dar saída e ver as saídas deste produto"
         >
           {item.descricao}
         </button>
-        <div className="num text-xs text-tinta-400">
-          código {item.produtoId}
-          {item.precoBase ? ` · ${formatBRL(item.precoBase)} a unidade` : ''}
-        </div>
+        <div className="num text-xs text-tinta-400">código {item.produtoId}</div>
       </td>
 
       <td className="td whitespace-nowrap text-right">
         <span
-          className={`valor text-[15px] ${
+          className={`valor text-[18px] ${
             item.semNenhum ? 'text-rose-600 dark:text-rose-300' : ''
           }`}
         >
@@ -465,8 +458,6 @@ function LinhaDoItem({
             <Selo tom="erro">acabou</Selo>
           ) : item.abaixoDoMinimo ? (
             <Selo tom="atencao">abaixo do mínimo</Selo>
-          ) : item.ativo ? (
-            <span className="text-xs text-tinta-400">—</span>
           ) : null}
         </div>
       </td>
@@ -474,14 +465,14 @@ function LinhaDoItem({
       <td className="td text-right">
         <div className="flex justify-end gap-1.5">
           {item.ativo && !item.servico && temSaldo(item) && (
-            <button type="button" onClick={onSaida} className="btn btn-acao btn-p">
+            <button type="button" onClick={onSaida} className="btn btn-ok btn-p">
               Saída
             </button>
           )}
-          <AlternarAtivo item={item} />
-          <button type="button" onClick={onEditar} className="btn btn-neutro btn-p">
+          <button type="button" onClick={onEditar} className="btn btn-ferramenta btn-p">
             Editar
           </button>
+          <AlternarAtivo item={item} />
         </div>
       </td>
     </tr>
@@ -543,7 +534,7 @@ function AlternarAtivo({ item }: { item: ItemDeEstoque }) {
           alternar.mutate();
         }}
         disabled={alternar.isPending}
-        className="btn btn-sutil btn-p"
+        className={`btn btn-p ${item.ativo ? 'btn-alerta' : 'btn-ok'}`}
       >
         {alternar.isPending ? '…' : item.ativo ? 'Inativar' : 'Ativar'}
       </button>

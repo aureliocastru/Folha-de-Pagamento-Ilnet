@@ -181,7 +181,7 @@ function LayoutComputador({ modulo }: { modulo: Modulo }) {
         </div>
       </aside>
 
-      <main className="min-w-0 flex-1">
+      <main className="min-w-0 flex-1" data-modulo={modulo.id}>
         <Outlet />
       </main>
     </div>

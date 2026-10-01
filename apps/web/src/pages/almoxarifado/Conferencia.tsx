@@ -139,12 +139,11 @@ function EscolherAlmoxarifado({
       <p className="mb-3 text-[13px] text-tinta-500">
         {rodada ? (
           <>
-            <strong className="text-tinta-700">{rodada.nome}</strong> — começou em{' '}
-            {new Date(rodada.iniciadoEm).toLocaleDateString('pt-BR')} com {rodada.iniciadoPor}.{' '}
-            {rodada.conferidos} {rodada.conferidos === 1 ? 'produto conferido' : 'produtos conferidos'} até agora.
+            <strong className="text-tinta-700">{rodada.nome}</strong> · {rodada.conferidos}{' '}
+            {rodada.conferidos === 1 ? 'produto conferido' : 'produtos conferidos'}
           </>
         ) : (
-          'Nenhum inventário aberto: a primeira conferência começa um.'
+          'Nenhum inventário aberto.'
         )}
       </p>
 
@@ -166,10 +165,10 @@ function EscolherAlmoxarifado({
               type="button"
               disabled={!a.liberado}
               onClick={() => onEscolher(a.id)}
-              className="rounded-xl border border-tinta-200 bg-white p-3 text-left transition hover:border-brand-400 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-tinta-50"
+              className="cartao-item p-3 text-left transition hover:bg-brand-500/5 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <div className="flex items-baseline justify-between gap-2">
-                <span className="truncate font-semibold text-tinta-800">{a.nome}</span>
+                <span className="truncate text-[16px] font-semibold text-tinta-900">{a.nome}</span>
                 {!a.ativo && a.liberado && <Selo tom="neutro" pequeno>inativo</Selo>}
               </div>
               <div className="mt-1 text-[12px] text-tinta-500">
@@ -394,23 +393,21 @@ function ListaDoAlmoxarifado({ almoxId }: { almoxId: number }) {
         <Bloco titulo={`${filtrados.length} ${filtrados.length === 1 ? 'produto' : 'produtos'}`} semPadding>
           {filtrados.length === 0 ? (
             <div className="p-4">
-              <Vazio titulo={filtro === 'faltam' && !termo ? 'Tudo conferido aqui' : 'Nada por aqui'}>
-                {filtro === 'faltam' && !termo
-                  ? 'Todo produto com saldo neste almoxarifado já foi conferido neste inventário.'
-                  : 'Nenhum produto com esse filtro.'}
-              </Vazio>
+              <Vazio titulo={filtro === 'faltam' && !termo ? 'Tudo conferido aqui' : 'Nada por aqui'} />
             </div>
           ) : (
-            <div className="divide-y divide-tinta-100">
+            <div className="lista-cartoes">
               {filtrados.map((i) => (
                 <button
                   key={i.produtoId}
                   type="button"
                   onClick={() => setAberto({ produtoId: i.produtoId })}
-                  className="flex w-full items-center gap-3 px-3.5 py-3 text-left transition hover:bg-tinta-50 md:px-5"
+                  className={`cartao-item flex w-full items-center gap-3 px-3.5 py-3 text-left transition hover:bg-brand-500/5 md:px-5 ${
+                    conferido(i) ? 'border-l-emerald-500' : ''
+                  }`}
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium text-tinta-800">{i.descricao}</div>
+                    <div className="truncate text-[15px] font-semibold text-tinta-900">{i.descricao}</div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[12px] text-tinta-400">
                       <span className="num">código {i.produtoId}</span>
                       {i.patrimonio && <Selo tom="info" pequeno>patrimônio</Selo>}
@@ -418,7 +415,7 @@ function ListaDoAlmoxarifado({ almoxId }: { almoxId: number }) {
                     </div>
                   </div>
                   <div className="shrink-0 text-right">
-                    <div className={`valor text-[15px] ${i.saldo < 0 ? 'text-rose-600 dark:text-rose-300' : ''}`}>
+                    <div className={`valor text-[18px] ${i.saldo < 0 ? 'text-rose-600 dark:text-rose-300' : ''}`}>
                       {quantidade(i.saldo)}
                       {i.unidade && <span className="ml-1 text-[11px] text-tinta-400">{i.unidade}</span>}
                     </div>
@@ -441,23 +438,23 @@ function ListaDoAlmoxarifado({ almoxId }: { almoxId: number }) {
               <Carregando texto="Procurando no IXC…" />
             </div>
           ) : (
-            <div className="divide-y divide-tinta-100">
+            <div className="lista-cartoes">
               {foraDaLista.map((p) => (
                 <button
                   key={p.produtoId}
                   type="button"
                   onClick={() => setAberto({ produtoId: p.produtoId })}
-                  className="flex w-full items-center gap-3 px-3.5 py-3 text-left transition hover:bg-tinta-50 md:px-5"
+                  className="cartao-item flex w-full items-center gap-3 px-3.5 py-3 text-left transition hover:bg-brand-500/5 md:px-5"
                 >
                   <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium text-tinta-800">{p.descricao}</div>
+                    <div className="truncate text-[15px] font-semibold text-tinta-900">{p.descricao}</div>
                     <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[12px] text-tinta-400">
                       <span className="num">código {p.produtoId}</span>
                       {p.patrimonio && <Selo tom="info" pequeno>patrimônio</Selo>}
                     </div>
                   </div>
                   <div className="shrink-0 text-right">
-                    <div className="valor text-[15px]">0</div>
+                    <div className="valor text-[18px]">0</div>
                     <div className="text-[11px] text-tinta-400">aqui</div>
                   </div>
                 </button>
@@ -472,7 +469,6 @@ function ListaDoAlmoxarifado({ almoxId }: { almoxId: number }) {
           <summary className="cursor-pointer text-[13px] font-semibold text-tinta-500">
             Fora da conferência ({dados.foraDaConferencia.length}) — produtos sem controle de estoque
           </summary>
-          <p className="mt-1 text-[12px] text-tinta-400">{dados.foraDaConferencia[0].motivo}</p>
           <div className="mt-2 divide-y divide-tinta-100 rounded-xl border border-tinta-100">
             {dados.foraDaConferencia.map((f) => (
               <div key={f.produtoId} className="flex items-baseline justify-between gap-3 px-3 py-2 text-[13px]">
@@ -1278,10 +1274,10 @@ function ContarPecas({
           {achadas.size} de {pecas.length} {pecas.length === 1 ? 'peça daqui marcada' : 'peças daqui marcadas'}
         </span>
         <div className="flex gap-2">
-          <button type="button" className="btn btn-p btn-sutil" onClick={() => setAchadas(new Set(pecas.map((x) => x.patrimonioId)))}>
+          <button type="button" className="btn btn-p btn-ok" onClick={() => setAchadas(new Set(pecas.map((x) => x.patrimonioId)))}>
             Marcar todas
           </button>
-          <button type="button" className="btn btn-p btn-sutil" onClick={() => setAchadas(new Set())}>
+          <button type="button" className="btn btn-p btn-alerta" onClick={() => setAchadas(new Set())}>
             Desmarcar todas
           </button>
         </div>
@@ -1476,7 +1472,7 @@ function EncerrarInventario({ nome }: { nome: string }) {
   return (
     <button
       type="button"
-      className="btn btn-neutro"
+      className="btn btn-alerta"
       disabled={encerrar.isPending}
       onClick={() => {
         if (

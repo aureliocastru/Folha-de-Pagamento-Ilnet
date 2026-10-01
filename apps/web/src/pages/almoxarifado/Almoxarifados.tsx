@@ -187,11 +187,8 @@ export function Almoxarifados() {
           }
         >
           {naoLiberados === 1
-            ? '1 almoxarifado de técnico não está liberado'
-            : `${naoLiberados} almoxarifados de técnico não estão liberados`}{' '}
-          para o sistema: no IXC eles só estão ligados ao técnico, e sem essa ligação o sistema
-          não os edita nem transfere material para eles. Liberar acrescenta o sistema — não
-          tira o técnico nem muda o padrão dele.
+            ? '1 almoxarifado não está liberado para o sistema'
+            : `${naoLiberados} almoxarifados não estão liberados para o sistema`}
         </Aviso>
       )}
 
@@ -217,7 +214,7 @@ export function Almoxarifados() {
             <input
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar por nome, código ou técnico…"
+              placeholder="Buscar almoxarifado…"
               className="campo"
               autoComplete="off"
               aria-label="Buscar almoxarifado"
@@ -257,9 +254,6 @@ export function Almoxarifados() {
               <thead>
                 <tr>
                   <th className="th">Almoxarifado</th>
-                  <th className="th">Técnico / usuários</th>
-                  <th className="th">Filial</th>
-                  <th className="th">Situação</th>
                   <th className="th text-right">Ação</th>
                 </tr>
               </thead>
@@ -280,38 +274,32 @@ export function Almoxarifados() {
                         onClick={(e) => e.stopPropagation()}
                         className="block text-left"
                       >
-                        <div className="font-medium text-tinta-800 hover:underline">
+                        <div className="text-[15px] font-semibold text-tinta-900 hover:underline">
                           {a.descricao}
                         </div>
                         <div className="num text-xs text-tinta-400">código {a.id}</div>
                       </Link>
-                    </td>
-                    <td className="td">
-                      <Usuarios usuarios={a.usuarios} />
-                    </td>
-                    <td className="td text-tinta-700">
-                      {a.liberado ? (
-                        (a.filial ?? '—')
-                      ) : (
-                        <span className="text-xs text-tinta-400">—</span>
+                      {(!a.ativo || !a.liberado) && (
+                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                          {!a.ativo && <Selo pequeno>inativo</Selo>}
+                          {!a.liberado && (
+                            <Selo tom="atencao" pequeno titulo="O sistema não está ligado a ele no IXC">
+                              não liberado
+                            </Selo>
+                          )}
+                        </div>
                       )}
-                    </td>
-                    <td className="td">
-                      <div className="flex flex-wrap gap-1.5">
-                        {!a.ativo && <Selo>inativo</Selo>}
-                        {!a.liberado && (
-                          <Selo tom="atencao" titulo="O sistema não está ligado a ele no IXC">
-                            não liberado
-                          </Selo>
-                        )}
-                        {a.ativo && a.liberado && (
-                          <span className="text-xs text-tinta-400">—</span>
-                        )}
-                      </div>
                     </td>
                     {/* Os botões são da ação deles: não abrem a tela. */}
                     <td className="td text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setEditando(a)}
+                          className="btn btn-p btn-ferramenta"
+                        >
+                          Editar
+                        </button>
                         {transfere && (
                           <button
                             type="button"
@@ -322,7 +310,7 @@ export function Almoxarifados() {
                                 ? 'Levar tudo o que ele tem para outro almoxarifado'
                                 : 'Libere para o sistema antes'
                             }
-                            className="btn btn-p btn-sutil"
+                            className="btn btn-p btn-ok"
                           >
                             Mover tudo
                           </button>
@@ -339,16 +327,9 @@ export function Almoxarifados() {
                             alternarAtivo.mutate(a);
                           }}
                           disabled={alternarAtivo.isPending}
-                          className="btn btn-p btn-sutil"
+                          className={`btn btn-p ${a.ativo ? 'btn-alerta' : 'btn-ok'}`}
                         >
                           {a.ativo ? 'Inativar' : 'Ativar'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setEditando(a)}
-                          className="btn btn-p btn-neutro"
-                        >
-                          Editar
                         </button>
                       </div>
                     </td>
@@ -528,7 +509,7 @@ function UsuariosDoAlmoxarifado({
                     ? 'Deixa de ser o almoxarifado padrão dele'
                     : 'Passa a ser o almoxarifado padrão dele — e deixa de ser o outro que for'
                 }
-                className="btn btn-p btn-sutil"
+                className="btn btn-p btn-ferramenta"
               >
                 {u.padrao ? 'Tirar o padrão' : 'Marcar como padrão'}
               </button>
@@ -541,7 +522,7 @@ function UsuariosDoAlmoxarifado({
                   }
                   tirar.mutate(u);
                 }}
-                className="btn btn-p btn-sutil"
+                className="btn btn-p btn-alerta"
               >
                 Tirar
               </button>
