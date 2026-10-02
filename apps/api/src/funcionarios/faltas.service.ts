@@ -1,5 +1,8 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { calcularDescontoDeFaltas } from '../financeiro/faltas.calc';
+import {
+  calcularDescontoDeFaltas,
+  type FaltasDoMes,
+} from '../financeiro/faltas.calc';
 import { PrismaService } from '../prisma/prisma.service';
 
 /**
@@ -102,7 +105,8 @@ export class FaltasService {
   }
 
   /**
-   * O desconto de cada funcionário numa competência, para a folha.
+   * O desconto de cada funcionário numa competência, para a folha — com os dias
+   * marcados, que é o que a tela abre para quem pergunta "que falta é essa?".
    *
    * Uma consulta para todos, e não uma por pessoa: a folha do mês passa por
    * dezenas de cadastros, e uma ida ao banco por cadastro é a diferença entre
@@ -111,7 +115,7 @@ export class FaltasService {
   async descontoDaCompetencia(
     competencia: string,
     funcionarios: Array<{ id: string; salarioBase: number }>,
-  ): Promise<Map<string, number>> {
+  ): Promise<Map<string, FaltasDoMes>> {
     const ids = funcionarios.map((f) => f.id);
     if (ids.length === 0) return new Map();
 
@@ -127,11 +131,14 @@ export class FaltasService {
       porFuncionario.set(f.funcionarioId, lista);
     }
 
-    const desconto = new Map<string, number>();
+    const desconto = new Map<string, FaltasDoMes>();
     for (const f of funcionarios) {
       const dias = porFuncionario.get(f.id);
       if (!dias?.length) continue;
-      desconto.set(f.id, calcularDescontoDeFaltas(f.salarioBase, dias).total);
+      desconto.set(f.id, {
+        ...calcularDescontoDeFaltas(f.salarioBase, dias),
+        datas: dias.map(diaISO).sort(),
+      });
     }
     return desconto;
   }

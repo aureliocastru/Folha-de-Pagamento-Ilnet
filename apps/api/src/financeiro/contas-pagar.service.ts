@@ -45,11 +45,15 @@ import {
   competenciaSeguinte,
   detalharSalario,
   montarLancamentosFolha,
+  origemDoAdiantamento,
   renderObs,
   type ComposicaoSalario,
   type DadosFolhaFuncionario,
+  type DetalheDaFolha,
+  type ItemDetalhado,
   type LancamentoCalculado,
 } from './folha.calc';
+import type { FaltasDoMes } from './faltas.calc';
 import { CriarContasPagarDto, ItemContaPagarDto } from './dto/criar-contas.dto';
 import { PrepararFolhaDto } from './dto/preparar-folha.dto';
 import { QueryContasPagarDto } from './dto/query-contas.dto';
@@ -150,6 +154,8 @@ export interface PreviewFuncionario {
   adiantamento: SituacaoAdiantamento | null;
   /** Como o saldo salarial foi montado (proventos e descontos do mês). */
   composicao: ComposicaoSalario;
+  /** Cada bônus, desconto e falta por trás dos totais da composição. */
+  detalhe: DetalheDaFolha;
   /** Parcelas de vale/acerto que mexeram nesta competência. */
   vales: AcertoValeCompetencia['parcelas'];
   /** Conta de SALÁRIO que já existe nesta competência (null = ainda não). */
@@ -356,7 +362,7 @@ export class ContasPagarService {
      * A busca é do mês **trabalhado**, e não da competência de pagamento: a
      * falta aconteceu no mês em que a pessoa não veio.
      */
-    const descontoFaltas: Map<string, number> = (dto.incluirSalario ?? true)
+    const faltasDoMes: Map<string, FaltasDoMes> = (dto.incluirSalario ?? true)
       ? await this.faltas.descontoDaCompetencia(
           mesTrabalhado,
           funcionarios
@@ -394,7 +400,7 @@ export class ContasPagarService {
         horasExtras: Number(variaveis?.horasExtras ?? 0),
         descontoVales: vale?.desconto ?? 0,
         creditoVales: vale?.credito ?? 0,
-        descontoFaltas: descontoFaltas.get(f.id) ?? 0,
+        descontoFaltas: faltasDoMes.get(f.id)?.total ?? 0,
       };
 
       const lancamentos = montarLancamentosFolha(dados, params, {
@@ -408,6 +414,27 @@ export class ContasPagarService {
         cfg.percentualAdiantamento,
       );
       const composicao = detalharSalario(dados, cfg.percentualAdiantamento);
+
+      const itensDoTipo = (tipo: TipoLancamento): ItemDetalhado[] =>
+        f.lancamentos
+          .filter((l) => l.tipo === tipo)
+          .map((l) => ({
+            descricao: l.descricao,
+            valor: Number(l.valor),
+            fixo: l.competencia === null,
+          }));
+      const detalhe: DetalheDaFolha = {
+        bonus: itensDoTipo(TipoLancamento.BONUS),
+        descontos: itensDoTipo(TipoLancamento.DESCONTO),
+        adiantamentos: itensDoTipo(TipoLancamento.ADIANTAMENTO),
+        origemAdiantamento: origemDoAdiantamento(
+          dados,
+          cfg.percentualAdiantamento,
+        ),
+        observacaoDoMes: variaveis?.observacao?.trim() || null,
+        // Com carteira, a falta é da contabilidade e a composição a zera.
+        faltas: f.carteiraAssinada ? null : (faltasDoMes.get(f.id) ?? null),
+      };
 
       return {
         funcionarioId: f.id,
@@ -425,6 +452,7 @@ export class ContasPagarService {
               )
             : null,
         composicao,
+        detalhe,
         vales: vale?.parcelas ?? [],
         salarioJaGerado: montarContaJaGerada(contasSalario.get(f.id) ?? null),
         bonusJaGerado: montarContaJaGerada(contasBonus.get(f.id) ?? null),

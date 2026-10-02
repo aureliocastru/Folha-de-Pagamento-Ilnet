@@ -1,4 +1,5 @@
 import { TipoLancamento } from '@prisma/client';
+import type { FaltasDoMes } from './faltas.calc';
 
 /** Converte "AAAA-MM" em "MM/AAAA" para exibição/observação. */
 export function formatCompetencia(competencia: string): string {
@@ -102,6 +103,33 @@ export interface ComposicaoSalario {
   saldo: number;
 }
 
+/** Um lançamento anotado que compõe um pagamento: um bônus, um desconto. */
+export interface ItemDetalhado {
+  /** O que foi escrito ao lançar ("bônus técnico"). */
+  descricao: string;
+  valor: number;
+  /** true = entra todo mês; false = avulso, só neste mês trabalhado. */
+  fixo: boolean;
+}
+
+/**
+ * O que está por trás dos totais da `ComposicaoSalario`: cada bônus e cada
+ * desconto com a descrição de quem lançou, as faltas dia a dia e de onde saiu o
+ * dia 25. A composição diz *quanto*; isto diz *o quê*, e a soma dos itens fecha
+ * com o total dela.
+ */
+export interface DetalheDaFolha {
+  bonus: ItemDetalhado[];
+  descontos: ItemDetalhado[];
+  /** Lançamentos de adiantamento (quando é deles que o dia 25 sai). */
+  adiantamentos: ItemDetalhado[];
+  origemAdiantamento: OrigemDoAdiantamento | null;
+  /** A observação deixada nas vendas e horas extras do mês. */
+  observacaoDoMes: string | null;
+  /** null = sem falta no mês, ou carteira assinada (a contabilidade desconta). */
+  faltas: FaltasDoMes | null;
+}
+
 export interface ParametrosLancamento {
   contaContabilSalario: number;
   contaContabilAdiantamento: number;
@@ -132,6 +160,34 @@ export function usaValorAReceber(d: DadosFolhaFuncionario): boolean {
   return d.carteiraAssinada && arredondar(d.valorAReceberFolha ?? 0) > 0;
 }
 
+/** De onde saiu o valor do adiantamento do dia 25. */
+export interface OrigemDoAdiantamento {
+  de: 'CADASTRO' | 'LANCAMENTO' | 'PERCENTUAL';
+  /** Só no PERCENTUAL: quantos % do salário base. */
+  percentual: number | null;
+  /** Só no PERCENTUAL: o salário base de onde o percentual saiu. */
+  base: number | null;
+}
+
+/**
+ * Qual das três regras do adiantamento está valendo. null = quem não recebe
+ * adiantamento. É a única dona da ordem de precedência: `calcularAdiantamento`
+ * e a tela, que explica o valor, leem a mesma resposta.
+ */
+export function origemDoAdiantamento(
+  d: DadosFolhaFuncionario,
+  percentual = PERCENTUAL_ADIANTAMENTO_PADRAO,
+): OrigemDoAdiantamento | null {
+  if (!d.recebeAdiantamento) return null;
+  if (arredondar(d.valorAdiantamento ?? 0) > 0) {
+    return { de: 'CADASTRO', percentual: null, base: null };
+  }
+  if (arredondar(d.adiantamentoFixo) > 0) {
+    return { de: 'LANCAMENTO', percentual: null, base: null };
+  }
+  return { de: 'PERCENTUAL', percentual, base: arredondar(d.salarioBase) };
+}
+
 /**
  * Valor do adiantamento do dia 25. Quem não recebe adiantamento fica em zero.
  * Ordem: valor definido no cadastro → lançamento de ADIANTAMENTO → percentual
@@ -145,11 +201,10 @@ export function calcularAdiantamento(
   d: DadosFolhaFuncionario,
   percentual = PERCENTUAL_ADIANTAMENTO_PADRAO,
 ): number {
-  if (!d.recebeAdiantamento) return 0;
-  const doCadastro = arredondar(d.valorAdiantamento ?? 0);
-  if (doCadastro > 0) return doCadastro;
-  const fixo = arredondar(d.adiantamentoFixo);
-  if (fixo > 0) return fixo;
+  const origem = origemDoAdiantamento(d, percentual);
+  if (!origem) return 0;
+  if (origem.de === 'CADASTRO') return arredondar(d.valorAdiantamento ?? 0);
+  if (origem.de === 'LANCAMENTO') return arredondar(d.adiantamentoFixo);
   return arredondar((arredondar(d.salarioBase) * percentual) / 100);
 }
 

@@ -75,7 +75,29 @@ describe('o calendário de faltas', () => {
     ]);
 
     // Dois dias na mesma semana: 2 × 54,03 + um DSR de 54,03.
-    expect(mapa.get('f1')).toBe(162.09);
+    expect(mapa.get('f1')?.total).toBe(162.09);
+  });
+
+  it('a folha recebe os dias marcados, em ordem, para mostrar de onde vem o desconto', async () => {
+    const { service } = montarServico({
+      faltas: [
+        { funcionarioId: 'f1', data: new Date(Date.UTC(2026, 7, 5)) },
+        { funcionarioId: 'f1', data: new Date(Date.UTC(2026, 7, 4)) },
+      ],
+    });
+
+    const mapa = await service.descontoDaCompetencia('2026-08', [
+      { id: 'f1', salarioBase: 1621 },
+    ]);
+
+    expect(mapa.get('f1')).toMatchObject({
+      datas: ['2026-08-04', '2026-08-05'],
+      dias: 2,
+      semanasComFalta: 1,
+      valorDoDia: 54.03,
+      valorDosDias: 108.06,
+      valorDoDsr: 54.03,
+    });
   });
 
   it('sem falta no mês, ninguém entra no mapa da folha', async () => {

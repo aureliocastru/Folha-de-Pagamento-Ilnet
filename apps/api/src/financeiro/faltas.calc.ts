@@ -32,6 +32,12 @@ export interface DescontoDeFaltas {
   total: number;
 }
 
+/** O desconto com os dias que o causaram — o que a folha mostra, parcela a parcela. */
+export interface FaltasDoMes extends DescontoDeFaltas {
+  /** Os dias marcados, "AAAA-MM-DD", do primeiro ao último. */
+  datas: string[];
+}
+
 /**
  * O desconto das faltas de uma competência.
  *

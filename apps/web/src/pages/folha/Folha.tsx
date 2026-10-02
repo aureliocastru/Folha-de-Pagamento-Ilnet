@@ -20,7 +20,9 @@ import type {
   ComposicaoSalario,
   ContaJaGerada,
   ContaPagar,
+  DetalheDaFolha,
   FeriasNaFolha,
+  ItemDetalhado,
   LancamentoCalculado,
   ParcelaValeFolha,
   PreviewFuncionario,
@@ -39,6 +41,8 @@ interface ItemGerar extends LancamentoCalculado {
   adiantamento: SituacaoAdiantamento | null;
   /** Como o saldo salarial foi montado. */
   composicao: ComposicaoSalario;
+  /** Cada bônus, desconto e falta por trás dos totais da composição. */
+  detalhe: DetalheDaFolha;
   /** Parcelas de vale/acerto desta competência. */
   vales: ParcelaValeFolha[];
   /**
@@ -173,6 +177,9 @@ interface Grupo {
   indices: number[];
   adiantamento: SituacaoAdiantamento | null;
   composicao: ComposicaoSalario;
+  detalhe: DetalheDaFolha;
+  /** Parcelas de vale/acerto desta competência. */
+  vales: ParcelaValeFolha[];
   carteiraAssinada: boolean;
   /** Índice do lançamento de SALÁRIO, de onde o dia 25 sai primeiro. */
   salarioIdx: number | null;
@@ -243,116 +250,375 @@ function repartoDoGrupo(
 }
 
 // ---------------------------------------------------------------------------
-// A régua: o saldo salarial aberto termo a termo, do jeito que se confere uma
-// conta no papel. É a peça central da tela — se um número surpreende, é aqui
-// que a pessoa descobre de onde ele veio.
+// O extrato: cada pagamento aberto linha a linha, do jeito que se confere uma
+// conta no papel — o que entra, o que sai e o que sobra. É a peça central da
+// tela: se um número surpreende, é aqui que a pessoa descobre de onde ele veio.
+// Bônus, desconto e vale aparecem com a descrição que foi anotada ao lançar.
 // ---------------------------------------------------------------------------
-interface Termo {
-  rotulo: string;
-  valor: number;
-  nota?: string;
-  sinal: '+' | '−';
+interface Etiqueta {
+  texto: string;
+  tom?: Tom;
 }
 
-function Regua({ c, reparto }: { c: ComposicaoSalario; reparto: RepartoDia25 }) {
-  const termos: Termo[] = [
+interface LinhaExtrato {
+  /** Entra (+), sai (−) ou só informa (null). */
+  sinal: '+' | '−' | null;
+  /** O nome da linha — a descrição anotada, quando há. */
+  rotulo: string;
+  etiquetas?: Etiqueta[];
+  /** Uma linha de apoio, em cinza. */
+  nota?: string;
+  /** null = linha de leitura, sem número. */
+  valor: number | null;
+  /** Já foi acertado por fora: aparece apagada e não entra na conta. */
+  foraDaConta?: boolean;
+}
+
+/** "AAAA-MM-DD" → "04/08". Sem `Date`: é um dia de calendário, não um instante. */
+function diaMes(iso: string): string {
+  return `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
+}
+
+function plural(n: number, um: string, varios: string): string {
+  return n === 1 ? um : varios;
+}
+
+/**
+ * Um bônus ou desconto lançado: a descrição é o nome da linha. A categoria só
+ * entra quando o cartão mistura coisas (descontos no meio do salário); no cartão
+ * do bônus o título já diz o que é.
+ */
+function linhaDeItem(
+  sinal: '+' | '−',
+  item: ItemDetalhado,
+  categoria?: string,
+): LinhaExtrato {
+  const etiquetas: Etiqueta[] = categoria ? [{ texto: categoria }] : [];
+  etiquetas.push(
+    item.fixo
+      ? { texto: 'fixo', tom: 'info' }
+      : { texto: 'avulso', tom: 'atencao' },
+  );
+  return {
+    sinal,
+    rotulo: item.descricao.trim() || categoria || 'Sem descrição',
+    etiquetas,
+    valor: item.valor,
+  };
+}
+
+/** Uma parcela de vale (sai) ou de acerto a favor (entra). */
+function linhaDeParcela(v: ParcelaValeFolha): LinhaExtrato {
+  const credito = v.sentido === 'CREDITO';
+  const etiquetas: Etiqueta[] = [{ texto: credito ? 'acerto a favor' : 'vale' }];
+  if (v.de > 1) etiquetas.push({ texto: `parcela ${v.numero}/${v.de}` });
+  if (v.descontada) etiquetas.push({ texto: 'já acertado', tom: 'pago' });
+  return {
+    sinal: v.descontada ? null : credito ? '+' : '−',
+    rotulo: v.descricao,
+    etiquetas,
+    valor: v.valor,
+    foraDaConta: v.descontada,
+  };
+}
+
+/** De onde saiu o valor do dia 25 desta pessoa. */
+function origemDoDia25(g: Grupo): string | null {
+  const o = g.detalhe.origemAdiantamento;
+  if (!o) return null;
+  if (o.de === 'PERCENTUAL') {
+    return `${o.percentual}% do salário base de ${formatBRL(o.base)}`;
+  }
+  if (o.de === 'LANCAMENTO') {
+    const descricoes = g.detalhe.adiantamentos
+      .map((a) => a.descricao.trim())
+      .filter(Boolean);
+    return descricoes.length > 0 ? descricoes.join(' · ') : 'lançamento';
+  }
+  return 'valor do cadastro';
+}
+
+/** O saldo salarial aberto termo a termo: proventos, depois descontos. */
+function linhasDoSalario(g: Grupo): LinhaExtrato[] {
+  const c = g.composicao;
+  const { detalhe, reparto } = g;
+  const linhas: LinhaExtrato[] = [
     {
+      sinal: '+',
       rotulo: c.usouValorAReceber ? 'A receber na folha' : 'Salário base',
       valor: c.salarioBase,
-      sinal: '+',
     },
   ];
+
   if (c.comissao > 0) {
-    termos.push({
-      rotulo: 'Comissão',
-      valor: c.comissao,
-      nota: `${c.vendas} × ${formatBRL(c.valorPorVenda)}`,
+    linhas.push({
       sinal: '+',
+      rotulo: 'Comissão',
+      nota: `${c.vendas} × ${formatBRL(c.valorPorVenda)}`,
+      valor: c.comissao,
     });
   }
   if (c.horasExtras > 0) {
-    termos.push({ rotulo: 'Horas extras', valor: c.horasExtras, sinal: '+' });
+    linhas.push({ sinal: '+', rotulo: 'Horas extras', valor: c.horasExtras });
   }
-  if (c.valesCredito > 0) {
-    termos.push({
-      rotulo: 'Acerto a favor',
-      valor: c.valesCredito,
-      sinal: '+',
+  if (detalhe.observacaoDoMes) {
+    linhas.push({
+      sinal: null,
+      rotulo: 'Anotação do mês',
+      nota: detalhe.observacaoDoMes,
+      valor: null,
     });
   }
-  if (c.descontos > 0) {
-    termos.push({ rotulo: 'Descontos fixos', valor: c.descontos, sinal: '−' });
-  }
-  if (c.vales > 0) {
-    termos.push({ rotulo: 'Vale do mês', valor: c.vales, sinal: '−' });
-  }
-  /* A falta tem chip próprio, e não some dentro dos descontos fixos: sem ele a
-     conta na tela não fecha — o salário menos os outros termos dava um número
-     diferente do "a pagar", e quem confere não achava a diferença. */
-  if (c.faltas > 0) {
-    termos.push({ rotulo: 'Faltas', valor: c.faltas, sinal: '−' });
-  }
-  if (reparto.noSalario > 0) {
-    termos.push({
-      rotulo: 'Adiantamento dia 25',
-      valor: reparto.noSalario,
-      // Quando o dia 25 não coube no salário, o resto foi para o bônus.
-      nota:
-        reparto.noBonus > 0
-          ? `+ ${formatBRL(reparto.noBonus)} no bônus`
-          : undefined,
+  linhas.push(
+    ...g.vales
+      .filter((v) => v.sentido === 'CREDITO' && !v.descontada)
+      .map(linhaDeParcela),
+  );
+
+  linhas.push(...detalhe.descontos.map((d) => linhaDeItem('−', d, 'desconto')));
+  linhas.push(
+    ...g.vales
+      .filter((v) => v.sentido !== 'CREDITO' && !v.descontada)
+      .map(linhaDeParcela),
+  );
+
+  const f = detalhe.faltas;
+  if (c.faltas > 0 && f) {
+    linhas.push({
       sinal: '−',
+      rotulo: plural(f.dias, 'Falta', 'Faltas'),
+      nota: `${f.datas.map(diaMes).join(', ')} · ${f.dias} × ${formatBRL(f.valorDoDia)}`,
+      valor: f.valorDosDias,
+    });
+    if (f.valorDoDsr > 0) {
+      linhas.push({
+        sinal: '−',
+        rotulo: 'Descanso semanal perdido',
+        nota: `${f.semanasComFalta} ${plural(f.semanasComFalta, 'semana', 'semanas')} × ${formatBRL(f.valorDoDia)}`,
+        valor: f.valorDoDsr,
+      });
+    }
+  } else if (c.faltas > 0) {
+    linhas.push({ sinal: '−', rotulo: 'Faltas', valor: c.faltas });
+  }
+
+  if (reparto.noSalario > 0) {
+    linhas.push({
+      sinal: '−',
+      rotulo: 'Adiantamento do dia 25',
+      nota:
+        [
+          origemDoDia25(g),
+          reparto.noBonus > 0 ? 'o resto sai do bônus' : null,
+        ]
+          .filter(Boolean)
+          .join(' · ') || undefined,
+      valor: reparto.noSalario,
     });
   }
 
-  const saldo = reparto.salario ?? salarioCheio(c);
+  // Parcelas já acertadas por fora: ficam à vista, mas não mexem no saldo.
+  linhas.push(...g.vales.filter((v) => v.descontada).map(linhaDeParcela));
+  return linhas;
+}
 
-  // Um termo só: o salário fala por si.
-  if (termos.length === 1) return null;
+function linhasDoBonus(g: Grupo): LinhaExtrato[] {
+  const linhas = g.detalhe.bonus.map((b) => linhaDeItem('+', b));
+  if (g.reparto.noBonus > 0) {
+    linhas.push({
+      sinal: '−',
+      rotulo: 'Adiantamento do dia 25',
+      nota: 'o que não coube no salário',
+      valor: g.reparto.noBonus,
+    });
+  }
+  return linhas;
+}
+
+/** As linhas do extrato de cada tipo de pagamento. */
+function linhasDoPagamento(it: ItemGerar, g: Grupo): LinhaExtrato[] {
+  if (it.ferias) {
+    // O valor das férias não é conta daqui; só o vale, que continua em aberto.
+    return g.composicao.vales > 0
+      ? [
+          {
+            sinal: null,
+            rotulo: 'Vale do mês',
+            nota: 'não é abatido das férias — a parcela volta na próxima folha',
+            valor: g.composicao.vales,
+            foraDaConta: true,
+          },
+        ]
+      : [];
+  }
+  if (it.tipo === 'SALARIO') return linhasDoSalario(g);
+  if (it.tipo === 'BONUS') return linhasDoBonus(g);
+  return [];
+}
+
+/** A frase curta sob o título quando o pagamento não tem extrato. */
+function subtituloDoPagamento(it: ItemGerar, g: Grupo): string | null {
+  if (it.ferias) return 'valor apurado pela contabilidade';
+  if (it.tipo === 'ADIANTAMENTO') return origemDoDia25(g);
+  return null;
+}
+
+function LinhaDoExtrato({ l }: { l: LinhaExtrato }) {
+  return (
+    <li className={`flex items-start gap-3 py-2 ${l.foraDaConta ? 'opacity-55' : ''}`}>
+      <span className="w-3 shrink-0 text-center font-display text-base leading-5 text-tinta-300">
+        {l.sinal ?? ''}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-sm font-medium text-tinta-900 [overflow-wrap:anywhere]">
+            {l.rotulo}
+          </span>
+          {l.etiquetas?.map((e) => (
+            <Selo key={e.texto} pequeno tom={e.tom}>
+              {e.texto}
+            </Selo>
+          ))}
+        </div>
+        {l.nota && (
+          <div className="mt-0.5 text-xs text-tinta-500 [overflow-wrap:anywhere]">
+            {l.nota}
+          </div>
+        )}
+      </div>
+      {l.valor !== null && (
+        <span
+          className={`num shrink-0 text-sm font-semibold leading-5 ${
+            l.sinal === '−' ? 'text-rose-600' : 'text-tinta-900'
+          }`}
+        >
+          {l.sinal === '−' ? '−' : ''}
+          {formatBRL(l.valor)}
+        </span>
+      )}
+    </li>
+  );
+}
+
+/**
+ * Um pagamento da pessoa, inteiro num cartão: o que ele é, de que é feito, o
+ * valor que vai sair e o que vai escrito no IXC. A caixa marca se este
+ * pagamento entra na geração; o campo do fim é onde se corrige o valor.
+ */
+function CartaoDePagamento({
+  it,
+  grupo,
+  onAlternar,
+  onValor,
+}: {
+  it: ItemGerar;
+  grupo: Grupo;
+  onAlternar: () => void;
+  onValor: (valor: number) => void;
+}) {
+  const gera = vaiGerar(it);
+  const tipo = tipoGerado(it);
+  const linhas = linhasDoPagamento(it, grupo);
+  const subtitulo = subtituloDoPagamento(it, grupo);
+  // De férias o valor nasce como ponto de partida e é digitado de qualquer
+  // jeito, então "editado" ali não diz nada.
+  const calculado = valorComDia25(it, grupo.reparto);
+  const editado = !it.ferias && Math.abs(it.valor - calculado) >= 0.005;
 
   return (
-    <div className="rolagem-fina mb-4 md:overflow-x-auto">
-      {/* No celular a conta quebra linha em vez de rolar para o lado: o "a
-          pagar", no fim dela, é justamente o que não pode ficar escondido. */}
-      <div className="flex flex-wrap items-stretch gap-1 md:min-w-max md:flex-nowrap">
-        {termos.map((t, i) => (
-          <div key={t.rotulo} className="flex items-stretch gap-1">
-            {i > 0 && (
-              <span className="flex items-center px-1 font-display text-lg font-medium text-tinta-300">
-                {t.sinal}
-              </span>
-            )}
-            <div className="rounded-lg bg-papel px-3 py-2 ring-1 ring-tinta-100">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-tinta-400">
-                {t.rotulo}
-              </div>
-              <div
-                className={`font-display text-[15px] font-semibold leading-tight num ${
-                  t.sinal === '−' ? 'text-rose-600' : 'text-tinta-900'
-                }`}
-              >
-                {t.sinal === '−' ? '−' : ''}
-                {formatBRL(t.valor)}
-              </div>
-              {t.nota && (
-                <div className="text-[10px] text-tinta-400 num">{t.nota}</div>
-              )}
-            </div>
-          </div>
-        ))}
-        <span className="flex items-center px-1.5 font-display text-lg font-medium text-tinta-300">
-          =
-        </span>
-        <div className="rounded-lg bg-barra px-4 py-2">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-brand-300">
+    <section
+      className={`overflow-hidden rounded-xl bg-papel ring-1 ring-tinta-100 ${
+        gera ? '' : 'opacity-55'
+      }`}
+    >
+      <header className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 border-b border-tinta-100 px-4 py-3">
+        <input
+          type="checkbox"
+          className="accent-brand-600"
+          checked={gera}
+          disabled={it.valor <= 0}
+          title={
+            it.valor <= 0
+              ? 'Sem valor a pagar — não vira conta no IXC.'
+              : undefined
+          }
+          onChange={onAlternar}
+        />
+        <h4 className="font-display text-[15px] font-semibold text-tinta-900">
+          {TIPO_LABEL[tipo]}
+        </h4>
+        {/* Junto da caixa de seleção, para o pagamento desmarcado se explicar. */}
+        <SeloJaGerado tipo={tipo} conta={jaGeradoDoItem(it)} />
+        <SeloJaGerado tipo={it.tipo} conta={tambemJaGerado(it)} />
+        {it.ferias && (
+          <Selo
+            pequeno
+            tom="info"
+            titulo="Entra no lugar do salário: o valor é o que a contabilidade apurou das férias, e não o saldo salarial do mês. O que vem preenchido é só um ponto de partida — digite o valor certo."
+          >
+            no lugar do salário
+          </Selo>
+        )}
+        {it.tipo === 'SALARIO' && grupo.carteiraAssinada && grupo.temOpcaoDia25 && (
+          <Selo
+            pequeno
+            tom="atencao"
+            titulo={
+              grupo.reparto.total > 0
+                ? 'Carteira assinada com o desconto ligado nesta prévia: o dia 25 está sendo abatido aqui além do que a contabilidade já desconta.'
+                : 'Carteira assinada: a contabilidade já desconta o adiantamento, então o saldo salarial não é reduzido aqui.'
+            }
+          >
+            carteira assinada
+          </Selo>
+        )}
+        {it.valor <= 0 && (
+          <Selo
+            pequeno
+            tom="neutro"
+            titulo="Sem valor a pagar: não vira conta no IXC."
+          >
+            não gera
+          </Selo>
+        )}
+      </header>
+
+      {subtitulo && (
+        <p className="px-4 py-3 text-xs text-tinta-500">{subtitulo}</p>
+      )}
+      {linhas.length > 0 && (
+        <ul className="divide-y divide-tinta-100 px-4 py-1">
+          {linhas.map((l, i) => (
+            <LinhaDoExtrato key={`${l.rotulo}-${i}`} l={l} />
+          ))}
+        </ul>
+      )}
+
+      <div className="flex items-center justify-between gap-3 border-t border-tinta-100 bg-tinta-50/60 px-4 py-2.5">
+        <div>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.1em] text-tinta-400">
             A pagar
           </div>
-          <div className="font-display text-[15px] font-semibold leading-tight text-white num">
-            {formatBRL(saldo)}
-          </div>
+          {editado && (
+            <div className="num text-[11px] text-amber-700">
+              calculado: {formatBRL(calculado)}
+            </div>
+          )}
         </div>
+        <CampoDinheiro
+          valor={String(it.valor)}
+          onChange={(v) => onValor(Number(v) || 0)}
+          className="campo w-36 py-1.5 text-right"
+        />
       </div>
-    </div>
+
+      <p className="border-t border-tinta-100 px-4 py-2 text-[11px] leading-snug text-tinta-400 [overflow-wrap:anywhere]">
+        <span className="font-semibold uppercase tracking-wider">IXC</span> ·
+        conta contábil{' '}
+        <span className="num text-tinta-600">{contaContabilGerada(it)}</span> ·{' '}
+        {observacaoGerada(it)}
+      </p>
+    </section>
   );
 }
 
@@ -360,10 +626,10 @@ function Regua({ c, reparto }: { c: ComposicaoSalario; reparto: RepartoDia25 }) 
  * A escolha de pagar férias no lugar do salário.
  *
  * Quem entra de férias não recebe o salário do mês: recebe o que a
- * contabilidade apurou das férias, que não tem relação com o saldo salarial
- * daqui — nem comissão, nem hora extra, nem vale entram nele. Por isso ligar
- * esta opção troca o lançamento inteiro (tipo, conta contábil e observação) e
- * deixa o valor por conta de quem gera a folha.
+ * contabilidade apurou, que não tem relação com o saldo salarial daqui — nem
+ * comissão, nem hora extra, nem vale entram nele. Por isso ligar esta opção
+ * troca o lançamento inteiro (tipo, conta contábil e observação) e deixa o
+ * valor por conta de quem gera a folha (o cartão de férias diz isso).
  *
  * Ela aparece para todo mundo que tem salário na prévia, e não só para quem a
  * tela de Férias conhece: o registro das férias depende do PDF da
@@ -381,53 +647,27 @@ function OpcaoFerias({
   const periodo = feriasInfo.periodo;
 
   return (
-    <div className="mb-4 rounded-lg bg-papel px-3 py-2 ring-1 ring-tinta-100">
-      <label className="flex w-fit flex-wrap items-center gap-2 text-xs text-tinta-600">
-        <input
-          type="checkbox"
-          className="accent-brand-600"
-          checked={ferias}
-          onChange={(e) => onChange(e.target.checked)}
-        />
-        Esta pessoa está de férias — pagar{' '}
-        <strong className="text-tinta-900">férias</strong> no lugar do salário
-        {ferias && (
-          <Selo tom="info" pequeno>
-            sai como férias
-          </Selo>
-        )}
-        {periodo && (
-          <span className="text-tinta-400">
-            registradas de {formatData(periodo.inicio)} a{' '}
-            {formatData(periodo.fim)} ({periodo.dias} dias)
-          </span>
-        )}
-      </label>
-
-      {ferias ? (
-        <p className="mt-1.5 pl-6 text-[11px] leading-relaxed text-tinta-500">
-          O valor é o que a contabilidade apurou —{' '}
-          <strong className="text-tinta-700">digite-o no campo abaixo</strong>. O
-          que está lá é só um ponto de partida. Comissão, hora extra e vale não
-          entram num pagamento de férias, e o adiantamento do dia 25 sai de cena:
-          quem está de férias não o recebe.
-        </p>
-      ) : (
-        <p className="mt-1.5 pl-6 text-[11px] leading-relaxed text-tinta-400">
-          Marque quando a pessoa saiu de férias neste mês: o lançamento passa a
-          ser de férias no IXC, com a conta contábil e a observação de férias, e
-          ela deixa de receber o adiantamento do dia 25.
-        </p>
+    <label className="flex flex-wrap items-center gap-x-2 gap-y-1 px-4 py-3 text-[13px] text-tinta-700">
+      <input
+        type="checkbox"
+        className="accent-brand-600"
+        checked={ferias}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      Esta pessoa está de férias — pagar{' '}
+      <strong className="text-tinta-900">férias</strong> no lugar do salário
+      {ferias && (
+        <Selo tom="info" pequeno>
+          sai como férias
+        </Selo>
       )}
-
-      {ferias && grupo.composicao.vales > 0 && (
-        <p className="mt-1.5 pl-6 text-[11px] leading-relaxed text-amber-700">
-          O vale deste mês ({formatBRL(grupo.composicao.vales)}) não é abatido
-          das férias e a parcela continua em aberto — ela volta na próxima folha,
-          quando a pessoa voltar a receber salário.
-        </p>
+      {periodo && (
+        <span className="text-xs text-tinta-400">
+          registradas de {formatData(periodo.inicio)} a {formatData(periodo.fim)}{' '}
+          ({periodo.dias} dias)
+        </span>
       )}
-    </div>
+    </label>
   );
 }
 
@@ -453,8 +693,8 @@ function OpcaoDia25({
   const ligado = grupo.descontarAdiantamento;
   const naoGerado = grupo.adiantamento?.situacao === 'NAO_GERADO';
   return (
-    <div className="mb-4 rounded-lg bg-papel px-3 py-2 ring-1 ring-tinta-100">
-      <label className="flex w-fit flex-wrap items-center gap-2 text-xs text-tinta-600">
+    <div className="px-4 py-3">
+      <label className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px] text-tinta-700">
         <input
           type="checkbox"
           className="accent-brand-600"
@@ -467,37 +707,26 @@ function OpcaoDia25({
         </span>
         ) deste pagamento
         {!ligado && (
-          <Selo tom="atencao" pequeno>
+          <Selo
+            tom="atencao"
+            pequeno
+            titulo={
+              carteiraAssinada
+                ? 'Carteira assinada: a contabilidade já desconta o dia 25 do salário oficial. Marque só se a empresa for abater também do que esta folha paga.'
+                : 'O dia 25 não será descontado: a pessoa recebe o salário cheio.'
+            }
+          >
             saindo cheio
           </Selo>
         )}
-        {ligado && naoGerado && (
-          <span className="text-amber-700">
-            — o dia 25 não saiu neste mês; confira se a pessoa recebeu.
-          </span>
-        )}
       </label>
-
-      {carteiraAssinada && !ligado && (
-        <p className="mt-1.5 pl-6 text-[11px] leading-relaxed text-tinta-400">
-          Carteira assinada: a contabilidade já desconta o dia 25 do salário
-          oficial. Marque só se a empresa for abater também do que esta folha
-          paga.
-        </p>
-      )}
-      {ligado && reparto.noBonus > 0 && (
-        <p className="mt-1.5 pl-6 text-[11px] leading-relaxed text-tinta-500">
-          Não coube tudo no salário:{' '}
-          <span className="num font-semibold">
-            {formatBRL(reparto.noSalario)}
-          </span>{' '}
-          saem do salário e{' '}
-          <span className="num font-semibold">{formatBRL(reparto.noBonus)}</span>{' '}
-          do bônus — na empresa o bônus também conta como salário.
+      {ligado && naoGerado && (
+        <p className="mt-1 pl-6 text-[11px] text-amber-700">
+          O dia 25 não saiu neste mês — confira se a pessoa recebeu.
         </p>
       )}
       {ligado && reparto.aDescoberto > 0 && (
-        <p className="mt-1.5 pl-6 text-[11px] leading-relaxed text-amber-700">
+        <p className="mt-1 pl-6 text-[11px] text-amber-700">
           Faltou de onde tirar{' '}
           <span className="num font-semibold">
             {formatBRL(reparto.aDescoberto)}
@@ -507,26 +736,6 @@ function OpcaoDia25({
         </p>
       )}
     </div>
-  );
-}
-
-/** Parcelas de vale que já foram acertadas e por isso não entram no saldo. */
-function ValesJaBaixados({ vales }: { vales: ParcelaValeFolha[] }) {
-  const baixadas = vales.filter((v) => v.descontada);
-  if (baixadas.length === 0) return null;
-  return (
-    <p className="mb-4 text-xs text-tinta-500">
-      Já acertado nesta folha, fora deste saldo:{' '}
-      {baixadas
-        .map(
-          (v) =>
-            `${v.descricao} ${v.numero}/${v.de} ${
-              v.sentido === 'CREDITO' ? '+' : '−'
-            }${formatBRL(v.valor)}`,
-        )
-        .join(' · ')}
-      .
-    </p>
   );
 }
 
@@ -835,6 +1044,7 @@ export function Folha() {
             carteiraAssinada: f.carteiraAssinada,
             adiantamento: f.adiantamento,
             composicao: f.composicao,
+            detalhe: f.detalhe,
             vales: f.vales,
             jaGerado,
             valorOriginal: l.valor,
@@ -897,6 +1107,8 @@ export function Folha() {
         indices: [],
         adiantamento: it.adiantamento,
         composicao: it.composicao,
+        detalhe: it.detalhe,
+        vales: it.vales,
         carteiraAssinada: it.carteiraAssinada,
         salarioIdx: null,
         bonusIdx: null,
@@ -1220,7 +1432,6 @@ export function Folha() {
                   geraveis.length > 0 &&
                   marcadosGrupo.length === geraveis.length;
                 const aberto = !!abertos[g.funcionarioId];
-                const temSalario = g.salarioIdx !== null;
                 return (
                   <tbody key={g.funcionarioId}>
                     <tr
@@ -1268,11 +1479,26 @@ export function Folha() {
                               {g.apelido}
                             </span>
                           )}
-                          <span className="text-[11px] uppercase tracking-wider text-tinta-400">
-                            {g.indices
-                              .map((i) => TIPO_LABEL[tipoGerado(itens[i])])
-                              .join(' · ')}
-                          </span>
+                          {/* Com mais de um pagamento, cada um mostra o seu
+                              valor: o total sozinho esconde de que é feito. */}
+                          {g.indices.map((i) => {
+                            const it = itens[i];
+                            return (
+                              <span
+                                key={i}
+                                className={`text-[11px] uppercase tracking-wider text-tinta-400 ${
+                                  vaiGerar(it) ? '' : 'opacity-50'
+                                }`}
+                              >
+                                {TIPO_LABEL[tipoGerado(it)]}
+                                {g.indices.length > 1 && (
+                                  <span className="num ml-1.5 font-semibold normal-case tracking-normal text-tinta-600">
+                                    {formatBRL(it.valor)}
+                                  </span>
+                                )}
+                              </span>
+                            );
+                          })}
                           <SeloFerias modo={modo} ferias={g.feriasInfo} />
                           <SeloAdiantamento
                             modo={modo}
@@ -1317,154 +1543,38 @@ export function Folha() {
                     {aberto && (
                       <tr>
                         <td colSpan={3} className="bg-tinta-50/80 px-5 pb-5 pt-4">
-                          {/* De férias a régua não explica mais nada: o valor
-                              não é o saldo salarial, é o que a contabilidade
-                              apurou. */}
-                          {temSalario && !g.ferias && (
-                            <>
-                              <Regua c={g.composicao} reparto={g.reparto} />
-                              <ValesJaBaixados
-                                vales={itens[g.indices[0]].vales}
+                          {/* O que muda o valor (férias, dia 25) vem antes dos
+                              pagamentos, que mostram o resultado. */}
+                          {(g.salarioIdx !== null || g.temOpcaoDia25) && (
+                            <div className="mb-4 max-w-2xl divide-y divide-tinta-100 rounded-xl bg-papel ring-1 ring-tinta-100">
+                              <OpcaoFerias
+                                grupo={g}
+                                onChange={(ferias) => marcarFerias([g], ferias)}
                               />
-                            </>
+                              <OpcaoDia25
+                                grupo={g}
+                                onChange={(descontar) =>
+                                  descontarDia25([g], descontar)
+                                }
+                              />
+                            </div>
                           )}
-                          <OpcaoFerias
-                            grupo={g}
-                            onChange={(ferias) => marcarFerias([g], ferias)}
-                          />
-                          <OpcaoDia25
-                            grupo={g}
-                            onChange={(descontar) =>
-                              descontarDia25([g], descontar)
-                            }
-                          />
 
-                          <table className="w-full text-sm">
-                            <thead>
-                              <tr>
-                                <th className="th w-10 !py-2"></th>
-                                <th className="th !py-2">Lançamento</th>
-                                <th className="th !py-2">Conta contábil</th>
-                                <th className="th !py-2">
-                                  Observação enviada ao IXC
-                                </th>
-                                <th className="th !py-2 text-right">Valor</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {g.indices.map((idx) => {
-                                const it = itens[idx];
-                                return (
-                                  <tr
-                                    key={idx}
-                                    className={`border-t border-tinta-200/70 ${
-                                      vaiGerar(it) ? '' : 'opacity-45'
-                                    }`}
-                                  >
-                                    <td className="td !py-2.5">
-                                      <input
-                                        type="checkbox"
-                                        className="accent-brand-600"
-                                        checked={vaiGerar(it)}
-                                        disabled={it.valor <= 0}
-                                        title={
-                                          it.valor <= 0
-                                            ? 'Sem valor a pagar — não vira conta no IXC.'
-                                            : undefined
-                                        }
-                                        onChange={() => toggle(idx)}
-                                      />
-                                    </td>
-                                    <td className="td !py-2.5">
-                                      <div className="flex flex-wrap items-center gap-1.5">
-                                        <span className="font-medium text-tinta-800">
-                                          {TIPO_LABEL[tipoGerado(it)]}
-                                        </span>
-                                        {/* Junto da caixa de seleção, para a
-                                            linha desmarcada se explicar. */}
-                                        <SeloJaGerado
-                                          tipo={tipoGerado(it)}
-                                          conta={jaGeradoDoItem(it)}
-                                        />
-                                        <SeloJaGerado
-                                          tipo={it.tipo}
-                                          conta={tambemJaGerado(it)}
-                                        />
-                                        {it.ferias && (
-                                          <Selo
-                                            pequeno
-                                            tom="info"
-                                            titulo="Entra no lugar do salário: o valor é o que a contabilidade apurou das férias, e não o saldo salarial do mês."
-                                          >
-                                            no lugar do salário
-                                          </Selo>
-                                        )}
-                                        {it.tipo === 'SALARIO' &&
-                                          g.carteiraAssinada &&
-                                          g.temOpcaoDia25 && (
-                                            <Selo
-                                              pequeno
-                                              tom="atencao"
-                                              titulo={
-                                                g.reparto.total > 0
-                                                  ? 'Carteira assinada com o desconto ligado nesta prévia: o dia 25 está sendo abatido aqui além do que a contabilidade já desconta.'
-                                                  : 'Carteira assinada: a contabilidade já desconta o adiantamento, então o saldo salarial não é reduzido aqui.'
-                                              }
-                                            >
-                                              carteira assinada
-                                            </Selo>
-                                          )}
-                                        {it.tipo === 'SALARIO' &&
-                                          g.reparto.noSalario > 0 && (
-                                            <Selo
-                                              pequeno
-                                              titulo="Valor do dia 25 já abatido deste saldo salarial."
-                                            >
-                                              − {formatBRL(g.reparto.noSalario)}{' '}
-                                              do dia 25
-                                            </Selo>
-                                          )}
-                                        {it.tipo === 'BONUS' &&
-                                          g.reparto.noBonus > 0 && (
-                                            <Selo
-                                              pequeno
-                                              titulo="O dia 25 não coube inteiro no salário; o resto foi abatido do bônus, que na empresa também conta como salário."
-                                            >
-                                              − {formatBRL(g.reparto.noBonus)} do
-                                              dia 25
-                                            </Selo>
-                                          )}
-                                        {it.valor <= 0 && (
-                                          <Selo
-                                            pequeno
-                                            tom="neutro"
-                                            titulo="Sem valor a pagar: não vira conta no IXC."
-                                          >
-                                            não gera
-                                          </Selo>
-                                        )}
-                                      </div>
-                                    </td>
-                                    <td className="td !py-2.5 num text-tinta-400">
-                                      {contaContabilGerada(it)}
-                                    </td>
-                                    <td className="td !py-2.5 max-w-md text-xs text-tinta-500">
-                                      {observacaoGerada(it)}
-                                    </td>
-                                    <td className="td !py-2.5 text-right">
-                                      <CampoDinheiro
-                                        valor={String(it.valor)}
-                                        onChange={(v) =>
-                                          editarValor(idx, Number(v) || 0)
-                                        }
-                                        className="campo w-32 py-1.5 text-right"
-                                      />
-                                    </td>
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
+                          <div
+                            className={`grid items-start gap-4 ${
+                              g.indices.length > 1 ? 'xl:grid-cols-2' : 'max-w-2xl'
+                            }`}
+                          >
+                            {g.indices.map((idx) => (
+                              <CartaoDePagamento
+                                key={idx}
+                                it={itens[idx]}
+                                grupo={g}
+                                onAlternar={() => toggle(idx)}
+                                onValor={(valor) => editarValor(idx, valor)}
+                              />
+                            ))}
+                          </div>
                         </td>
                       </tr>
                     )}

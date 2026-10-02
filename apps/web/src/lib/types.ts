@@ -293,6 +293,44 @@ export interface ComposicaoSalario {
   saldo: number;
 }
 
+/** Um lançamento anotado que compõe um pagamento: um bônus, um desconto. */
+export interface ItemDetalhado {
+  /** O que foi escrito ao lançar ("bônus técnico"). */
+  descricao: string;
+  valor: number;
+  /** true = entra todo mês; false = avulso, só neste mês trabalhado. */
+  fixo: boolean;
+}
+
+/** As faltas do mês, com o que cada parte custa. */
+export interface FaltasDoMes {
+  dias: number;
+  semanasComFalta: number;
+  valorDoDia: number;
+  valorDosDias: number;
+  valorDoDsr: number;
+  total: number;
+  /** "AAAA-MM-DD", do primeiro ao último dia marcado */
+  datas: string[];
+}
+
+/** O que está por trás dos totais da composição do salário. */
+export interface DetalheDaFolha {
+  bonus: ItemDetalhado[];
+  descontos: ItemDetalhado[];
+  adiantamentos: ItemDetalhado[];
+  /** De onde saiu o valor do dia 25 (null = não recebe adiantamento) */
+  origemAdiantamento: {
+    de: 'CADASTRO' | 'LANCAMENTO' | 'PERCENTUAL';
+    percentual: number | null;
+    base: number | null;
+  } | null;
+  /** A observação deixada nas vendas e horas extras do mês */
+  observacaoDoMes: string | null;
+  /** null = sem falta no mês, ou carteira assinada */
+  faltas: FaltasDoMes | null;
+}
+
 /** Parcela de vale/acerto que mexeu na folha da competência. */
 export interface ParcelaValeFolha {
   valeId: string;
@@ -353,6 +391,8 @@ export interface PreviewFuncionario {
   /** null para quem não recebe adiantamento no dia 25 */
   adiantamento: SituacaoAdiantamento | null;
   composicao: ComposicaoSalario;
+  /** Cada bônus, desconto e falta por trás dos totais da composição */
+  detalhe: DetalheDaFolha;
   vales: ParcelaValeFolha[];
   /** Conta de salário que já existe nesta competência */
   salarioJaGerado: ContaJaGerada | null;
