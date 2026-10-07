@@ -19,6 +19,16 @@ const MOTO = '6f1d2a3b-0000-4000-8000-000000000001';
 const VEICULO_SUMIDO = '6f1d2a3b-0000-4000-8000-000000000099';
 const CATEGORIA_SUMIDA = 'b3a1c2d4-0000-4000-8000-000000000099';
 
+/** Como o cadastro chama cada um, para a observação que vai ao IXC. */
+const APELIDOS: Record<string, string> = {
+  [MOTO]: 'Moto',
+  '6f1d2a3b-0000-4000-8000-000000000002': 'Strada',
+};
+const CATEGORIAS: Record<string, string> = {
+  'b3a1c2d4-0000-4000-8000-000000000001': 'Peças',
+  'b3a1c2d4-0000-4000-8000-000000000002': 'Escritório',
+};
+
 function montarServico(
   opts: {
     idFnApagarIxc?: number | null;
@@ -92,11 +102,17 @@ function montarServico(
         async ({ where }: { where: { id: { in: string[] } } }) =>
           where.id.in.filter((id) => id !== VEICULO_SUMIDO).length,
       ),
+      findMany: jest.fn(async ({ where }: { where: { id: { in: string[] } } }) =>
+        where.id.in.map((id) => ({ id, apelido: APELIDOS[id] ?? 'Veículo' })),
+      ),
     },
     categoriaDespesa: {
       count: jest.fn(
         async ({ where }: { where: { id: { in: string[] } } }) =>
           where.id.in.filter((id) => id !== CATEGORIA_SUMIDA).length,
+      ),
+      findMany: jest.fn(async ({ where }: { where: { id: { in: string[] } } }) =>
+        where.id.in.map((id) => ({ id, nome: CATEGORIAS[id] ?? 'Categoria' })),
       ),
     },
     parteDaConta: {
@@ -298,6 +314,27 @@ describe('DespesasService.lancar — conta com várias notas', () => {
     ]);
     // Os números voltam na ordem das notas: é por eles que a tela manda as fotos.
     expect(r.partes).toEqual([{ id: 'parte-1' }, { id: 'parte-2' }, { id: 'parte-3' }]);
+  });
+
+  /*
+   * No IXC o título é um só, e é a observação dele que conta o que se pagou:
+   * quem abre por lá lê cada nota sem vir até aqui.
+   */
+  it('a observação do título detalha cada nota, com o total', async () => {
+    const { service, contasPagar } = montarServico();
+
+    await service.lancar(VARIAS, 'u1');
+
+    const [{ observacao }] = contasPagar.criarDespesa.mock.calls[0] as unknown as [
+      { observacao: string },
+    ];
+    expect(observacao.split('\n')).toEqual([
+      'Fornecedor — notas de outubro',
+      '1. Moto — troca de óleo (Peças): R$ 120,00',
+      '2. Strada — pneu dianteiro: R$ 330,00',
+      '3. manutenção do ar (Escritório): R$ 150,00',
+      'Total: R$ 600,00',
+    ]);
   });
 
   it('o veículo da conta é ignorado quando ela tem várias notas', async () => {

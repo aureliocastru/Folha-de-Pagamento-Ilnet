@@ -169,7 +169,12 @@ describe('VeiculosService', () => {
       id: 'x',
       idFnApagarIxc: 9,
       beneficiarioNome: 'Oficina do Murilo',
-      observacao: 'Notas de outubro',
+      // Embaixo, o detalhamento de todas as notas do título: não é desta moto.
+      observacao: [
+        'Notas de outubro',
+        '1. Moto — troca de óleo: R$ 120,00',
+        '2. Strada — pneu: R$ 330,00',
+      ].join('\n'),
     });
     const { service } = montar(
       [conta(100, StatusContaPagar.PAGO, '2026-08-02', { id: 'b', idFnApagarIxc: 2, beneficiarioNome: 'Oficina', observacao: 'Troca' })],

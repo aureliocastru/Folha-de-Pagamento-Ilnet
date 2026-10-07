@@ -351,9 +351,11 @@ export class VeiculosService {
       ...veiculo.partesDeContas.map((d) => ({
         ...d.conta,
         valor: d.valor,
+        // Só a primeira linha da conta: as de baixo são o detalhamento de todas
+        // as notas do título, e aqui interessa a deste veículo.
         observacao: d.descricao
-          ? `${d.descricao} — ${d.conta.observacao}`
-          : d.conta.observacao,
+          ? `${d.descricao} — ${primeiraLinha(d.conta.observacao)}`
+          : primeiraLinha(d.conta.observacao),
         etiqueta: d.categoria
           ? { id: d.categoria.id, nome: d.categoria.nome, grupo: d.categoria.pai ?? null }
           : null,
@@ -545,6 +547,10 @@ const CAMPOS_DA_CONTA = {
   pagoEm: true,
   dataVencimento: true,
 } as const;
+
+function primeiraLinha(texto: string): string {
+  return texto.split('\n')[0].trim();
+}
 
 /**
  * As partes de contas divididas, do jeito que o resumo lê uma conta: o valor
