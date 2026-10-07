@@ -27,8 +27,11 @@ function montarServico(
     erroAoPagar?: string;
     /** O IXC aceita a baixa mas não dá a conta por quitada. */
     naoQuita?: boolean;
-    /** O que o `fn_apagar_arquivos_download` responde, uma por chamada. */
-    downloads?: Array<Record<string, unknown>>;
+    /**
+     * O que o `fn_apagar_arquivos_download` responde, uma por chamada: um
+     * objeto vira JSON; um Buffer é o arquivo cru.
+     */
+    downloads?: Array<Record<string, unknown> | Buffer>;
     /** Os arquivos que o título tem, como a listagem do IXC os devolve. */
     arquivosDoTitulo?: Array<Record<string, unknown>>;
   } = {},
@@ -66,9 +69,12 @@ function montarServico(
   const respostas = [...(opts.downloads ?? [])];
   const ixc = {
     upload: jest.fn(),
-    action: jest.fn(
-      async (_endpoint: string, _corpo: Record<string, string>) => respostas.shift() ?? {},
-    ),
+    baixar: jest.fn(async (_endpoint: string, _corpo: Record<string, string>) => {
+      const r = respostas.shift() ?? {};
+      return Buffer.isBuffer(r)
+        ? { tipo: 'application/octet-stream', conteudo: r }
+        : { tipo: 'application/json', conteudo: Buffer.from(JSON.stringify(r)) };
+    }),
     list: jest.fn(async () => ({
       registros: opts.arquivosDoTitulo ?? [],
       total: (opts.arquivosDoTitulo ?? []).length,
@@ -651,7 +657,7 @@ describe('baixar a nota do IXC', () => {
     const nota = await service.baixarNota(9, 'pdf', 4242);
 
     expect(nota.conteudo.toString('base64')).toBe(ARQUIVO);
-    expect(ixc.action.mock.calls.map((c) => c[1])).toEqual([{ id: '9' }, { id: '4242' }]);
+    expect(ixc.baixar.mock.calls.map((c) => c[1])).toEqual([{ id: '9' }, { id: '4242' }]);
   });
 
   /* Com duas notas no título, a segunda tentativa traria qualquer uma das
@@ -663,7 +669,7 @@ describe('baixar a nota do IXC', () => {
     });
 
     await expect(service.baixarNota(9, 'pdf', 4242)).rejects.toThrow(BadRequestException);
-    expect(ixc.action).toHaveBeenCalledTimes(1);
+    expect(ixc.baixar).toHaveBeenCalledTimes(1);
   });
 
   it('o erro repete o que o IXC disse', async () => {
@@ -687,6 +693,41 @@ describe('baixar a nota do IXC', () => {
 
     expect(nota.tipo).toBe('image/jpeg');
     expect(nota.nome).toBe('nota-9.jpg');
+  });
+
+  /*
+   * A foto tirada pela câmera, anexada ao título: o IXC a lista como "PDF" e
+   * a manda crua, sem JSON nenhum em volta. Lida como JSON ela virava texto
+   * estragado, e a tela dizia "não achei o arquivo".
+   */
+  it('o arquivo cru é a nota, e a foto sai como foto mesmo chamada de PDF', async () => {
+    const foto = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(300, 7)]);
+    const { service } = montarServico({ downloads: [foto] });
+
+    const nota = await service.baixarNota(9, 'PDF', 4242);
+
+    expect(nota.conteudo.equals(foto)).toBe(true);
+    expect(nota.tipo).toBe('image/jpeg');
+    expect(nota.nome).toBe('nota-9.jpg');
+  });
+
+  it('o base64 solto, sem JSON, também é a nota', async () => {
+    const pdf = Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.alloc(200, 1)]);
+    const { service } = montarServico({ downloads: [Buffer.from(pdf.toString('base64'))] });
+
+    const nota = await service.baixarNota(9, 'pdf');
+
+    expect(nota.tipo).toBe('application/pdf');
+  });
+
+  it('o que não é arquivo nenhum vai descrito no erro', async () => {
+    const { service } = montarServico({
+      downloads: [Buffer.from('<html><body>Sessão expirada</body></html>')],
+    });
+
+    await expect(service.baixarNota(9, 'pdf')).rejects.toThrow(
+      /sem o arquivo \(application\/octet-stream, \d+ bytes, começando por "<html>/,
+    );
   });
 
   it('sem extensão e sem conteúdo conhecido, segue o palpite de antes', async () => {

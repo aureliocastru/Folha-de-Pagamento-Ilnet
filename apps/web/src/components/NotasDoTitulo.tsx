@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { api, mensagemErro, mensagemErroDeArquivo } from '../lib/api';
-import { abrirNumaAba } from '../lib/arquivo';
 import type { NotaDoTitulo } from '../lib/types';
 import { FotoAmpliada } from './ui';
 
@@ -209,6 +208,8 @@ function NotasNoIxc({
   const [erro, setErro] = useState<string | null>(null);
   /** A foto sendo lida em tela cheia, quando é foto. */
   const [vendo, setVendo] = useState<NotaDoTitulo | null>(null);
+  /** O PDF já baixado: abre por um link, que o toque abre sem o celular recusar. */
+  const [pdf, setPdf] = useState<number | null>(null);
 
   /*
    * Os arquivos já baixados. Passar de uma foto à outra não pode significar
@@ -234,8 +235,6 @@ function NotasNoIxc({
   });
 
   const lista = (notas.data ?? []).filter((n) => !filtro || filtro(n.descricao));
-  /** Só as fotos — são elas que a tela cheia percorre com as setas. */
-  const fotos = lista.filter(ehFoto);
 
   /*
    * O arquivo vem pela API autenticada, e não por um `href` direto: o token
@@ -262,22 +261,18 @@ function NotasNoIxc({
     return lido;
   }
 
+  /*
+   * Foto ou PDF, quem diz é o arquivo, e não a lista do IXC: nesta base ela
+   * chama de "PDF" até a foto tirada pela câmera. A foto abre aqui, do tamanho
+   * da tela, com zoom; o PDF ganha o link que abre a aba.
+   */
   async function abrir(nota: NotaDoTitulo) {
     setAbrindo(nota.id);
     setErro(null);
     try {
-      // Foto abre aqui, do tamanho da tela — é para ser lida, e a aba nova
-      // custa a volta. PDF vai para a aba, que é quem sabe folhear — aberta
-      // antes de buscar, senão o celular a recusa (ver `abrirNumaAba`).
-      if (ehFoto(nota)) {
-        await arquivo(nota);
-        setVendo(nota);
-      } else {
-        await abrirNumaAba(
-          () => baixar(nota),
-          `${nota.descricao}${nota.extensao ? `.${nota.extensao}` : ''}`,
-        );
-      }
+      const lido = await arquivo(nota);
+      if (lido.tipo.startsWith('image/')) setVendo(nota);
+      else setPdf(nota.id);
     } catch (e) {
       setErro(await mensagemErroDeArquivo(e));
     } finally {
@@ -285,24 +280,27 @@ function NotasNoIxc({
     }
   }
 
-  /** A foto vizinha na sequência, já baixada antes de trocar o que está à vista. */
+  /** A foto vizinha: baixa a seguinte, e pula o PDF, que não se mostra em tela cheia. */
   async function irPara(passo: number) {
     if (!vendo) return;
-    const proxima = fotos[fotos.findIndex((f) => f.id === vendo.id) + passo];
-    if (!proxima) return;
-    setAbrindo(proxima.id);
-    try {
-      await arquivo(proxima);
-      setVendo(proxima);
-    } catch (e) {
-      setErro(await mensagemErroDeArquivo(e));
-      setVendo(null);
-    } finally {
-      setAbrindo(null);
+    const atual = lista.findIndex((n) => n.id === vendo.id);
+    for (let i = atual + passo; i >= 0 && i < lista.length; i += passo) {
+      setAbrindo(lista[i].id);
+      try {
+        if ((await arquivo(lista[i])).tipo.startsWith('image/')) {
+          setVendo(lista[i]);
+          return;
+        }
+      } catch (e) {
+        setErro(await mensagemErroDeArquivo(e));
+        return;
+      } finally {
+        setAbrindo(null);
+      }
     }
   }
 
-  const naSequencia = vendo ? fotos.findIndex((f) => f.id === vendo.id) : -1;
+  const indice = vendo ? lista.findIndex((n) => n.id === vendo.id) : -1;
   const aberta = vendo ? baixados.get(vendo.id) : undefined;
 
   return (
@@ -329,25 +327,31 @@ function NotasNoIxc({
       {lista.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {lista.map((nota) => (
-            <button
-              key={nota.id}
-              type="button"
-              onClick={() => abrir(nota)}
-              disabled={abrindo === nota.id}
-              className="btn btn-p btn-neutro"
-              title={
-                nota.data
-                  ? `Anexada em ${nota.data}${nota.usuario ? ` por ${nota.usuario}` : ''}`
-                  : undefined
-              }
-            >
-              {abrindo === nota.id
-                ? 'Abrindo…'
-                : `${ehFoto(nota) ? 'Ver foto' : 'Abrir'}: ${nota.descricao}`}
-              {nota.extensao && (
-                <span className="ml-1 text-tinta-400">.{nota.extensao}</span>
+            <span key={nota.id} className="inline-flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => abrir(nota)}
+                disabled={abrindo === nota.id}
+                className="btn btn-p btn-neutro"
+                title={
+                  nota.data
+                    ? `Anexada em ${nota.data}${nota.usuario ? ` por ${nota.usuario}` : ''}`
+                    : undefined
+                }
+              >
+                {abrindo === nota.id ? 'Abrindo…' : `Abrir: ${nota.descricao}`}
+              </button>
+              {pdf === nota.id && baixados.get(nota.id) && (
+                <a
+                  href={baixados.get(nota.id)!.url}
+                  target="_blank"
+                  rel="noopener"
+                  className="text-xs font-semibold text-brand-600 hover:underline dark:text-brand-300"
+                >
+                  Abrir o PDF
+                </a>
               )}
-            </button>
+            </span>
           ))}
         </div>
       )}
@@ -358,31 +362,15 @@ function NotasNoIxc({
         <FotoAmpliada
           src={aberta.url}
           titulo={
-            fotos.length > 1
-              ? `${vendo.descricao} — foto ${naSequencia + 1} de ${fotos.length}`
+            lista.length > 1
+              ? `${vendo.descricao} — ${indice + 1} de ${lista.length}`
               : vendo.descricao
           }
           onFechar={() => setVendo(null)}
-          onAnterior={naSequencia > 0 ? () => void irPara(-1) : undefined}
-          onProxima={
-            naSequencia < fotos.length - 1 ? () => void irPara(1) : undefined
-          }
+          onAnterior={indice > 0 ? () => void irPara(-1) : undefined}
+          onProxima={indice < lista.length - 1 ? () => void irPara(1) : undefined}
         />
       )}
     </div>
-  );
-}
-
-/**
- * É foto ou é papel digitalizado em PDF?
- *
- * Pela extensão, que é o que a listagem do IXC traz — o tipo de verdade só
- * chega junto com o arquivo, e a decisão de como abrir precisa vir antes, no
- * rótulo do botão. Sem extensão, trata-se como arquivo comum: o palpite errado
- * abriria a tela cheia com um PDF que ela não sabe desenhar.
- */
-function ehFoto(nota: NotaDoTitulo): boolean {
-  return ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'bmp'].includes(
-    nota.extensao.toLowerCase(),
   );
 }

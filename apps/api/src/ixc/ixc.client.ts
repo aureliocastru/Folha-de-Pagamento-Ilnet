@@ -132,6 +132,43 @@ export class IxcClient {
   }
 
   /**
+   * Um botão que devolve arquivo — o download de um anexo.
+   *
+   * Pedido como bytes, e não como JSON: o download de anexo do IXC não diz em
+   * que formato responde, e lido como JSON o arquivo cru virava um texto
+   * estragado, que ninguém conseguia reconhecer depois. Daqui sai o que veio,
+   * com o tipo que o IXC declarou, e quem chama decide o que é.
+   */
+  async baixar(
+    endpoint: string,
+    body: Record<string, unknown>,
+  ): Promise<{ tipo: string; conteudo: Buffer }> {
+    let res;
+    try {
+      res = await this.http.request<ArrayBuffer>({
+        url: `/${endpoint}`,
+        method: 'post',
+        data: body,
+        responseType: 'arraybuffer',
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.error(`Falha de rede em POST /${endpoint}: ${message}`);
+      throw new ServiceUnavailableException(
+        `Não foi possível contatar o IXC (/${endpoint}): ${message}`,
+      );
+    }
+    const conteudo = Buffer.from(res.data ?? new ArrayBuffer(0));
+    if (res.status >= 400) {
+      const msg = motivoDaRecusa(res.status, conteudo.toString('utf8').slice(0, 300));
+      this.logger.error(`IXC erro em POST /${endpoint}: ${msg}`);
+      throw new ServiceUnavailableException(`IXC (/${endpoint}): ${msg}`);
+    }
+    const tipo = String(res.headers?.['content-type'] ?? '').toLowerCase();
+    return { tipo, conteudo };
+  }
+
+  /**
    * Anexa um arquivo — os anexos do IXC não vão em JSON.
    *
    * `fn_apagar_arquivos` e os parentes dele (`cliente_arquivos`,

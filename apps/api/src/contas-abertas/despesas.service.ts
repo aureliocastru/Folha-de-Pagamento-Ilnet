@@ -139,37 +139,37 @@ export class DespesasService {
     extensao?: string,
     idFnApagar?: number,
   ): Promise<{ conteudo: Buffer; tipo: string; nome: string }> {
-    let resposta = await this.pedirArquivoAoIxc({ id: String(id) });
-    let base64 = acharBase64(resposta);
+    let lido = await this.lerArquivoDoIxc({ id: String(id) });
 
-    if (!base64 && idFnApagar) {
+    if (!lido.arquivo && idFnApagar) {
       const notas = await this.notas(idFnApagar);
       if (notas.length === 1 && notas[0].id === id) {
         this.logger.log(
           `Download da nota ${id}: o IXC não a deu pelo id do arquivo; ` +
             `tentando pelo título ${idFnApagar}.`,
         );
-        resposta = await this.pedirArquivoAoIxc({ id: String(idFnApagar) });
-        base64 = acharBase64(resposta);
+        lido = await this.lerArquivoDoIxc({ id: String(idFnApagar) });
       }
     }
 
-    if (!base64) {
-      const dito = mensagemDoIxc(resposta);
+    if (!lido.arquivo) {
       this.logger.warn(
-        `Download da nota ${id}: não achei o arquivo na resposta ` +
-          `(campos: ${Object.keys(resposta).join(', ')}${dito ? `; IXC: ${dito}` : ''}).`,
+        `Download da nota ${id}: o arquivo não veio (${lido.comoVeio}` +
+          `${lido.dito ? `; IXC: ${lido.dito}` : ''}).`,
       );
+      // O que veio vai na frase: é o que deixa acertar isto pelo print da
+      // tela, sem depender de alguém abrir o log do servidor.
       throw new BadRequestException(
-        (dito
-          ? `O IXC recusou o download desta nota: ${dito}. `
-          : 'O IXC respondeu, mas não achei o arquivo na resposta dele. ') +
+        (lido.dito
+          ? `O IXC recusou o download desta nota: ${lido.dito}. `
+          : `O IXC respondeu sem o arquivo (${lido.comoVeio}). `) +
           'Abra a nota pela aba "Arquivos" do título, no IXC.',
       );
     }
 
-    const conteudo = Buffer.from(base64, 'base64');
-    // O conteúdo diz o que é; a extensão do IXC é o palpite de quem anexou.
+    const conteudo = lido.arquivo;
+    // O conteúdo diz o que é; a extensão do IXC é o palpite de quem anexou —
+    // e nesta base ela diz "PDF" até para a foto tirada pela câmera.
     const pelosBytes = tipoPeloConteudo(conteudo);
     const ext = pelosBytes
       ? extensaoDoTipo(pelosBytes)
@@ -181,13 +181,52 @@ export class DespesasService {
     };
   }
 
-  private async pedirArquivoAoIxc(
+  /**
+   * O que o download do IXC devolveu: o arquivo, quando veio; e, quando não,
+   * o que veio no lugar.
+   *
+   * São três jeitos de o arquivo chegar, e o webservice não diz qual usa: o
+   * arquivo cru, que os primeiros bytes reconhecem; o base64 dentro de um
+   * JSON, em qualquer galho dele; e o base64 solto. O "não achei" de antes era
+   * o primeiro jeito sendo lido como se fosse o segundo.
+   */
+  private async lerArquivoDoIxc(
     corpo: Record<string, string>,
-  ): Promise<Record<string, unknown>> {
-    return (await this.ixc.action(
-      'fn_apagar_arquivos_download',
-      corpo,
-    )) as Record<string, unknown>;
+  ): Promise<{ arquivo: Buffer | null; dito: string | null; comoVeio: string }> {
+    const { tipo, conteudo } = await this.ixc.baixar('fn_apagar_arquivos_download', corpo);
+
+    if (tipoPeloConteudo(conteudo)) return { arquivo: conteudo, dito: null, comoVeio: '' };
+
+    const texto = conteudo.toString('utf8');
+    let json: unknown = null;
+    try {
+      json = JSON.parse(texto);
+    } catch {
+      // Não era JSON: pode ser o base64 solto, logo abaixo.
+    }
+
+    if (json && typeof json === 'object') {
+      const base64 = acharBase64(json);
+      if (base64) {
+        return { arquivo: Buffer.from(base64, 'base64'), dito: null, comoVeio: '' };
+      }
+      const campos = Object.keys(json as Record<string, unknown>);
+      return {
+        arquivo: null,
+        dito: mensagemDoIxc(json as Record<string, unknown>),
+        comoVeio: `JSON com ${campos.length ? campos.slice(0, 8).join(', ') : 'nada'}`,
+      };
+    }
+
+    const solto = acharBase64(texto.trim());
+    if (solto) return { arquivo: Buffer.from(solto, 'base64'), dito: null, comoVeio: '' };
+
+    const inicio = texto.slice(0, 40).replace(/[^\x20-\x7e]/g, '·');
+    return {
+      arquivo: null,
+      dito: null,
+      comoVeio: `${tipo || 'sem tipo'}, ${conteudo.length} bytes, começando por "${inicio}"`,
+    };
   }
 
   /**
