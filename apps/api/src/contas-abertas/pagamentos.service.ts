@@ -889,6 +889,25 @@ export class PagamentosService {
 
     return { idFnApagar };
   }
+
+  /**
+   * O título ainda tem baixa no IXC? Pela mesma régua do `excluir`.
+   *
+   * Null quando não deu para saber — e também quando o título não existe mais:
+   * apagar o título não desfaz a baixa, e a saída pode continuar no caixa.
+   */
+  async temBaixa(idFnApagar: number): Promise<boolean | null> {
+    try {
+      const raw = await this.ixc.getById<Record<string, unknown>>(
+        'fn_apagar',
+        'fn_apagar.id',
+        idFnApagar,
+      );
+      return raw ? marcaDeBaixa(raw) !== null : null;
+    } catch {
+      return null;
+    }
+  }
 }
 
 /**

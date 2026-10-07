@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma, TipoMovimentoDaRua } from '@prisma/client';
+import { BaixasDoIxcService } from '../contas-abertas/baixas-do-ixc.service';
 import { DespesasService } from '../contas-abertas/despesas.service';
 import { PagamentosService } from '../contas-abertas/pagamentos.service';
 import { ConfigFinanceiraService } from '../financeiro/config-financeira.service';
@@ -77,6 +78,7 @@ export class FechamentoCaixaService {
     private readonly config: ConfigFinanceiraService,
     private readonly despesas: DespesasService,
     private readonly pagamentos: PagamentosService,
+    private readonly baixas: BaixasDoIxcService,
   ) {}
 
   /** Os caixas do IXC, para escolher qual bater. */
@@ -218,14 +220,18 @@ export class FechamentoCaixaService {
       l.id > ultimoIdFechado &&
       l.data < gavetaDesde;
 
-    const { lancamentos: todos, maiorId } =
-      await this.caixa.listarLancamentos(
-        caixaId,
-        gavetaDesde && gavetaDesde < inicio ? gavetaDesde : inicio,
-        fim,
-        cfg,
-        { tardiosAcimaDe: gavetaDesde ? ultimoIdFechado : null },
-      );
+    const lidoDesde = gavetaDesde && gavetaDesde < inicio ? gavetaDesde : inicio;
+    const [{ lancamentos: todos, maiorId }] = await Promise.all([
+      this.caixa.listarLancamentos(caixaId, lidoDesde, fim, cfg, {
+        tardiosAcimaDe: gavetaDesde ? ultimoIdFechado : null,
+      }),
+      // Antes de somar a rua: é o dia guardado em cada nota que decide em que
+      // gaveta a compensação dela cai.
+      this.seguirOsTitulosDasNotas(caixaId, {
+        desde: gavetaDesde ?? inicio,
+        anotadosDepoisDe: anterior?.createdAt ?? null,
+      }),
+    ]);
     /*
      * O recorte pedido: é ele que a tela lista e confere.
      *
@@ -341,8 +347,21 @@ export class FechamentoCaixaService {
         });
       }
     }
+    /*
+     * E o que o IXC não tem mais não fica esperando conferência.
+     *
+     * A saída estornada lá — a nota lançada com o dia errado, desfeita e
+     * baixada de novo com o certo — deixava aqui a conferência dela, com as
+     * fotos que o acerto levou, e passado o dia ela virava "atrasada": uma
+     * saída por conferir que não existe em lugar nenhum. Só se afirma isso
+     * dentro do que a leitura cobriu: fora dela, não lido não é apagado.
+     */
+    const sumiuDoIxc = (c: (typeof atrasados)[number]) =>
+      !!c.dataLancamento &&
+      c.dataLancamento >= lidoDesde &&
+      !lidosAgora.has(c.idLancamentoIxc);
     const atrasadosDeFato = atrasados.filter(
-      (c) => !noRecorte.has(c.idLancamentoIxc),
+      (c) => !noRecorte.has(c.idLancamentoIxc) && !sumiuDoIxc(c),
     );
 
     /*
@@ -673,6 +692,164 @@ export class FechamentoCaixaService {
         somaDosMovimentos('NOTA', (m) => m.gastoPagoEm),
       ),
     };
+  }
+
+  /**
+   * A nota da rua segue o título dela no IXC.
+   *
+   * A compensação do gasto lançado cai no dia em que o IXC deu a saída —
+   * `gastoPagoEm` —, e esse dia era gravado uma vez só, na hora do acerto. A
+   * saída lá não é fixa: a nota lançada com 30/10 no lugar de 30/09 se corrige
+   * estornando o pagamento no IXC e baixando de novo com o dia certo. A saída
+   * mudou de dia e a compensação ficou presa no 30/10: a gaveta descontava o
+   * gasto sem devolvê-lo, e só acertava com o "Até" da tela em 31/10.
+   *
+   * Então cada leitura pergunta ao IXC pela baixa dos títulos que ainda pesam
+   * na gaveta aberta. Baixado em outro dia, a compensação vai junto; estornado
+   * e sem baixa, ela some — não há mais saída lá para compensar. A nota fica
+   * na conta da pessoa: o gasto aconteceu, o que falta é o título ser pago de
+   * novo, e quando for a compensação volta pelo dia dessa baixa.
+   *
+   * "Sem baixa" só vale com o título confirmando: a leitura das baixas que
+   * volta vazia pode ser base que ignora o filtro, e tirar a compensação de
+   * uma saída viva desconta o mesmo dinheiro duas vezes.
+   *
+   * Falha para dentro: sem resposta do IXC, fica o que estava.
+   */
+  private async seguirOsTitulosDasNotas(
+    caixaId: number,
+    janela: { desde: Date; anotadosDepoisDe: Date | null },
+  ) {
+    try {
+      const notas = await this.prisma.movimentoDaRua.findMany({
+        where: {
+          tipo: 'NOTA',
+          idFnApagarIxc: { not: null },
+          entrega: { caixaId },
+          createdAt: {
+            gte: new Date(Date.now() - DIAS_SEGUINDO_O_TITULO * UM_DIA),
+          },
+          OR: [
+            { gastoPagoEm: null },
+            { gastoPagoEm: { gte: janela.desde } },
+            ...(janela.anotadosDepoisDe
+              ? [{ createdAt: { gt: janela.anotadosDepoisDe } }]
+              : []),
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+        take: TETO_DE_NOTAS_SEGUIDAS,
+        select: {
+          id: true,
+          idFnApagarIxc: true,
+          gastoPagoEm: true,
+          data: true,
+          valor: true,
+          fornecedorNome: true,
+        },
+      });
+
+      // Poucas de cada vez: são idas ao IXC, e esta tela já caiu com 502.
+      for (let i = 0; i < notas.length; i += 5) {
+        await Promise.all(
+          notas.slice(i, i + 5).map((n) => this.seguirUmTitulo(caixaId, n)),
+        );
+      }
+    } catch (err) {
+      this.logger.warn(
+        'Não deu para conferir no IXC os títulos das notas da rua: ' +
+          (err instanceof Error ? err.message : String(err)),
+      );
+    }
+  }
+
+  private async seguirUmTitulo(
+    caixaId: number,
+    nota: {
+      id: string;
+      idFnApagarIxc: number | null;
+      gastoPagoEm: Date | null;
+      data: Date;
+      valor: Prisma.Decimal;
+      fornecedorNome: string | null;
+    },
+  ) {
+    if (nota.idFnApagarIxc === null) return;
+    const novo = await this.diaDaSaidaNoIxc(
+      nota.idFnApagarIxc,
+      caixaId,
+      nota.gastoPagoEm !== null,
+    );
+    if (novo === undefined) return;
+
+    const antes = nota.gastoPagoEm ? diaISO(diaNoFuso(nota.gastoPagoEm)) : null;
+    const depois = novo ? diaISO(novo) : null;
+    if (antes === depois) return;
+
+    // O dia da nota foi digitado junto com o da saída: errado num, errado no
+    // outro — e é ele que a conta da pessoa mostra.
+    const mesmoDia = antes !== null && diaISO(diaNoFuso(nota.data)) === antes;
+    await this.prisma.movimentoDaRua.update({
+      where: { id: nota.id },
+      data: { gastoPagoEm: novo, ...(novo && mesmoDia ? { data: novo } : {}) },
+    });
+    this.logger.log(
+      `Nota ${nota.id} da rua: o título #${nota.idFnApagarIxc} ` +
+        (novo
+          ? `tem a baixa em ${depois} no IXC (aqui estava ${antes ?? 'sem baixa'}).`
+          : 'foi estornado no IXC — a compensação saiu da gaveta.'),
+    );
+
+    /*
+     * A saída nova nasce sem foto: a do acerto foi para a que o estorno
+     * apagou. Vai de novo, pelo mesmo caminho da primeira vez.
+     */
+    if (novo) {
+      const fotos = await this.prisma.fotoDaNota.findMany({
+        where: { movimentoId: nota.id, foto: { not: null } },
+        select: { foto: true },
+      });
+      const notasFoto = fotos
+        .map((f) => f.foto)
+        .filter((f): f is string => !!f);
+      if (notasFoto.length > 0) {
+        await this.levarAsFotosParaAConferencia({
+          caixaId,
+          valor: Number(nota.valor),
+          dia: novo,
+          fornecedor: nota.fornecedorNome ?? '',
+          notasFoto,
+        });
+      }
+    }
+  }
+
+  /**
+   * Em que dia o título saiu deste caixa, segundo o IXC agora.
+   *
+   * Null = não saiu daqui (estornado, ou pago por outra conta). Undefined =
+   * não deu para saber, e nada muda. A conta da baixa só decide quando vem na
+   * linha; sem ela, a nota que nunca foi compensada continua sem — começar a
+   * compensar um título pago pelo banco daria à gaveta um dinheiro que ela não
+   * viu.
+   */
+  private async diaDaSaidaNoIxc(
+    idFnApagar: number,
+    caixaId: number,
+    jaCompensada: boolean,
+  ): Promise<Date | null | undefined> {
+    const lida = await this.baixas.lidaDoTitulo(idFnApagar);
+    if (!lida) return undefined;
+
+    if (lida.ultima) {
+      const conta = lida.ultima.contaPagamento ?? null;
+      if (conta !== null && conta !== caixaId) return null;
+      if (conta === null && !jaCompensada) return undefined;
+      return diaDaBaixa(lida.ultima.data);
+    }
+
+    const temBaixa = await this.pagamentos.temBaixa(idFnApagar);
+    return temBaixa === false ? null : undefined;
   }
 
   /**
@@ -2028,6 +2205,31 @@ function diasEntreDatas(a: Date, b: Date): number {
 }
 
 const UM_DIA = 24 * 60 * 60 * 1000;
+
+/**
+ * Por quanto tempo a nota da rua continua seguindo o título no IXC.
+ *
+ * O estorno que corrige uma data acontece em dias, não em meses; e a nota cujo
+ * título nunca foi pago seria perguntada a cada abertura de tela para sempre.
+ */
+const DIAS_SEGUINDO_O_TITULO = 120;
+
+/** Quantas notas uma leitura do caixa confere no IXC, no máximo. */
+const TETO_DE_NOTAS_SEGUIDAS = 30;
+
+/**
+ * O dia de uma baixa do IXC como o caixa guarda os dias.
+ *
+ * A leitura do IXC devolve meia-noite UTC; o caixa, meia-noite local. Pelas
+ * partes UTC o dia é o mesmo em qualquer fuso em que o servidor rode.
+ */
+function diaDaBaixa(d: Date): Date {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return dataDoDia(
+    `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`,
+    'da baixa no IXC',
+  );
+}
 
 /** O fuso de quem bate o caixa, para saber em que dia um instante caiu. */
 const FUSO = 'America/Sao_Paulo';

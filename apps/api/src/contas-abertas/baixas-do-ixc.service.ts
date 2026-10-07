@@ -205,6 +205,19 @@ export class BaixasDoIxcService {
    * leitura e uma baixa que não veio não pode derrubar o histórico.
    */
   async doTitulo(idFnApagar: number): Promise<BaixaNoIxc | null> {
+    return (await this.lidaDoTitulo(idFnApagar))?.ultima ?? null;
+  }
+
+  /**
+   * O mesmo, separando "o título não tem baixa" de "não deu para saber".
+   *
+   * Quem acompanha um estorno precisa da diferença: a leitura que respondeu e
+   * não trouxe linha nenhuma é pagamento desfeito lá; a que falhou não diz
+   * nada. Por fora deste método as duas são null, que é o que o histórico quer.
+   */
+  async lidaDoTitulo(
+    idFnApagar: number,
+  ): Promise<{ ultima: BaixaNoIxc | null } | null> {
     const caminho = await this.descobrirCaminho();
     if (!caminho) return null;
 
@@ -226,7 +239,7 @@ export class BaixasDoIxcService {
         // de outros títulos, e a data de outro título é pior que data nenhuma.
         .filter((b) => b.idFnApagar === idFnApagar);
 
-      return ultimaBaixaPorTitulo(baixas).get(idFnApagar) ?? null;
+      return { ultima: ultimaBaixaPorTitulo(baixas).get(idFnApagar) ?? null };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.warn(

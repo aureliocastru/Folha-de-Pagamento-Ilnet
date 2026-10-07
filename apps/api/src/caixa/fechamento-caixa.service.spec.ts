@@ -126,6 +126,15 @@ function montarServico(
     despesaLancada?: Record<string, unknown>;
     /** Diárias assinadas, pagas em mãos, à espera de virar nota. */
     diariasAssinadas?: Array<Record<string, unknown>>;
+    /**
+     * O que o IXC diz da baixa do título de uma nota agora. Null = não deu
+     * para saber, que é o padrão: o teste que não fala de estorno não muda.
+     */
+    baixaDoTitulo?: { ultima: Record<string, unknown> | null } | null;
+    /** O título, perguntado direto: ainda tem baixa? */
+    temBaixa?: boolean | null;
+    /** As fotos guardadas no acerto da rua. */
+    fotosDoMovimento?: Array<{ foto: string }>;
   } = {},
 ) {
   const lancamentos = opts.lancamentos ?? [];
@@ -232,10 +241,28 @@ function montarServico(
       createMany: jest.fn().mockResolvedValue({ count: 1 }),
       count: jest.fn().mockResolvedValue(0),
       findUnique: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue(opts.fotosDoMovimento ?? []),
       delete: jest.fn(),
     },
     movimentoDaRua: {
       findMany: jest.fn().mockResolvedValue(opts.movimentosDoPeriodo ?? []),
+      // Grava na própria nota: a soma da rua, que vem depois, tem de ver o
+      // dia novo — é a ordem das duas coisas que está sendo testada.
+      update: jest.fn(
+        async ({
+          where,
+          data,
+        }: {
+          where: { id: string };
+          data: Record<string, unknown>;
+        }) => {
+          const m = (opts.movimentosDoPeriodo ?? []).find(
+            (x) => x.id === where.id,
+          );
+          if (m) Object.assign(m, data);
+          return { id: where.id, ...data };
+        },
+      ),
       findFirst: jest.fn().mockResolvedValue(opts.ultimoMovimento ?? null),
       findUnique: jest.fn().mockResolvedValue(opts.movimento ?? null),
       create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
@@ -288,6 +315,11 @@ function montarServico(
   const pagamentos = {
     // O IXC recusa apagar título já pago; quem chama trata a recusa.
     excluir: jest.fn().mockResolvedValue({ idFnApagar: 4242 }),
+    temBaixa: jest.fn().mockResolvedValue(opts.temBaixa ?? null),
+  };
+
+  const baixas = {
+    lidaDoTitulo: jest.fn().mockResolvedValue(opts.baixaDoTitulo ?? null),
   };
 
   const despesas = {
@@ -355,8 +387,9 @@ function montarServico(
     config as never,
     despesas as never,
     pagamentos as never,
+    baixas as never,
   );
-  return { service, prisma, caixa, criados, despesas, pagamentos };
+  return { service, prisma, caixa, criados, despesas, pagamentos, baixas };
 }
 
 const saida = (id: number, valor: number) => ({
@@ -1540,6 +1573,202 @@ describe('o saldo que deve estar na gaveta', () => {
       await service.fechar({ caixaId: 7, de: '2026-09-23', ate: '2026-09-28' });
 
       expect(Number(criados[0].saldoFinal)).toBe(ESPERADO);
+    });
+  });
+
+  /*
+   * O caso do CX - Werick em 07/10: a nota de 30/09 foi lançada com 30/10.
+   * Corrigida no IXC — pagamento estornado e baixado de novo com 30/09 —, a
+   * saída passou para 30/09 e a compensação ficou presa no 30/10: com o "Até"
+   * em 07/10 a gaveta descontava o gasto sem devolvê-lo, e só acertava com o
+   * "Até" em 31/10.
+   */
+  describe('a nota cujo pagamento foi estornado no IXC', () => {
+    const FECHOU_EM = new Date(2026, 8, 22, 16, 45);
+    const dia = (m: number, d: number) => new Date(2026, m - 1, d);
+
+    const caso = (
+      ixc: {
+        lancamentos?: ReturnType<typeof saidaEm>[];
+        baixaDoTitulo?: { ultima: Record<string, unknown> | null } | null;
+        temBaixa?: boolean | null;
+      } = {},
+    ) => ({
+      anteriores: [
+        {
+          saldoFinal: 2070,
+          saldoContado: 2070,
+          ultimoIdLancamento: 3,
+          createdAt: FECHOU_EM,
+          ate: new Date(2026, 8, 22, 23, 59, 59, 999),
+        },
+      ],
+      ultimo: { ate: new Date(2026, 8, 22, 23, 59, 59, 999) },
+      entregasDoPeriodo: [
+        { valor: 100, entregueEm: dia(9, 25), createdAt: dia(9, 25) },
+      ],
+      movimentosDoPeriodo: [
+        {
+          id: 'n1',
+          tipo: 'NOTA',
+          valor: 100,
+          data: dia(10, 30),
+          gastoPagoEm: dia(10, 30),
+          createdAt: new Date(2026, 9, 6, 15),
+          idFnApagarIxc: 4242,
+          fornecedorNome: 'Mercado Central',
+        },
+      ],
+      lancamentos: ixc.lancamentos ?? [],
+      baixaDoTitulo: ixc.baixaDoTitulo,
+      temBaixa: ixc.temBaixa,
+    });
+
+    const baixadaDeNovo = () =>
+      caso({
+        // A saída que a baixa nova criou, no dia certo.
+        lancamentos: [saidaEm(20, 100, dia(9, 30))],
+        baixaDoTitulo: {
+          ultima: {
+            id: 99,
+            idFnApagar: 4242,
+            data: new Date(Date.UTC(2026, 8, 30)),
+            campo: 'data',
+            contaPagamento: 7,
+          },
+        },
+      });
+
+    // 2070 contados - 100 entregues. A saída de 100 no IXC é o mesmo dinheiro.
+    const ESPERADO = 1970;
+
+    it('baixada de novo em outro dia, a compensação vai junto', async () => {
+      const dados = baixadaDeNovo();
+      const { service, prisma } = montarServico(dados);
+
+      const e = await service.extrato(7, '2026-10-07', '2026-10-07');
+
+      expect(e.resumo.saldoEsperado).toBe(ESPERADO);
+      expect(prisma.movimentoDaRua.update).toHaveBeenCalledWith({
+        where: { id: 'n1' },
+        data: { gastoPagoEm: dia(9, 30), data: dia(9, 30) },
+      });
+    });
+
+    it('o "Até" da tela não muda o saldo', async () => {
+      const ate07 = await montarServico(baixadaDeNovo()).service.extrato(
+        7,
+        '2026-10-07',
+        '2026-10-07',
+      );
+      const ate31 = await montarServico(baixadaDeNovo()).service.extrato(
+        7,
+        '2026-10-07',
+        '2026-10-31',
+      );
+
+      expect(ate07.resumo.saldoEsperado).toBe(ESPERADO);
+      expect(ate31.resumo.saldoEsperado).toBe(ESPERADO);
+    });
+
+    it('a saída nova recebe as fotos do acerto', async () => {
+      const { service, prisma } = montarServico({
+        ...baixadaDeNovo(),
+        fotosDoMovimento: [{ foto: 'data:image/png;base64,NOTA' }],
+      });
+
+      await service.extrato(7, '2026-10-07', '2026-10-07');
+
+      const [{ data }] = prisma.fotoDaNota.createMany.mock.calls[0];
+      expect(data).toEqual([
+        expect.objectContaining({ foto: 'data:image/png;base64,NOTA' }),
+      ]);
+      expect(prisma.conferenciaCaixa.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { caixaId_idLancamentoIxc: { caixaId: 7, idLancamentoIxc: 20 } },
+        }),
+      );
+    });
+
+    it('estornado e sem baixa, a compensação sai — com qualquer "Até"', async () => {
+      const estornado = () =>
+        caso({ baixaDoTitulo: { ultima: null }, temBaixa: false });
+
+      const ate07 = await montarServico(estornado()).service.extrato(
+        7,
+        '2026-10-07',
+        '2026-10-07',
+      );
+      const { service, prisma } = montarServico(estornado());
+      const ate31 = await service.extrato(7, '2026-10-07', '2026-10-31');
+
+      expect(ate07.resumo.saldoEsperado).toBe(ESPERADO);
+      expect(ate31.resumo.saldoEsperado).toBe(ESPERADO);
+      // A nota fica na conta da pessoa; só a compensação some.
+      expect(prisma.movimentoDaRua.update).toHaveBeenCalledWith({
+        where: { id: 'n1' },
+        data: { gastoPagoEm: null },
+      });
+    });
+
+    it('baixa que não veio, com o título ainda pago, não é estorno', async () => {
+      const { prisma, service } = montarServico(
+        caso({ baixaDoTitulo: { ultima: null }, temBaixa: true }),
+      );
+
+      await service.extrato(7, '2026-10-07', '2026-10-07');
+
+      expect(prisma.movimentoDaRua.update).not.toHaveBeenCalled();
+    });
+
+    it('sem resposta do IXC, nada muda', async () => {
+      const { prisma, service } = montarServico(caso({ baixaDoTitulo: null }));
+
+      await service.extrato(7, '2026-10-07', '2026-10-07');
+
+      expect(prisma.movimentoDaRua.update).not.toHaveBeenCalled();
+    });
+
+    it('pago de novo por outra conta, a compensação sai deste caixa', async () => {
+      const { prisma, service } = montarServico(
+        caso({
+          baixaDoTitulo: {
+            ultima: {
+              id: 99,
+              idFnApagar: 4242,
+              data: new Date(Date.UTC(2026, 8, 30)),
+              campo: 'data',
+              contaPagamento: 23,
+            },
+          },
+        }),
+      );
+
+      const e = await service.extrato(7, '2026-10-07', '2026-10-07');
+
+      expect(e.resumo.saldoEsperado).toBe(ESPERADO);
+      expect(prisma.movimentoDaRua.update).toHaveBeenCalledWith({
+        where: { id: 'n1' },
+        data: { gastoPagoEm: null },
+      });
+    });
+
+    it('a saída que o estorno apagou não fica esperando conferência', async () => {
+      const { service } = montarServico({
+        ...baixadaDeNovo(),
+        conferencias: [
+          // A saída velha, de 30/10, com as fotos do acerto: não existe mais.
+          { idLancamentoIxc: 19, conferido: false, dataLancamento: dia(10, 30) },
+          // A nova, de verdade, ainda por conferir.
+          { idLancamentoIxc: 20, conferido: false, dataLancamento: dia(9, 30) },
+          // De antes da leitura: não lido não é apagado.
+          { idLancamentoIxc: 2, conferido: false, dataLancamento: dia(9, 10) },
+        ],
+      });
+
+      const e = await service.extrato(7, '2026-11-01', '2026-11-01');
+
+      expect(e.atrasados.map((a) => a.idLancamentoIxc).sort()).toEqual([2, 20]);
     });
   });
 

@@ -89,6 +89,13 @@ import { ManutencaoService } from './manutencao.service';
   // um dinheiro que ninguém compensa deste lado.
   // `AbastecimentosService` vai para a tela do colaborador, que lança o
   // abastecimento pelo login em vez do CPF — a mesma regra, outra porta.
-  exports: [DespesasService, PagamentosService, AbastecimentosService],
+  // `BaixasDoIxcService` vai porque a nota da rua segue o título dela: estornado
+  // ou baixado de novo com outra data no IXC, o caixa daqui acompanha.
+  exports: [
+    DespesasService,
+    PagamentosService,
+    AbastecimentosService,
+    BaixasDoIxcService,
+  ],
 })
 export class ContasAbertasModule {}
