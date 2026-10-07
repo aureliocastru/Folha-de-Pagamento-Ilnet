@@ -7,10 +7,17 @@ import {
 import { useAssistente } from '../../components/Assistente';
 import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
 import { SeletorDeVeiculo } from '../../components/SeletorDeVeiculo';
-import { CampoDinheiro, Carregando, Janela, Selo } from '../../components/ui';
+import {
+  CampoDinheiro,
+  Carregando,
+  FotoAmpliada,
+  Janela,
+  Selo,
+} from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { useTermoAdiado } from '../../lib/busca';
 import { formatBRL } from '../../lib/format';
+import { prepararArquivo } from '../../lib/foto';
 import { CampoDeData } from '../../components/CampoDeData';
 import {
   TIPOS_CHAVE_PIX,
@@ -1967,6 +1974,8 @@ function CampoDaNota({
 }) {
   const [erro, setErro] = useState<string | null>(null);
   const [lendo, setLendo] = useState(false);
+  /** A foto aberta em tela cheia, para ver se ela saiu legível antes de mandar. */
+  const [vendo, setVendo] = useState(false);
 
   /*
    * O Ctrl+V vale na janela inteira, e não só dentro de um quadrado.
@@ -1985,7 +1994,8 @@ function CampoDaNota({
       setLendo(true);
       setErro(null);
       try {
-        onMudar({ nome: '', dados: await lerComoDataUrl(arquivo) });
+        // O print colado não tem nome: quem nomeia é a API.
+        onMudar({ nome: '', dados: (await prepararArquivo(arquivo)).dados });
       } catch (err) {
         setErro(err instanceof Error ? err.message : String(err));
       } finally {
@@ -2004,7 +2014,9 @@ function CampoDaNota({
     setLendo(true);
     setErro(null);
     try {
-      onMudar({ nome: arquivo.name, dados: await lerComoDataUrl(arquivo) });
+      // A foto da câmera passa dos 8 MB e o HEIC do iPhone não abre no
+      // computador: as duas saem daqui em JPEG. PDF vai como veio.
+      onMudar(await prepararArquivo(arquivo));
     } catch (err) {
       setErro(err instanceof Error ? err.message : String(err));
     } finally {
@@ -2031,11 +2043,18 @@ function CampoDaNota({
         {nota ? (
           <div className="flex items-center gap-2">
             {ehImagem ? (
-              <img
-                src={nota.dados}
-                alt="Nota anexada"
-                className="h-10 w-16 rounded-lg border border-tinta-200 object-cover"
-              />
+              <button
+                type="button"
+                onClick={() => setVendo(true)}
+                title="Ver em tela cheia"
+                className="cursor-zoom-in"
+              >
+                <img
+                  src={nota.dados}
+                  alt="Nota anexada"
+                  className="h-10 w-16 rounded-lg border border-tinta-200 object-cover"
+                />
+              </button>
             ) : (
               <span className="rounded-lg border border-tinta-200 px-2 py-1 text-xs text-tinta-600">
                 PDF
@@ -2063,17 +2082,13 @@ function CampoDaNota({
         até 8 MB. Em lançamento parcelado, a nota vai na primeira parcela.
       </p>
       {erro && <p className="mt-1 text-sm text-rose-600">{erro}</p>}
+      {vendo && nota && ehImagem && (
+        <FotoAmpliada
+          src={nota.dados}
+          titulo={nota.nome || 'Nota'}
+          onFechar={() => setVendo(false)}
+        />
+      )}
     </div>
   );
-}
-
-/** O arquivo como data URL — é assim que ele chega à API. */
-function lerComoDataUrl(arquivo: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const leitor = new FileReader();
-    leitor.onload = () => resolve(String(leitor.result));
-    leitor.onerror = () =>
-      reject(new Error('Não consegui ler este arquivo do seu computador.'));
-    leitor.readAsDataURL(arquivo);
-  });
 }

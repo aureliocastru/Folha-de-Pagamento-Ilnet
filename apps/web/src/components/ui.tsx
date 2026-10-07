@@ -620,6 +620,13 @@ export function FotoAmpliada({
   const caixa = useRef<HTMLDivElement>(null);
   const imagem = useRef<HTMLImageElement>(null);
   const [escala, setEscala] = useState(1);
+  /*
+   * A imagem que o navegador não soube desenhar — o HEIC do iPhone num
+   * computador com Windows, um arquivo que chegou estragado. Sem isto a tela
+   * cheia abria sobre um quadro vazio, sem dizer nada, e a foto parecia não
+   * existir; com isto, ela diz o que houve e entrega o arquivo para baixar.
+   */
+  const [naoAbriu, setNaoAbriu] = useState(false);
 
   /**
    * De onde o zoom cresce: o ponto da tela que tem de continuar onde está.
@@ -663,6 +670,7 @@ export function FotoAmpliada({
   useEffect(() => {
     setEscala(1);
     setPuxada(0);
+    setNaoAbriu(false);
   }, [src]);
 
   /*
@@ -960,19 +968,33 @@ export function FotoAmpliada({
           }}
           className="flex items-center justify-center"
         >
-          <img
-            ref={imagem}
-            src={src}
-            alt={titulo}
-            draggable={false}
-            onClick={() => {
-              if (arrastou.current) return;
-              alternar();
-            }}
-            className={`max-h-full max-w-full select-none rounded-lg object-contain ${
-              escala > 1 ? 'cursor-zoom-out' : 'cursor-zoom-in'
-            }`}
-          />
+          {naoAbriu ? (
+            <div className="flex max-w-sm flex-col items-center gap-3 rounded-2xl bg-white/10 p-5 text-center text-sm text-white">
+              <p>Não consegui mostrar esta imagem neste navegador.</p>
+              <a
+                href={src}
+                download={`${titulo.replace(/[^\p{L}\p{N} _-]/gu, '').trim() || 'foto'}`}
+                className="min-h-[44px] rounded-xl border border-white/30 bg-white/10 px-4 py-2.5 font-semibold transition hover:bg-white/20"
+              >
+                Baixar o arquivo
+              </a>
+            </div>
+          ) : (
+            <img
+              ref={imagem}
+              src={src}
+              alt={titulo}
+              draggable={false}
+              onError={() => setNaoAbriu(true)}
+              onClick={() => {
+                if (arrastou.current) return;
+                alternar();
+              }}
+              className={`max-h-full max-w-full select-none rounded-lg object-contain ${
+                escala > 1 ? 'cursor-zoom-out' : 'cursor-zoom-in'
+              }`}
+            />
+          )}
         </div>
       </div>
 

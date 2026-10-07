@@ -23,12 +23,15 @@ const numeroOuIndefinido = ({ value }: { value: unknown }) =>
 /**
  * Teto da foto da nota, em caracteres do data URL.
  *
- * Um milhão de caracteres é ~750 KB de imagem — bem acima do que a tela manda
- * (ela reduz a foto antes de enviar) e bem abaixo do que uma foto crua de
- * celular teria. O limite existe para o caso de alguém mandar pela API: uma
+ * Cinco milhões de caracteres são ~3,7 MB de imagem, o mesmo teto da foto dos
+ * pontos e do abastecimento. Era um milhão (~750 KB), de quando a tela reduzia
+ * a foto a 1600px; quando ela passou a 2400px para a caneta aparecer, a foto
+ * de uma nota cheia de detalhe passou de 750 KB e o caixa a recusava como
+ * "grande demais" — tirada pela câmera, pela própria tela. A tela hoje entrega
+ * no máximo 1,5 MB. O limite existe para o caso de alguém mandar pela API: uma
  * tabela de fotos cruas enche o disco do servidor, que é o mesmo do banco.
  */
-const TETO_DA_FOTO = 1_000_000;
+const TETO_DA_FOTO = 5_000_000;
 
 const RECADO_DA_FOTO =
   'A foto ficou grande demais. Tire de novo pela tela, que ela reduz sozinha.';

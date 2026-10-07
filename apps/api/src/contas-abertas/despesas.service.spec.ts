@@ -451,4 +451,27 @@ describe('baixar a nota do IXC', () => {
 
     await expect(service.baixarNota(9, 'pdf')).rejects.toThrow(/Arquivo não localizado/);
   });
+
+  /* A foto anexada com a extensão errada descia como PDF, e o leitor de PDF
+     dava erro numa nota que estava inteira no IXC. */
+  it('o tipo vem do conteúdo, e não da extensão que o IXC diz', async () => {
+    const jpeg = Buffer.concat([
+      Buffer.from([0xff, 0xd8, 0xff, 0xe0]),
+      Buffer.alloc(150, 1),
+    ]).toString('base64');
+    const { service } = montarServico({ downloads: [{ arquivo: jpeg }] });
+
+    const nota = await service.baixarNota(9, 'pdf');
+
+    expect(nota.tipo).toBe('image/jpeg');
+    expect(nota.nome).toBe('nota-9.jpg');
+  });
+
+  it('sem extensão e sem conteúdo conhecido, segue o palpite de antes', async () => {
+    const { service } = montarServico({ downloads: [{ arquivo: ARQUIVO }] });
+
+    const nota = await service.baixarNota(9, '');
+
+    expect(nota.tipo).toBe('application/pdf');
+  });
 });

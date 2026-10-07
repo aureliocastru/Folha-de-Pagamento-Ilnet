@@ -13,12 +13,8 @@ import { api, mensagemErro } from '../../lib/api';
 import { MolduraDoArrasto, useSoltarArquivos } from './arrastar';
 import { formatData } from '../../lib/format';
 import type { DocumentoRh, MesDeNotas } from '../../lib/types';
-import {
-  abrirDocumento,
-  lerComoDataUrl,
-  motivoDoBlob,
-  nomeDeArquivo,
-} from './Pasta';
+import { prepararArquivo } from '../../lib/foto';
+import { abrirDocumento, motivoDoBlob, nomeDeArquivo } from './Pasta';
 import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
 /** A prateleira dentro da pasta do mês, para a estante mostrar o que é. */
@@ -120,14 +116,17 @@ export function NotasFiscais() {
 
     for (const arquivo of arquivos) {
       try {
+        // A foto do celular sai em JPEG: o HEIC do iPhone não vira PDF, e
+        // ficava guardado num formato que o computador não abre.
+        const pronto = await prepararArquivo(arquivo);
         const { data } = await api.post<DocumentoRh & { avisoDaConversao?: string }>(
           '/rh/documentos',
           {
             pastaId: mes.id,
             titulo: semExtensao(arquivo.name),
             tipo: TIPO_DA_NOTA,
-            arquivoNome: arquivo.name,
-            arquivo: await lerComoDataUrl(arquivo),
+            arquivoNome: pronto.nome,
+            arquivo: pronto.dados,
             // A foto da nota vira PDF: o pacote que vai à contabilidade sai
             // todo no mesmo formato, e abre em sequência no mesmo leitor.
             converterParaPdf: true,

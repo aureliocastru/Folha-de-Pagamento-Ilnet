@@ -59,6 +59,35 @@ export function conferirArquivo(
   }
 }
 
+/**
+ * O tipo pelos primeiros bytes do arquivo, quando eles dizem.
+ *
+ * É o que manda quando o nome mente: a nota anexada no IXC com a extensão
+ * errada, ou sem extensão nenhuma, descia como PDF e abria no leitor de PDF
+ * uma foto que ele não sabe desenhar — "erro ao abrir", numa nota que estava
+ * inteira lá.
+ */
+export function tipoPeloConteudo(conteudo: Buffer): string | null {
+  const inicio = (bytes: number[]) =>
+    bytes.every((b, i) => conteudo[i] === b);
+  if (inicio([0x25, 0x50, 0x44, 0x46])) return 'application/pdf'; // %PDF
+  if (inicio([0xff, 0xd8, 0xff])) return 'image/jpeg';
+  if (inicio([0x89, 0x50, 0x4e, 0x47])) return 'image/png';
+  if (inicio([0x47, 0x49, 0x46, 0x38])) return 'image/gif'; // GIF8
+  if (
+    inicio([0x52, 0x49, 0x46, 0x46]) &&
+    conteudo.subarray(8, 12).toString('latin1') === 'WEBP'
+  ) {
+    return 'image/webp';
+  }
+  // HEIC/HEIF: caixa "ftyp" no byte 4, com a marca do formato logo depois.
+  if (conteudo.subarray(4, 8).toString('latin1') === 'ftyp') {
+    const marca = conteudo.subarray(8, 12).toString('latin1');
+    if (/^(heic|heix|hevc|heim|heis|mif1|msf1)$/.test(marca)) return 'image/heic';
+  }
+  return null;
+}
+
 /** A extensão que combina com o tipo — o IXC guarda o arquivo pelo nome. */
 export function extensaoDoTipo(tipo: string): string {
   const conhecidas: Record<string, string> = {

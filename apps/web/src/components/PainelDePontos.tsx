@@ -551,11 +551,19 @@ export function FotoDoPonto({
    * clique depois.
    */
   const celular = useCelular();
+  const [naoAbriu, setNaoAbriu] = useState(false);
   const foto = useQuery({
     queryKey: chave,
-    queryFn: buscar,
+    queryFn: async () => {
+      // Resposta sem imagem vira frase, e não o "data is undefined" da
+      // biblioteca — que era o erro que aparecia no lugar da foto.
+      const lida = await buscar();
+      if (!lida) throw new Error('A foto não está mais guardada.');
+      return lida;
+    },
     enabled: aberta,
     staleTime: Infinity,
+    retry: 1,
   });
 
   useEffect(() => {
@@ -583,22 +591,44 @@ export function FotoDoPonto({
         (foto.isLoading ? (
           <span className="block text-xs text-tinta-400">Abrindo a foto…</span>
         ) : foto.isError ? (
-          <span className="block text-xs text-rose-600">{mensagemErro(foto.error)}</span>
+          <span className="block text-xs text-rose-600">
+            {mensagemErro(foto.error)}{' '}
+            <button
+              type="button"
+              onClick={() => void foto.refetch()}
+              className="font-medium text-brand-600 hover:underline dark:text-brand-300"
+            >
+              Tentar de novo
+            </button>
+          </span>
         ) : (
           <>
             {/*
               Aqui dentro da lista a foto é um cartão de olhada; o valor a
               caneta se lê é na tela cheia, onde a roda do mouse aproxima.
             */}
-            {!celular && (
-              <img
-                src={foto.data}
-                alt={titulo}
-                onClick={() => setAmpliada(true)}
-                title="Abrir em tela cheia — lá a roda do mouse aproxima"
-                className="mt-2 max-h-96 w-full cursor-zoom-in rounded-lg bg-tinta-100 object-contain"
-              />
-            )}
+            {!celular &&
+              (naoAbriu ? (
+                <span className="mt-1 block text-xs text-rose-600">
+                  Não consegui mostrar esta foto neste navegador.{' '}
+                  <a
+                    href={foto.data}
+                    download={titulo}
+                    className="font-medium text-brand-600 hover:underline dark:text-brand-300"
+                  >
+                    Baixar
+                  </a>
+                </span>
+              ) : (
+                <img
+                  src={foto.data}
+                  alt={titulo}
+                  onError={() => setNaoAbriu(true)}
+                  onClick={() => setAmpliada(true)}
+                  title="Abrir em tela cheia — lá a roda do mouse aproxima"
+                  className="mt-2 max-h-96 w-full cursor-zoom-in rounded-lg bg-tinta-100 object-contain"
+                />
+              ))}
             {ampliada && foto.data && (
               <FotoAmpliada
                 src={foto.data}

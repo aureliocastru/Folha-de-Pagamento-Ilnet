@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
 import { api, mensagemErro } from '../lib/api';
+import { abrirArquivo } from '../lib/arquivo';
 import { formatBRL } from '../lib/format';
 import type { AssinaturaDiaria, Diaria } from '../lib/types';
 import { Aviso, Janela } from './ui';
@@ -89,35 +90,11 @@ export function ColetarAssinatura({
    * endereço temporário na memória do navegador, e é esse que se abre.
    */
   const abrirRecibo = useMutation({
-    mutationFn: async () => {
-      try {
-        const res = await api.get(`/diarias/${diaria.id}/recibo.pdf`, {
-          responseType: 'blob',
-        });
-        return URL.createObjectURL(
-          new Blob([res.data as BlobPart], { type: 'application/pdf' }),
-        );
-      } catch (e) {
-        // Pedindo um arquivo, o corpo do erro também vem como arquivo: a
-        // mensagem da API estaria dentro de um Blob, e a tela mostraria um
-        // "Request failed with status code 400" no lugar do motivo.
-        throw new Error(await motivoDoErroEmArquivo(e));
-      }
-    },
-    onSuccess: (endereco) => {
-      setErro(null);
-      const aba = window.open(endereco, '_blank');
-      // Bloqueador de pop-up: em vez de não acontecer nada, o recibo desce
-      // como arquivo. Ver ou salvar, mas nunca clicar e ficar no vazio.
-      if (!aba) {
-        const link = document.createElement('a');
-        link.href = endereco;
-        link.download = `recibo-${diaria.id}.pdf`;
-        link.click();
-      }
-      // O endereço temporário segura o arquivo na memória enquanto existir.
-      setTimeout(() => URL.revokeObjectURL(endereco), 60_000);
-    },
+    // A aba abre antes de o PDF chegar: depois da espera, o celular a recusa
+    // e o botão parecia não fazer nada (ver `abrirNumaAba`).
+    mutationFn: () =>
+      abrirArquivo(`/diarias/${diaria.id}/recibo.pdf`, `recibo-${diaria.id}.pdf`),
+    onSuccess: () => setErro(null),
     onError: (e) => setErro(mensagemErro(e)),
   });
 
@@ -369,21 +346,6 @@ export function ColetarAssinatura({
       </div>
     </Janela>
   );
-}
-
-/** Abre o Blob de erro para achar a mensagem que a API escreveu lá dentro. */
-async function motivoDoErroEmArquivo(erro: unknown): Promise<string> {
-  const corpo = (erro as { response?: { data?: unknown } })?.response?.data;
-  if (corpo instanceof Blob) {
-    try {
-      const texto = await corpo.text();
-      const json = JSON.parse(texto) as { message?: string };
-      if (json.message) return json.message;
-    } catch {
-      // Não era JSON: cai na mensagem genérica abaixo.
-    }
-  }
-  return mensagemErro(erro);
 }
 
 function formatDataHora(iso: string): string {

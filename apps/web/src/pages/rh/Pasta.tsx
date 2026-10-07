@@ -12,6 +12,8 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { abrirNumaAba } from '../../lib/arquivo';
+import { prepararArquivo } from '../../lib/foto';
 import { MolduraDoArrasto, useSoltarArquivos } from './arrastar';
 import { useAuth } from '../../lib/auth';
 import { combina, semAcento } from '../../lib/busca';
@@ -1374,8 +1376,9 @@ export function FormularioDoDocumento({
     try {
       const lidos = await Promise.all(
         lista.map(async (f) => ({
-          nome: f.name,
-          dados: await lerComoDataUrl(f),
+          // A foto grande, ou no HEIC do iPhone, sai daqui em JPEG: guardada
+          // como veio, ela subia e depois não abria no computador.
+          ...(await prepararArquivo(f)),
           // O nome do arquivo vira o título: é o que quem está subindo dez
           // digitalizações não quer digitar dez vezes.
           titulo: semExtensao(f.name),
@@ -1789,17 +1792,6 @@ function caminhoLegivel(pastas: PastaRh[], pasta: PastaRh): string {
     .join(' / ');
 }
 
-/** O arquivo como data URL — é assim que ele chega à API. */
-export function lerComoDataUrl(arquivo: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const leitor = new FileReader();
-    leitor.onload = () => resolve(String(leitor.result));
-    leitor.onerror = () =>
-      reject(new Error('Não consegui ler este arquivo do seu computador.'));
-    leitor.readAsDataURL(arquivo);
-  });
-}
-
 function semExtensao(nome: string): string {
   return nome.replace(/\.[^.]+$/, '').slice(0, 120);
 }
@@ -1966,31 +1958,13 @@ export async function abrirDocumento(
   id: string,
   arquivoNome: string,
 ): Promise<void> {
-  const aba = window.open('', '_blank');
-
-  try {
-    const { data } = await api.get<Blob>(`/rh/documentos/${id}/arquivo`, {
-      responseType: 'blob',
-    });
-    const url = URL.createObjectURL(data);
-
-    if (aba && !aba.closed) {
-      // O conteúdo é nosso, mas a aba não precisa de referência de volta.
-      aba.opener = null;
-      aba.location.replace(url);
-    } else {
-      // Aba recusada mesmo assim: o arquivo desce como download e o telefone o
-      // abre no visualizador dele. É pior que a aba, e melhor que nada
-      // acontecer.
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = arquivoNome;
-      link.click();
-    }
-
-    setTimeout(() => URL.revokeObjectURL(url), 60_000);
-  } catch (e) {
-    aba?.close();
-    throw e;
-  }
+  await abrirNumaAba(
+    async () =>
+      (
+        await api.get<Blob>(`/rh/documentos/${id}/arquivo`, {
+          responseType: 'blob',
+        })
+      ).data,
+    arquivoNome,
+  );
 }

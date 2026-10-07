@@ -9,6 +9,7 @@ import {
   emMegabytes,
   extensaoDoTipo,
   lerDataUrl,
+  tipoPeloConteudo,
 } from '../arquivos/data-url';
 import { IxcClient } from '../ixc/ixc.client';
 import { parseIxcId } from '../ixc/ixc.parse';
@@ -147,10 +148,15 @@ export class DespesasService {
       );
     }
 
-    const ext = (extensao ?? 'pdf').toLowerCase().replace('.', '');
+    const conteudo = Buffer.from(base64, 'base64');
+    // O conteúdo diz o que é; a extensão do IXC é o palpite de quem anexou.
+    const pelosBytes = tipoPeloConteudo(conteudo);
+    const ext = pelosBytes
+      ? extensaoDoTipo(pelosBytes)
+      : (extensao || 'pdf').toLowerCase().replace('.', '');
     return {
-      conteudo: Buffer.from(base64, 'base64'),
-      tipo: TIPO_POR_EXTENSAO[ext] ?? 'application/octet-stream',
+      conteudo,
+      tipo: pelosBytes ?? TIPO_POR_EXTENSAO[ext] ?? 'application/octet-stream',
       nome: `nota-${id}.${ext}`,
     };
   }

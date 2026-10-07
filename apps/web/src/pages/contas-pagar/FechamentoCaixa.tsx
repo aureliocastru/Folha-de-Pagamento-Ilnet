@@ -16,6 +16,7 @@ import {
 } from '../../components/ui';
 import { CalculadoraDaGaveta } from './CalculadoraDaGaveta';
 import { api, mensagemErro } from '../../lib/api';
+import { abrirArquivo } from '../../lib/arquivo';
 import { useTermoAdiado } from '../../lib/busca';
 import { useAuth } from '../../lib/auth';
 import { reduzirFoto } from '../../lib/foto';
@@ -28,6 +29,7 @@ import type {
   ExtratoDoCaixa,
   ItemDoHistorico,
   LancamentoDoCaixa,
+  MovimentoDaRua,
   MovimentoLancado,
   SaidaAtrasada,
   TipoMovimentoDaRua,
@@ -1443,10 +1445,12 @@ function EscolherFoto({
       title="Fotografe a nota ou escolha uma imagem já salva"
     >
       {pendente ? 'Enviando…' : rotulo}
+      {/* Sem `capture`: com ele o celular só abria a câmera, e a foto que já
+          estava na galeria — a que chegou pelo WhatsApp — não tinha como
+          entrar. Sem ele o aparelho pergunta: câmera ou galeria. */}
       <input
         type="file"
         accept="image/*"
-        capture="environment"
         className="hidden"
         onChange={aoEscolher}
       />
@@ -1465,41 +1469,56 @@ function EscolherFoto({
 function NotasDoLancamento({
   caixaId,
   idLancamento,
+  movimentoId,
   onMudou,
   somenteLeitura = false,
 }: {
-  caixaId: number;
-  idLancamento: number;
+  caixaId?: number;
+  idLancamento?: number;
+  /** As fotos de um acerto da rua, no lugar das de um lançamento do caixa. */
+  movimentoId?: string;
   onMudou?: (qtdNotas: number) => void;
   somenteLeitura?: boolean;
 }) {
   const qc = useQueryClient();
-  const chave = ['caixa', 'notas', caixaId, idLancamento];
+  const caminho = movimentoId
+    ? `/caixa/movimentos-da-rua/${movimentoId}/notas`
+    : `/caixa/${caixaId}/lancamentos/${idLancamento}/notas`;
+  const chave = movimentoId
+    ? ['caixa', 'notas-do-acerto', movimentoId]
+    : ['caixa', 'notas', caixaId, idLancamento];
   /** Qual foto está aberta em tela cheia. */
   const [aberta, setAberta] = useState<string | null>(null);
 
   const notas = useQuery({
     queryKey: chave,
-    queryFn: async () =>
-      (
-        await api.get<NotaDoLancamento[]>(
-          `/caixa/${caixaId}/lancamentos/${idLancamento}/notas`,
-        )
-      ).data,
+    queryFn: async () => (await api.get<NotaDoLancamento[]>(caminho)).data,
   });
 
   const apagar = useMutation({
     mutationFn: async (fotoId: string) => api.delete(`/caixa/notas/${fotoId}`),
     onSuccess: async () => {
-      const { data } = await api.get<NotaDoLancamento[]>(
-        `/caixa/${caixaId}/lancamentos/${idLancamento}/notas`,
-      );
+      const { data } = await api.get<NotaDoLancamento[]>(caminho);
       qc.setQueryData(chave, data);
       onMudou?.(data.length);
     },
   });
 
   if (notas.isLoading) return <Carregando texto="Abrindo as fotos…" />;
+  if (notas.isError) {
+    return (
+      <p className="pt-3 text-sm text-rose-600">
+        Não deu para abrir as fotos: {mensagemErro(notas.error)}{' '}
+        <button
+          type="button"
+          onClick={() => void notas.refetch()}
+          className="font-medium text-brand-600 hover:underline dark:text-brand-300"
+        >
+          Tentar de novo
+        </button>
+      </p>
+    );
+  }
   if (!notas.data?.length) {
     return <p className="ajuda pt-3">Nenhuma foto anexada.</p>;
   }
@@ -1632,15 +1651,10 @@ function UmRecibo({
    * no cabeçalho, e uma aba aberta na mão chegaria lá sem ele.
    */
   const abrir = useMutation({
-    mutationFn: async () => {
-      const { data } = await api.get<Blob>(
-        `/diarias/${diariaId}/recibo.pdf`,
-        { responseType: 'blob' },
-      );
-      const url = URL.createObjectURL(data);
-      window.open(url, '_blank', 'noopener');
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
-    },
+    // A aba abre antes de o PDF chegar: depois da espera, o celular a recusa
+    // e "Ver o recibo" não fazia nada (ver `abrirNumaAba`).
+    mutationFn: () =>
+      abrirArquivo(`/diarias/${diariaId}/recibo.pdf`, `recibo-${diariaId}.pdf`),
     onError: (e) => setErro(mensagemErro(e)),
   });
 
@@ -1719,6 +1733,19 @@ function UmaFoto({
       </div>
       {foto.isLoading ? (
         <div className="h-40 w-40 animate-pulse rounded-xl border border-tinta-200 bg-tinta-100" />
+      ) : foto.isError ? (
+        /* Erro de rede não é foto apagada: dizer "não está mais aqui" mandava
+           a pessoa fotografar de novo uma nota que estava guardada. */
+        <p className="w-40 text-xs text-rose-600">
+          Não abriu: {mensagemErro(foto.error)}{' '}
+          <button
+            type="button"
+            onClick={() => void foto.refetch()}
+            className="font-medium text-brand-600 hover:underline dark:text-brand-300"
+          >
+            Tentar de novo
+          </button>
+        </p>
       ) : foto.data?.foto ? (
         /* A miniatura é o atalho; o que vale é o que ela abre. */
         <button
@@ -1735,6 +1762,72 @@ function UmaFoto({
         </button>
       ) : (
         <p className="ajuda">A foto não está mais aqui.</p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * As fotos de uma nota do acerto da rua: ver as que vieram, pôr mais uma.
+ *
+ * Elas eram guardadas e nunca mais vistas: a lista dos lançamentos da conta não
+ * tinha botão nenhum para abri-las, e a nota sem foto na hora do acerto não
+ * tinha como recebê-la depois.
+ */
+function FotosDoAcerto({
+  movimento,
+  onMudou,
+}: {
+  movimento: MovimentoDaRua;
+  onMudou: () => void;
+}) {
+  const qc = useQueryClient();
+  const [aberto, setAberto] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  const anexar = useMutation({
+    mutationFn: async (notaFoto: string) =>
+      api.post(`/caixa/movimentos-da-rua/${movimento.id}/notas`, { notaFoto }),
+    onSuccess: () => {
+      setErro(null);
+      setAberto(true);
+      void qc.invalidateQueries({
+        queryKey: ['caixa', 'notas-do-acerto', movimento.id],
+      });
+      onMudou();
+    },
+    onError: (e) => setErro(mensagemErro(e)),
+  });
+
+  return (
+    <div className="mt-1">
+      <div className="flex flex-wrap items-center gap-2">
+        {movimento.qtdNotas > 0 && (
+          <button
+            type="button"
+            onClick={() => setAberto((a) => !a)}
+            className="btn btn-p btn-ferramenta"
+          >
+            {aberto
+              ? 'Fechar'
+              : movimento.qtdNotas === 1
+                ? 'Ver nota'
+                : `Ver ${movimento.qtdNotas} notas`}
+          </button>
+        )}
+        <EscolherFoto
+          rotulo={movimento.qtdNotas > 0 ? '+ foto' : 'Anexar foto'}
+          pendente={anexar.isPending}
+          onEscolher={(dataUrl) => anexar.mutate(dataUrl)}
+          onErro={setErro}
+        />
+      </div>
+      {erro && <p className="mt-1 text-xs text-rose-600">{erro}</p>}
+      {aberto && (
+        <NotasDoLancamento
+          movimentoId={movimento.id}
+          onMudou={() => onMudou()}
+        />
       )}
     </div>
   );
@@ -2210,6 +2303,9 @@ function AcertarConta({
                 {m.observacao && (
                   <div className="text-xs text-tinta-400">{m.observacao}</div>
                 )}
+                {m.tipo === 'NOTA' && (
+                  <FotosDoAcerto movimento={m} onMudou={() => onLancado([])} />
+                )}
               </div>
               {/* Qualquer um, e não só o último: o saldo é uma soma, e some
                   qualquer parcela que se tire. O que virou título no IXC leva
@@ -2320,10 +2416,10 @@ function AcertarConta({
               ))}
               <label className="btn btn-p btn-neutro w-fit cursor-pointer">
                 {fotos.length ? '+ foto' : 'Anexar foto'}
+                {/* Câmera ou galeria, à escolha do aparelho (ver `EscolherFoto`). */}
                 <input
                   type="file"
                   accept="image/*"
-                  capture="environment"
                   className="hidden"
                   onChange={async (e) => {
                     const arquivo = e.target.files?.[0];

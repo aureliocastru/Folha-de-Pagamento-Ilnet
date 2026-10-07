@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { api, mensagemErro, mensagemErroDeArquivo } from '../lib/api';
+import { abrirNumaAba } from '../lib/arquivo';
 import type { NotaDoTitulo } from '../lib/types';
 import { FotoAmpliada } from './ui';
 
@@ -61,10 +62,7 @@ export function NotasDoTitulo({ idFnApagar }: { idFnApagar: number }) {
    * O arquivo vem pela API autenticada, e não por um `href` direto: o token
    * vive no cabeçalho, e uma aba aberta na mão chegaria lá sem ele.
    */
-  async function arquivo(nota: NotaDoTitulo): Promise<ArquivoDaNota> {
-    const pronto = baixados.get(nota.id);
-    if (pronto) return pronto;
-
+  async function baixar(nota: NotaDoTitulo): Promise<Blob> {
     const { data } = await api.get<Blob>(
       `/contas-abertas/notas/${nota.id}/arquivo`,
       {
@@ -72,6 +70,14 @@ export function NotasDoTitulo({ idFnApagar }: { idFnApagar: number }) {
         responseType: 'blob',
       },
     );
+    return data;
+  }
+
+  async function arquivo(nota: NotaDoTitulo): Promise<ArquivoDaNota> {
+    const pronto = baixados.get(nota.id);
+    if (pronto) return pronto;
+
+    const data = await baixar(nota);
     const lido = { url: URL.createObjectURL(data), tipo: data.type };
     baixados.set(nota.id, lido);
     return lido;
@@ -81,11 +87,18 @@ export function NotasDoTitulo({ idFnApagar }: { idFnApagar: number }) {
     setAbrindo(nota.id);
     setErro(null);
     try {
-      const { url, tipo } = await arquivo(nota);
       // Foto abre aqui, do tamanho da tela — é para ser lida, e a aba nova
-      // custa a volta. PDF vai para a aba, que é quem sabe folhear.
-      if (tipo.startsWith('image/')) setVendo(nota);
-      else window.open(url, '_blank', 'noopener');
+      // custa a volta. PDF vai para a aba, que é quem sabe folhear — aberta
+      // antes de buscar, senão o celular a recusa (ver `abrirNumaAba`).
+      if (ehFoto(nota)) {
+        await arquivo(nota);
+        setVendo(nota);
+      } else {
+        await abrirNumaAba(
+          () => baixar(nota),
+          `${nota.descricao}${nota.extensao ? `.${nota.extensao}` : ''}`,
+        );
+      }
     } catch (e) {
       setErro(await mensagemErroDeArquivo(e));
     } finally {
