@@ -182,13 +182,13 @@ describe('editar conta aprovada', () => {
       apagarLocalPorTituloIxc: jest.fn(),
       mapaDoTipoChavePix: jest.fn().mockResolvedValue(null),
     };
-    const despesaPorVeiculo = {
+    const parteDaConta = {
       count: jest.fn().mockResolvedValue(opts.partesPorVeiculo ?? 0),
     };
     const service = new PagamentosService(
       ixc as never,
       { obter: jest.fn().mockResolvedValue({}) } as never,
-      { contaPagar, despesaPorVeiculo } as never,
+      { contaPagar, parteDaConta } as never,
       contasPagar as never,
     );
     return { service, passos, ixc, contaPagar };
@@ -257,10 +257,10 @@ describe('editar conta aprovada', () => {
   it('conta dividida entre veículos não troca de valor nem ganha veículo', async () => {
     const dividida = montar({ partesPorVeiculo: 2 });
     await expect(dividida.service.editar(4242, { valor: 500 })).rejects.toThrow(
-      /dividida entre veículos/,
+      /lançada com várias notas/,
     );
     await expect(dividida.service.editar(4242, { veiculoId: 'v1' })).rejects.toThrow(
-      /dividida entre veículos/,
+      /lançada com várias notas/,
     );
     expect(dividida.passos).toEqual([]);
     expect(dividida.contaPagar.updateMany).not.toHaveBeenCalled();

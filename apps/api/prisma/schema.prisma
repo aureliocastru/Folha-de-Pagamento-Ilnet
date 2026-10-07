@@ -1347,9 +1347,9 @@ model ContaPagar {
   veiculo   Veiculo? @relation(fields: [veiculoId], references: [id], onDelete: SetNull)
   veiculoId String?  @map("veiculo_id")
 
-  /// A conta dividida entre veículos: uma nota por carro, um pagamento só.
-  /// Com estas linhas o `veiculoId` acima fica vazio — ver `DespesaPorVeiculo`.
-  despesasPorVeiculo DespesaPorVeiculo[]
+  /// A conta paga de uma vez com várias notas dentro — cada uma com a sua
+  /// categoria e, se for o caso, o seu veículo. Ver `ParteDaConta`.
+  partes ParteDaConta[]
 
   /// As férias que este pagamento quita. Só no tipo FERIAS, e é o que responde
   /// "as férias dela já foram pagas?" sem depender do mês — as férias podem
@@ -1398,34 +1398,43 @@ model ContaPagar {
   @@map("contas_pagar")
 }
 
-/// A parte de uma conta a pagar que foi gasta num veículo.
+/// Uma das notas de uma conta paga de uma vez.
 ///
-/// A oficina manda uma nota por carro e cobra tudo junto: o título no IXC é
-/// um só — um PIX, uma baixa —, e o que cada veículo custou fica aqui. A ficha
-/// do veículo soma estas linhas, e não a conta inteira; a conta dividida fica
-/// com o `veiculoId` vazio, senão o mesmo dinheiro contaria duas vezes.
+/// O fornecedor manda várias notas — a peça da Strada, o pneu da Hilux, o
+/// serviço do escritório — e cobra tudo junto: o título no IXC é um só (um
+/// PIX, uma baixa), e cada nota fica aqui com o que ela é. Os relatórios
+/// dividem o título pelas categorias destas linhas, como fazem com a fatura do
+/// cartão; a ficha do veículo soma as que são dele. A conta com partes fica com
+/// o `veiculoId` vazio, senão o mesmo dinheiro contaria duas vezes.
 ///
 /// As linhas somam o valor da conta: é a tela que divide, e a API recusa a
-/// divisão que não fecha.
-model DespesaPorVeiculo {
+/// divisão que não fecha. A tabela tem o nome de quando só havia veículo.
+model ParteDaConta {
   id String @id @default(uuid())
 
   conta        ContaPagar @relation(fields: [contaPagarId], references: [id], onDelete: Cascade)
   contaPagarId String     @map("conta_pagar_id")
 
-  /// `Restrict`: apagar o veículo apagaria em silêncio a parte dele numa conta
-  /// que existe e foi paga. Desligar é o caminho de quem saiu da frota.
-  veiculo   Veiculo @relation(fields: [veiculoId], references: [id], onDelete: Restrict)
-  veiculoId String  @map("veiculo_id")
+  /// O veículo desta nota, quando ela é de um. `Restrict`: apagar o veículo
+  /// apagaria em silêncio a parte dele numa conta que existe e foi paga.
+  veiculo   Veiculo? @relation(fields: [veiculoId], references: [id], onDelete: Restrict)
+  veiculoId String?  @map("veiculo_id")
+
+  /// Com o que se gastou nesta nota. Vazia, vale a etiqueta do título.
+  categoria   CategoriaDespesa? @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
+  categoriaId String?           @map("categoria_id")
 
   valor     Decimal @db.Decimal(14, 2)
-  /// O que foi feito nele: "troca de óleo", "pneu dianteiro".
+  /// O que foi: "troca de óleo", "pneu dianteiro", "manutenção do ar".
   descricao String?
+  /// A foto ou o PDF desta nota, guardados aqui. Ver `FotoDaNota.parte`.
+  fotos     FotoDaNota[]
 
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([contaPagarId])
   @@index([veiculoId])
+  @@index([categoriaId])
   @@map("despesas_por_veiculo")
 }
 
@@ -1500,8 +1509,8 @@ model Veiculo {
   logins       VeiculoDoLogin[]
 
   contas         ContaPagar[]
-  /// O que é dele nas contas divididas entre vários veículos.
-  despesasPorVeiculo DespesaPorVeiculo[]
+  /// O que é dele nas contas pagas de uma vez com várias notas.
+  partesDeContas ParteDaConta[]
   abastecimentos Abastecimento[]
   /// O que saiu deste galão para as máquinas.
   saidas         Abastecimento[] @relation("saidas_do_galao")
@@ -1964,6 +1973,8 @@ model CategoriaDespesa {
   cartoesCredito            CartaoCredito[]
   /// As compras no cartão que caem nesta categoria.
   comprasNoCartao           CompraNoCartao[]
+  /// As notas de contas pagas de uma vez que caem nesta categoria.
+  partesDeContas            ParteDaConta[]
   /// Quem recebe fora da folha e costuma entrar nesta categoria.
   beneficiarios             BeneficiarioAvulso[]
   /// Os diaristas cujo acerto costuma entrar nesta categoria.
@@ -2100,6 +2111,11 @@ model FotoDaNota {
   conferenciaId String?           @map("conferencia_id")
   movimento     MovimentoDaRua?   @relation(fields: [movimentoId], references: [id], onDelete: Cascade)
   movimentoId   String?           @map("movimento_id")
+  /// Ou de uma das notas de uma conta paga de uma vez. A nota também sobe para
+  /// o título no IXC, mas lá ela não volta: com várias no mesmo título, o
+  /// webservice desta base não devolve uma por uma. É desta cópia que ela abre.
+  parte         ParteDaConta?     @relation(fields: [parteId], references: [id], onDelete: Cascade)
+  parteId       String?           @map("parte_id")
 
   /// A imagem, em data URL. Vazia quando a nota é um recibo.
   foto String?
@@ -2118,6 +2134,7 @@ model FotoDaNota {
 
   @@index([conferenciaId])
   @@index([movimentoId])
+  @@index([parteId])
   @@index([diariaId])
   @@map("fotos_da_nota")
 }

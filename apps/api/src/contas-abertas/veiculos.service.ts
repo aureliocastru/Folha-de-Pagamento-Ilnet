@@ -84,6 +84,13 @@ export interface GastoDoVeiculo {
   vencimento: string;
   situacao: 'paga' | 'em aberto' | 'nao enviada' | 'cancelada';
   categoria: EtiquetaDoTitulo | null;
+  /**
+   * Quando o gasto é uma das notas de uma conta paga de uma vez: qual nota. A
+   * ficha mostra só a foto dela, e não as de todos os veículos do título.
+   */
+  parteId: string | null;
+  /** Quantas fotos dessa nota estão guardadas aqui. */
+  notasGuardadas: number;
 }
 
 export interface FichaDoVeiculo {
@@ -126,7 +133,7 @@ export class VeiculosService {
         orderBy: [{ ativo: 'desc' }, { apelido: 'asc' }],
         include: {
           contas: { select: CAMPOS_DA_CONTA },
-          despesasPorVeiculo: {
+          partesDeContas: {
             select: { valor: true, conta: { select: CAMPOS_DA_CONTA } },
           },
           responsaveis: RESPONSAVEIS,
@@ -243,7 +250,7 @@ export class VeiculosService {
     return veiculos.map((v) =>
       resumir(
         v,
-        [...v.contas, ...partesComoContas(v.despesasPorVeiculo)],
+        [...v.contas, ...partesComoContas(v.partesDeContas)],
         porVeiculo.get(v.id),
         estoques.get(v.id) ?? null,
         mediaDeConsumo(
@@ -304,11 +311,14 @@ export class VeiculosService {
           },
           orderBy: { dataVencimento: 'desc' },
         },
-        // A parte dele nas contas divididas: a nota da oficina que era dele.
-        despesasPorVeiculo: {
+        // As notas dele nas contas pagas de uma vez: a nota da oficina que era dele.
+        partesDeContas: {
           select: {
+            id: true,
             valor: true,
             descricao: true,
+            _count: { select: { fotos: true } },
+            categoria: { select: { id: true, nome: true, pai: { select: { id: true, nome: true } } } },
             conta: {
               select: {
                 ...CAMPOS_DA_CONTA,
@@ -325,18 +335,30 @@ export class VeiculosService {
     if (!veiculo) throw new NotFoundException('Veículo não encontrado.');
 
     /*
-     * As contas inteiras dele e as partes dele nas divididas, numa lista só.
-     * Na dividida o valor é o da parte, e o que foi feito vem antes do texto
-     * da conta — "troca de óleo — oficina, notas de outubro".
+     * As contas inteiras dele e as notas dele nas pagas de uma vez, numa lista
+     * só. Na nota o valor é o dela, o que foi feito vem antes do texto da
+     * conta — "troca de óleo — oficina, notas de outubro" —, e a categoria é a
+     * da nota, quando ela tem uma.
      */
-    const lancadas = [
+    const lancadas: Array<
+      (typeof veiculo.contas)[number] & {
+        etiqueta?: EtiquetaDoTitulo | null;
+        parteId?: string;
+        notasGuardadas?: number;
+      }
+    > = [
       ...veiculo.contas,
-      ...veiculo.despesasPorVeiculo.map((d) => ({
+      ...veiculo.partesDeContas.map((d) => ({
         ...d.conta,
         valor: d.valor,
         observacao: d.descricao
           ? `${d.descricao} — ${d.conta.observacao}`
           : d.conta.observacao,
+        etiqueta: d.categoria
+          ? { id: d.categoria.id, nome: d.categoria.nome, grupo: d.categoria.pai ?? null }
+          : null,
+        parteId: d.id,
+        notasGuardadas: d._count.fotos,
       })),
     ].sort((a, b) => b.dataVencimento.getTime() - a.dataVencimento.getTime());
 
@@ -355,7 +377,10 @@ export class VeiculosService {
       vencimento: c.dataVencimento.toISOString().slice(0, 10),
       situacao: situacao(c),
       categoria:
-        c.idFnApagarIxc != null ? (etiquetas.get(c.idFnApagarIxc) ?? null) : null,
+        c.etiqueta ??
+        (c.idFnApagarIxc != null ? (etiquetas.get(c.idFnApagarIxc) ?? null) : null),
+      parteId: c.parteId ?? null,
+      notasGuardadas: c.notasGuardadas ?? 0,
     }));
 
     const porNome = new Map<string, number>();
@@ -449,7 +474,7 @@ export class VeiculosService {
     await this.existente(id);
     const [inteiras, partes, abastecimentos] = await Promise.all([
       this.prisma.contaPagar.count({ where: { veiculoId: id } }),
-      this.prisma.despesaPorVeiculo.count({ where: { veiculoId: id } }),
+      this.prisma.parteDaConta.count({ where: { veiculoId: id } }),
       this.prisma.abastecimento.count({ where: { veiculoId: id } }),
     ]);
     const contas = inteiras + partes;

@@ -34,10 +34,10 @@ export interface DetalheDoTitulo {
     /** A conta foi lançada por este app — só nela cabe o veículo. */
     lancadaAqui: boolean;
     veiculoId: string | null;
-    /** A conta dividida entre veículos: a parte de cada um. Vazio na comum. */
-    porVeiculo: Array<{
-      veiculoId: string;
-      apelido: string;
+    /** A conta paga de uma vez: as notas dela. Vazio na comum. */
+    notas: Array<{
+      veiculo: string | null;
+      categoria: string | null;
       valor: number;
       descricao: string | null;
     }>;
@@ -417,11 +417,12 @@ export class ContasAbertasService {
       where: { idFnApagarIxc: idFnApagar },
       select: {
         veiculoId: true,
-        despesasPorVeiculo: {
+        partes: {
           select: {
             valor: true,
             descricao: true,
-            veiculo: { select: { id: true, apelido: true } },
+            veiculo: { select: { apelido: true } },
+            categoria: { select: { nome: true } },
           },
           orderBy: { createdAt: 'asc' },
         },
@@ -442,9 +443,9 @@ export class ContasAbertasService {
         tipoChavePix,
         lancadaAqui: !!local,
         veiculoId: local?.veiculoId ?? null,
-        porVeiculo: (local?.despesasPorVeiculo ?? []).map((d) => ({
-          veiculoId: d.veiculo.id,
-          apelido: d.veiculo.apelido,
+        notas: (local?.partes ?? []).map((d) => ({
+          veiculo: d.veiculo?.apelido ?? null,
+          categoria: d.categoria?.nome ?? null,
           valor: Number(d.valor),
           descricao: d.descricao,
         })),

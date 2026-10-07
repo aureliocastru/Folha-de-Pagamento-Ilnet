@@ -66,16 +66,23 @@ describe('VeiculosService', () => {
   function montar(
     contas: Array<ReturnType<typeof conta>>,
     etiquetas = new Map(),
-    /** A parte desta moto em contas divididas entre veículos. */
-    partes: Array<{ valor: number; descricao: string | null; conta: ReturnType<typeof conta> }> = [],
+    /** As notas desta moto em contas pagas de uma vez. */
+    partes: Array<{
+      id?: string;
+      valor: number;
+      descricao: string | null;
+      categoria?: { id: string; nome: string; pai: { id: string; nome: string } | null } | null;
+      _count?: { fotos: number };
+      conta: ReturnType<typeof conta>;
+    }> = [],
   ) {
     const prisma = {
       veiculo: {
-        findUnique: jest.fn(async () => ({ ...MOTO, contas, despesasPorVeiculo: partes })),
+        findUnique: jest.fn(async () => ({ ...MOTO, contas, partesDeContas: partes })),
         delete: jest.fn(async () => MOTO),
       },
       contaPagar: { count: jest.fn(async () => contas.length) },
-      despesaPorVeiculo: { count: jest.fn(async () => partes.length) },
+      parteDaConta: { count: jest.fn(async () => partes.length) },
       abastecimento: { count: jest.fn(async () => 0) },
       funcionario: {
         findMany: jest.fn(async ({ where }: { where: { id?: { in: string[] } } }) =>
@@ -167,7 +174,16 @@ describe('VeiculosService', () => {
     const { service } = montar(
       [conta(100, StatusContaPagar.PAGO, '2026-08-02', { id: 'b', idFnApagarIxc: 2, beneficiarioNome: 'Oficina', observacao: 'Troca' })],
       new Map(),
-      [{ valor: 120, descricao: 'troca de óleo', conta: dividida }],
+      [
+        {
+          id: 'parte-1',
+          valor: 120,
+          descricao: 'troca de óleo',
+          categoria: { id: 'c1', nome: 'Peças', pai: { id: 'g', nome: 'Veículos' } },
+          _count: { fotos: 1 },
+          conta: dividida,
+        },
+      ],
     );
 
     const ficha = await service.ficha('v1');
@@ -180,7 +196,12 @@ describe('VeiculosService', () => {
       valor: 120,
       observacao: 'troca de óleo — Notas de outubro',
       vencimento: '2026-10-05',
+      // A categoria é a da nota, e a foto é só a dela.
+      categoria: { id: 'c1', nome: 'Peças', grupo: { id: 'g', nome: 'Veículos' } },
+      parteId: 'parte-1',
+      notasGuardadas: 1,
     });
+    expect(ficha.porCategoria).toContainEqual({ nome: 'Veículos › Peças', valor: 120 });
   });
 
   it('veículo com parte numa conta dividida também não se apaga', async () => {

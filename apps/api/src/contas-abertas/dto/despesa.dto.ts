@@ -216,12 +216,17 @@ export class ParcelaDaDespesaDto {
 }
 
 /**
- * A parte de uma conta que foi gasta num veículo — uma das notas da oficina.
+ * Uma das notas de uma conta paga de uma vez.
  *
- * O valor é o que esta nota custou; a soma das partes é o valor da conta.
+ * O valor é o que esta nota custou; a soma das notas é o valor da conta. A
+ * categoria e o veículo são desta nota — a peça da Strada, o serviço do
+ * escritório —, e os dois podem ficar vazios.
  */
-export class DespesaPorVeiculoDto {
-  @IsUUID('4', { message: 'Escolha o veículo de cada nota.' }) veiculoId!: string;
+export class NotaDaContaDto {
+  @IsOptional() @IsUUID() veiculoId?: string;
+
+  /** Com o que se gastou nesta nota. Vazia, vale a categoria da conta. */
+  @IsOptional() @IsUUID() categoriaId?: string;
 
   @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
   @IsNumber()
@@ -275,17 +280,30 @@ export class CriarDespesaDto {
   @IsOptional() @IsUUID() veiculoId?: string | null;
 
   /**
-   * A conta dividida entre veículos: as notas da oficina, cada uma de um carro,
-   * pagas de uma vez. Vira um título só no IXC, e a ficha de cada veículo soma
-   * a parte dele. Com isto preenchido, `veiculoId` não vale, e `valor` tem de
-   * ser a soma das partes.
+   * A conta paga de uma vez com várias notas dentro, cada uma com a sua
+   * categoria e, se for o caso, o seu veículo. Vira um título só no IXC; os
+   * relatórios dividem esse título pelas categorias das notas, e a ficha de
+   * cada veículo soma as dele. Com isto preenchido, `veiculoId` não vale, e
+   * `valor` tem de ser a soma das notas.
    */
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(50)
   @ValidateNested({ each: true })
-  @Type(() => DespesaPorVeiculoDto)
-  porVeiculo?: DespesaPorVeiculoDto[];
+  @Type(() => NotaDaContaDto)
+  notas?: NotaDaContaDto[];
+
+  /**
+   * O nome antigo de `notas`, de quando só havia veículo. Fica para a aba que
+   * ficou aberta com a tela anterior: sem ele, a divisão dela seria descartada
+   * calada e a conta entraria inteira, sem veículo nenhum.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => NotaDaContaDto)
+  porVeiculo?: NotaDaContaDto[];
 
   /** Pix, Dinheiro, Boleto… Vazio = o padrão das Configurações. */
   @IsOptional() @IsString() @MaxLength(40) tipoPagamento?: string;

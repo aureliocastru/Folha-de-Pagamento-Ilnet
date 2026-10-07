@@ -609,17 +609,17 @@ export class PagamentosService {
     }
 
     /*
-     * Na conta dividida entre veículos, o valor e os veículos são os das notas
-     * dela. Trocar o valor por aqui deixaria a soma sem fechar; pôr um veículo
-     * só faria a ficha dele contar a conta inteira, por cima da parte de cada um.
+     * Na conta paga de uma vez com várias notas, o valor e os veículos são os
+     * das notas. Trocar o valor por aqui deixaria a soma sem fechar; pôr um
+     * veículo só faria a ficha dele contar a conta inteira, por cima das notas.
      */
     if (veiculoId || doIxc.valor !== undefined) {
-      const dividida = await this.prisma.despesaPorVeiculo.count({
+      const comNotas = await this.prisma.parteDaConta.count({
         where: { conta: { idFnApagarIxc: idFnApagar } },
       });
-      if (dividida > 0) {
+      if (comNotas > 0) {
         throw new BadRequestException(
-          'Esta conta está dividida entre veículos: o valor e os veículos são ' +
+          'Esta conta foi lançada com várias notas: o valor e os veículos são ' +
             'os das notas dela. Nada foi alterado.',
         );
       }

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useAssistente } from '../../components/Assistente';
 import { FotoDaNota } from '../../components/FotoDaNota';
-import { NotasDoTitulo } from '../../components/NotasDoTitulo';
+import { NotasDaParte, NotasDoTitulo } from '../../components/NotasDoTitulo';
 import { FotoDoPonto } from '../../components/PainelDePontos';
 import {
   Aviso,
@@ -158,6 +158,10 @@ interface Ficha {
     vencimento: string;
     situacao: 'paga' | 'em aberto' | 'nao enviada' | 'cancelada';
     categoria: { id: string; nome: string; grupo: { id: string; nome: string } | null } | null;
+    /** Quando o gasto é uma das notas de uma conta paga de uma vez: qual nota. */
+    parteId: string | null;
+    /** Quantas fotos dessa nota estão guardadas no sistema. */
+    notasGuardadas: number;
   }>;
   porCategoria: Array<{ nome: string; valor: number }>;
   combustivel: {
@@ -701,7 +705,11 @@ function FotoDoAbastecimento({
  * Sob demanda porque ler o anexo é uma ida ao IXC, e a ficha de um veículo com
  * vinte contas faria vinte delas só para desenhar a lista.
  */
-function NotaDaConta({ idFnApagar }: { idFnApagar: number }) {
+function NotaDaConta(
+  props:
+    | { idFnApagar: number; filtro?: (descricao: string) => boolean; parteId?: undefined }
+    | { parteId: string; idFnApagar?: undefined; filtro?: undefined },
+) {
   const [aberta, setAberta] = useState(false);
   return (
     <>
@@ -712,9 +720,22 @@ function NotaDaConta({ idFnApagar }: { idFnApagar: number }) {
       >
         {aberta ? 'Esconder a nota' : 'Ver a nota'}
       </button>
-      {aberta && <NotasDoTitulo idFnApagar={idFnApagar} />}
+      {aberta &&
+        (props.idFnApagar !== undefined ? (
+          <NotasDoTitulo idFnApagar={props.idFnApagar} filtro={props.filtro} />
+        ) : (
+          <NotasDaParte parteId={props.parteId} />
+        ))}
     </>
   );
+}
+
+/** A descrição começa com este nome? Sem acento e sem caixa, como se lê. */
+function comecaCom(nome: string): (descricao: string) => boolean {
+  const limpo = (t: string) =>
+    t.normalize('NFD').replace(/\p{M}/gu, '').trim().toLowerCase();
+  const alvo = limpo(nome);
+  return (descricao) => limpo(descricao).startsWith(alvo);
 }
 
 const dataEHora = (iso: string) =>
@@ -1147,7 +1168,19 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
                     {/* A nota que se anexou ao lançar a conta mora no IXC, e é
                         de lá que ela volta — quem anexou o cupom vem procurá-lo
                         aqui, na ficha do veículo. */}
-                    {g.idFnApagarIxc != null && <NotaDaConta idFnApagar={g.idFnApagarIxc} />}
+                    {g.parteId && g.notasGuardadas > 0 ? (
+                      <NotaDaConta parteId={g.parteId} />
+                    ) : (
+                      g.idFnApagarIxc != null && (
+                        <NotaDaConta
+                          idFnApagar={g.idFnApagarIxc}
+                          /* A conta paga de uma vez, lançada antes de as notas
+                             ficarem guardadas aqui: das notas do título, só as
+                             que levam o nome deste veículo. */
+                          filtro={g.parteId ? comecaCom(d.veiculo.apelido) : undefined}
+                        />
+                      )
+                    )}
                   </span>
                   <span
                     className={`valor whitespace-nowrap ${

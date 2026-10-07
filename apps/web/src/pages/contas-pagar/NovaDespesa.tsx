@@ -41,10 +41,10 @@ export interface EdicaoDaConta {
   /** Lançada por este app: só nela cabe o veículo, que mora aqui. */
   lancadaAqui: boolean;
   veiculoId: string | null;
-  /** A conta dividida entre veículos: a parte de cada um. Vazio na comum. */
-  porVeiculo?: Array<{
-    veiculoId: string;
-    apelido: string;
+  /** A conta paga de uma vez: as notas dela. Vazio na comum. */
+  notas?: Array<{
+    veiculo: string | null;
+    categoria: string | null;
     valor: number;
     descricao: string | null;
   }>;
@@ -135,6 +135,8 @@ export interface DespesaLancada {
     data: string;
     avisos: string[];
   } | null;
+  /** As notas da conta paga de uma vez, na ordem em que foram mandadas. */
+  partes?: Array<{ id: string }>;
 }
 
 /** Uma conta de onde o dinheiro sai, como o IXC a tem. */
@@ -313,14 +315,15 @@ export function NovaDespesa({
   /** As notas que vão junto: arquivos escolhidos ou prints colados. */
   const [notas, setNotas] = useState<ArquivoDaNota[]>([]);
   /**
-   * A conta dividida entre veículos: as notas da oficina, uma por carro, pagas
-   * de uma vez. Vazia, é a conta de sempre.
+   * A conta paga de uma vez com várias notas dentro — a peça da Strada, o pneu
+   * da Hilux, o serviço do escritório —, cada uma com a sua categoria e, se for
+   * o caso, o seu veículo. Vazia, é a conta de sempre.
    */
-  const [porVeiculo, setPorVeiculo] = useState<NotaPorVeiculo[]>([]);
-  /** A tela das notas por veículo está aberta, no lugar do formulário. */
+  const [divisao, setDivisao] = useState<NotaDaConta[]>([]);
+  /** A tela das notas está aberta, no lugar do formulário. */
   const [dividindo, setDividindo] = useState(false);
-  const dividida = porVeiculo.length > 0;
-  const somaPorVeiculo = somarNotas(porVeiculo);
+  const dividida = divisao.length > 0;
+  const somaDasNotas = somarNotas(divisao);
   const [avisoDaNota, setAvisoDaNota] = useState<string | null>(null);
 
   const categorias = useQuery({
@@ -470,11 +473,12 @@ export function NovaDespesa({
           dataVencimento: vencimento,
           observacao: observacao.trim(),
           categoriaId: categoriaId || null,
-          // Dividida, a conta não é de um veículo: cada nota é do seu.
+          // Com várias notas, a conta não é de um veículo: cada nota é do seu.
           veiculoId: dividida ? undefined : veiculoId || undefined,
-          porVeiculo: dividida
-            ? porVeiculo.map((n) => ({
-                veiculoId: n.veiculoId,
+          notas: dividida
+            ? divisao.map((n) => ({
+                veiculoId: n.veiculoId || undefined,
+                categoriaId: n.categoriaId || undefined,
                 valor: Number(n.valor),
                 descricao: n.descricao.trim() || undefined,
               }))
@@ -523,15 +527,24 @@ export function NovaDespesa({
        */
       const idNoIxc = data.conta.idFnApagarIxc;
       const paraSubir = arquivosParaSubir(observacao);
+      const avisos: string[] = [];
       if (paraSubir.length > 0 && idNoIxc) {
         const { falhas, motivo } = await subirNotas(idNoIxc, paraSubir);
         if (falhas.length > 0) {
-          setAvisoDaNota(
+          avisos.push(
             `A conta foi lançada, mas ${contarNotas(falhas.length, paraSubir.length)} ` +
               `não ${falhas.length === 1 ? 'subiu' : 'subiram'}: ${motivo}`,
           );
         }
       }
+      /*
+       * A foto de cada nota vai para a nota dela, e fica guardada aqui além de
+       * subir para o título: com várias no mesmo título, o IXC desta base não
+       * as devolve uma por uma.
+       */
+      const dasNotas = await subirFotosDasNotas(divisao, data.partes ?? [], rotuloDaNota);
+      if (dasNotas) avisos.push(dasNotas);
+      if (avisos.length) setAvisoDaNota(avisos.join(' '));
 
       return data;
     },
@@ -768,36 +781,47 @@ export function NovaDespesa({
   const boletoValido = [44, 47, 48].includes(digitos(codigoBarras).length);
   const ehCopiaECola = /^0002/.test(chavePix.trim());
 
-  /** O valor da conta: o digitado, ou a soma das notas quando ela é dividida. */
-  const valorDaConta = dividida ? somaPorVeiculo : Number(valor) || 0;
+  /** O valor da conta: o digitado, ou a soma das notas quando ela tem várias. */
+  const valorDaConta = dividida ? somaDasNotas : Number(valor) || 0;
 
   /*
-   * Máquinas e veículos — a categoria mãe ou qualquer filha dela — abre a
-   * divisão por veículo. Pelo nome do grupo, que é como o cadastro o conhece.
+   * Várias notas num pagamento só vale para qualquer conta — a oficina, a
+   * papelaria, o fornecedor que manda três notas e cobra junto. Só não cabe
+   * na parcelada nem na que se repete: as duas são outra divisão do dinheiro.
    */
-  const categoriaEscolhida = categorias.data?.find((c) => c.id === categoriaId);
-  const grupoDaCategoria = categoriaEscolhida?.pai?.nome ?? categoriaEscolhida?.nome ?? '';
-  const ehDaFrota = /ve[ií]culo|m[aá]quina/i.test(grupoDaCategoria);
-  const podeDividir =
-    ehDaFrota && !edicao && !parcelado && !recorrente && (veiculos.data?.length ?? 0) > 0;
+  const podeDividir = !edicao && !parcelado && !recorrente;
 
   function abrirDivisao() {
-    if (porVeiculo.length === 0) {
-      // A primeira nota começa com o que já estava no formulário.
-      setPorVeiculo([
-        novaNotaPorVeiculo({
+    if (divisao.length === 0) {
+      // A primeira nota começa com o que já estava no formulário — inclusive a
+      // foto, que agora é dela.
+      setDivisao([
+        novaNotaDaConta({
+          categoriaId,
           veiculoId,
           valor: Number(valor) > 0 ? valor : '',
+          notas,
         }),
       ]);
+      setNotas([]);
     }
     setDividindo(true);
+  }
+
+  /** "Strada · Manutenção — troca de óleo": o nome da nota no IXC e na tela. */
+  function rotuloDaNota(n: NotaDaConta): string {
+    const apelido = veiculos.data?.find((v) => v.id === n.veiculoId)?.apelido;
+    const categoria = categorias.data?.find((c) => c.id === n.categoriaId)?.nome;
+    return [[apelido, categoria].filter(Boolean).join(' · '), n.descricao.trim()]
+      .filter(Boolean)
+      .join(' — ')
+      .slice(0, 80) || observacao.trim().slice(0, 80) || 'Nota';
   }
 
   const podeLancar =
     !!fornecedor &&
     valorDaConta > 0 &&
-    (!dividida || notasCompletas(porVeiculo)) &&
+    (!dividida || notasCompletas(divisao)) &&
     // Na edição não se exige: conta lançada no IXC sem observação continua
     // podendo ser corrigida no que ela tem de errado.
     (!!edicao || observacao.trim().length >= 3) &&
@@ -863,7 +887,7 @@ export function NovaDespesa({
       resumo: [
         categoriaId ? 'categoria marcada' : null,
         dividida
-          ? `${porVeiculo.length} nota${porVeiculo.length > 1 ? 's' : ''} por veículo`
+          ? `${divisao.length} nota${divisao.length > 1 ? 's' : ''}`
           : veiculoId
             ? 'veículo marcado'
             : null,
@@ -892,41 +916,36 @@ export function NovaDespesa({
     a.celular ? null : <p className="eyebrow mb-3">{texto}</p>;
 
   /**
-   * Os arquivos que sobem com a conta, cada um com o nome que a aba de arquivos
-   * do IXC vai mostrar: as notas gerais com o texto da conta; as de cada veículo
-   * com o apelido dele e o que foi feito — é por ali que se acha a nota do carro.
+   * Os arquivos que sobem com a conta pelo título, cada um com o nome que a
+   * aba de arquivos do IXC vai mostrar. As fotos das várias notas não passam
+   * por aqui: vão pela nota de cada uma (ver `subirFotosDasNotas`).
    */
   function arquivosParaSubir(textoDaConta: string): NotaParaSubir[] {
     const base = textoDaConta.trim().slice(0, 80) || 'Nota';
-    const apelido = (id: string) =>
-      veiculos.data?.find((v) => v.id === id)?.apelido ?? 'Veículo';
-    return [
-      ...notas.map((n) => ({ ...n, descricao: base })),
-      ...porVeiculo.flatMap((p) =>
-        p.notas.map((n) => ({
-          ...n,
-          descricao: `${apelido(p.veiculoId)} — ${p.descricao.trim() || base}`.slice(0, 80),
-        })),
-      ),
-    ];
+    return notas.map((n) => ({ ...n, descricao: base }));
   }
 
   if (dividindo) {
     return (
-      <Janela titulo="Notas por veículo" onFechar={() => setDividindo(false)} larga>
-        <TelaDasNotasPorVeiculo
-          notas={porVeiculo}
-          onMudar={setPorVeiculo}
+      <Janela titulo="Várias notas, um pagamento" onFechar={() => setDividindo(false)} larga>
+        <TelaDasNotas
+          notas={divisao}
+          onMudar={setDivisao}
           veiculos={veiculos.data ?? []}
-          carregando={veiculos.isLoading}
+          carregandoVeiculos={veiculos.isLoading}
+          categorias={categorias.data}
+          carregandoCategorias={categorias.isLoading}
+          categoriaDaConta={categoriaId}
           fornecedor={fornecedor?.nome ?? null}
           onPronto={() => {
-            setValor(somaPorVeiculo.toFixed(2));
+            setValor(somaDasNotas.toFixed(2));
             setVeiculoId('');
             setDividindo(false);
           }}
           onDesfazer={() => {
-            setPorVeiculo([]);
+            // As fotos voltam para a conta: elas foram tiradas para ela.
+            setNotas((atuais) => [...atuais, ...divisao.flatMap((n) => n.notas)]);
+            setDivisao([]);
             setDividindo(false);
           }}
         />
@@ -1119,12 +1138,12 @@ export function NovaDespesa({
                     ? 'Valor da parcela'
                     : 'Valor'}
                 </label>
-                {dividida || edicao?.porVeiculo?.length ? (
+                {dividida || edicao?.notas?.length ? (
                   <button
                     type="button"
                     onClick={() => dividida && setDividindo(true)}
                     className="campo text-left"
-                    title={dividida ? 'A soma das notas por veículo' : 'A soma das notas desta conta'}
+                    title="A soma das notas desta conta"
                   >
                     {formatBRL(valorDaConta)}
                   </button>
@@ -1161,6 +1180,17 @@ export function NovaDespesa({
               </div>
             </div>
           )}
+          {/* O fornecedor mandou várias notas e cobra tudo junto: um
+              pagamento só, e cada nota com a sua categoria. */}
+          {a.mostrar(1) && podeDividir && !dividida && (
+            <button
+              type="button"
+              onClick={abrirDivisao}
+              className="btn btn-p btn-ferramenta -mt-2 mb-4"
+            >
+              Várias notas, um pagamento
+            </button>
+          )}
           {a.mostrar(2) && (
             <div className="mb-4">
               <label className="rotulo" htmlFor="observacao">
@@ -1177,7 +1207,7 @@ export function NovaDespesa({
               />
             </div>
           )}
-          {a.mostrar(6) && (
+          {a.mostrar(6) && !dividida && (
             <div>
               <CampoDaNota notas={notas} onMudar={setNotas} parcelado={parcelado} />
             </div>
@@ -1451,30 +1481,31 @@ export function NovaDespesa({
                 </div>
                 {dividida ? (
                   <div>
-                    <span className="rotulo">Veículos</span>
+                    <span className="rotulo">Notas da conta</span>
                     <button
                       type="button"
                       onClick={() => setDividindo(true)}
                       className="campo flex items-center justify-between gap-2 text-left"
                     >
                       <span className="truncate">
-                        {porVeiculo.length} nota{porVeiculo.length > 1 ? 's' : ''} ·{' '}
-                        {formatBRL(somaPorVeiculo)}
+                        {divisao.length} nota{divisao.length > 1 ? 's' : ''} ·{' '}
+                        {formatBRL(somaDasNotas)}
                       </span>
                       <span className="shrink-0 text-xs font-semibold text-brand-600 dark:text-brand-300">
                         Ver notas
                       </span>
                     </button>
                   </div>
-                ) : edicao?.porVeiculo?.length ? (
+                ) : edicao?.notas?.length ? (
                   <div>
-                    <span className="rotulo">Veículos</span>
+                    <span className="rotulo">Notas da conta</span>
                     <ul className="space-y-1 text-sm text-tinta-700">
-                      {edicao.porVeiculo.map((p, i) => (
+                      {edicao.notas.map((p, i) => (
                         <li key={i} className="flex justify-between gap-2">
                           <span className="truncate">
-                            {p.apelido}
-                            {p.descricao ? ` — ${p.descricao}` : ''}
+                            {[[p.veiculo, p.categoria].filter(Boolean).join(' · '), p.descricao]
+                              .filter(Boolean)
+                              .join(' — ') || `Nota ${i + 1}`}
                           </span>
                           <span className="valor shrink-0">{formatBRL(p.valor)}</span>
                         </li>
@@ -1506,17 +1537,6 @@ export function NovaDespesa({
                   </div>
                 )}
               </div>
-              {/* A oficina mandou uma nota por carro e cobra tudo junto: um
-                  pagamento só, e cada carro com a sua despesa. */}
-              {podeDividir && !dividida && (
-                <button
-                  type="button"
-                  onClick={abrirDivisao}
-                  className="btn btn-p btn-ferramenta mt-3"
-                >
-                  Várias notas de veículos, um pagamento
-                </button>
-              )}
             </div>
           )}
           {a.mostrar(5) && (
@@ -2077,14 +2097,17 @@ interface ArquivoDaNota {
 /** Um arquivo com o nome que a aba de arquivos do IXC vai mostrar. */
 type NotaParaSubir = ArquivoDaNota & { descricao: string };
 
-/** Uma das notas de uma conta dividida entre veículos. */
-interface NotaPorVeiculo {
+/** Uma das notas de uma conta paga de uma vez. */
+interface NotaDaConta {
   /** Só para a lista da tela saber quem é quem enquanto se edita. */
   chave: string;
+  /** Com o que se gastou nesta nota. Vazia, vale a categoria da conta. */
+  categoriaId: string;
+  /** O veículo desta nota, quando ela é de um. */
   veiculoId: string;
   /** Valor canônico: "120.00", ou "" quando vazio. */
   valor: string;
-  /** O que foi feito no veículo: "troca de óleo". */
+  /** O que foi: "troca de óleo", "manutenção do ar". */
   descricao: string;
   /** A foto ou o PDF desta nota. */
   notas: ArquivoDaNota[];
@@ -2092,56 +2115,108 @@ interface NotaPorVeiculo {
 
 let sequenciaDasNotas = 0;
 
-function novaNotaPorVeiculo(
-  inicio: Partial<Pick<NotaPorVeiculo, 'veiculoId' | 'valor'>> = {},
-): NotaPorVeiculo {
+function novaNotaDaConta(
+  inicio: Partial<Omit<NotaDaConta, 'chave'>> = {},
+): NotaDaConta {
   sequenciaDasNotas += 1;
   return {
     chave: `nota-${sequenciaDasNotas}`,
+    categoriaId: inicio.categoriaId ?? '',
     veiculoId: inicio.veiculoId ?? '',
     valor: inicio.valor ?? '',
-    descricao: '',
-    notas: [],
+    descricao: inicio.descricao ?? '',
+    notas: inicio.notas ?? [],
   };
 }
 
-function somarNotas(notas: NotaPorVeiculo[]): number {
+function somarNotas(notas: NotaDaConta[]): number {
   return Math.round(notas.reduce((t, n) => t + (Number(n.valor) || 0), 0) * 100) / 100;
 }
 
-/** Toda nota com o veículo e o valor: é o que a divisão precisa para fechar. */
-function notasCompletas(notas: NotaPorVeiculo[]): boolean {
-  return notas.length > 0 && notas.every((n) => !!n.veiculoId && Number(n.valor) > 0);
+/** Toda nota com valor: é o que a divisão precisa para fechar. */
+function notasCompletas(notas: NotaDaConta[]): boolean {
+  return notas.length > 0 && notas.every((n) => Number(n.valor) > 0);
 }
 
 /**
- * As notas de uma conta paga de uma vez, cada uma no seu veículo.
+ * Manda a foto de cada nota para a nota dela.
  *
- * A oficina manda uma nota por carro e cobra tudo junto. Aqui se lança nota
- * por nota — o veículo, o que foi feito, quanto, e a foto —, e na volta ao
- * formulário a conta vale a soma: um título só no IXC, um pagamento, e a ficha
- * de cada veículo com a parte dele.
+ * Fica guardada aqui e sobe para o título no IXC — é a cópia daqui que abre,
+ * na ficha do veículo e na conta. A que falha não para as outras. Devolve o
+ * aviso, quando houve o que avisar.
  */
-function TelaDasNotasPorVeiculo({
+async function subirFotosDasNotas(
+  notas: NotaDaConta[],
+  partes: Array<{ id: string }>,
+  rotulo: (n: NotaDaConta) => string,
+): Promise<string | null> {
+  const total = notas.reduce((t, n) => t + n.notas.length, 0);
+  if (total === 0) return null;
+  if (partes.length !== notas.length) {
+    return 'A conta foi lançada, mas as fotos das notas não subiram: a divisão não ficou gravada.';
+  }
+
+  let falharam = 0;
+  let motivo = '';
+  for (const [i, nota] of notas.entries()) {
+    for (const arquivo of nota.notas) {
+      try {
+        const { data } = await api.post<{ aviso: string | null }>(
+          `/contas-abertas/partes/${partes[i].id}/nota`,
+          { arquivo: arquivo.dados, nome: arquivo.nome, descricao: rotulo(nota) },
+        );
+        if (data.aviso) motivo ||= data.aviso;
+      } catch (err) {
+        falharam += 1;
+        motivo ||= mensagemErro(err);
+      }
+    }
+  }
+  if (falharam > 0) {
+    return `A conta foi lançada, mas ${contarNotas(falharam, total)} não ${
+      falharam === 1 ? 'subiu' : 'subiram'
+    }: ${motivo}`;
+  }
+  return motivo || null;
+}
+
+/**
+ * As notas de uma conta paga de uma vez, cada uma com o que ela é.
+ *
+ * O fornecedor manda várias notas e cobra tudo junto: a peça da Strada, o
+ * pneu da Hilux, o serviço do escritório. Aqui se lança nota por nota — a
+ * categoria, o veículo se for de um, o que foi, quanto e a foto —, e na volta
+ * ao formulário a conta vale a soma: um título só no IXC, um pagamento, e cada
+ * nota contando na categoria dela e na ficha do seu veículo.
+ */
+function TelaDasNotas({
   notas,
   onMudar,
   veiculos,
-  carregando,
+  carregandoVeiculos,
+  categorias,
+  carregandoCategorias,
+  categoriaDaConta,
   fornecedor,
   onPronto,
   onDesfazer,
 }: {
-  notas: NotaPorVeiculo[];
-  onMudar: (notas: NotaPorVeiculo[]) => void;
+  notas: NotaDaConta[];
+  onMudar: (notas: NotaDaConta[]) => void;
   veiculos: Array<{ id: string; apelido: string; placa: string | null }>;
-  carregando: boolean;
+  carregandoVeiculos: boolean;
+  categorias: CategoriaDespesa[] | undefined;
+  carregandoCategorias: boolean;
+  /** A categoria escolhida no formulário: é com ela que a nota nova começa. */
+  categoriaDaConta: string;
   fornecedor: string | null;
   onPronto: () => void;
   onDesfazer: () => void;
 }) {
   const soma = somarNotas(notas);
   const completas = notasCompletas(notas);
-  const mudar = (chave: string, parte: Partial<NotaPorVeiculo>) =>
+  const temFrota = veiculos.length > 0;
+  const mudar = (chave: string, parte: Partial<NotaDaConta>) =>
     onMudar(notas.map((n) => (n.chave === chave ? { ...n, ...parte } : n)));
 
   return (
@@ -2150,22 +2225,40 @@ function TelaDasNotasPorVeiculo({
         {notas.map((n, i) => (
           <div
             key={n.chave}
-            className="grid grid-cols-1 gap-3 rounded-xl border border-tinta-200 p-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)_9rem_minmax(0,1.3fr)_auto] lg:items-start"
+            className={`grid grid-cols-1 gap-3 rounded-xl border border-tinta-200 p-3 lg:items-start ${
+              temFrota
+                ? 'lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.2fr)_8.5rem_minmax(0,1.2fr)_auto]'
+                : 'lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.4fr)_8.5rem_minmax(0,1.2fr)_auto]'
+            }`}
           >
             <div>
-              <label className="rotulo" htmlFor={`veiculo-${n.chave}`}>
-                Veículo {notas.length > 1 ? i + 1 : ''}
+              <label className="rotulo" htmlFor={`categoria-${n.chave}`}>
+                {notas.length > 1 ? `Nota ${i + 1} · categoria` : 'Categoria'}
               </label>
-              <SeletorDeVeiculo
-                id={`veiculo-${n.chave}`}
-                value={n.veiculoId}
-                onChange={(veiculoId) => mudar(n.chave, { veiculoId })}
-                carregando={carregando}
-                veiculos={veiculos}
-                obrigatorio
-                vazio="Escolha o veículo"
+              <SeletorDeCategoria
+                id={`categoria-${n.chave}`}
+                categorias={categorias}
+                value={n.categoriaId}
+                vazio="A da conta"
+                carregando={carregandoCategorias}
+                onChange={(categoriaId) => mudar(n.chave, { categoriaId })}
               />
             </div>
+            {temFrota && (
+              <div>
+                <label className="rotulo" htmlFor={`veiculo-${n.chave}`}>
+                  Veículo
+                </label>
+                <SeletorDeVeiculo
+                  id={`veiculo-${n.chave}`}
+                  value={n.veiculoId}
+                  onChange={(veiculoId) => mudar(n.chave, { veiculoId })}
+                  carregando={carregandoVeiculos}
+                  veiculos={veiculos}
+                  vazio="Nenhum"
+                />
+              </div>
+            )}
             <div>
               <label className="rotulo" htmlFor={`oque-${n.chave}`}>
                 O que foi
@@ -2194,7 +2287,7 @@ function TelaDasNotasPorVeiculo({
               notas={n.notas}
               onMudar={(arquivos) => mudar(n.chave, { notas: arquivos })}
               colar={false}
-              rotulo="Nota"
+              rotulo="Foto"
             />
             {notas.length > 1 && (
               <button
@@ -2211,7 +2304,9 @@ function TelaDasNotasPorVeiculo({
 
       <button
         type="button"
-        onClick={() => onMudar([...notas, novaNotaPorVeiculo()])}
+        onClick={() =>
+          onMudar([...notas, novaNotaDaConta({ categoriaId: categoriaDaConta })])
+        }
         className="btn btn-neutro btn-p mt-3"
       >
         + Outra nota
@@ -2231,14 +2326,12 @@ function TelaDasNotasPorVeiculo({
           onClick={onPronto}
           disabled={!completas}
           className="btn btn-primario"
-          title={completas ? undefined : 'Cada nota precisa do veículo e do valor.'}
+          title={completas ? undefined : 'Cada nota precisa do valor.'}
         >
           Pronto
         </button>
       </div>
-      {!completas && (
-        <p className="ajuda text-right">Cada nota precisa do veículo e do valor.</p>
-      )}
+      {!completas && <p className="ajuda text-right">Cada nota precisa do valor.</p>}
     </div>
   );
 }

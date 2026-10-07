@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import type { ContaPagar } from '@prisma/client';
 import { ContasPagarService } from '../financeiro/contas-pagar.service';
 import { CategoriasService } from './categorias.service';
@@ -43,6 +48,21 @@ export interface DespesaLancada {
   avisoCategoria: string | null;
   /** Null quando o lançamento não pediu para já sair pago. */
   baixa: BaixaDoLancamento | null;
+  /**
+   * As notas da conta paga de uma vez, na ordem em que vieram — é por estes
+   * números que a tela manda a foto de cada uma. Vazio na conta comum.
+   */
+  partes?: Array<{ id: string }>;
+}
+
+/** Uma nota guardada aqui, como a tela a lista: sem o arquivo. */
+export interface NotaGuardada {
+  id: string;
+  /** "Strada · Manutenção — troca de óleo": o que se lê no botão. */
+  rotulo: string;
+  /** A nota da conta de onde ela é. */
+  parteId: string;
+  createdAt: Date;
 }
 
 /**
@@ -240,7 +260,7 @@ export class DespesasService {
       }
     }
 
-    const porVeiculo = await this.conferirPorVeiculo(dto);
+    const notas = await this.conferirNotas(dto);
 
     /** O que é igual em todas as parcelas. */
     const comum = {
@@ -253,9 +273,9 @@ export class DespesasService {
       numeroNota: dto.numeroNota,
       chavePix: dto.chavePix,
       tipoChavePix: dto.tipoChavePix,
-      // Dividida entre veículos, a conta não é de nenhum: quem conta é cada
-      // parte. Com os dois, a ficha somaria o mesmo dinheiro duas vezes.
-      veiculoId: porVeiculo ? null : (dto.veiculoId ?? null),
+      // Com várias notas, a conta não é de um veículo: quem conta é cada nota.
+      // Com os dois, a ficha somaria o mesmo dinheiro duas vezes.
+      veiculoId: notas ? null : (dto.veiculoId ?? null),
     };
 
     let lancada: DespesaLancada;
@@ -272,9 +292,12 @@ export class DespesasService {
         usuarioId,
       );
 
+      const gravadas = notas
+        ? await this.gravarNotas(conta, notas)
+        : { partes: [], aviso: null };
       const avisos = [
         await this.etiquetar(conta, dto.categoriaId ?? null, usuarioId),
-        porVeiculo ? await this.dividirPorVeiculo(conta, porVeiculo) : null,
+        gravadas.aviso,
       ].filter((a): a is string => !!a);
 
       lancada = {
@@ -282,6 +305,7 @@ export class DespesasService {
         contas: [conta],
         avisoCategoria: avisos.length ? avisos.join(' ') : null,
         baixa: null,
+        partes: gravadas.partes,
       };
     } else {
       lancada = await this.lancarParcelas(dto, comum, usuarioId);
@@ -301,27 +325,27 @@ export class DespesasService {
   }
 
   /**
-   * As notas por veículo, conferidas antes de qualquer coisa ir ao IXC.
+   * As notas da conta, conferidas antes de qualquer coisa ir ao IXC.
    *
    * A divisão que não fecha é recusada aqui, e não remendada: um centavo a
-   * mais num carro é um centavo a menos em outro, e a ficha de cada um passaria
-   * a contar uma história que a nota não conta. Veículo apagado em outra aba
-   * também para tudo — a parte dele ficaria sem dono.
+   * mais numa nota é um centavo a menos em outra, e os relatórios passariam a
+   * contar uma história que o papel não conta. Veículo ou categoria apagados
+   * em outra aba também param tudo — a nota ficaria sem o que ela diz ser.
    */
-  private async conferirPorVeiculo(
+  private async conferirNotas(
     dto: CriarDespesaDto,
-  ): Promise<NonNullable<CriarDespesaDto['porVeiculo']> | null> {
-    const partes = dto.porVeiculo ?? [];
-    if (partes.length === 0) return null;
+  ): Promise<NonNullable<CriarDespesaDto['notas']> | null> {
+    const notas = dto.notas?.length ? dto.notas : (dto.porVeiculo ?? []);
+    if (notas.length === 0) return null;
 
     if (dto.parcelas?.length) {
       throw new BadRequestException(
-        'A conta dividida entre veículos vai num pagamento só — não dá para ' +
+        'A conta com várias notas vai num pagamento só — não dá para ' +
           'parcelá-la. Nada foi lançado.',
       );
     }
 
-    const soma = centavos(partes.reduce((t, p) => t + p.valor, 0));
+    const soma = centavos(notas.reduce((t, n) => t + n.valor, 0));
     if (Math.abs(soma - centavos(dto.valor)) > 0.005) {
       throw new BadRequestException(
         `As notas somam ${reais(soma)} e a conta é de ${reais(dto.valor)}. ` +
@@ -329,46 +353,169 @@ export class DespesasService {
       );
     }
 
-    const ids = [...new Set(partes.map((p) => p.veiculoId))];
-    const existem = await this.prisma.veiculo.count({ where: { id: { in: ids } } });
-    if (existem !== ids.length) {
+    const veiculos = [...new Set(notas.map((n) => n.veiculoId).filter((v): v is string => !!v))];
+    if (
+      veiculos.length > 0 &&
+      (await this.prisma.veiculo.count({ where: { id: { in: veiculos } } })) !== veiculos.length
+    ) {
       throw new BadRequestException(
         'Um dos veículos escolhidos não existe mais. Escolha outro — nada foi lançado.',
       );
     }
-    return partes;
+
+    const categorias = [
+      ...new Set(notas.map((n) => n.categoriaId).filter((c): c is string => !!c)),
+    ];
+    if (
+      categorias.length > 0 &&
+      (await this.prisma.categoriaDespesa.count({ where: { id: { in: categorias } } })) !==
+        categorias.length
+    ) {
+      throw new BadRequestException(
+        'Uma das categorias escolhidas não existe mais. Escolha outra — nada foi lançado.',
+      );
+    }
+    return notas;
   }
 
   /**
-   * Grava a parte de cada veículo, com a conta já no IXC.
+   * Grava as notas, com a conta já no IXC.
    *
    * Falhar aqui não derruba o lançamento, como a etiqueta: a conta existe lá e
    * apagá-la seria pior. Quem lançou recebe o aviso.
    */
-  private async dividirPorVeiculo(
+  private async gravarNotas(
     conta: ContaPagar,
-    partes: NonNullable<CriarDespesaDto['porVeiculo']>,
-  ): Promise<string | null> {
+    notas: NonNullable<CriarDespesaDto['notas']>,
+  ): Promise<{ partes: Array<{ id: string }>; aviso: string | null }> {
     try {
-      await this.prisma.despesaPorVeiculo.createMany({
-        data: partes.map((p) => ({
-          contaPagarId: conta.id,
-          veiculoId: p.veiculoId,
-          valor: centavos(p.valor),
-          descricao: p.descricao?.trim() || null,
-        })),
-      });
-      return null;
+      // Uma a uma, numa transação: a tela precisa dos números na ordem em que
+      // mandou as notas, para saber de quem é cada foto.
+      const partes = await this.prisma.$transaction(
+        notas.map((n) =>
+          this.prisma.parteDaConta.create({
+            data: {
+              contaPagarId: conta.id,
+              veiculoId: n.veiculoId || null,
+              categoriaId: n.categoriaId || null,
+              valor: centavos(n.valor),
+              descricao: n.descricao?.trim() || null,
+            },
+            select: { id: true },
+          }),
+        ),
+      );
+      return { partes, aviso: null };
     } catch (err) {
       const motivo = err instanceof Error ? err.message : String(err);
       this.logger.error(
-        `Conta ${conta.id} foi lançada, mas a divisão por veículo não ficou: ${motivo}`,
+        `Conta ${conta.id} foi lançada, mas as notas dela não ficaram: ${motivo}`,
       );
-      return (
-        `A conta foi lançada no IXC, mas a divisão entre os veículos não ficou ` +
-        `gravada (${motivo}). Avise quem cuida do sistema.`
-      );
+      return {
+        partes: [],
+        aviso:
+          `A conta foi lançada no IXC, mas a divisão pelas notas não ficou ` +
+          `gravada (${motivo}). Avise quem cuida do sistema.`,
+      };
     }
+  }
+
+  /**
+   * A foto (ou o PDF) de uma das notas de uma conta paga de uma vez.
+   *
+   * Fica guardada aqui e sobe também para o título no IXC, onde quem abrir a
+   * conta por lá a encontra. É daqui que ela abre nesta casa: com várias no
+   * mesmo título, o webservice desta base não devolve uma por uma — pedido o
+   * arquivo, ele não acha; pedido o título, ele não sabe qual.
+   *
+   * O IXC recusar não perde a foto: ela já está guardada, e o aviso volta.
+   */
+  async anexarNotaDaParte(
+    parteId: string,
+    dados: { arquivo: string; nome?: string; descricao?: string },
+  ): Promise<{ guardada: true; aviso: string | null }> {
+    const parte = await this.prisma.parteDaConta.findUnique({
+      where: { id: parteId },
+      select: { id: true, conta: { select: { idFnApagarIxc: true } } },
+    });
+    if (!parte) throw new NotFoundException('Esta nota não existe mais.');
+
+    conferirArquivo(
+      lerDataUrl(dados.arquivo),
+      TIPOS_DE_NOTA,
+      LIMITE_DA_NOTA,
+      'A nota entra como PDF ou imagem.',
+    );
+    await this.prisma.fotoDaNota.create({
+      data: { parteId, foto: dados.arquivo },
+    });
+
+    const idFnApagar = parte.conta.idFnApagarIxc;
+    if (!idFnApagar) {
+      return {
+        guardada: true,
+        aviso: 'A nota ficou guardada aqui, mas a conta não tem número do IXC para recebê-la lá.',
+      };
+    }
+    try {
+      await this.anexarNota(idFnApagar, dados);
+      return { guardada: true, aviso: null };
+    } catch (err) {
+      const motivo = err instanceof Error ? err.message : String(err);
+      return {
+        guardada: true,
+        aviso: `A nota ficou guardada aqui, mas não subiu para o IXC: ${motivo}`,
+      };
+    }
+  }
+
+  /** As notas guardadas de um título, sem os arquivos. */
+  async notasGuardadas(
+    filtro: { idFnApagar: number } | { parteId: string },
+  ): Promise<NotaGuardada[]> {
+    const fotos = await this.prisma.fotoDaNota.findMany({
+      where:
+        'parteId' in filtro
+          ? { parteId: filtro.parteId }
+          : { parte: { conta: { idFnApagarIxc: filtro.idFnApagar } } },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        createdAt: true,
+        parte: {
+          select: {
+            id: true,
+            descricao: true,
+            veiculo: { select: { apelido: true } },
+            categoria: { select: { nome: true } },
+          },
+        },
+      },
+    });
+    return fotos
+      .filter((f) => f.parte)
+      .map((f) => ({
+        id: f.id,
+        parteId: f.parte!.id,
+        createdAt: f.createdAt,
+        rotulo:
+          [
+            [f.parte!.veiculo?.apelido, f.parte!.categoria?.nome].filter(Boolean).join(' · '),
+            f.parte!.descricao,
+          ]
+            .filter(Boolean)
+            .join(' — ') || 'Nota',
+      }));
+  }
+
+  /** O arquivo de uma nota guardada, como chegou: data URL. */
+  async notaGuardada(id: string): Promise<{ foto: string }> {
+    const f = await this.prisma.fotoDaNota.findUnique({
+      where: { id },
+      select: { foto: true, parteId: true },
+    });
+    if (!f?.foto || !f.parteId) throw new NotFoundException('Esta nota não existe mais.');
+    return { foto: f.foto };
   }
 
   /**

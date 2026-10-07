@@ -594,7 +594,7 @@ export function EditarConta({
             tipoChavePix: string | null;
             lancadaAqui: boolean;
             veiculoId: string | null;
-            porVeiculo?: NonNullable<EdicaoDaConta['porVeiculo']>;
+            notas?: NonNullable<EdicaoDaConta['notas']>;
           };
         }>(`/contas-abertas/${conta.idFnApagar}/bruto`)
       ).data,
@@ -626,7 +626,7 @@ export function EditarConta({
         tipoChavePix: bruto.data.edicao?.tipoChavePix ?? null,
         lancadaAqui: bruto.data.edicao?.lancadaAqui ?? false,
         veiculoId: bruto.data.edicao?.veiculoId ?? null,
-        porVeiculo: bruto.data.edicao?.porVeiculo ?? [],
+        notas: bruto.data.edicao?.notas ?? [],
       }}
     />
   );

@@ -273,11 +273,74 @@ export class CategoriasService {
    * são uma coisa só; aqui cada título que é fatura de cartão ganha a lista
    * de fatias — categoria e quanto —, e é por ela que os relatórios somam.
    *
-   * Título que não é fatura de cartão não aparece no mapa: para ele vale a
+   * A conta paga de uma vez com várias notas se divide do mesmo jeito: cada
+   * nota na categoria dela, e a que ficou sem categoria na etiqueta do título.
+   *
+   * Título que não é uma das duas não aparece no mapa: para ele vale a
    * etiqueta de sempre.
    */
   async rateiosDosTitulos(ids: number[]): Promise<Map<number, FatiaDoRateio[]>> {
     if (ids.length === 0) return new Map();
+    const [faturas, notas] = await Promise.all([
+      this.rateiosDasFaturas(ids),
+      this.rateiosDasNotas(ids),
+    ]);
+    return new Map([...faturas, ...notas]);
+  }
+
+  /** O título com várias notas, dividido pelas categorias delas. */
+  private async rateiosDasNotas(ids: number[]): Promise<Map<number, FatiaDoRateio[]>> {
+    const contas = await this.prisma.contaPagar.findMany({
+      where: { idFnApagarIxc: { in: ids }, partes: { some: {} } },
+      select: {
+        idFnApagarIxc: true,
+        partes: {
+          select: {
+            valor: true,
+            categoria: { include: { pai: { select: { id: true, nome: true } } } },
+          },
+        },
+      },
+    });
+    if (contas.length === 0) return new Map();
+
+    const etiquetas = await this.dosTitulos(
+      contas.map((c) => c.idFnApagarIxc).filter((n): n is number => n != null),
+    );
+    const mapa = new Map<number, FatiaDoRateio[]>();
+    for (const conta of contas) {
+      if (!conta.idFnApagarIxc) continue;
+      const doTitulo = etiquetas.get(conta.idFnApagarIxc) ?? null;
+      const porCategoria = new Map<
+        string,
+        { classificacao: EtiquetaDoTitulo | null; valores: number[] }
+      >();
+      for (const parte of conta.partes) {
+        const classificacao: EtiquetaDoTitulo | null = parte.categoria
+          ? {
+              id: parte.categoria.id,
+              nome: parte.categoria.nome,
+              grupo: parte.categoria.pai ?? null,
+            }
+          : doTitulo;
+        const chave = classificacao?.id ?? '';
+        const fatia = porCategoria.get(chave) ?? { classificacao, valores: [] };
+        fatia.valores.push(Number(parte.valor));
+        porCategoria.set(chave, fatia);
+      }
+      mapa.set(
+        conta.idFnApagarIxc,
+        [...porCategoria.values()].map((f) => ({
+          classificacao: f.classificacao,
+          valor: somar(f.valores),
+        })),
+      );
+    }
+    return mapa;
+  }
+
+  /** A fatura do cartão, dividida pelas categorias das compras dentro. */
+  private async rateiosDasFaturas(ids: number[]): Promise<Map<number, FatiaDoRateio[]>> {
 
     const faturas = await this.prisma.contaPagar.findMany({
       where: {

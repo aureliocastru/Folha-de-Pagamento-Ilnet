@@ -78,6 +78,34 @@ export class DespesasController {
     return this.service.anexarNota(idFnApagar, dto);
   }
 
+  /**
+   * A foto de uma das notas de uma conta paga de uma vez: guardada aqui, e
+   * enviada também ao título no IXC.
+   */
+  @Post('contas-abertas/partes/:parteId/nota')
+  @HttpCode(200)
+  anexarNotaDaParte(@Param('parteId') parteId: string, @Body() dto: AnexarNotaDto) {
+    return this.service.anexarNotaDaParte(parteId, dto);
+  }
+
+  /** As notas guardadas aqui de um título — sem os arquivos. */
+  @Get('contas-abertas/:idFnApagar/notas-guardadas')
+  notasGuardadasDoTitulo(@Param('idFnApagar', ParseIntPipe) idFnApagar: number) {
+    return this.service.notasGuardadas({ idFnApagar });
+  }
+
+  /** As notas guardadas de uma das notas de uma conta — a do veículo, na ficha dele. */
+  @Get('contas-abertas/partes/:parteId/notas')
+  notasDaParte(@Param('parteId') parteId: string) {
+    return this.service.notasGuardadas({ parteId });
+  }
+
+  /** Uma nota guardada, sob demanda. */
+  @Get('contas-abertas/notas-guardadas/:id')
+  notaGuardada(@Param('id') id: string) {
+    return this.service.notaGuardada(id);
+  }
+
   /** As notas que este título já tem no IXC. */
   @Get('contas-abertas/:idFnApagar/notas')
   notas(@Param('idFnApagar', ParseIntPipe) idFnApagar: number) {

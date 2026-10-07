@@ -17,6 +17,7 @@ const HOJE = new Date('2026-08-15T09:30:00-03:00');
 
 const MOTO = '6f1d2a3b-0000-4000-8000-000000000001';
 const VEICULO_SUMIDO = '6f1d2a3b-0000-4000-8000-000000000099';
+const CATEGORIA_SUMIDA = 'b3a1c2d4-0000-4000-8000-000000000099';
 
 function montarServico(
   opts: {
@@ -86,10 +87,25 @@ function montarServico(
           where.id.in.filter((id) => id !== VEICULO_SUMIDO).length,
       ),
     },
-    despesaPorVeiculo: {
-      createMany: jest.fn().mockResolvedValue({ count: 0 }),
+    categoriaDespesa: {
+      count: jest.fn(
+        async ({ where }: { where: { id: { in: string[] } } }) =>
+          where.id.in.filter((id) => id !== CATEGORIA_SUMIDA).length,
+      ),
     },
+    parteDaConta: {
+      create: jest.fn(async (_args: { data: Record<string, unknown> }) => ({
+        id: `parte-${++partesCriadas}`,
+      })),
+      findUnique: jest.fn(async ({ where }: { where: { id: string } }) =>
+        where.id === 'parte-1' ? { id: 'parte-1', conta: { idFnApagarIxc: 4242 } } : null,
+      ),
+    },
+    fotoDaNota: { create: jest.fn(async () => ({ id: 'f1' })) },
+    // As criações chegam já disparadas; a transação só espera todas.
+    $transaction: jest.fn(async (ops: Array<Promise<unknown>>) => Promise.all(ops)),
   };
+  let partesCriadas = 0;
 
   const service = new DespesasService(
     contasPagar as never,
@@ -235,47 +251,53 @@ describe('DespesasService.lancar', () => {
  *    "desfazer" deixaria o pior dos dois mundos.
  */
 /**
- * A oficina manda uma nota por carro e cobra tudo junto. O que se protege:
+ * O fornecedor manda várias notas e cobra tudo junto. O que se protege:
  *
  *  - um título só no IXC, do total — é um pagamento;
- *  - a parte de cada veículo gravada aqui, e a conta sem veículo próprio, ou a
- *    ficha contaria o mesmo dinheiro duas vezes;
- *  - a divisão que não fecha não chega ao IXC.
+ *  - cada nota gravada com a sua categoria e, se tiver, o seu veículo; e a
+ *    conta sem veículo próprio, ou a ficha contaria o mesmo dinheiro duas vezes;
+ *  - a divisão que não fecha, e a que aponta veículo ou categoria que sumiram,
+ *    não chegam ao IXC;
+ *  - a foto de cada nota fica guardada aqui, e sobe também para o IXC.
  */
-describe('DespesasService.lancar — conta dividida entre veículos', () => {
+describe('DespesasService.lancar — conta com várias notas', () => {
   const CARRO = '6f1d2a3b-0000-4000-8000-000000000002';
-  const DIVIDIDA: CriarDespesaDto = {
+  const PECAS = 'b3a1c2d4-0000-4000-8000-000000000001';
+  const ESCRITORIO = 'b3a1c2d4-0000-4000-8000-000000000002';
+  const VARIAS: CriarDespesaDto = {
     ...BASE,
-    valor: 450,
-    observacao: 'Oficina — notas de outubro',
-    porVeiculo: [
-      { veiculoId: MOTO, valor: 120, descricao: 'troca de óleo' },
+    valor: 600,
+    observacao: 'Fornecedor — notas de outubro',
+    notas: [
+      { veiculoId: MOTO, categoriaId: PECAS, valor: 120, descricao: 'troca de óleo' },
       { veiculoId: CARRO, valor: 330, descricao: ' pneu dianteiro ' },
+      { categoriaId: ESCRITORIO, valor: 150, descricao: 'manutenção do ar' },
     ],
   };
 
-  it('vira um título só, do total, e grava a parte de cada veículo', async () => {
+  it('vira um título só, do total, e grava cada nota com o que ela é', async () => {
     const { service, contasPagar, prisma } = montarServico();
 
-    await service.lancar(DIVIDIDA, 'u1');
+    const r = await service.lancar(VARIAS, 'u1');
 
     expect(contasPagar.criarDespesa).toHaveBeenCalledTimes(1);
     expect(contasPagar.criarDespesa).toHaveBeenCalledWith(
-      expect.objectContaining({ valor: 450, veiculoId: null }),
+      expect.objectContaining({ valor: 600, veiculoId: null }),
       'u1',
     );
-    expect(prisma.despesaPorVeiculo.createMany).toHaveBeenCalledWith({
-      data: [
-        { contaPagarId: 'conta-1', veiculoId: MOTO, valor: 120, descricao: 'troca de óleo' },
-        { contaPagarId: 'conta-1', veiculoId: CARRO, valor: 330, descricao: 'pneu dianteiro' },
-      ],
-    });
+    expect(prisma.parteDaConta.create.mock.calls.map(([a]) => a.data)).toEqual([
+      { contaPagarId: 'conta-1', veiculoId: MOTO, categoriaId: PECAS, valor: 120, descricao: 'troca de óleo' },
+      { contaPagarId: 'conta-1', veiculoId: CARRO, categoriaId: null, valor: 330, descricao: 'pneu dianteiro' },
+      { contaPagarId: 'conta-1', veiculoId: null, categoriaId: ESCRITORIO, valor: 150, descricao: 'manutenção do ar' },
+    ]);
+    // Os números voltam na ordem das notas: é por eles que a tela manda as fotos.
+    expect(r.partes).toEqual([{ id: 'parte-1' }, { id: 'parte-2' }, { id: 'parte-3' }]);
   });
 
-  it('o veículo da conta é ignorado quando ela é dividida', async () => {
+  it('o veículo da conta é ignorado quando ela tem várias notas', async () => {
     const { service, contasPagar } = montarServico();
 
-    await service.lancar({ ...DIVIDIDA, veiculoId: MOTO }, 'u1');
+    await service.lancar({ ...VARIAS, veiculoId: MOTO }, 'u1');
 
     expect(contasPagar.criarDespesa).toHaveBeenCalledWith(
       expect.objectContaining({ veiculoId: null }),
@@ -283,11 +305,26 @@ describe('DespesasService.lancar — conta dividida entre veículos', () => {
     );
   });
 
+  it('a tela anterior, que mandava "porVeiculo", continua dividindo', async () => {
+    const { service, prisma } = montarServico();
+
+    await service.lancar({
+      ...BASE,
+      valor: 450,
+      porVeiculo: [
+        { veiculoId: MOTO, valor: 120 },
+        { veiculoId: CARRO, valor: 330 },
+      ],
+    });
+
+    expect(prisma.parteDaConta.create).toHaveBeenCalledTimes(2);
+  });
+
   it('a divisão que não fecha com o valor não chega ao IXC', async () => {
     const { service, contasPagar } = montarServico();
 
-    await expect(service.lancar({ ...DIVIDIDA, valor: 460 })).rejects.toThrow(
-      /somam R\$\s?450,00 e a conta é de R\$\s?460,00/,
+    await expect(service.lancar({ ...VARIAS, valor: 610 })).rejects.toThrow(
+      /somam R\$\s?600,00 e a conta é de R\$\s?610,00/,
     );
     expect(contasPagar.criarDespesa).not.toHaveBeenCalled();
   });
@@ -296,12 +333,12 @@ describe('DespesasService.lancar — conta dividida entre veículos', () => {
     const { service, contasPagar } = montarServico();
 
     await service.lancar({
-      ...DIVIDIDA,
+      ...VARIAS,
       valor: 100,
-      porVeiculo: [
+      notas: [
         { veiculoId: MOTO, valor: 33.33 },
         { veiculoId: CARRO, valor: 33.33 },
-        { veiculoId: MOTO, valor: 33.34 },
+        { categoriaId: PECAS, valor: 33.34 },
       ],
     });
 
@@ -313,13 +350,30 @@ describe('DespesasService.lancar — conta dividida entre veículos', () => {
 
     await expect(
       service.lancar({
-        ...DIVIDIDA,
-        porVeiculo: [
+        ...VARIAS,
+        valor: 450,
+        notas: [
           { veiculoId: MOTO, valor: 120 },
           { veiculoId: VEICULO_SUMIDO, valor: 330 },
         ],
       }),
-    ).rejects.toThrow(/não existe mais/);
+    ).rejects.toThrow(/veículos escolhidos não existe mais/);
+    expect(contasPagar.criarDespesa).not.toHaveBeenCalled();
+  });
+
+  it('categoria apagada noutra aba não deixa lançar nada', async () => {
+    const { service, contasPagar } = montarServico();
+
+    await expect(
+      service.lancar({
+        ...VARIAS,
+        valor: 450,
+        notas: [
+          { categoriaId: PECAS, valor: 120 },
+          { categoriaId: CATEGORIA_SUMIDA, valor: 330 },
+        ],
+      }),
+    ).rejects.toThrow(/categorias escolhidas não existe mais/);
     expect(contasPagar.criarDespesa).not.toHaveBeenCalled();
   });
 
@@ -328,24 +382,70 @@ describe('DespesasService.lancar — conta dividida entre veículos', () => {
 
     await expect(
       service.lancar({
-        ...DIVIDIDA,
+        ...VARIAS,
         parcelas: [
-          { valor: 225, dataVencimento: '2026-10-10' },
-          { valor: 225, dataVencimento: '2026-11-10' },
+          { valor: 300, dataVencimento: '2026-10-10' },
+          { valor: 300, dataVencimento: '2026-11-10' },
         ],
       }),
     ).rejects.toThrow(BadRequestException);
     expect(contasPagar.criarDespesa).not.toHaveBeenCalled();
   });
 
-  it('a divisão que não grava não derruba a conta já criada no IXC', async () => {
+  it('as notas que não gravam não derrubam a conta já criada no IXC', async () => {
     const { service, prisma } = montarServico();
-    prisma.despesaPorVeiculo.createMany.mockRejectedValueOnce(new Error('banco fora'));
+    prisma.$transaction.mockRejectedValueOnce(new Error('banco fora'));
 
-    const r = await service.lancar(DIVIDIDA, 'u1');
+    const r = await service.lancar(VARIAS, 'u1');
 
     expect(r.conta.idFnApagarIxc).toBe(4242);
-    expect(r.avisoCategoria).toMatch(/divisão entre os veículos não ficou/);
+    expect(r.avisoCategoria).toMatch(/divisão pelas notas não ficou/);
+    expect(r.partes).toEqual([]);
+  });
+});
+
+/*
+ * A foto de cada nota. Com várias no mesmo título, o IXC desta base não as
+ * devolve uma por uma — é a cópia daqui que abre.
+ */
+describe('a foto de uma das notas da conta', () => {
+  const FOTO = `data:image/jpeg;base64,${Buffer.from('foto da nota').toString('base64')}`;
+
+  it('fica guardada aqui e sobe para o título no IXC', async () => {
+    const { service, prisma, ixc } = montarServico();
+
+    const r = await service.anexarNotaDaParte('parte-1', {
+      arquivo: FOTO,
+      nome: 'oleo.jpg',
+      descricao: 'Strada — troca de óleo',
+    });
+
+    expect(prisma.fotoDaNota.create).toHaveBeenCalledWith({
+      data: { parteId: 'parte-1', foto: FOTO },
+    });
+    expect(ixc.upload.mock.calls[0][3]).toEqual({
+      id_apagar: '4242',
+      descricao: 'Strada — troca de óleo',
+    });
+    expect(r).toEqual({ guardada: true, aviso: null });
+  });
+
+  it('o IXC recusar não perde a foto: ela já está guardada', async () => {
+    const { service, prisma, ixc } = montarServico();
+    ixc.upload.mockRejectedValueOnce(new Error('webservice fora'));
+
+    const r = await service.anexarNotaDaParte('parte-1', { arquivo: FOTO });
+
+    expect(prisma.fotoDaNota.create).toHaveBeenCalled();
+    expect(r.aviso).toMatch(/guardada aqui, mas não subiu para o IXC/);
+  });
+
+  it('nota que não existe mais é recusada', async () => {
+    const { service } = montarServico();
+
+    await expect(
+      service.anexarNotaDaParte('sumida', { arquivo: FOTO }),
+    ).rejects.toThrow(/não existe mais/);
   });
 });
 

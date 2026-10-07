@@ -582,9 +582,13 @@ describe('Categoria por compra', () => {
     const veiculos = { id: 'veic', nome: 'Compra de veículos', pai: { id: 'v', nome: 'Veículos' } };
     const prisma = {
       contaPagar: {
-        findMany: jest.fn().mockResolvedValue([
-          { idFnApagarIxc: 4444, cartaoCreditoId: 'k1', competencia: '2026-10' },
-        ]),
+        // A pergunta das contas com várias notas filtra pelas partes; esta
+        // fatura não tem nenhuma.
+        findMany: jest.fn(async ({ where }: { where: Record<string, unknown> }) =>
+          'partes' in where
+            ? []
+            : [{ idFnApagarIxc: 4444, cartaoCreditoId: 'k1', competencia: '2026-10' }],
+        ),
       },
       compraNoCartao: {
         findMany: jest.fn().mockResolvedValue([

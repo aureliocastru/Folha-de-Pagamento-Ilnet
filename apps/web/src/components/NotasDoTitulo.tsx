@@ -12,6 +12,179 @@ interface ArquivoDaNota {
   tipo: string;
 }
 
+/** Uma nota guardada aqui — sem o arquivo, que vem quando se pede. */
+interface NotaGuardada {
+  id: string;
+  rotulo: string;
+  parteId: string;
+}
+
+/**
+ * As notas de um título.
+ *
+ * Primeiro as guardadas aqui: as da conta paga de uma vez, uma por nota. Elas
+ * também estão no IXC, mas de lá não voltam — com várias no mesmo título, o
+ * webservice desta base não devolve uma por uma. Sem nenhuma guardada, a
+ * lista é a do IXC, como sempre foi.
+ *
+ * `filtro` serve à ficha do veículo, nas contas lançadas antes das cópias
+ * existirem: dos arquivos do título, só os que levam o nome dele.
+ */
+export function NotasDoTitulo({
+  idFnApagar,
+  filtro,
+}: {
+  idFnApagar: number;
+  filtro?: (descricao: string) => boolean;
+}) {
+  const guardadas = useQuery({
+    queryKey: ['notas-guardadas', 'titulo', idFnApagar],
+    queryFn: async () =>
+      (await api.get<NotaGuardada[]>(`/contas-abertas/${idFnApagar}/notas-guardadas`)).data,
+    retry: 0,
+  });
+
+  if (guardadas.isLoading) {
+    return <p className="mt-4 text-sm text-tinta-400">Procurando as notas…</p>;
+  }
+  if (guardadas.data?.length) return <NotasGuardadas notas={guardadas.data} />;
+  return <NotasNoIxc idFnApagar={idFnApagar} filtro={filtro} />;
+}
+
+/** As notas guardadas de uma das notas de uma conta — a do veículo, na ficha dele. */
+export function NotasDaParte({ parteId }: { parteId: string }) {
+  const guardadas = useQuery({
+    queryKey: ['notas-guardadas', 'parte', parteId],
+    queryFn: async () =>
+      (await api.get<NotaGuardada[]>(`/contas-abertas/partes/${parteId}/notas`)).data,
+    retry: 0,
+  });
+
+  if (guardadas.isLoading) {
+    return <p className="mt-4 text-sm text-tinta-400">Procurando a nota…</p>;
+  }
+  if (guardadas.isError) {
+    return (
+      <p className="mt-4 text-sm text-rose-600">
+        Não deu para abrir a nota: {mensagemErro(guardadas.error)}
+      </p>
+    );
+  }
+  return <NotasGuardadas notas={guardadas.data ?? []} />;
+}
+
+/**
+ * As notas guardadas aqui, com o mesmo jeito de abrir das do IXC: a foto em
+ * tela cheia, com as setas; o PDF num link que abre a aba.
+ */
+function NotasGuardadas({ notas }: { notas: NotaGuardada[] }) {
+  const [lidas] = useState(() => new Map<string, string>());
+  const [abrindo, setAbrindo] = useState<string | null>(null);
+  const [vendo, setVendo] = useState<string | null>(null);
+  /** O PDF já lido: abre por um link, que o toque abre sem o celular recusar. */
+  const [pdf, setPdf] = useState<{ id: string; url: string } | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  useEffect(
+    () => () => {
+      if (pdf) URL.revokeObjectURL(pdf.url);
+    },
+    [pdf],
+  );
+
+  async function ler(id: string): Promise<string> {
+    const pronta = lidas.get(id);
+    if (pronta) return pronta;
+    const { data } = await api.get<{ foto: string }>(`/contas-abertas/notas-guardadas/${id}`);
+    lidas.set(id, data.foto);
+    return data.foto;
+  }
+
+  async function abrir(nota: NotaGuardada) {
+    setAbrindo(nota.id);
+    setErro(null);
+    try {
+      const dados = await ler(nota.id);
+      if (dados.startsWith('data:image/')) {
+        setVendo(nota.id);
+      } else {
+        const blob = await (await fetch(dados)).blob();
+        setPdf({ id: nota.id, url: URL.createObjectURL(blob) });
+      }
+    } catch (e) {
+      setErro(mensagemErro(e));
+    } finally {
+      setAbrindo(null);
+    }
+  }
+
+  /** A foto vizinha: pula o PDF, que não se mostra em tela cheia. */
+  async function irPara(passo: number) {
+    const atual = notas.findIndex((n) => n.id === vendo);
+    for (let i = atual + passo; i >= 0 && i < notas.length; i += passo) {
+      try {
+        if ((await ler(notas[i].id)).startsWith('data:image/')) {
+          setVendo(notas[i].id);
+          return;
+        }
+      } catch (e) {
+        setErro(mensagemErro(e));
+        return;
+      }
+    }
+  }
+
+  const aberta = vendo ? lidas.get(vendo) : undefined;
+  const indice = notas.findIndex((n) => n.id === vendo);
+
+  return (
+    <div className="mt-4">
+      <div className="rotulo">Notas anexadas</div>
+      {notas.length === 0 ? (
+        <p className="text-sm text-tinta-400">Nenhuma nota anexada.</p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {notas.map((nota) => (
+            <span key={nota.id} className="inline-flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void abrir(nota)}
+                disabled={abrindo === nota.id}
+                className="btn btn-p btn-neutro"
+              >
+                {abrindo === nota.id ? 'Abrindo…' : `Ver: ${nota.rotulo}`}
+              </button>
+              {pdf?.id === nota.id && (
+                <a
+                  href={pdf.url}
+                  target="_blank"
+                  rel="noopener"
+                  className="text-xs font-semibold text-brand-600 hover:underline dark:text-brand-300"
+                >
+                  Abrir o PDF
+                </a>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
+      {erro && <p className="mt-1 text-sm text-rose-600">{erro}</p>}
+      {vendo && aberta && (
+        <FotoAmpliada
+          src={aberta}
+          titulo={
+            notas.length > 1
+              ? `${notas[indice]?.rotulo ?? 'Nota'} — ${indice + 1} de ${notas.length}`
+              : (notas[indice]?.rotulo ?? 'Nota')
+          }
+          onFechar={() => setVendo(null)}
+          onAnterior={indice > 0 ? () => void irPara(-1) : undefined}
+          onProxima={indice < notas.length - 1 ? () => void irPara(1) : undefined}
+        />
+      )}
+    </div>
+  );
+}
+
 /**
  * As notas anexadas a um título, lidas do IXC.
  *
@@ -25,7 +198,13 @@ interface ArquivoDaNota {
  * falhou: quem tinha acabado de anexar não conseguia distinguir "não subiu" de
  * "não tem onde ver".
  */
-export function NotasDoTitulo({ idFnApagar }: { idFnApagar: number }) {
+function NotasNoIxc({
+  idFnApagar,
+  filtro,
+}: {
+  idFnApagar: number;
+  filtro?: (descricao: string) => boolean;
+}) {
   const [abrindo, setAbrindo] = useState<number | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   /** A foto sendo lida em tela cheia, quando é foto. */
@@ -54,7 +233,7 @@ export function NotasDoTitulo({ idFnApagar }: { idFnApagar: number }) {
     retry: 0,
   });
 
-  const lista = notas.data ?? [];
+  const lista = (notas.data ?? []).filter((n) => !filtro || filtro(n.descricao));
   /** Só as fotos — são elas que a tela cheia percorre com as setas. */
   const fotos = lista.filter(ehFoto);
 
