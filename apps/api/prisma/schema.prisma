@@ -1347,6 +1347,10 @@ model ContaPagar {
   veiculo   Veiculo? @relation(fields: [veiculoId], references: [id], onDelete: SetNull)
   veiculoId String?  @map("veiculo_id")
 
+  /// A conta dividida entre veículos: uma nota por carro, um pagamento só.
+  /// Com estas linhas o `veiculoId` acima fica vazio — ver `DespesaPorVeiculo`.
+  despesasPorVeiculo DespesaPorVeiculo[]
+
   /// As férias que este pagamento quita. Só no tipo FERIAS, e é o que responde
   /// "as férias dela já foram pagas?" sem depender do mês — as férias podem
   /// ser pagas adiantadas, semanas antes de começarem.
@@ -1392,6 +1396,37 @@ model ContaPagar {
   @@index([veiculoId])
   @@index([feriasMarcadaId])
   @@map("contas_pagar")
+}
+
+/// A parte de uma conta a pagar que foi gasta num veículo.
+///
+/// A oficina manda uma nota por carro e cobra tudo junto: o título no IXC é
+/// um só — um PIX, uma baixa —, e o que cada veículo custou fica aqui. A ficha
+/// do veículo soma estas linhas, e não a conta inteira; a conta dividida fica
+/// com o `veiculoId` vazio, senão o mesmo dinheiro contaria duas vezes.
+///
+/// As linhas somam o valor da conta: é a tela que divide, e a API recusa a
+/// divisão que não fecha.
+model DespesaPorVeiculo {
+  id String @id @default(uuid())
+
+  conta        ContaPagar @relation(fields: [contaPagarId], references: [id], onDelete: Cascade)
+  contaPagarId String     @map("conta_pagar_id")
+
+  /// `Restrict`: apagar o veículo apagaria em silêncio a parte dele numa conta
+  /// que existe e foi paga. Desligar é o caminho de quem saiu da frota.
+  veiculo   Veiculo @relation(fields: [veiculoId], references: [id], onDelete: Restrict)
+  veiculoId String  @map("veiculo_id")
+
+  valor     Decimal @db.Decimal(14, 2)
+  /// O que foi feito nele: "troca de óleo", "pneu dianteiro".
+  descricao String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([contaPagarId])
+  @@index([veiculoId])
+  @@map("despesas_por_veiculo")
 }
 
 // ---------------------------------------------------------------------------
@@ -1465,6 +1500,8 @@ model Veiculo {
   logins       VeiculoDoLogin[]
 
   contas         ContaPagar[]
+  /// O que é dele nas contas divididas entre vários veículos.
+  despesasPorVeiculo DespesaPorVeiculo[]
   abastecimentos Abastecimento[]
   /// O que saiu deste galão para as máquinas.
   saidas         Abastecimento[] @relation("saidas_do_galao")

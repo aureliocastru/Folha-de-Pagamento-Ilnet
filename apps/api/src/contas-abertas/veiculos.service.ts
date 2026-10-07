@@ -126,6 +126,9 @@ export class VeiculosService {
         orderBy: [{ ativo: 'desc' }, { apelido: 'asc' }],
         include: {
           contas: { select: CAMPOS_DA_CONTA },
+          despesasPorVeiculo: {
+            select: { valor: true, conta: { select: CAMPOS_DA_CONTA } },
+          },
           responsaveis: RESPONSAVEIS,
           logins: LOGINS,
         },
@@ -240,7 +243,7 @@ export class VeiculosService {
     return veiculos.map((v) =>
       resumir(
         v,
-        v.contas,
+        [...v.contas, ...partesComoContas(v.despesasPorVeiculo)],
         porVeiculo.get(v.id),
         estoques.get(v.id) ?? null,
         mediaDeConsumo(
@@ -301,17 +304,49 @@ export class VeiculosService {
           },
           orderBy: { dataVencimento: 'desc' },
         },
+        // A parte dele nas contas divididas: a nota da oficina que era dele.
+        despesasPorVeiculo: {
+          select: {
+            valor: true,
+            descricao: true,
+            conta: {
+              select: {
+                ...CAMPOS_DA_CONTA,
+                id: true,
+                idFnApagarIxc: true,
+                beneficiarioNome: true,
+                observacao: true,
+              },
+            },
+          },
+        },
       },
     });
     if (!veiculo) throw new NotFoundException('Veículo não encontrado.');
 
+    /*
+     * As contas inteiras dele e as partes dele nas divididas, numa lista só.
+     * Na dividida o valor é o da parte, e o que foi feito vem antes do texto
+     * da conta — "troca de óleo — oficina, notas de outubro".
+     */
+    const lancadas = [
+      ...veiculo.contas,
+      ...veiculo.despesasPorVeiculo.map((d) => ({
+        ...d.conta,
+        valor: d.valor,
+        observacao: d.descricao
+          ? `${d.descricao} — ${d.conta.observacao}`
+          : d.conta.observacao,
+      })),
+    ].sort((a, b) => b.dataVencimento.getTime() - a.dataVencimento.getTime());
+
     const etiquetas = await this.categorias.dosTitulos(
-      veiculo.contas
+      lancadas
         .map((c) => c.idFnApagarIxc)
         .filter((n): n is number => n != null),
     );
 
-    const gastos: GastoDoVeiculo[] = veiculo.contas.map((c) => ({
+    const gastos: GastoDoVeiculo[] = lancadas.map((c) => ({
       contaId: c.id,
       idFnApagarIxc: c.idFnApagarIxc,
       fornecedor: c.beneficiarioNome,
@@ -341,7 +376,7 @@ export class VeiculosService {
     ]);
 
     return {
-      veiculo: resumir(veiculo, veiculo.contas, combustivel),
+      veiculo: resumir(veiculo, lancadas, combustivel),
       gastos,
       porCategoria: [...porNome]
         .map(([nome, valor]) => ({ nome, valor: centavos(valor) }))
@@ -412,10 +447,12 @@ export class VeiculosService {
    */
   async remover(id: string): Promise<void> {
     await this.existente(id);
-    const [contas, abastecimentos] = await Promise.all([
+    const [inteiras, partes, abastecimentos] = await Promise.all([
       this.prisma.contaPagar.count({ where: { veiculoId: id } }),
+      this.prisma.despesaPorVeiculo.count({ where: { veiculoId: id } }),
       this.prisma.abastecimento.count({ where: { veiculoId: id } }),
     ]);
+    const contas = inteiras + partes;
     if (contas + abastecimentos > 0) {
       throw new BadRequestException(
         `Este veículo já tem ${contas} gasto(s) e ${abastecimentos} abastecimento(s). ` +
@@ -483,6 +520,17 @@ const CAMPOS_DA_CONTA = {
   pagoEm: true,
   dataVencimento: true,
 } as const;
+
+/**
+ * As partes de contas divididas, do jeito que o resumo lê uma conta: o valor
+ * é o da parte, e o resto — situação, vencimento — é o da conta de onde ela
+ * saiu.
+ */
+function partesComoContas(
+  partes: Array<{ valor: ContaResumida['valor']; conta: ContaResumida }>,
+): ContaResumida[] {
+  return partes.map((p) => ({ ...p.conta, valor: p.valor }));
+}
 
 interface ContaResumida {
   valor: { toString(): string } | number;

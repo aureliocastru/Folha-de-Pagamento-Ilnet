@@ -609,6 +609,23 @@ export class PagamentosService {
     }
 
     /*
+     * Na conta dividida entre veículos, o valor e os veículos são os das notas
+     * dela. Trocar o valor por aqui deixaria a soma sem fechar; pôr um veículo
+     * só faria a ficha dele contar a conta inteira, por cima da parte de cada um.
+     */
+    if (veiculoId || doIxc.valor !== undefined) {
+      const dividida = await this.prisma.despesaPorVeiculo.count({
+        where: { conta: { idFnApagarIxc: idFnApagar } },
+      });
+      if (dividida > 0) {
+        throw new BadRequestException(
+          'Esta conta está dividida entre veículos: o valor e os veículos são ' +
+            'os das notas dela. Nada foi alterado.',
+        );
+      }
+    }
+
+    /*
      * O veículo mora na conta que este app lançou, e não no IXC. Vai antes do
      * título: é a parte que pode ser recusada sem ter mexido em nada lá.
      */

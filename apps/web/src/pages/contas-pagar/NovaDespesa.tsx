@@ -41,6 +41,13 @@ export interface EdicaoDaConta {
   /** Lançada por este app: só nela cabe o veículo, que mora aqui. */
   lancadaAqui: boolean;
   veiculoId: string | null;
+  /** A conta dividida entre veículos: a parte de cada um. Vazio na comum. */
+  porVeiculo?: Array<{
+    veiculoId: string;
+    apelido: string;
+    valor: number;
+    descricao: string | null;
+  }>;
 }
 
 /** O que a conta tinha ao abrir, para mandar ao IXC só o que mudou. */
@@ -305,6 +312,15 @@ export function NovaDespesa({
   const [lancada, setLancada] = useState<DespesaLancada | null>(null);
   /** As notas que vão junto: arquivos escolhidos ou prints colados. */
   const [notas, setNotas] = useState<ArquivoDaNota[]>([]);
+  /**
+   * A conta dividida entre veículos: as notas da oficina, uma por carro, pagas
+   * de uma vez. Vazia, é a conta de sempre.
+   */
+  const [porVeiculo, setPorVeiculo] = useState<NotaPorVeiculo[]>([]);
+  /** A tela das notas por veículo está aberta, no lugar do formulário. */
+  const [dividindo, setDividindo] = useState(false);
+  const dividida = porVeiculo.length > 0;
+  const somaPorVeiculo = somarNotas(porVeiculo);
   const [avisoDaNota, setAvisoDaNota] = useState<string | null>(null);
 
   const categorias = useQuery({
@@ -449,12 +465,20 @@ export function NovaDespesa({
         {
           idFornecedorIxc: fornecedor!.idFornecedor,
           fornecedorNome: fornecedor!.nome,
-          valor: Number(valor),
+          valor: valorDaConta,
           dataEmissao: emissao,
           dataVencimento: vencimento,
           observacao: observacao.trim(),
           categoriaId: categoriaId || null,
-          veiculoId: veiculoId || undefined,
+          // Dividida, a conta não é de um veículo: cada nota é do seu.
+          veiculoId: dividida ? undefined : veiculoId || undefined,
+          porVeiculo: dividida
+            ? porVeiculo.map((n) => ({
+                veiculoId: n.veiculoId,
+                valor: Number(n.valor),
+                descricao: n.descricao.trim() || undefined,
+              }))
+            : undefined,
           tipoPagamento: tipoPagamento.trim() || undefined,
           codigoBarras: digitos(codigoBarras) || undefined,
           chavePix: chavePix.trim() || undefined,
@@ -498,11 +522,12 @@ export function NovaDespesa({
        * se anexa de novo pelo IXC ou por aqui.
        */
       const idNoIxc = data.conta.idFnApagarIxc;
-      if (notas.length > 0 && idNoIxc) {
-        const { falhas, motivo } = await subirNotas(idNoIxc, notas, observacao);
+      const paraSubir = arquivosParaSubir(observacao);
+      if (paraSubir.length > 0 && idNoIxc) {
+        const { falhas, motivo } = await subirNotas(idNoIxc, paraSubir);
         if (falhas.length > 0) {
           setAvisoDaNota(
-            `A conta foi lançada, mas ${contarNotas(falhas.length, notas.length)} ` +
+            `A conta foi lançada, mas ${contarNotas(falhas.length, paraSubir.length)} ` +
               `não ${falhas.length === 1 ? 'subiu' : 'subiram'}: ${motivo}`,
           );
         }
@@ -602,7 +627,7 @@ export function NovaDespesa({
       }
 
       if (notas.length > 0) {
-        const { falhas, motivo } = await subirNotas(id, notas, depois.observacao);
+        const { falhas, motivo } = await subirNotas(id, arquivosParaSubir(depois.observacao));
         // Ficam só as que não subiram: salvar de novo não repete as outras no
         // IXC.
         setNotas(falhas);
@@ -743,9 +768,36 @@ export function NovaDespesa({
   const boletoValido = [44, 47, 48].includes(digitos(codigoBarras).length);
   const ehCopiaECola = /^0002/.test(chavePix.trim());
 
+  /** O valor da conta: o digitado, ou a soma das notas quando ela é dividida. */
+  const valorDaConta = dividida ? somaPorVeiculo : Number(valor) || 0;
+
+  /*
+   * Máquinas e veículos — a categoria mãe ou qualquer filha dela — abre a
+   * divisão por veículo. Pelo nome do grupo, que é como o cadastro o conhece.
+   */
+  const categoriaEscolhida = categorias.data?.find((c) => c.id === categoriaId);
+  const grupoDaCategoria = categoriaEscolhida?.pai?.nome ?? categoriaEscolhida?.nome ?? '';
+  const ehDaFrota = /ve[ií]culo|m[aá]quina/i.test(grupoDaCategoria);
+  const podeDividir =
+    ehDaFrota && !edicao && !parcelado && !recorrente && (veiculos.data?.length ?? 0) > 0;
+
+  function abrirDivisao() {
+    if (porVeiculo.length === 0) {
+      // A primeira nota começa com o que já estava no formulário.
+      setPorVeiculo([
+        novaNotaPorVeiculo({
+          veiculoId,
+          valor: Number(valor) > 0 ? valor : '',
+        }),
+      ]);
+    }
+    setDividindo(true);
+  }
+
   const podeLancar =
     !!fornecedor &&
-    Number(valor) > 0 &&
+    valorDaConta > 0 &&
+    (!dividida || notasCompletas(porVeiculo)) &&
     // Na edição não se exige: conta lançada no IXC sem observação continua
     // podendo ser corrigida no que ela tem de errado.
     (!!edicao || observacao.trim().length >= 3) &&
@@ -780,12 +832,12 @@ export function NovaDespesa({
     {
       rotulo: 'Valor e vencimento',
       resumo: [
-        Number(valor) > 0 ? formatBRL(Number(valor)) : null,
+        valorDaConta > 0 ? formatBRL(valorDaConta) : null,
         `vence ${formatarDia(vencimento)}`,
       ]
         .filter(Boolean)
         .join(' · '),
-      falta: Number(valor) > 0 ? undefined : 'Digite o valor.',
+      falta: valorDaConta > 0 ? undefined : 'Digite o valor.',
     },
     {
       rotulo: 'O que é esta conta',
@@ -808,7 +860,14 @@ export function NovaDespesa({
     },
     {
       rotulo: 'Classificação',
-      resumo: [categoriaId ? 'categoria marcada' : null, veiculoId ? 'veículo marcado' : null]
+      resumo: [
+        categoriaId ? 'categoria marcada' : null,
+        dividida
+          ? `${porVeiculo.length} nota${porVeiculo.length > 1 ? 's' : ''} por veículo`
+          : veiculoId
+            ? 'veículo marcado'
+            : null,
+      ]
         .filter(Boolean)
         .join(' · ') || undefined,
     },
@@ -831,6 +890,49 @@ export function NovaDespesa({
   /** O título de cada coluna — só no computador: no celular o passo já tem o seu. */
   const tituloDaColuna = (texto: string) =>
     a.celular ? null : <p className="eyebrow mb-3">{texto}</p>;
+
+  /**
+   * Os arquivos que sobem com a conta, cada um com o nome que a aba de arquivos
+   * do IXC vai mostrar: as notas gerais com o texto da conta; as de cada veículo
+   * com o apelido dele e o que foi feito — é por ali que se acha a nota do carro.
+   */
+  function arquivosParaSubir(textoDaConta: string): NotaParaSubir[] {
+    const base = textoDaConta.trim().slice(0, 80) || 'Nota';
+    const apelido = (id: string) =>
+      veiculos.data?.find((v) => v.id === id)?.apelido ?? 'Veículo';
+    return [
+      ...notas.map((n) => ({ ...n, descricao: base })),
+      ...porVeiculo.flatMap((p) =>
+        p.notas.map((n) => ({
+          ...n,
+          descricao: `${apelido(p.veiculoId)} — ${p.descricao.trim() || base}`.slice(0, 80),
+        })),
+      ),
+    ];
+  }
+
+  if (dividindo) {
+    return (
+      <Janela titulo="Notas por veículo" onFechar={() => setDividindo(false)} larga>
+        <TelaDasNotasPorVeiculo
+          notas={porVeiculo}
+          onMudar={setPorVeiculo}
+          veiculos={veiculos.data ?? []}
+          carregando={veiculos.isLoading}
+          fornecedor={fornecedor?.nome ?? null}
+          onPronto={() => {
+            setValor(somaPorVeiculo.toFixed(2));
+            setVeiculoId('');
+            setDividindo(false);
+          }}
+          onDesfazer={() => {
+            setPorVeiculo([]);
+            setDividindo(false);
+          }}
+        />
+      </Janela>
+    );
+  }
 
   if (lancada) {
     return (
@@ -1017,7 +1119,18 @@ export function NovaDespesa({
                     ? 'Valor da parcela'
                     : 'Valor'}
                 </label>
-                <CampoDinheiro valor={valor} onChange={setValor} placeholder="0,00" />
+                {dividida || edicao?.porVeiculo?.length ? (
+                  <button
+                    type="button"
+                    onClick={() => dividida && setDividindo(true)}
+                    className="campo text-left"
+                    title={dividida ? 'A soma das notas por veículo' : 'A soma das notas desta conta'}
+                  >
+                    {formatBRL(valorDaConta)}
+                  </button>
+                ) : (
+                  <CampoDinheiro valor={valor} onChange={setValor} placeholder="0,00" />
+                )}
               </div>
               <div>
                 <label className="rotulo" htmlFor="vencimento">
@@ -1336,9 +1449,41 @@ export function NovaDespesa({
                     title="É por esta escolha que o dashboard separa os gastos. Fica guardada aqui — o IXC não tem onde recebê-la."
                   />
                 </div>
-                {/* Só aparece quando há frota cadastrada — ou quando a conta nasceu
-                    dentro de um veículo, e aí ele já vem marcado. */}
-                {(edicao
+                {dividida ? (
+                  <div>
+                    <span className="rotulo">Veículos</span>
+                    <button
+                      type="button"
+                      onClick={() => setDividindo(true)}
+                      className="campo flex items-center justify-between gap-2 text-left"
+                    >
+                      <span className="truncate">
+                        {porVeiculo.length} nota{porVeiculo.length > 1 ? 's' : ''} ·{' '}
+                        {formatBRL(somaPorVeiculo)}
+                      </span>
+                      <span className="shrink-0 text-xs font-semibold text-brand-600 dark:text-brand-300">
+                        Ver notas
+                      </span>
+                    </button>
+                  </div>
+                ) : edicao?.porVeiculo?.length ? (
+                  <div>
+                    <span className="rotulo">Veículos</span>
+                    <ul className="space-y-1 text-sm text-tinta-700">
+                      {edicao.porVeiculo.map((p, i) => (
+                        <li key={i} className="flex justify-between gap-2">
+                          <span className="truncate">
+                            {p.apelido}
+                            {p.descricao ? ` — ${p.descricao}` : ''}
+                          </span>
+                          <span className="valor shrink-0">{formatBRL(p.valor)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : /* Só aparece quando há frota cadastrada — ou quando a conta
+                       nasceu dentro de um veículo, e aí ele já vem marcado. */
+                (edicao
                   ? edicao.lancadaAqui
                   : veiculoInicial || (veiculos.data?.length ?? 0) > 0) && (
                   <div>
@@ -1361,6 +1506,17 @@ export function NovaDespesa({
                   </div>
                 )}
               </div>
+              {/* A oficina mandou uma nota por carro e cobra tudo junto: um
+                  pagamento só, e cada carro com a sua despesa. */}
+              {podeDividir && !dividida && (
+                <button
+                  type="button"
+                  onClick={abrirDivisao}
+                  className="btn btn-p btn-ferramenta mt-3"
+                >
+                  Várias notas de veículos, um pagamento
+                </button>
+              )}
             </div>
           )}
           {a.mostrar(5) && (
@@ -1751,7 +1907,7 @@ export function NovaDespesa({
           <span className="mr-auto text-xs text-tinta-400">
             {!fornecedor
               ? 'Escolha o fornecedor para continuar.'
-              : !(Number(valor) > 0)
+              : !(valorDaConta > 0)
                 ? 'Informe o valor.'
                 : !edicao && observacao.trim().length < 3
                   ? 'Escreva o que é esta conta.'
@@ -1918,6 +2074,175 @@ interface ArquivoDaNota {
   dados: string;
 }
 
+/** Um arquivo com o nome que a aba de arquivos do IXC vai mostrar. */
+type NotaParaSubir = ArquivoDaNota & { descricao: string };
+
+/** Uma das notas de uma conta dividida entre veículos. */
+interface NotaPorVeiculo {
+  /** Só para a lista da tela saber quem é quem enquanto se edita. */
+  chave: string;
+  veiculoId: string;
+  /** Valor canônico: "120.00", ou "" quando vazio. */
+  valor: string;
+  /** O que foi feito no veículo: "troca de óleo". */
+  descricao: string;
+  /** A foto ou o PDF desta nota. */
+  notas: ArquivoDaNota[];
+}
+
+let sequenciaDasNotas = 0;
+
+function novaNotaPorVeiculo(
+  inicio: Partial<Pick<NotaPorVeiculo, 'veiculoId' | 'valor'>> = {},
+): NotaPorVeiculo {
+  sequenciaDasNotas += 1;
+  return {
+    chave: `nota-${sequenciaDasNotas}`,
+    veiculoId: inicio.veiculoId ?? '',
+    valor: inicio.valor ?? '',
+    descricao: '',
+    notas: [],
+  };
+}
+
+function somarNotas(notas: NotaPorVeiculo[]): number {
+  return Math.round(notas.reduce((t, n) => t + (Number(n.valor) || 0), 0) * 100) / 100;
+}
+
+/** Toda nota com o veículo e o valor: é o que a divisão precisa para fechar. */
+function notasCompletas(notas: NotaPorVeiculo[]): boolean {
+  return notas.length > 0 && notas.every((n) => !!n.veiculoId && Number(n.valor) > 0);
+}
+
+/**
+ * As notas de uma conta paga de uma vez, cada uma no seu veículo.
+ *
+ * A oficina manda uma nota por carro e cobra tudo junto. Aqui se lança nota
+ * por nota — o veículo, o que foi feito, quanto, e a foto —, e na volta ao
+ * formulário a conta vale a soma: um título só no IXC, um pagamento, e a ficha
+ * de cada veículo com a parte dele.
+ */
+function TelaDasNotasPorVeiculo({
+  notas,
+  onMudar,
+  veiculos,
+  carregando,
+  fornecedor,
+  onPronto,
+  onDesfazer,
+}: {
+  notas: NotaPorVeiculo[];
+  onMudar: (notas: NotaPorVeiculo[]) => void;
+  veiculos: Array<{ id: string; apelido: string; placa: string | null }>;
+  carregando: boolean;
+  fornecedor: string | null;
+  onPronto: () => void;
+  onDesfazer: () => void;
+}) {
+  const soma = somarNotas(notas);
+  const completas = notasCompletas(notas);
+  const mudar = (chave: string, parte: Partial<NotaPorVeiculo>) =>
+    onMudar(notas.map((n) => (n.chave === chave ? { ...n, ...parte } : n)));
+
+  return (
+    <div>
+      <div className="space-y-3">
+        {notas.map((n, i) => (
+          <div
+            key={n.chave}
+            className="grid grid-cols-1 gap-3 rounded-xl border border-tinta-200 p-3 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1.4fr)_9rem_minmax(0,1.3fr)_auto] lg:items-start"
+          >
+            <div>
+              <label className="rotulo" htmlFor={`veiculo-${n.chave}`}>
+                Veículo {notas.length > 1 ? i + 1 : ''}
+              </label>
+              <SeletorDeVeiculo
+                id={`veiculo-${n.chave}`}
+                value={n.veiculoId}
+                onChange={(veiculoId) => mudar(n.chave, { veiculoId })}
+                carregando={carregando}
+                veiculos={veiculos}
+                obrigatorio
+                vazio="Escolha o veículo"
+              />
+            </div>
+            <div>
+              <label className="rotulo" htmlFor={`oque-${n.chave}`}>
+                O que foi
+              </label>
+              <input
+                id={`oque-${n.chave}`}
+                value={n.descricao}
+                onChange={(e) => mudar(n.chave, { descricao: e.target.value.slice(0, 200) })}
+                className="campo"
+                placeholder="Ex.: troca de óleo"
+                autoComplete="off"
+              />
+            </div>
+            <div>
+              <label className="rotulo" htmlFor={`valor-${n.chave}`}>
+                Valor
+              </label>
+              <CampoDinheiro
+                id={`valor-${n.chave}`}
+                valor={n.valor}
+                onChange={(valor) => mudar(n.chave, { valor })}
+                placeholder="0,00"
+              />
+            </div>
+            <CampoDaNota
+              notas={n.notas}
+              onMudar={(arquivos) => mudar(n.chave, { notas: arquivos })}
+              colar={false}
+              rotulo="Nota"
+            />
+            {notas.length > 1 && (
+              <button
+                type="button"
+                onClick={() => onMudar(notas.filter((x) => x.chave !== n.chave))}
+                className="btn btn-sutil btn-p self-end text-rose-600 lg:mt-6"
+              >
+                Tirar
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => onMudar([...notas, novaNotaPorVeiculo()])}
+        className="btn btn-neutro btn-p mt-3"
+      >
+        + Outra nota
+      </button>
+
+      <div className="mt-5 flex flex-wrap items-center justify-end gap-2 border-t border-tinta-200 pt-4">
+        <span className="mr-auto text-sm text-tinta-600">
+          {notas.length} nota{notas.length > 1 ? 's' : ''} ·{' '}
+          <strong className="valor">{formatBRL(soma)}</strong>
+          {fornecedor ? ` num pagamento só para ${fornecedor}` : ' num pagamento só'}
+        </span>
+        <button type="button" onClick={onDesfazer} className="btn btn-sutil">
+          Não dividir
+        </button>
+        <button
+          type="button"
+          onClick={onPronto}
+          disabled={!completas}
+          className="btn btn-primario"
+          title={completas ? undefined : 'Cada nota precisa do veículo e do valor.'}
+        >
+          Pronto
+        </button>
+      </div>
+      {!completas && (
+        <p className="ajuda text-right">Cada nota precisa do veículo e do valor.</p>
+      )}
+    </div>
+  );
+}
+
 /** No máximo tantos por conta: cada um é uma ida ao webservice do IXC. */
 const NOTAS_POR_CONTA = 10;
 
@@ -1930,11 +2255,9 @@ const NOTAS_POR_CONTA = 10;
  */
 async function subirNotas(
   idFnApagar: number,
-  notas: ArquivoDaNota[],
-  observacao: string,
-): Promise<{ falhas: ArquivoDaNota[]; motivo: string }> {
-  const base = observacao.trim().slice(0, 90) || 'Nota';
-  const falhas: ArquivoDaNota[] = [];
+  notas: NotaParaSubir[],
+): Promise<{ falhas: NotaParaSubir[]; motivo: string }> {
+  const falhas: NotaParaSubir[] = [];
   let motivo = '';
   for (const [i, nota] of notas.entries()) {
     try {
@@ -1943,7 +2266,8 @@ async function subirNotas(
         nome: nota.nome,
         // Na aba de arquivos do IXC elas aparecem pela descrição: com várias,
         // cada uma com o seu número.
-        descricao: notas.length > 1 ? `${base} (${i + 1} de ${notas.length})` : base,
+        descricao:
+          notas.length > 1 ? `${nota.descricao} (${i + 1} de ${notas.length})` : nota.descricao,
       });
     } catch (err) {
       falhas.push(nota);
@@ -1977,11 +2301,19 @@ function CampoDaNota({
   notas,
   onMudar,
   parcelado = false,
+  colar = true,
+  rotulo = 'Notas',
 }: {
   notas: ArquivoDaNota[];
   onMudar: (notas: ArquivoDaNota[]) => void;
   /** Em conta parcelada as notas vão na primeira parcela, e a tela diz isso. */
   parcelado?: boolean;
+  /**
+   * Escuta o Ctrl+V da janela. Só um campo por tela pode: com as notas de cada
+   * veículo abertas, o print colado iria para todas ao mesmo tempo.
+   */
+  colar?: boolean;
+  rotulo?: string;
 }) {
   const [erro, setErro] = useState<string | null>(null);
   const [lendo, setLendo] = useState(false);
@@ -2031,6 +2363,7 @@ function CampoDaNota({
    * daqui quebraria a digitação normal.
    */
   useEffect(() => {
+    if (!colar) return;
     function aoColar(e: ClipboardEvent) {
       const imagens = [...(e.clipboardData?.files ?? [])].filter((f) =>
         f.type.startsWith('image/'),
@@ -2043,7 +2376,7 @@ function CampoDaNota({
 
     window.addEventListener('paste', aoColar);
     return () => window.removeEventListener('paste', aoColar);
-  }, []);
+  }, [colar]);
 
   async function escolher(e: React.ChangeEvent<HTMLInputElement>) {
     // A cópia sai antes de limpar o campo: `files` é uma lista viva.
@@ -2060,7 +2393,7 @@ function CampoDaNota({
 
   return (
     <div>
-      <span className="rotulo">Notas</span>
+      <span className="rotulo">{rotulo}</span>
       <div className="flex flex-wrap items-center gap-3">
         {notas.map((nota, i) => (
           <div key={nota.dados.slice(-32) + i} className="flex items-center gap-2">
@@ -2109,7 +2442,7 @@ function CampoDaNota({
           </label>
         )}
 
-        {notas.length === 0 && (
+        {colar && notas.length === 0 && (
           <span className="text-xs text-tinta-400">
             ou dê Ctrl+V para colar um print — ele vai como foto
           </span>

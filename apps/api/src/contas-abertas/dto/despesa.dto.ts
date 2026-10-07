@@ -216,6 +216,23 @@ export class ParcelaDaDespesaDto {
 }
 
 /**
+ * A parte de uma conta que foi gasta num veículo — uma das notas da oficina.
+ *
+ * O valor é o que esta nota custou; a soma das partes é o valor da conta.
+ */
+export class DespesaPorVeiculoDto {
+  @IsUUID('4', { message: 'Escolha o veículo de cada nota.' }) veiculoId!: string;
+
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsNumber()
+  @Min(0.01, { message: 'Cada nota precisa de um valor maior que zero.' })
+  valor!: number;
+
+  /** O que foi feito nele: "troca de óleo", "pneu dianteiro". */
+  @IsOptional() @IsString() @MaxLength(200) descricao?: string;
+}
+
+/**
  * Uma conta a pagar lançada à mão: energia, aluguel, compra de material.
  *
  * O fornecedor é escolhido entre os que já existem no IXC — é ele que o
@@ -256,6 +273,19 @@ export class CriarDespesaDto {
    * ela diz com o que (peça, mão de obra), o veículo diz em qual.
    */
   @IsOptional() @IsUUID() veiculoId?: string | null;
+
+  /**
+   * A conta dividida entre veículos: as notas da oficina, cada uma de um carro,
+   * pagas de uma vez. Vira um título só no IXC, e a ficha de cada veículo soma
+   * a parte dele. Com isto preenchido, `veiculoId` não vale, e `valor` tem de
+   * ser a soma das partes.
+   */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => DespesaPorVeiculoDto)
+  porVeiculo?: DespesaPorVeiculoDto[];
 
   /** Pix, Dinheiro, Boleto… Vazio = o padrão das Configurações. */
   @IsOptional() @IsString() @MaxLength(40) tipoPagamento?: string;

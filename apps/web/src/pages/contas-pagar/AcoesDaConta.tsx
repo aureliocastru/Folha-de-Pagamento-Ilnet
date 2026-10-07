@@ -5,7 +5,7 @@ import { api, mensagemErro } from '../../lib/api';
 import { formatBRL, formatData, formatNumeroBR } from '../../lib/format';
 import type { ContaAberta } from '../../lib/types';
 import { CampoDeData } from '../../components/CampoDeData';
-import { NovaDespesa } from './NovaDespesa';
+import { NovaDespesa, type EdicaoDaConta } from './NovaDespesa';
 
 /** Uma conta de onde o dinheiro sai, como o IXC a tem. */
 interface ContaDePagamento {
@@ -594,6 +594,7 @@ export function EditarConta({
             tipoChavePix: string | null;
             lancadaAqui: boolean;
             veiculoId: string | null;
+            porVeiculo?: NonNullable<EdicaoDaConta['porVeiculo']>;
           };
         }>(`/contas-abertas/${conta.idFnApagar}/bruto`)
       ).data,
@@ -625,6 +626,7 @@ export function EditarConta({
         tipoChavePix: bruto.data.edicao?.tipoChavePix ?? null,
         lancadaAqui: bruto.data.edicao?.lancadaAqui ?? false,
         veiculoId: bruto.data.edicao?.veiculoId ?? null,
+        porVeiculo: bruto.data.edicao?.porVeiculo ?? [],
       }}
     />
   );

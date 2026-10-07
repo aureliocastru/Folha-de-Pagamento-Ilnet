@@ -148,7 +148,13 @@ describe('montarEdicao', () => {
  */
 describe('editar conta aprovada', () => {
   function montar(
-    opts: { auditoria?: string; erroAoEditar?: string; semLocal?: boolean } = {},
+    opts: {
+      auditoria?: string;
+      erroAoEditar?: string;
+      semLocal?: boolean;
+      /** A conta foi dividida entre veículos: quantas partes ela tem. */
+      partesPorVeiculo?: number;
+    } = {},
   ) {
     const passos: string[] = [];
     const ixc = {
@@ -176,10 +182,13 @@ describe('editar conta aprovada', () => {
       apagarLocalPorTituloIxc: jest.fn(),
       mapaDoTipoChavePix: jest.fn().mockResolvedValue(null),
     };
+    const despesaPorVeiculo = {
+      count: jest.fn().mockResolvedValue(opts.partesPorVeiculo ?? 0),
+    };
     const service = new PagamentosService(
       ixc as never,
       { obter: jest.fn().mockResolvedValue({}) } as never,
-      { contaPagar } as never,
+      { contaPagar, despesaPorVeiculo } as never,
       contasPagar as never,
     );
     return { service, passos, ixc, contaPagar };
@@ -238,6 +247,28 @@ describe('editar conta aprovada', () => {
       service.editar(4242, { veiculoId: 'v1', valor: 300 }),
     ).rejects.toThrow(/não foi lançada por este app/);
     expect(passos).toEqual([]);
+  });
+
+  /*
+   * Na conta dividida entre veículos, valor e veículos são os das notas dela:
+   * mudar por aqui deixaria a soma sem fechar, ou faria um veículo só contar
+   * a conta inteira.
+   */
+  it('conta dividida entre veículos não troca de valor nem ganha veículo', async () => {
+    const dividida = montar({ partesPorVeiculo: 2 });
+    await expect(dividida.service.editar(4242, { valor: 500 })).rejects.toThrow(
+      /dividida entre veículos/,
+    );
+    await expect(dividida.service.editar(4242, { veiculoId: 'v1' })).rejects.toThrow(
+      /dividida entre veículos/,
+    );
+    expect(dividida.passos).toEqual([]);
+    expect(dividida.contaPagar.updateMany).not.toHaveBeenCalled();
+
+    // O resto dela continua editável: o boleto, o vencimento, a chave.
+    const outra = montar({ partesPorVeiculo: 2 });
+    await outra.service.editar(4242, { tipoPagamento: 'Boleto' });
+    expect(outra.passos).toEqual(['auditoria:R', 'editar', 'auditoria:A']);
   });
 
   it('chave trocada sem tipo leva o tipo pelo formato dela', async () => {

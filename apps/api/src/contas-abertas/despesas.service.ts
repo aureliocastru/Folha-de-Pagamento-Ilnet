@@ -240,6 +240,8 @@ export class DespesasService {
       }
     }
 
+    const porVeiculo = await this.conferirPorVeiculo(dto);
+
     /** O que é igual em todas as parcelas. */
     const comum = {
       idFornecedorIxc: dto.idFornecedorIxc,
@@ -251,7 +253,9 @@ export class DespesasService {
       numeroNota: dto.numeroNota,
       chavePix: dto.chavePix,
       tipoChavePix: dto.tipoChavePix,
-      veiculoId: dto.veiculoId ?? null,
+      // Dividida entre veículos, a conta não é de nenhum: quem conta é cada
+      // parte. Com os dois, a ficha somaria o mesmo dinheiro duas vezes.
+      veiculoId: porVeiculo ? null : (dto.veiculoId ?? null),
     };
 
     let lancada: DespesaLancada;
@@ -268,14 +272,15 @@ export class DespesasService {
         usuarioId,
       );
 
+      const avisos = [
+        await this.etiquetar(conta, dto.categoriaId ?? null, usuarioId),
+        porVeiculo ? await this.dividirPorVeiculo(conta, porVeiculo) : null,
+      ].filter((a): a is string => !!a);
+
       lancada = {
         conta,
         contas: [conta],
-        avisoCategoria: await this.etiquetar(
-          conta,
-          dto.categoriaId ?? null,
-          usuarioId,
-        ),
+        avisoCategoria: avisos.length ? avisos.join(' ') : null,
         baixa: null,
       };
     } else {
@@ -293,6 +298,77 @@ export class DespesasService {
       ...lancada,
       baixa: await this.darPorPaga(lancada.contas, dto, usuarioNome),
     };
+  }
+
+  /**
+   * As notas por veículo, conferidas antes de qualquer coisa ir ao IXC.
+   *
+   * A divisão que não fecha é recusada aqui, e não remendada: um centavo a
+   * mais num carro é um centavo a menos em outro, e a ficha de cada um passaria
+   * a contar uma história que a nota não conta. Veículo apagado em outra aba
+   * também para tudo — a parte dele ficaria sem dono.
+   */
+  private async conferirPorVeiculo(
+    dto: CriarDespesaDto,
+  ): Promise<NonNullable<CriarDespesaDto['porVeiculo']> | null> {
+    const partes = dto.porVeiculo ?? [];
+    if (partes.length === 0) return null;
+
+    if (dto.parcelas?.length) {
+      throw new BadRequestException(
+        'A conta dividida entre veículos vai num pagamento só — não dá para ' +
+          'parcelá-la. Nada foi lançado.',
+      );
+    }
+
+    const soma = centavos(partes.reduce((t, p) => t + p.valor, 0));
+    if (Math.abs(soma - centavos(dto.valor)) > 0.005) {
+      throw new BadRequestException(
+        `As notas somam ${reais(soma)} e a conta é de ${reais(dto.valor)}. ` +
+          'Confira os valores — nada foi lançado.',
+      );
+    }
+
+    const ids = [...new Set(partes.map((p) => p.veiculoId))];
+    const existem = await this.prisma.veiculo.count({ where: { id: { in: ids } } });
+    if (existem !== ids.length) {
+      throw new BadRequestException(
+        'Um dos veículos escolhidos não existe mais. Escolha outro — nada foi lançado.',
+      );
+    }
+    return partes;
+  }
+
+  /**
+   * Grava a parte de cada veículo, com a conta já no IXC.
+   *
+   * Falhar aqui não derruba o lançamento, como a etiqueta: a conta existe lá e
+   * apagá-la seria pior. Quem lançou recebe o aviso.
+   */
+  private async dividirPorVeiculo(
+    conta: ContaPagar,
+    partes: NonNullable<CriarDespesaDto['porVeiculo']>,
+  ): Promise<string | null> {
+    try {
+      await this.prisma.despesaPorVeiculo.createMany({
+        data: partes.map((p) => ({
+          contaPagarId: conta.id,
+          veiculoId: p.veiculoId,
+          valor: centavos(p.valor),
+          descricao: p.descricao?.trim() || null,
+        })),
+      });
+      return null;
+    } catch (err) {
+      const motivo = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `Conta ${conta.id} foi lançada, mas a divisão por veículo não ficou: ${motivo}`,
+      );
+      return (
+        `A conta foi lançada no IXC, mas a divisão entre os veículos não ficou ` +
+        `gravada (${motivo}). Avise quem cuida do sistema.`
+      );
+    }
   }
 
   /**
@@ -508,6 +584,14 @@ export class DespesasService {
 function dataUtc(iso: string): Date {
   const [ano, mes, dia] = iso.slice(0, 10).split('-').map(Number);
   return new Date(Date.UTC(ano, mes - 1, dia));
+}
+
+function centavos(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+function reais(n: number): string {
+  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
 function hojeUtc(): Date {

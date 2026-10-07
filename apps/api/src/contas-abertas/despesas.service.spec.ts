@@ -81,6 +81,13 @@ function montarServico(
       findUnique: jest.fn(async ({ where }: { where: { id: string } }) =>
         where.id === VEICULO_SUMIDO ? null : { id: where.id },
       ),
+      count: jest.fn(
+        async ({ where }: { where: { id: { in: string[] } } }) =>
+          where.id.in.filter((id) => id !== VEICULO_SUMIDO).length,
+      ),
+    },
+    despesaPorVeiculo: {
+      createMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
   };
 
@@ -227,6 +234,121 @@ describe('DespesasService.lancar', () => {
  *  - a baixa falhar não derruba a conta: ela já existe no IXC, e apagá-la para
  *    "desfazer" deixaria o pior dos dois mundos.
  */
+/**
+ * A oficina manda uma nota por carro e cobra tudo junto. O que se protege:
+ *
+ *  - um título só no IXC, do total — é um pagamento;
+ *  - a parte de cada veículo gravada aqui, e a conta sem veículo próprio, ou a
+ *    ficha contaria o mesmo dinheiro duas vezes;
+ *  - a divisão que não fecha não chega ao IXC.
+ */
+describe('DespesasService.lancar — conta dividida entre veículos', () => {
+  const CARRO = '6f1d2a3b-0000-4000-8000-000000000002';
+  const DIVIDIDA: CriarDespesaDto = {
+    ...BASE,
+    valor: 450,
+    observacao: 'Oficina — notas de outubro',
+    porVeiculo: [
+      { veiculoId: MOTO, valor: 120, descricao: 'troca de óleo' },
+      { veiculoId: CARRO, valor: 330, descricao: ' pneu dianteiro ' },
+    ],
+  };
+
+  it('vira um título só, do total, e grava a parte de cada veículo', async () => {
+    const { service, contasPagar, prisma } = montarServico();
+
+    await service.lancar(DIVIDIDA, 'u1');
+
+    expect(contasPagar.criarDespesa).toHaveBeenCalledTimes(1);
+    expect(contasPagar.criarDespesa).toHaveBeenCalledWith(
+      expect.objectContaining({ valor: 450, veiculoId: null }),
+      'u1',
+    );
+    expect(prisma.despesaPorVeiculo.createMany).toHaveBeenCalledWith({
+      data: [
+        { contaPagarId: 'conta-1', veiculoId: MOTO, valor: 120, descricao: 'troca de óleo' },
+        { contaPagarId: 'conta-1', veiculoId: CARRO, valor: 330, descricao: 'pneu dianteiro' },
+      ],
+    });
+  });
+
+  it('o veículo da conta é ignorado quando ela é dividida', async () => {
+    const { service, contasPagar } = montarServico();
+
+    await service.lancar({ ...DIVIDIDA, veiculoId: MOTO }, 'u1');
+
+    expect(contasPagar.criarDespesa).toHaveBeenCalledWith(
+      expect.objectContaining({ veiculoId: null }),
+      'u1',
+    );
+  });
+
+  it('a divisão que não fecha com o valor não chega ao IXC', async () => {
+    const { service, contasPagar } = montarServico();
+
+    await expect(service.lancar({ ...DIVIDIDA, valor: 460 })).rejects.toThrow(
+      /somam R\$\s?450,00 e a conta é de R\$\s?460,00/,
+    );
+    expect(contasPagar.criarDespesa).not.toHaveBeenCalled();
+  });
+
+  it('centavo de arredondamento não recusa a divisão', async () => {
+    const { service, contasPagar } = montarServico();
+
+    await service.lancar({
+      ...DIVIDIDA,
+      valor: 100,
+      porVeiculo: [
+        { veiculoId: MOTO, valor: 33.33 },
+        { veiculoId: CARRO, valor: 33.33 },
+        { veiculoId: MOTO, valor: 33.34 },
+      ],
+    });
+
+    expect(contasPagar.criarDespesa).toHaveBeenCalled();
+  });
+
+  it('veículo apagado noutra aba não deixa lançar nada', async () => {
+    const { service, contasPagar } = montarServico();
+
+    await expect(
+      service.lancar({
+        ...DIVIDIDA,
+        porVeiculo: [
+          { veiculoId: MOTO, valor: 120 },
+          { veiculoId: VEICULO_SUMIDO, valor: 330 },
+        ],
+      }),
+    ).rejects.toThrow(/não existe mais/);
+    expect(contasPagar.criarDespesa).not.toHaveBeenCalled();
+  });
+
+  it('não se parcela: é um pagamento só', async () => {
+    const { service, contasPagar } = montarServico();
+
+    await expect(
+      service.lancar({
+        ...DIVIDIDA,
+        parcelas: [
+          { valor: 225, dataVencimento: '2026-10-10' },
+          { valor: 225, dataVencimento: '2026-11-10' },
+        ],
+      }),
+    ).rejects.toThrow(BadRequestException);
+    expect(contasPagar.criarDespesa).not.toHaveBeenCalled();
+  });
+
+  it('a divisão que não grava não derruba a conta já criada no IXC', async () => {
+    const { service, prisma } = montarServico();
+    prisma.despesaPorVeiculo.createMany.mockRejectedValueOnce(new Error('banco fora'));
+
+    const r = await service.lancar(DIVIDIDA, 'u1');
+
+    expect(r.conta.idFnApagarIxc).toBe(4242);
+    expect(r.avisoCategoria).toMatch(/divisão entre os veículos não ficou/);
+  });
+});
+
 describe('DespesasService.lancar — conta que já foi paga', () => {
   beforeAll(() => {
     jest.useFakeTimers().setSystemTime(HOJE);

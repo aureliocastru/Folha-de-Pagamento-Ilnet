@@ -34,6 +34,13 @@ export interface DetalheDoTitulo {
     /** A conta foi lançada por este app — só nela cabe o veículo. */
     lancadaAqui: boolean;
     veiculoId: string | null;
+    /** A conta dividida entre veículos: a parte de cada um. Vazio na comum. */
+    porVeiculo: Array<{
+      veiculoId: string;
+      apelido: string;
+      valor: number;
+      descricao: string | null;
+    }>;
   };
 }
 
@@ -408,7 +415,17 @@ export class ContasAbertasService {
     }
     const local = await this.prisma.contaPagar.findFirst({
       where: { idFnApagarIxc: idFnApagar },
-      select: { veiculoId: true },
+      select: {
+        veiculoId: true,
+        despesasPorVeiculo: {
+          select: {
+            valor: true,
+            descricao: true,
+            veiculo: { select: { id: true, apelido: true } },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
     });
     // O rádio mora numa coluna que varia por instalação; a primeira com esse
     // jeito de nome que se deixe ler é a que vale.
@@ -425,6 +442,12 @@ export class ContasAbertasService {
         tipoChavePix,
         lancadaAqui: !!local,
         veiculoId: local?.veiculoId ?? null,
+        porVeiculo: (local?.despesasPorVeiculo ?? []).map((d) => ({
+          veiculoId: d.veiculo.id,
+          apelido: d.veiculo.apelido,
+          valor: Number(d.valor),
+          descricao: d.descricao,
+        })),
       },
     };
   }

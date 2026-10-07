@@ -63,13 +63,19 @@ describe('resumir', () => {
 });
 
 describe('VeiculosService', () => {
-  function montar(contas: Array<ReturnType<typeof conta>>, etiquetas = new Map()) {
+  function montar(
+    contas: Array<ReturnType<typeof conta>>,
+    etiquetas = new Map(),
+    /** A parte desta moto em contas divididas entre veículos. */
+    partes: Array<{ valor: number; descricao: string | null; conta: ReturnType<typeof conta> }> = [],
+  ) {
     const prisma = {
       veiculo: {
-        findUnique: jest.fn(async () => ({ ...MOTO, contas })),
+        findUnique: jest.fn(async () => ({ ...MOTO, contas, despesasPorVeiculo: partes })),
         delete: jest.fn(async () => MOTO),
       },
       contaPagar: { count: jest.fn(async () => contas.length) },
+      despesaPorVeiculo: { count: jest.fn(async () => partes.length) },
       abastecimento: { count: jest.fn(async () => 0) },
       funcionario: {
         findMany: jest.fn(async ({ where }: { where: { id?: { in: string[] } } }) =>
@@ -134,7 +140,57 @@ describe('VeiculosService', () => {
     // O combustível fica ao lado, fora da soma das contas: é pago pela fatura do posto.
     expect(ficha.veiculo.combustivel).toBe(90);
     expect(ficha.veiculo.ultimoKm).toBe(1500);
-    expect(ficha.gastos[1]).toMatchObject({ fornecedor: 'Oficina', situacao: 'paga', categoria: mao });
+    expect(ficha.gastos.find((g) => g.fornecedor === 'Oficina')).toMatchObject({
+      situacao: 'paga',
+      categoria: mao,
+    });
+    // Do mais novo para o mais velho.
+    expect(ficha.gastos.map((g) => g.vencimento)).toEqual([
+      '2026-08-04',
+      '2026-08-03',
+      '2026-08-02',
+      '2026-08-01',
+    ]);
+  });
+
+  /*
+   * A oficina cobrou três carros num pagamento só, de R$ 450,00. A moto foi
+   * R$ 120,00 dele: é isso que a ficha dela soma, e não os R$ 450,00.
+   */
+  it('na conta dividida, a ficha soma só a parte deste veículo', async () => {
+    const dividida = conta(450, StatusContaPagar.PAGO, '2026-10-05', {
+      id: 'x',
+      idFnApagarIxc: 9,
+      beneficiarioNome: 'Oficina do Murilo',
+      observacao: 'Notas de outubro',
+    });
+    const { service } = montar(
+      [conta(100, StatusContaPagar.PAGO, '2026-08-02', { id: 'b', idFnApagarIxc: 2, beneficiarioNome: 'Oficina', observacao: 'Troca' })],
+      new Map(),
+      [{ valor: 120, descricao: 'troca de óleo', conta: dividida }],
+    );
+
+    const ficha = await service.ficha('v1');
+
+    expect(ficha.veiculo.gasto).toBe(220);
+    expect(ficha.veiculo.quantidade).toBe(2);
+    expect(ficha.gastos[0]).toMatchObject({
+      contaId: 'x',
+      fornecedor: 'Oficina do Murilo',
+      valor: 120,
+      observacao: 'troca de óleo — Notas de outubro',
+      vencimento: '2026-10-05',
+    });
+  });
+
+  it('veículo com parte numa conta dividida também não se apaga', async () => {
+    const dividida = conta(450, StatusContaPagar.PAGO, '2026-10-05');
+    const { service, prisma } = montar([], new Map(), [
+      { valor: 120, descricao: null, conta: dividida },
+    ]);
+
+    await expect(service.remover('v1')).rejects.toThrow(BadRequestException);
+    expect(prisma.veiculo.delete).not.toHaveBeenCalled();
   });
 
   it('quem pode ficar com o veículo: os funcionários, e o login de quem não é um', async () => {
