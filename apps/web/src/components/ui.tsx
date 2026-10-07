@@ -387,10 +387,16 @@ export function Janela({
   titulo,
   onFechar,
   children,
+  larga = false,
 }: {
   titulo: string;
   onFechar: () => void;
   children: ReactNode;
+  /**
+   * Mais larga no computador, para um formulário em duas colunas caber na
+   * tela sem rolar. No celular não muda nada: lá ela é a folha de sempre.
+   */
+  larga?: boolean;
 }) {
   const celular = useCelular();
   const visivel = usePedacoVisivel();
@@ -520,7 +526,9 @@ export function Janela({
         aria-label={titulo}
         onInput={marcarMexido}
         onChange={marcarMexido}
-        className="surgir my-auto h-fit w-full max-w-5xl rounded-2xl border border-tinta-100 bg-papel shadow-2xl"
+        className={`surgir my-auto h-fit w-full rounded-2xl border border-tinta-100 bg-papel shadow-2xl ${
+          larga ? 'max-w-6xl' : 'max-w-5xl'
+        }`}
       >
         <div className="faixa-titulo flex items-center justify-between gap-3 py-2.5 pl-5 pr-3 sm:pl-6">
           <h2 className="titulo-bloco">{titulo}</h2>

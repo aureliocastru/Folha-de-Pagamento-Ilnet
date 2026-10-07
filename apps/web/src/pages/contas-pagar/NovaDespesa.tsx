@@ -828,11 +828,9 @@ export function NovaDespesa({
     },
   ]);
 
-  /** O título de cada grupo — só no computador: no celular o passo já tem o seu. */
-  const tituloDoGrupo = (texto: string) =>
-    a.celular ? null : (
-      <p className="eyebrow mb-3 border-t border-tinta-200 pt-4">{texto}</p>
-    );
+  /** O título de cada coluna — só no computador: no celular o passo já tem o seu. */
+  const tituloDaColuna = (texto: string) =>
+    a.celular ? null : <p className="eyebrow mb-3">{texto}</p>;
 
   if (lancada) {
     return (
@@ -908,824 +906,822 @@ export function NovaDespesa({
     <Janela
       titulo={edicao ? 'Editar conta a pagar' : 'Lançar conta a pagar'}
       onFechar={onFechar}
+      larga
     >
       {a.cabecalho}
 
-      {/* --- Fornecedor --- */}
-      {a.mostrar(0) && (
-      <div className="mb-4">
-        <label className="rotulo" htmlFor="fornecedor">
-          Fornecedor no IXC
-        </label>
-        {fornecedor ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-tinta-100 bg-tinta-50 px-4 py-3">
-            <div className="min-w-0">
-              <div className="font-semibold text-tinta-900">
-                {fornecedor.nome}
-              </div>
-              <div className="num text-xs text-tinta-500">
-                nº {fornecedor.idFornecedor}
-                {fornecedor.cpfCnpj ? ` · ${fornecedor.cpfCnpj}` : ''}
-              </div>
-            </div>
-            <button
-              onClick={() => {
-                setFornecedor(null);
-                setTermo('');
-                // A chave sai junto com o fornecedor. Sem isto, trocar de
-                // credor deixaria a chave do anterior no campo — e a conta iria
-                // para o IXC pagando a pessoa errada.
-                setChavePix('');
-                setTipoChavePix('');
-              }}
-              className="btn btn-sutil btn-p"
-            >
-              Trocar
-            </button>
-          </div>
-        ) : (
-          <>
-            {/* `autoComplete="off"`: o navegador guardava o que já se digitou
-                aqui e oferecia a lista dele por cima da nossa — um retângulo
-                preto com "posto sao d", "posto sao domi" tapando justamente os
-                fornecedores do IXC, que são o que se veio escolher. */}
-            <input
-              id="fornecedor"
-              value={termo}
-              onChange={(e) => setTermo(e.target.value)}
-              placeholder="Nome, nome fantasia ou CPF/CNPJ"
-              className="campo"
-              autoComplete="off"
-              autoFocus
-            />
-            {fornecedores.isFetching && <Carregando texto="Procurando no IXC…" />}
-
-            {fornecedores.error && (
-              <p className="mt-2 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
-                {mensagemErro(fornecedores.error)}
-              </p>
-            )}
-
-            {fornecedores.data && fornecedores.data.length === 0 && (
-              <p className="mt-2 text-sm text-tinta-500">
-                Nenhum fornecedor ativo com esse nome. Se ele ainda não existe,
-                cadastre-o no IXC — é lá que este app o procura.
-              </p>
-            )}
-
-            {!!fornecedores.data?.length && (
-              <div className="mt-2 max-h-56 overflow-y-auto rolagem-fina rounded-xl border border-tinta-100">
-                {fornecedores.data.map((f) => (
-                  <button
-                    key={f.idFornecedor}
-                    onClick={() => setFornecedor(f)}
-                    className="item-dividido flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left hover:bg-tinta-50"
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm text-tinta-800">
-                        {f.nome}
-                      </span>
-                      {f.nomeFantasia && f.nomeFantasia !== f.nome && (
-                        <span className="block truncate text-xs text-tinta-400">
-                          {f.nomeFantasia}
-                        </span>
-                      )}
-                    </span>
-                    <span className="num shrink-0 text-xs text-tinta-400">
-                      {f.cpfCnpj ?? `nº ${f.idFornecedor}`}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-      </div>
-      )}
-
       {/*
-        A ordem é a do que se sabe na mão: quanto, quando e o que é — o que toda
-        conta tem —; depois como se paga; por último o que quase nunca muda.
-        Cada grupo com o seu título, para o olho achar o campo sem ler a tela
-        inteira.
+        Duas colunas no computador: a conta à esquerda, o pagamento à
+        direita — tudo numa tela, sem rolar. No celular é um passo por vez,
+        na mesma ordem.
       */}
-      {a.mostrar(1) && (
-        <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <div>
-            <label className="rotulo" htmlFor="valor">
-              {parcelado && modoParcela === 'consorcio'
-                ? 'Valor da parcela'
-                : 'Valor'}
+      <div className="grid grid-cols-1 gap-x-8 lg:grid-cols-2">
+        <div>
+          {tituloDaColuna('A conta')}
+          {/* --- Fornecedor --- */}
+          {a.mostrar(0) && (
+          <div className="mb-4">
+            <label className="rotulo" htmlFor="fornecedor">
+              Fornecedor no IXC
             </label>
-            <CampoDinheiro valor={valor} onChange={setValor} placeholder="0,00" />
-          </div>
-          <div>
-            <label className="rotulo" htmlFor="vencimento">
-              Vencimento
-            </label>
-            <CampoDeData
-              id="vencimento"
-              valor={vencimento}
-              onChange={setVencimento}
-              className="campo"
-            />
-            {vencimento < emissao && (
-              <p className="ajuda text-amber-700">
-                O vencimento está antes da emissão — confira se é isso mesmo.
-              </p>
-            )}
-          </div>
-          <div>
-            <label className="rotulo" htmlFor="emissao">
-              Emissão
-            </label>
-            <CampoDeData
-              id="emissao"
-              valor={emissao}
-              onChange={setEmissao}
-              className="campo"
-            />
-          </div>
-        </div>
-      )}
-
-      {a.mostrar(2) && (
-        <div className="mb-4">
-          <label className="rotulo" htmlFor="observacao">
-            O que é esta conta
-          </label>
-          <textarea
-            id="observacao"
-            value={observacao}
-            onChange={(e) => setObservacao(e.target.value)}
-            rows={2}
-            placeholder="Ex.: troca de óleo do Strada, internet de outubro"
-            className="campo"
-            title="Vai para o campo de observação do IXC — é o que se lê na lista de contas a pagar de lá"
-          />
-        </div>
-      )}
-
-      {a.mostrar(3) && (
-        <div className="mb-4">
-          {tituloDoGrupo('Pagamento')}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label className="rotulo" htmlFor="tipo-pagamento">
-                Tipo de pagamento
-              </label>
-              {/* Lista fechada, e não campo com sugestão: o rótulo tem de ser
-                  exatamente um dos que o IXC conhece, e digitar livre era convite
-                  a criar um tipo que o financeiro de lá não entende. */}
-              <select
-                id="tipo-pagamento"
-                value={tipoPagamento}
-                onChange={(e) => {
-                  const novo = e.target.value;
-                  setTipoPagamento(novo);
-                  // Em mãos o dinheiro sai do caixa, não do banco: a conta do
-                  // caixa já vem escolhida, porque escolher "Dinheiro" e deixar a
-                  // conta do banco lançaria a saída no lugar errado.
-                  if (novo === 'Dinheiro') setContaPagamento(String(CAIXA_EM_MAOS));
-                  else if (contaPagamento === String(CAIXA_EM_MAOS)) {
-                    setContaPagamento('');
-                  }
-                }}
-                className="campo"
-              >
-                {/* Conta que chegou ao IXC sem tipo continua sem tipo até alguém
-                    escolher — e o tipo que está lá entra na lista mesmo se a tela
-                    não o conhece, senão a edição o trocaria sem ninguém pedir. */}
-                {edicao && !o?.tipoPagamento && (
-                  <option value="">sem tipo definido</option>
-                )}
-                {TIPOS_DE_PAGAMENTO.map((t) => (
-                  <option key={t.valor} value={t.valor}>
-                    {t.rotulo}
-                  </option>
-                ))}
-                {o?.tipoPagamento &&
-                  !TIPOS_DE_PAGAMENTO.some((t) => t.valor === o.tipoPagamento) && (
-                    <option value={o.tipoPagamento}>{o.tipoPagamento}</option>
-                  )}
-              </select>
-            </div>
-            <div>
-              <label className="rotulo" htmlFor="conta-pagamento">
-                Conta de pagamento
-              </label>
-              <select
-                id="conta-pagamento"
-                value={contaPagamento}
-                onChange={(e) => setContaPagamento(e.target.value)}
-                className="campo"
-                disabled={contasPagamento.isLoading}
-              >
-                <option value="">
-                  {config.data
-                    ? `Padrão — ${nomeDaContaPadrao ?? config.data.contaPagamentoId}`
-                    : 'Padrão das Configurações'}
-                </option>
-                {usuais.length > 0 && (
-                  <optgroup label="As que costumam pagar">
-                    {usuais.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.nome}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-                {demais.length > 0 && (
-                  <optgroup label="Outras contas do IXC">
-                    {demais.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.nome}
-                        {c.ativa ? '' : ' (inativa)'}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
-              {contasPagamento.error && (
-                <p className="ajuda text-amber-700">
-                  Não deu para ler as contas do IXC — a padrão vale.
-                </p>
-              )}
-
-              {/*
-                "Já foi paga" mora colado na conta, e não junto das outras opções:
-                é esta conta que recebe a baixa. As duas escolhas são uma só — de
-                onde o dinheiro saiu —, e separá-las fazia marcar a caixa sem olhar
-                para a conta que ia ser debitada.
-              */}
-              {/* Na edição, pagar é o botão "Pagar" da lista — é ele que sabe
-                  baixar uma conta que já existe. */}
-              {!edicao && (
-              <label
-                className="opcao mt-2.5"
-                title="A conta é criada, aprovada e baixada como paga no IXC de uma vez, e as três datas passam a ser o dia em que o dinheiro saiu"
-              >
-                <input
-                  type="checkbox"
-                  className="marcador"
-                  checked={jaPaga}
-                  onChange={(e) => {
-                    setJaPaga(e.target.checked);
-                    if (e.target.checked) datarComoPaga(dataPagamento);
+            {fornecedor ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-tinta-100 bg-tinta-50 px-4 py-3">
+                <div className="min-w-0">
+                  <div className="font-semibold text-tinta-900">
+                    {fornecedor.nome}
+                  </div>
+                  <div className="num text-xs text-tinta-500">
+                    nº {fornecedor.idFornecedor}
+                    {fornecedor.cpfCnpj ? ` · ${fornecedor.cpfCnpj}` : ''}
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setFornecedor(null);
+                    setTermo('');
+                    // A chave sai junto com o fornecedor. Sem isto, trocar de
+                    // credor deixaria a chave do anterior no campo — e a conta iria
+                    // para o IXC pagando a pessoa errada.
+                    setChavePix('');
+                    setTipoChavePix('');
                   }}
-                />
-                Já foi paga
-              </label>
-              )}
-              {jaPaga && (
-                <div className="mt-2">
-                  <label className="rotulo" htmlFor="data-pagamento">
-                    Dia em que saiu
-                  </label>
-                  <CampoDeData
-                    id="data-pagamento"
-                    valor={dataPagamento}
-                    onChange={datarComoPaga}
-                    className="campo"
-                    title="Vale também como emissão e vencimento"
-                  />
-                </div>
-              )}
-            </div>
-            {/*
-              O boleto só aparece quando é boleto que vai pagar: é o campo mais
-              longo da tela, e deixá-lo aberto o tempo todo empurraria o resto para
-              baixo em toda conta paga por PIX.
-            */}
-            {ehBoleto && (
-              <div className="sm:col-span-2">
-                <label className="rotulo" htmlFor="codigo-barras">
-                  Linha digitável do boleto
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    id="codigo-barras"
-                    value={codigoBarras}
-                    onChange={(e) => setCodigoBarras(e.target.value)}
-                    className="campo num"
-                    inputMode="numeric"
-                    placeholder="Cole os números do boleto — pontos e espaços vão embora"
-                    autoComplete="off"
-                  />
-                  {/* No celular, ler é mais rápido e erra menos que digitar 47
-                      dígitos. O botão só existe onde o navegador sabe ler. */}
-                  {leitorDeCodigoSuportado() && (
-                    <button
-                      type="button"
-                      onClick={() => setLendo('boleto')}
-                      className="btn btn-ferramenta shrink-0"
-                      title="Ler o código de barras com a câmera"
-                    >
-                      Ler boleto
-                    </button>
-                  )}
-                </div>
-                <p
-                  className={`ajuda ${
-                    codigoBarras && !boletoValido ? 'text-amber-700' : ''
-                  }`}
+                  className="btn btn-sutil btn-p"
                 >
-                  {!codigoBarras
-                    ? 'Sem o código, a conta chega ao IXC sem como ser paga por boleto.'
-                    : boletoValido
-                      ? `${digitos(codigoBarras).length} dígitos — ok.`
-                      : `${digitos(codigoBarras).length} dígitos. O esperado é 44, 47 ou 48 — confira se copiou a linha inteira.`}
-                </p>
+                  Trocar
+                </button>
               </div>
-            )}
-            {/*
-              A chave só aparece no PIX, e é opcional: em branco, vale a do cadastro
-              do fornecedor no IXC. O QR de uma cobrança é outra coisa — o "copia e
-              cola" dele vale só para aquele pagamento, com valor e beneficiário
-              dentro —, e é por isso que ele fica aqui, na conta, e não no cadastro.
-            */}
-            {ehPix && (
-              <div className="sm:col-span-2">
-                <label className="rotulo" htmlFor="chave-pix">
-                  Chave PIX desta conta
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  <input
-                    id="chave-pix"
-                    value={chavePix}
-                    onChange={(e) => {
-                      setChavePix(e.target.value);
-                      if (!e.target.value) setTipoChavePix('');
-                    }}
-                    // `min-w-0`: num flex o input não encolhe abaixo do tamanho
-                    // do placeholder, e era ele que empurrava a janela para o lado.
-                    className="campo min-w-0 flex-1 basis-56"
-                    placeholder="Em branco usa a chave do fornecedor no IXC"
-                    autoComplete="off"
-                  />
-                  {/* O tipo só aparece com chave escrita: vazio, ele era uma
-                      linha inteira de campo desabilitado. Copia e cola lido do
-                      QR já sabe o que é, e não pergunta. */}
-                  {chavePix && !ehCopiaECola && (
-                    <select
-                      value={tipoChavePix}
-                      onChange={(e) => setTipoChavePix(e.target.value)}
-                      className="campo w-auto shrink-0"
-                      aria-label="Tipo da chave PIX"
-                    >
-                      <option value="">Tipo pelo formato</option>
-                      {TIPOS_CHAVE_PIX.map((t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                  {leitorDeCodigoSuportado() && (
-                    <button
-                      type="button"
-                      onClick={() => setLendo('pix')}
-                      className="btn btn-ferramenta shrink-0"
-                      title="Ler o QR Code do PIX com a câmera"
-                    >
-                      Ler QR Code
-                    </button>
-                  )}
-                </div>
-                {ehCopiaECola && (
-                  <p className="ajuda text-emerald-700 dark:text-emerald-300">
-                    QR lido: código copia e cola, {chavePix.length} caracteres.
+            ) : (
+              <>
+                {/* `autoComplete="off"`: o navegador guardava o que já se digitou
+                    aqui e oferecia a lista dele por cima da nossa — um retângulo
+                    preto com "posto sao d", "posto sao domi" tapando justamente os
+                    fornecedores do IXC, que são o que se veio escolher. */}
+                <input
+                  id="fornecedor"
+                  value={termo}
+                  onChange={(e) => setTermo(e.target.value)}
+                  placeholder="Nome, nome fantasia ou CPF/CNPJ"
+                  className="campo"
+                  autoComplete="off"
+                  autoFocus
+                />
+                {fornecedores.isFetching && <Carregando texto="Procurando no IXC…" />}
+
+                {fornecedores.error && (
+                  <p className="mt-2 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                    {mensagemErro(fornecedores.error)}
                   </p>
                 )}
-                {/* De onde veio a chave que está no campo. Quem confere um
-                    pagamento precisa saber se ela é do cadastro do fornecedor ou
-                    se alguém a digitou aqui — são responsabilidades diferentes. */}
-                <p className="ajuda">
-                  {bancoDoFornecedor.isFetching
-                    ? 'Procurando a chave do fornecedor no IXC…'
-                    : pixDoCadastro && chavePix.trim() === pixDoCadastro
-                      ? 'Chave do cadastro deste fornecedor no IXC. Dá para trocar, e vale só para esta conta.'
-                      : pixDoCadastro
-                        ? `No cadastro do IXC a chave dele é ${pixDoCadastro} — esta conta vai com a que está acima.`
-                        : 'Este fornecedor não tem chave PIX no cadastro do IXC. Escreva a chave aqui, ou cadastre-a lá.'}
-                </p>
-              </div>
+
+                {fornecedores.data && fornecedores.data.length === 0 && (
+                  <p className="mt-2 text-sm text-tinta-500">
+                    Nenhum fornecedor ativo com esse nome. Se ele ainda não existe,
+                    cadastre-o no IXC — é lá que este app o procura.
+                  </p>
+                )}
+
+                {!!fornecedores.data?.length && (
+                  <div className="mt-2 max-h-56 overflow-y-auto rolagem-fina rounded-xl border border-tinta-100">
+                    {fornecedores.data.map((f) => (
+                      <button
+                        key={f.idFornecedor}
+                        onClick={() => setFornecedor(f)}
+                        className="item-dividido flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left hover:bg-tinta-50"
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm text-tinta-800">
+                            {f.nome}
+                          </span>
+                          {f.nomeFantasia && f.nomeFantasia !== f.nome && (
+                            <span className="block truncate text-xs text-tinta-400">
+                              {f.nomeFantasia}
+                            </span>
+                          )}
+                        </span>
+                        <span className="num shrink-0 text-xs text-tinta-400">
+                          {f.cpfCnpj ?? `nº ${f.idFornecedor}`}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
-        </div>
-      )}
-
-      {a.mostrar(4) && (
-        <div className="mb-4">
-          {tituloDoGrupo('Classificação')}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label className="rotulo" htmlFor="categoria">
-                A que se refere
+          )}
+          {a.mostrar(1) && (
+            <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div>
+                <label className="rotulo" htmlFor="valor">
+                  {parcelado && modoParcela === 'consorcio'
+                    ? 'Valor da parcela'
+                    : 'Valor'}
+                </label>
+                <CampoDinheiro valor={valor} onChange={setValor} placeholder="0,00" />
+              </div>
+              <div>
+                <label className="rotulo" htmlFor="vencimento">
+                  Vencimento
+                </label>
+                <CampoDeData
+                  id="vencimento"
+                  valor={vencimento}
+                  onChange={setVencimento}
+                  className="campo"
+                />
+                {vencimento < emissao && (
+                  <p className="ajuda text-amber-700">
+                    O vencimento está antes da emissão — confira se é isso mesmo.
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className="rotulo" htmlFor="emissao">
+                  Emissão
+                </label>
+                <CampoDeData
+                  id="emissao"
+                  valor={emissao}
+                  onChange={setEmissao}
+                  className="campo"
+                />
+              </div>
+            </div>
+          )}
+          {a.mostrar(2) && (
+            <div className="mb-4">
+              <label className="rotulo" htmlFor="observacao">
+                O que é esta conta
               </label>
-              <SeletorDeCategoria
-                id="categoria"
-                categorias={categorias.data}
-                value={categoriaId}
-                vazio="Sem classificação"
-                carregando={categorias.isLoading}
-                onChange={setCategoriaId}
-                title="É por esta escolha que o dashboard separa os gastos. Fica guardada aqui — o IXC não tem onde recebê-la."
+              <textarea
+                id="observacao"
+                value={observacao}
+                onChange={(e) => setObservacao(e.target.value)}
+                rows={2}
+                placeholder="Ex.: troca de óleo do Strada, internet de outubro"
+                className="campo"
+                title="Vai para o campo de observação do IXC — é o que se lê na lista de contas a pagar de lá"
               />
             </div>
-            {/* Só aparece quando há frota cadastrada — ou quando a conta nasceu
-                dentro de um veículo, e aí ele já vem marcado. */}
-            {(edicao
-              ? edicao.lancadaAqui
-              : veiculoInicial || (veiculos.data?.length ?? 0) > 0) && (
-              <div>
-                <label className="rotulo" htmlFor="veiculo">
-                  Veículo da frota
-                </label>
-                <SeletorDeVeiculo
-                  id="veiculo"
-                  value={veiculoId}
-                  onChange={setVeiculoId}
-                  carregando={veiculos.isLoading}
-                  veiculos={[
-                    ...(veiculos.data ?? []),
-                    // O veículo de onde a conta nasceu, mesmo fora da lista de ativos.
-                    ...(veiculoInicial && !veiculos.data?.some((v) => v.id === veiculoInicial.id)
-                      ? [{ ...veiculoInicial, placa: null }]
-                      : []),
-                  ]}
-                />
-              </div>
-            )}
-          </div>
+          )}
+          {a.mostrar(6) && (
+            <div>
+              <CampoDaNota notas={notas} onMudar={setNotas} parcelado={parcelado} />
+            </div>
+          )}
         </div>
-      )}
+        <div className="lg:border-l lg:border-tinta-200 lg:pl-8">
+          {tituloDaColuna('O pagamento')}
+          {a.mostrar(3) && (
+            <div className="mb-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="rotulo" htmlFor="tipo-pagamento">
+                    Tipo de pagamento
+                  </label>
+                  {/* Lista fechada, e não campo com sugestão: o rótulo tem de ser
+                      exatamente um dos que o IXC conhece, e digitar livre era convite
+                      a criar um tipo que o financeiro de lá não entende. */}
+                  <select
+                    id="tipo-pagamento"
+                    value={tipoPagamento}
+                    onChange={(e) => {
+                      const novo = e.target.value;
+                      setTipoPagamento(novo);
+                      // Em mãos o dinheiro sai do caixa, não do banco: a conta do
+                      // caixa já vem escolhida, porque escolher "Dinheiro" e deixar a
+                      // conta do banco lançaria a saída no lugar errado.
+                      if (novo === 'Dinheiro') setContaPagamento(String(CAIXA_EM_MAOS));
+                      else if (contaPagamento === String(CAIXA_EM_MAOS)) {
+                        setContaPagamento('');
+                      }
+                    }}
+                    className="campo"
+                  >
+                    {/* Conta que chegou ao IXC sem tipo continua sem tipo até alguém
+                        escolher — e o tipo que está lá entra na lista mesmo se a tela
+                        não o conhece, senão a edição o trocaria sem ninguém pedir. */}
+                    {edicao && !o?.tipoPagamento && (
+                      <option value="">sem tipo definido</option>
+                    )}
+                    {TIPOS_DE_PAGAMENTO.map((t) => (
+                      <option key={t.valor} value={t.valor}>
+                        {t.rotulo}
+                      </option>
+                    ))}
+                    {o?.tipoPagamento &&
+                      !TIPOS_DE_PAGAMENTO.some((t) => t.valor === o.tipoPagamento) && (
+                        <option value={o.tipoPagamento}>{o.tipoPagamento}</option>
+                      )}
+                  </select>
+                </div>
+                <div>
+                  <label className="rotulo" htmlFor="conta-pagamento">
+                    Conta de pagamento
+                  </label>
+                  <select
+                    id="conta-pagamento"
+                    value={contaPagamento}
+                    onChange={(e) => setContaPagamento(e.target.value)}
+                    className="campo"
+                    disabled={contasPagamento.isLoading}
+                  >
+                    <option value="">
+                      {config.data
+                        ? `Padrão — ${nomeDaContaPadrao ?? config.data.contaPagamentoId}`
+                        : 'Padrão das Configurações'}
+                    </option>
+                    {usuais.length > 0 && (
+                      <optgroup label="As que costumam pagar">
+                        {usuais.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.nome}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {demais.length > 0 && (
+                      <optgroup label="Outras contas do IXC">
+                        {demais.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.nome}
+                            {c.ativa ? '' : ' (inativa)'}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                  {contasPagamento.error && (
+                    <p className="ajuda text-amber-700">
+                      Não deu para ler as contas do IXC — a padrão vale.
+                    </p>
+                  )}
 
-      {a.mostrar(5) && (
-        <div className="mb-4 space-y-2">
-          {tituloDoGrupo('Repetir ou parcelar')}
-          {/* --- Serviço que se repete todo mês --- */}
-          {!parcelado && (
-            <div className="sm:col-span-2">
-              <label
-                className="opcao"
-                title="Internet, aluguel, contabilidade — a conta de cada mês nasce sozinha no IXC"
-              >
-                <input
-                  type="checkbox"
-                  className="marcador"
-                  checked={recorrente}
-                  onChange={(e) => setRecorrente(e.target.checked)}
-                />
-                Repetir todo mês
-              </label>
-              {recorrente && (
+                  {/*
+                    "Já foi paga" mora colado na conta, e não junto das outras opções:
+                    é esta conta que recebe a baixa. As duas escolhas são uma só — de
+                    onde o dinheiro saiu —, e separá-las fazia marcar a caixa sem olhar
+                    para a conta que ia ser debitada.
+                  */}
+                  {/* Na edição, pagar é o botão "Pagar" da lista — é ele que sabe
+                      baixar uma conta que já existe. */}
+                  {!edicao && (
+                  <label
+                    className="opcao mt-2.5"
+                    title="A conta é criada, aprovada e baixada como paga no IXC de uma vez, e as três datas passam a ser o dia em que o dinheiro saiu"
+                  >
+                    <input
+                      type="checkbox"
+                      className="marcador"
+                      checked={jaPaga}
+                      onChange={(e) => {
+                        setJaPaga(e.target.checked);
+                        if (e.target.checked) datarComoPaga(dataPagamento);
+                      }}
+                    />
+                    Já foi paga
+                  </label>
+                  )}
+                  {jaPaga && (
+                    <div className="mt-2">
+                      <label className="rotulo" htmlFor="data-pagamento">
+                        Dia em que saiu
+                      </label>
+                      <CampoDeData
+                        id="data-pagamento"
+                        valor={dataPagamento}
+                        onChange={datarComoPaga}
+                        className="campo"
+                        title="Vale também como emissão e vencimento"
+                      />
+                    </div>
+                  )}
+                </div>
+                {/*
+                  O boleto só aparece quando é boleto que vai pagar: é o campo mais
+                  longo da tela, e deixá-lo aberto o tempo todo empurraria o resto para
+                  baixo em toda conta paga por PIX.
+                */}
+                {ehBoleto && (
+                  <div className="sm:col-span-2">
+                    <label className="rotulo" htmlFor="codigo-barras">
+                      Linha digitável do boleto
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        id="codigo-barras"
+                        value={codigoBarras}
+                        onChange={(e) => setCodigoBarras(e.target.value)}
+                        className="campo num"
+                        inputMode="numeric"
+                        placeholder="Cole os números do boleto — pontos e espaços vão embora"
+                        autoComplete="off"
+                      />
+                      {/* No celular, ler é mais rápido e erra menos que digitar 47
+                          dígitos. O botão só existe onde o navegador sabe ler. */}
+                      {leitorDeCodigoSuportado() && (
+                        <button
+                          type="button"
+                          onClick={() => setLendo('boleto')}
+                          className="btn btn-ferramenta shrink-0"
+                          title="Ler o código de barras com a câmera"
+                        >
+                          Ler boleto
+                        </button>
+                      )}
+                    </div>
+                    <p
+                      className={`ajuda ${
+                        codigoBarras && !boletoValido ? 'text-amber-700' : ''
+                      }`}
+                    >
+                      {!codigoBarras
+                        ? 'Sem o código, a conta chega ao IXC sem como ser paga por boleto.'
+                        : boletoValido
+                          ? `${digitos(codigoBarras).length} dígitos — ok.`
+                          : `${digitos(codigoBarras).length} dígitos. O esperado é 44, 47 ou 48 — confira se copiou a linha inteira.`}
+                    </p>
+                  </div>
+                )}
+                {/*
+                  A chave só aparece no PIX, e é opcional: em branco, vale a do cadastro
+                  do fornecedor no IXC. O QR de uma cobrança é outra coisa — o "copia e
+                  cola" dele vale só para aquele pagamento, com valor e beneficiário
+                  dentro —, e é por isso que ele fica aqui, na conta, e não no cadastro.
+                */}
+                {ehPix && (
+                  <div className="sm:col-span-2">
+                    <label className="rotulo" htmlFor="chave-pix">
+                      Chave PIX desta conta
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      <input
+                        id="chave-pix"
+                        value={chavePix}
+                        onChange={(e) => {
+                          setChavePix(e.target.value);
+                          if (!e.target.value) setTipoChavePix('');
+                        }}
+                        // `min-w-0`: num flex o input não encolhe abaixo do tamanho
+                        // do placeholder, e era ele que empurrava a janela para o lado.
+                        className="campo min-w-0 flex-1 basis-56"
+                        placeholder="Em branco usa a chave do fornecedor no IXC"
+                        autoComplete="off"
+                      />
+                      {/* O tipo só aparece com chave escrita: vazio, ele era uma
+                          linha inteira de campo desabilitado. Copia e cola lido do
+                          QR já sabe o que é, e não pergunta. */}
+                      {chavePix && !ehCopiaECola && (
+                        <select
+                          value={tipoChavePix}
+                          onChange={(e) => setTipoChavePix(e.target.value)}
+                          className="campo w-auto shrink-0"
+                          aria-label="Tipo da chave PIX"
+                        >
+                          <option value="">Tipo pelo formato</option>
+                          {TIPOS_CHAVE_PIX.map((t) => (
+                            <option key={t} value={t}>
+                              {t}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      {leitorDeCodigoSuportado() && (
+                        <button
+                          type="button"
+                          onClick={() => setLendo('pix')}
+                          className="btn btn-ferramenta shrink-0"
+                          title="Ler o QR Code do PIX com a câmera"
+                        >
+                          Ler QR Code
+                        </button>
+                      )}
+                    </div>
+                    {ehCopiaECola && (
+                      <p className="ajuda text-emerald-700 dark:text-emerald-300">
+                        QR lido: código copia e cola, {chavePix.length} caracteres.
+                      </p>
+                    )}
+                    {/* De onde veio a chave que está no campo. Quem confere um
+                        pagamento precisa saber se ela é do cadastro do fornecedor ou
+                        se alguém a digitou aqui — são responsabilidades diferentes. */}
+                    <p className="ajuda">
+                      {bancoDoFornecedor.isFetching
+                        ? 'Procurando a chave do fornecedor no IXC…'
+                        : pixDoCadastro && chavePix.trim() === pixDoCadastro
+                          ? 'Chave do cadastro no IXC — trocar aqui vale só para esta conta.'
+                          : pixDoCadastro
+                            ? `No cadastro do IXC é ${pixDoCadastro}; esta conta vai com a de cima.`
+                            : 'Sem chave PIX no cadastro do IXC: escreva aqui ou cadastre lá.'}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          {a.mostrar(4) && (
+            <div className="mb-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="rotulo" htmlFor="categoria">
+                    A que se refere
+                  </label>
+                  <SeletorDeCategoria
+                    id="categoria"
+                    categorias={categorias.data}
+                    value={categoriaId}
+                    vazio="Sem classificação"
+                    carregando={categorias.isLoading}
+                    onChange={setCategoriaId}
+                    title="É por esta escolha que o dashboard separa os gastos. Fica guardada aqui — o IXC não tem onde recebê-la."
+                  />
+                </div>
+                {/* Só aparece quando há frota cadastrada — ou quando a conta nasceu
+                    dentro de um veículo, e aí ele já vem marcado. */}
+                {(edicao
+                  ? edicao.lancadaAqui
+                  : veiculoInicial || (veiculos.data?.length ?? 0) > 0) && (
+                  <div>
+                    <label className="rotulo" htmlFor="veiculo">
+                      Veículo da frota
+                    </label>
+                    <SeletorDeVeiculo
+                      id="veiculo"
+                      value={veiculoId}
+                      onChange={setVeiculoId}
+                      carregando={veiculos.isLoading}
+                      veiculos={[
+                        ...(veiculos.data ?? []),
+                        // O veículo de onde a conta nasceu, mesmo fora da lista de ativos.
+                        ...(veiculoInicial && !veiculos.data?.some((v) => v.id === veiculoInicial.id)
+                          ? [{ ...veiculoInicial, placa: null }]
+                          : []),
+                      ]}
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+          {a.mostrar(5) && (
+            <div className="mb-4 flex flex-wrap gap-x-6 gap-y-2">
+              {/* --- Serviço que se repete todo mês --- */}
+              {!parcelado && (
+                <div className="min-w-0 flex-1">
+                  <label
+                    className="opcao"
+                    title="Internet, aluguel, contabilidade — a conta de cada mês nasce sozinha no IXC"
+                  >
+                    <input
+                      type="checkbox"
+                      className="marcador"
+                      checked={recorrente}
+                      onChange={(e) => setRecorrente(e.target.checked)}
+                    />
+                    Repetir todo mês
+                  </label>
+                  {recorrente && (
+                    <label
+                      className="opcao ml-6 mt-2"
+                      title="Vencimento em sábado, domingo ou feriado nacional passa para o próximo dia em que o banco abre"
+                    >
+                      <input
+                        type="checkbox"
+                        className="marcador"
+                        checked={soDiasUteis}
+                        onChange={(e) => setSoDiasUteis(e.target.checked)}
+                      />
+                      Só em dia útil
+                    </label>
+                  )}
+                </div>
+              )}
+              {/* --- Parcelamento --- */}
+              {!edicao && !recorrente && (
+              <div className="min-w-0 flex-1">
                 <label
-                  className="opcao ml-6 mt-2"
-                  title="Vencimento em sábado, domingo ou feriado nacional passa para o próximo dia em que o banco abre"
+                  className="opcao"
+                  title="Uma conta a pagar para cada parcela no IXC"
                 >
                   <input
                     type="checkbox"
                     className="marcador"
-                    checked={soDiasUteis}
-                    onChange={(e) => setSoDiasUteis(e.target.checked)}
+                    checked={parcelado}
+                    onChange={(e) => {
+                      setParcelado(e.target.checked);
+                      if (!e.target.checked) setParcelas([]);
+                      else if (modoParcela === 'consorcio') refazerConsorcio();
+                      else refazerParcelas();
+                    }}
                   />
-                  Só em dia útil
+                  Lançar em parcelas
                 </label>
+
+                {parcelado && (
+                  <div className="mt-2 rounded-xl border border-tinta-100 p-3">
+                    {/* Dois jeitos de parcelar, e a diferença é o que se sabe: numa
+                        nota sabe-se o total e divide-se; num consórcio sabe-se a
+                        parcela e quantas faltam. */}
+                    <div className="mb-3 flex flex-wrap gap-1.5">
+                      {(
+                        [
+                          ['nota', 'Nota parcelada', 'Divide o valor total'],
+                          [
+                            'consorcio',
+                            'Consórcio',
+                            'Repete a parcela que falta pagar',
+                          ],
+                        ] as const
+                      ).map(([modo, rotulo, nota]) => (
+                        <button
+                          key={modo}
+                          type="button"
+                          onClick={() => {
+                            setModoParcela(modo);
+                            if (modo === 'consorcio') setParcelas(gerarConsorcio());
+                            else refazerParcelas();
+                          }}
+                          title={nota}
+                          className={
+                            modoParcela === modo
+                              ? 'btn btn-p bg-brand-600 text-white'
+                              : 'btn btn-p btn-neutro'
+                          }
+                        >
+                          {rotulo}
+                        </button>
+                      ))}
+                    </div>
+
+                    {modoParcela === 'consorcio' ? (
+                      <>
+                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                          <div>
+                            <label className="rotulo" htmlFor="total-parcelas">
+                              Parcelas no total
+                            </label>
+                            <input
+                              id="total-parcelas"
+                              type="number"
+                              min={1}
+                              max={240}
+                              value={totalParcelas}
+                              onChange={(e) => setTotalParcelas(e.target.value)}
+                              onBlur={refazerConsorcio}
+                              className="campo"
+                              placeholder="80"
+                            />
+                          </div>
+                          <div>
+                            <label className="rotulo" htmlFor="parcelas-pagas">
+                              Já pagas
+                            </label>
+                            <input
+                              id="parcelas-pagas"
+                              type="number"
+                              min={0}
+                              value={parcelasPagas}
+                              onChange={(e) => setParcelasPagas(e.target.value)}
+                              onBlur={refazerConsorcio}
+                              className="campo"
+                              placeholder="12"
+                            />
+                          </div>
+                          <div>
+                            <label className="rotulo" htmlFor="taxa-admin">
+                              Taxa de adm. (%)
+                            </label>
+                            <input
+                              id="taxa-admin"
+                              type="number"
+                              step="0.01"
+                              min={0}
+                              value={taxaAdmin}
+                              onChange={(e) => setTaxaAdmin(e.target.value)}
+                              onBlur={refazerConsorcio}
+                              className="campo"
+                              placeholder="0"
+                            />
+                          </div>
+                          <div>
+                            <label className="rotulo" htmlFor="reajuste">
+                              Reajuste anual (%)
+                            </label>
+                            <input
+                              id="reajuste"
+                              type="number"
+                              step="0.01"
+                              min={0}
+                              value={reajusteAnual}
+                              onChange={(e) => setReajusteAnual(e.target.value)}
+                              onBlur={refazerConsorcio}
+                              className="campo"
+                              placeholder="0"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="mt-3">
+                          <span className="rotulo">As parcelas vencem</span>
+                          <div className="flex flex-wrap gap-1.5">
+                            {(
+                              [
+                                ['mes', 'Todo mês no mesmo dia'],
+                                ['dias30', 'A cada 30 dias'],
+                              ] as const
+                            ).map(([r, rotulo]) => (
+                              <button
+                                key={r}
+                                type="button"
+                                onClick={() => {
+                                  setRitmoConsorcio(r);
+                                  setParcelas(gerarConsorcio(r));
+                                }}
+                                className={
+                                  ritmoConsorcio === r
+                                    ? 'btn btn-p bg-brand-600 text-white'
+                                    : 'btn btn-p btn-neutro'
+                                }
+                              >
+                                {rotulo}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="mt-2 flex flex-wrap items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={refazerConsorcio}
+                            className="btn btn-neutro btn-p"
+                          >
+                            Gerar as que faltam
+                          </button>
+                          <span className="text-xs text-tinta-400">
+                            {faltamDoConsorcio > 0
+                              ? `Faltam ${faltamDoConsorcio} de ${totalParcelas || '?'}, a primeira vencendo em ${
+                                  vencimento ? formatarDia(vencimento) : '—'
+                                }.`
+                              : 'Informe o total e quantas já foram pagas.'}
+                          </span>
+                        </div>
+
+                        <p className="ajuda">
+                          O valor acima é o da parcela, não o total do consórcio. A
+                          taxa de administração entra em cada uma, e o reajuste anual
+                          sobe o valor a cada doze parcelas — a tabela abaixo fica
+                          editável, porque o que vale é o boleto que o grupo manda.
+                        </p>
+                      </>
+                    ) : (
+                    <div className="flex flex-wrap items-end gap-3">
+                      <div>
+                        <label className="rotulo" htmlFor="quantas">
+                          Parcelas
+                        </label>
+                        <input
+                          id="quantas"
+                          type="number"
+                          min={1}
+                          max={60}
+                          value={quantasParcelas}
+                          onChange={(e) => {
+                            setQuantasParcelas(e.target.value);
+                            refazerParcelas(Number(e.target.value) || 0);
+                          }}
+                          className="campo w-24"
+                        />
+                      </div>
+                      <div>
+                        <span className="rotulo">Vencendo</span>
+                        <div className="flex gap-1.5">
+                          {([
+                            [
+                              'mes',
+                              vencimento
+                                ? `todo dia ${Number(vencimento.slice(8, 10))}`
+                                : 'todo mês',
+                            ],
+                            [15, 'a cada 15 dias'],
+                            [30, 'a cada 30 dias'],
+                          ] as Array<[RitmoDasParcelas, string]>).map(
+                            ([ritmo, rotulo]) => (
+                              <button
+                                key={String(ritmo)}
+                                type="button"
+                                onClick={() => {
+                                  setIntervalo(ritmo);
+                                  refazerParcelas(undefined, ritmo);
+                                }}
+                                className={
+                                  intervalo === ritmo
+                                    ? 'btn btn-p bg-brand-600 text-white'
+                                    : 'btn btn-p btn-neutro'
+                                }
+                              >
+                                {rotulo}
+                              </button>
+                            ),
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => refazerParcelas()}
+                        className="btn btn-neutro btn-p"
+                        title="Refaz as parcelas a partir do valor total e do primeiro vencimento"
+                      >
+                        Recalcular
+                      </button>
+                      <span className="ml-auto text-xs text-tinta-400">
+                        A primeira vence em {vencimento ? formatarDia(vencimento) : '—'}
+                      </span>
+                    </div>
+                    )}
+
+                    {parcelas.length > 0 && (
+                      <div className="mt-3 overflow-x-auto rolagem-fina">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr>
+                              <th className="th w-16">#</th>
+                              <th className="th">Vencimento</th>
+                              <th className="th">Valor</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {parcelas.map((p, i) => (
+                              <tr key={i} className="linha">
+                                {/* No consórcio a numeração continua de onde o grupo
+                                    parou: quem já pagou 12 de 80 vê a próxima como
+                                    13/80, que é o número que vem no boleto. */}
+                                <td className="td num whitespace-nowrap text-tinta-400">
+                                  {modoParcela === 'consorcio'
+                                    ? `${(Number(parcelasPagas) || 0) + i + 1}/${totalParcelas || '?'}`
+                                    : i + 1}
+                                </td>
+                                <td className="td">
+                                  <CampoDeData
+                                    valor={p.vencimento}
+                                    onChange={(valorNovo) => setParcelas((atual) =>
+                                        atual.map((x, j) =>
+                                          j === i
+                                            ? { ...x, vencimento: valorNovo }
+                                            : x,
+                                        ),
+                                      )
+                                    }
+                                    className="campo py-1"
+                                  />
+                                </td>
+                                <td className="td">
+                                  <CampoDinheiro
+                                    valor={p.valor}
+                                    onChange={(v) =>
+                                      setParcelas((atual) =>
+                                        atual.map((x, j) =>
+                                          j === i ? { ...x, valor: v } : x,
+                                        ),
+                                      )
+                                    }
+                                    className="campo py-1"
+                                  />
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {/* No consórcio não há "total da nota" com que conferir: o valor
+                        digitado é o da parcela. O que interessa saber é quanto ainda
+                        falta pagar até o fim do grupo. */}
+                    {modoParcela === 'consorcio' ? (
+                      <p className="ajuda">
+                        {parcelas.length > 0
+                          ? `${parcelas.length} parcela(s) a lançar, somando ${formatBRL(
+                              somaDasParcelas,
+                            )} até ${formatarDia(parcelas[parcelas.length - 1].vencimento)}.`
+                          : 'Nenhuma parcela a lançar ainda.'}
+                      </p>
+                    ) : (
+                      <p className={`ajuda ${diferenca !== 0 ? 'text-amber-700' : ''}`}>
+                        {diferenca === 0
+                          ? `As ${parcelas.length} parcelas somam ${formatBRL(somaDasParcelas)} — igual ao total da nota.`
+                          : `As parcelas somam ${formatBRL(somaDasParcelas)}, ${
+                              diferenca > 0 ? 'a mais' : 'a menos'
+                            } que o total da nota (${formatBRL(Math.abs(diferenca))} de diferença).`}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
               )}
             </div>
           )}
-          {/* --- Parcelamento --- */}
-          {!edicao && !recorrente && (
-          <div className="sm:col-span-2">
-            <label
-              className="opcao"
-              title="Uma conta a pagar para cada parcela no IXC"
-            >
-              <input
-                type="checkbox"
-                className="marcador"
-                checked={parcelado}
-                onChange={(e) => {
-                  setParcelado(e.target.checked);
-                  if (!e.target.checked) setParcelas([]);
-                  else if (modoParcela === 'consorcio') refazerConsorcio();
-                  else refazerParcelas();
-                }}
-              />
-              Lançar em parcelas
-            </label>
-
-            {parcelado && (
-              <div className="mt-2 rounded-xl border border-tinta-100 p-3">
-                {/* Dois jeitos de parcelar, e a diferença é o que se sabe: numa
-                    nota sabe-se o total e divide-se; num consórcio sabe-se a
-                    parcela e quantas faltam. */}
-                <div className="mb-3 flex flex-wrap gap-1.5">
-                  {(
-                    [
-                      ['nota', 'Nota parcelada', 'Divide o valor total'],
-                      [
-                        'consorcio',
-                        'Consórcio',
-                        'Repete a parcela que falta pagar',
-                      ],
-                    ] as const
-                  ).map(([modo, rotulo, nota]) => (
-                    <button
-                      key={modo}
-                      type="button"
-                      onClick={() => {
-                        setModoParcela(modo);
-                        if (modo === 'consorcio') setParcelas(gerarConsorcio());
-                        else refazerParcelas();
-                      }}
-                      title={nota}
-                      className={
-                        modoParcela === modo
-                          ? 'btn btn-p bg-brand-600 text-white'
-                          : 'btn btn-p btn-neutro'
-                      }
-                    >
-                      {rotulo}
-                    </button>
-                  ))}
-                </div>
-
-                {modoParcela === 'consorcio' ? (
-                  <>
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                      <div>
-                        <label className="rotulo" htmlFor="total-parcelas">
-                          Parcelas no total
-                        </label>
-                        <input
-                          id="total-parcelas"
-                          type="number"
-                          min={1}
-                          max={240}
-                          value={totalParcelas}
-                          onChange={(e) => setTotalParcelas(e.target.value)}
-                          onBlur={refazerConsorcio}
-                          className="campo"
-                          placeholder="80"
-                        />
-                      </div>
-                      <div>
-                        <label className="rotulo" htmlFor="parcelas-pagas">
-                          Já pagas
-                        </label>
-                        <input
-                          id="parcelas-pagas"
-                          type="number"
-                          min={0}
-                          value={parcelasPagas}
-                          onChange={(e) => setParcelasPagas(e.target.value)}
-                          onBlur={refazerConsorcio}
-                          className="campo"
-                          placeholder="12"
-                        />
-                      </div>
-                      <div>
-                        <label className="rotulo" htmlFor="taxa-admin">
-                          Taxa de adm. (%)
-                        </label>
-                        <input
-                          id="taxa-admin"
-                          type="number"
-                          step="0.01"
-                          min={0}
-                          value={taxaAdmin}
-                          onChange={(e) => setTaxaAdmin(e.target.value)}
-                          onBlur={refazerConsorcio}
-                          className="campo"
-                          placeholder="0"
-                        />
-                      </div>
-                      <div>
-                        <label className="rotulo" htmlFor="reajuste">
-                          Reajuste anual (%)
-                        </label>
-                        <input
-                          id="reajuste"
-                          type="number"
-                          step="0.01"
-                          min={0}
-                          value={reajusteAnual}
-                          onChange={(e) => setReajusteAnual(e.target.value)}
-                          onBlur={refazerConsorcio}
-                          className="campo"
-                          placeholder="0"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="mt-3">
-                      <span className="rotulo">As parcelas vencem</span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {(
-                          [
-                            ['mes', 'Todo mês no mesmo dia'],
-                            ['dias30', 'A cada 30 dias'],
-                          ] as const
-                        ).map(([r, rotulo]) => (
-                          <button
-                            key={r}
-                            type="button"
-                            onClick={() => {
-                              setRitmoConsorcio(r);
-                              setParcelas(gerarConsorcio(r));
-                            }}
-                            className={
-                              ritmoConsorcio === r
-                                ? 'btn btn-p bg-brand-600 text-white'
-                                : 'btn btn-p btn-neutro'
-                            }
-                          >
-                            {rotulo}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="mt-2 flex flex-wrap items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={refazerConsorcio}
-                        className="btn btn-neutro btn-p"
-                      >
-                        Gerar as que faltam
-                      </button>
-                      <span className="text-xs text-tinta-400">
-                        {faltamDoConsorcio > 0
-                          ? `Faltam ${faltamDoConsorcio} de ${totalParcelas || '?'}, a primeira vencendo em ${
-                              vencimento ? formatarDia(vencimento) : '—'
-                            }.`
-                          : 'Informe o total e quantas já foram pagas.'}
-                      </span>
-                    </div>
-
-                    <p className="ajuda">
-                      O valor acima é o da parcela, não o total do consórcio. A
-                      taxa de administração entra em cada uma, e o reajuste anual
-                      sobe o valor a cada doze parcelas — a tabela abaixo fica
-                      editável, porque o que vale é o boleto que o grupo manda.
-                    </p>
-                  </>
-                ) : (
-                <div className="flex flex-wrap items-end gap-3">
-                  <div>
-                    <label className="rotulo" htmlFor="quantas">
-                      Parcelas
-                    </label>
-                    <input
-                      id="quantas"
-                      type="number"
-                      min={1}
-                      max={60}
-                      value={quantasParcelas}
-                      onChange={(e) => {
-                        setQuantasParcelas(e.target.value);
-                        refazerParcelas(Number(e.target.value) || 0);
-                      }}
-                      className="campo w-24"
-                    />
-                  </div>
-                  <div>
-                    <span className="rotulo">Vencendo</span>
-                    <div className="flex gap-1.5">
-                      {([
-                        [
-                          'mes',
-                          vencimento
-                            ? `todo dia ${Number(vencimento.slice(8, 10))}`
-                            : 'todo mês',
-                        ],
-                        [15, 'a cada 15 dias'],
-                        [30, 'a cada 30 dias'],
-                      ] as Array<[RitmoDasParcelas, string]>).map(
-                        ([ritmo, rotulo]) => (
-                          <button
-                            key={String(ritmo)}
-                            type="button"
-                            onClick={() => {
-                              setIntervalo(ritmo);
-                              refazerParcelas(undefined, ritmo);
-                            }}
-                            className={
-                              intervalo === ritmo
-                                ? 'btn btn-p bg-brand-600 text-white'
-                                : 'btn btn-p btn-neutro'
-                            }
-                          >
-                            {rotulo}
-                          </button>
-                        ),
-                      )}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => refazerParcelas()}
-                    className="btn btn-neutro btn-p"
-                    title="Refaz as parcelas a partir do valor total e do primeiro vencimento"
-                  >
-                    Recalcular
-                  </button>
-                  <span className="ml-auto text-xs text-tinta-400">
-                    A primeira vence em {vencimento ? formatarDia(vencimento) : '—'}
-                  </span>
-                </div>
-                )}
-
-                {parcelas.length > 0 && (
-                  <div className="mt-3 overflow-x-auto rolagem-fina">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr>
-                          <th className="th w-16">#</th>
-                          <th className="th">Vencimento</th>
-                          <th className="th">Valor</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {parcelas.map((p, i) => (
-                          <tr key={i} className="linha">
-                            {/* No consórcio a numeração continua de onde o grupo
-                                parou: quem já pagou 12 de 80 vê a próxima como
-                                13/80, que é o número que vem no boleto. */}
-                            <td className="td num whitespace-nowrap text-tinta-400">
-                              {modoParcela === 'consorcio'
-                                ? `${(Number(parcelasPagas) || 0) + i + 1}/${totalParcelas || '?'}`
-                                : i + 1}
-                            </td>
-                            <td className="td">
-                              <CampoDeData
-                                valor={p.vencimento}
-                                onChange={(valorNovo) => setParcelas((atual) =>
-                                    atual.map((x, j) =>
-                                      j === i
-                                        ? { ...x, vencimento: valorNovo }
-                                        : x,
-                                    ),
-                                  )
-                                }
-                                className="campo py-1"
-                              />
-                            </td>
-                            <td className="td">
-                              <CampoDinheiro
-                                valor={p.valor}
-                                onChange={(v) =>
-                                  setParcelas((atual) =>
-                                    atual.map((x, j) =>
-                                      j === i ? { ...x, valor: v } : x,
-                                    ),
-                                  )
-                                }
-                                className="campo py-1"
-                              />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-                {/* No consórcio não há "total da nota" com que conferir: o valor
-                    digitado é o da parcela. O que interessa saber é quanto ainda
-                    falta pagar até o fim do grupo. */}
-                {modoParcela === 'consorcio' ? (
-                  <p className="ajuda">
-                    {parcelas.length > 0
-                      ? `${parcelas.length} parcela(s) a lançar, somando ${formatBRL(
-                          somaDasParcelas,
-                        )} até ${formatarDia(parcelas[parcelas.length - 1].vencimento)}.`
-                      : 'Nenhuma parcela a lançar ainda.'}
-                  </p>
-                ) : (
-                  <p className={`ajuda ${diferenca !== 0 ? 'text-amber-700' : ''}`}>
-                    {diferenca === 0
-                      ? `As ${parcelas.length} parcelas somam ${formatBRL(somaDasParcelas)} — igual ao total da nota.`
-                      : `As parcelas somam ${formatBRL(somaDasParcelas)}, ${
-                          diferenca > 0 ? 'a mais' : 'a menos'
-                        } que o total da nota (${formatBRL(Math.abs(diferenca))} de diferença).`}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-          )}
         </div>
-      )}
-
-      {a.mostrar(6) && (
-        <div className="mb-2">
-          {tituloDoGrupo('Notas')}
-          <CampoDaNota notas={notas} onMudar={setNotas} />
-        </div>
-      )}
+      </div>
 
       {/* A revisão do celular: cada passo, o que ficou nele, e o caminho de
           volta para corrigir. */}
@@ -1764,6 +1760,14 @@ export function NovaDespesa({
                       ? 'Diga quantas parcelas são no total e quantas já foram pagas.'
                       : 'Gere as parcelas antes de lançar.'
                     : 'Confira a linha digitável do boleto.'}
+          </span>
+        )}
+        {podeLancar && !edicao && (
+          <span className="mr-auto text-xs text-tinta-400">
+            A conta vai para o IXC agora.{' '}
+            <Selo pequeno tom="atencao">
+              some com ela só pelo IXC
+            </Selo>
           </span>
         )}
         <button onClick={onFechar} className="btn btn-neutro">
@@ -1823,14 +1827,6 @@ export function NovaDespesa({
         </p>
       )}
 
-      {fornecedor && !edicao && (
-        <p className="mt-3 text-right text-xs text-tinta-400">
-          A conta vai para o IXC agora.{' '}
-          <Selo pequeno tom="atencao">
-            some com ela só pelo IXC
-          </Selo>
-        </p>
-      )}
 
       {lendo && (
         <LeitorDeCodigo
@@ -1980,9 +1976,12 @@ function contarNotas(falharam: number, total: number): string {
 function CampoDaNota({
   notas,
   onMudar,
+  parcelado = false,
 }: {
   notas: ArquivoDaNota[];
   onMudar: (notas: ArquivoDaNota[]) => void;
+  /** Em conta parcelada as notas vão na primeira parcela, e a tela diz isso. */
+  parcelado?: boolean;
 }) {
   const [erro, setErro] = useState<string | null>(null);
   const [lendo, setLendo] = useState(false);
@@ -2061,6 +2060,7 @@ function CampoDaNota({
 
   return (
     <div>
+      <span className="rotulo">Notas</span>
       <div className="flex flex-wrap items-center gap-3">
         {notas.map((nota, i) => (
           <div key={nota.dados.slice(-32) + i} className="flex items-center gap-2">
@@ -2115,9 +2115,9 @@ function CampoDaNota({
           </span>
         )}
       </div>
-      <p className="ajuda">
-        PDF ou imagem. Em conta parcelada, vão na primeira parcela.
-      </p>
+      {parcelado && notas.length > 0 && (
+        <p className="ajuda">Em conta parcelada, vão na primeira parcela.</p>
+      )}
       {erro && <p className="mt-1 text-sm text-rose-600">{erro}</p>}
       {naSequencia >= 0 && (
         <FotoAmpliada
