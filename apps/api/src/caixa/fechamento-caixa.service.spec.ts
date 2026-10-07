@@ -127,12 +127,11 @@ function montarServico(
     /** Diárias assinadas, pagas em mãos, à espera de virar nota. */
     diariasAssinadas?: Array<Record<string, unknown>>;
     /**
-     * O que o IXC diz da baixa do título de uma nota agora. Null = não deu
-     * para saber, que é o padrão: o teste que não fala de estorno não muda.
+     * O que o IXC diz agora do título de uma nota: o dia e a conta da saída,
+     * ou que ela não existe mais. Null = não deu para saber, que é o padrão: o
+     * teste que não fala de estorno não muda.
      */
-    baixaDoTitulo?: { ultima: Record<string, unknown> | null } | null;
-    /** O título, perguntado direto: ainda tem baixa? */
-    temBaixa?: boolean | null;
+    saidaDoTitulo?: { dia: Date; conta: number | null } | 'sem-baixa' | null;
     /** As fotos guardadas no acerto da rua. */
     fotosDoMovimento?: Array<{ foto: string }>;
   } = {},
@@ -315,11 +314,7 @@ function montarServico(
   const pagamentos = {
     // O IXC recusa apagar título já pago; quem chama trata a recusa.
     excluir: jest.fn().mockResolvedValue({ idFnApagar: 4242 }),
-    temBaixa: jest.fn().mockResolvedValue(opts.temBaixa ?? null),
-  };
-
-  const baixas = {
-    lidaDoTitulo: jest.fn().mockResolvedValue(opts.baixaDoTitulo ?? null),
+    saidaDoTitulo: jest.fn().mockResolvedValue(opts.saidaDoTitulo ?? null),
   };
 
   const despesas = {
@@ -387,9 +382,8 @@ function montarServico(
     config as never,
     despesas as never,
     pagamentos as never,
-    baixas as never,
   );
-  return { service, prisma, caixa, criados, despesas, pagamentos, baixas };
+  return { service, prisma, caixa, criados, despesas, pagamentos };
 }
 
 const saida = (id: number, valor: number) => ({
@@ -1577,11 +1571,11 @@ describe('o saldo que deve estar na gaveta', () => {
   });
 
   /*
-   * O caso do CX - Werick em 07/10: a nota de 30/09 foi lançada com 30/10.
-   * Corrigida no IXC — pagamento estornado e baixado de novo com 30/09 —, a
-   * saída passou para 30/09 e a compensação ficou presa no 30/10: com o "Até"
-   * em 07/10 a gaveta descontava o gasto sem devolvê-lo, e só acertava com o
-   * "Até" em 31/10.
+   * O caso do CX - Werick em 07/10: a nota da Oficina do Murilo, R$ 400,00,
+   * foi lançada com 28/10 no lugar de 28/09. Corrigida no IXC — pagamento
+   * estornado e baixado de novo com 28/09 —, a saída passou para 28/09 e a
+   * compensação ficou presa no 28/10: a tela de 07/10 dizia R$ 341,00 numa
+   * gaveta de R$ 741,00, e só acertava com o "Até" em 31/10.
    */
   describe('a nota cujo pagamento foi estornado no IXC', () => {
     const FECHOU_EM = new Date(2026, 8, 22, 16, 45);
@@ -1590,8 +1584,8 @@ describe('o saldo que deve estar na gaveta', () => {
     const caso = (
       ixc: {
         lancamentos?: ReturnType<typeof saidaEm>[];
-        baixaDoTitulo?: { ultima: Record<string, unknown> | null } | null;
-        temBaixa?: boolean | null;
+        saidaDoTitulo?: { dia: Date; conta: number | null } | 'sem-baixa' | null;
+        gastoPagoEm?: Date | null;
       } = {},
     ) => ({
       anteriores: [
@@ -1605,53 +1599,46 @@ describe('o saldo que deve estar na gaveta', () => {
       ],
       ultimo: { ate: new Date(2026, 8, 22, 23, 59, 59, 999) },
       entregasDoPeriodo: [
-        { valor: 100, entregueEm: dia(9, 25), createdAt: dia(9, 25) },
+        { valor: 400, entregueEm: dia(9, 25), createdAt: dia(9, 25) },
       ],
       movimentosDoPeriodo: [
         {
           id: 'n1',
           tipo: 'NOTA',
-          valor: 100,
-          data: dia(10, 30),
-          gastoPagoEm: dia(10, 30),
-          createdAt: new Date(2026, 9, 6, 15),
-          idFnApagarIxc: 4242,
-          fornecedorNome: 'Mercado Central',
+          valor: 400,
+          data: dia(10, 28),
+          gastoPagoEm: ixc.gastoPagoEm === undefined ? dia(10, 28) : ixc.gastoPagoEm,
+          createdAt: new Date(2026, 9, 2, 19, 25),
+          idFnApagarIxc: 37671,
+          fornecedorNome: 'Oficina do Murilo',
         },
       ],
       lancamentos: ixc.lancamentos ?? [],
-      baixaDoTitulo: ixc.baixaDoTitulo,
-      temBaixa: ixc.temBaixa,
+      saidaDoTitulo: ixc.saidaDoTitulo,
     });
+
+    // O IXC lê o dia como meia-noite UTC, e é assim que ele chega aqui.
+    const em28de09 = new Date(Date.UTC(2026, 8, 28));
 
     const baixadaDeNovo = () =>
       caso({
         // A saída que a baixa nova criou, no dia certo.
-        lancamentos: [saidaEm(20, 100, dia(9, 30))],
-        baixaDoTitulo: {
-          ultima: {
-            id: 99,
-            idFnApagar: 4242,
-            data: new Date(Date.UTC(2026, 8, 30)),
-            campo: 'data',
-            contaPagamento: 7,
-          },
-        },
+        lancamentos: [saidaEm(20, 400, dia(9, 28))],
+        saidaDoTitulo: { dia: em28de09, conta: 7 },
       });
 
-    // 2070 contados - 100 entregues. A saída de 100 no IXC é o mesmo dinheiro.
-    const ESPERADO = 1970;
+    // 2070 contados - 400 entregues. A saída de 400 no IXC é o mesmo dinheiro.
+    const ESPERADO = 1670;
 
     it('baixada de novo em outro dia, a compensação vai junto', async () => {
-      const dados = baixadaDeNovo();
-      const { service, prisma } = montarServico(dados);
+      const { service, prisma } = montarServico(baixadaDeNovo());
 
       const e = await service.extrato(7, '2026-10-07', '2026-10-07');
 
       expect(e.resumo.saldoEsperado).toBe(ESPERADO);
       expect(prisma.movimentoDaRua.update).toHaveBeenCalledWith({
         where: { id: 'n1' },
-        data: { gastoPagoEm: dia(9, 30), data: dia(9, 30) },
+        data: { gastoPagoEm: dia(9, 28), data: dia(9, 28) },
       });
     });
 
@@ -1691,8 +1678,7 @@ describe('o saldo que deve estar na gaveta', () => {
     });
 
     it('estornado e sem baixa, a compensação sai — com qualquer "Até"', async () => {
-      const estornado = () =>
-        caso({ baixaDoTitulo: { ultima: null }, temBaixa: false });
+      const estornado = () => caso({ saidaDoTitulo: 'sem-baixa' });
 
       const ate07 = await montarServico(estornado()).service.extrato(
         7,
@@ -1711,18 +1697,8 @@ describe('o saldo que deve estar na gaveta', () => {
       });
     });
 
-    it('baixa que não veio, com o título ainda pago, não é estorno', async () => {
-      const { prisma, service } = montarServico(
-        caso({ baixaDoTitulo: { ultima: null }, temBaixa: true }),
-      );
-
-      await service.extrato(7, '2026-10-07', '2026-10-07');
-
-      expect(prisma.movimentoDaRua.update).not.toHaveBeenCalled();
-    });
-
     it('sem resposta do IXC, nada muda', async () => {
-      const { prisma, service } = montarServico(caso({ baixaDoTitulo: null }));
+      const { prisma, service } = montarServico(caso({ saidaDoTitulo: null }));
 
       await service.extrato(7, '2026-10-07', '2026-10-07');
 
@@ -1731,17 +1707,7 @@ describe('o saldo que deve estar na gaveta', () => {
 
     it('pago de novo por outra conta, a compensação sai deste caixa', async () => {
       const { prisma, service } = montarServico(
-        caso({
-          baixaDoTitulo: {
-            ultima: {
-              id: 99,
-              idFnApagar: 4242,
-              data: new Date(Date.UTC(2026, 8, 30)),
-              campo: 'data',
-              contaPagamento: 23,
-            },
-          },
-        }),
+        caso({ saidaDoTitulo: { dia: em28de09, conta: 23 } }),
       );
 
       const e = await service.extrato(7, '2026-10-07', '2026-10-07');
@@ -1753,14 +1719,24 @@ describe('o saldo que deve estar na gaveta', () => {
       });
     });
 
+    it('sem a conta no título, a nota nunca compensada continua sem', async () => {
+      const { prisma, service } = montarServico(
+        caso({ gastoPagoEm: null, saidaDoTitulo: { dia: em28de09, conta: null } }),
+      );
+
+      await service.extrato(7, '2026-10-07', '2026-10-07');
+
+      expect(prisma.movimentoDaRua.update).not.toHaveBeenCalled();
+    });
+
     it('a saída que o estorno apagou não fica esperando conferência', async () => {
       const { service } = montarServico({
         ...baixadaDeNovo(),
         conferencias: [
-          // A saída velha, de 30/10, com as fotos do acerto: não existe mais.
-          { idLancamentoIxc: 19, conferido: false, dataLancamento: dia(10, 30) },
+          // A saída velha, de 28/10, com as fotos do acerto: não existe mais.
+          { idLancamentoIxc: 19, conferido: false, dataLancamento: dia(10, 28) },
           // A nova, de verdade, ainda por conferir.
-          { idLancamentoIxc: 20, conferido: false, dataLancamento: dia(9, 30) },
+          { idLancamentoIxc: 20, conferido: false, dataLancamento: dia(9, 28) },
           // De antes da leitura: não lido não é apagado.
           { idLancamentoIxc: 2, conferido: false, dataLancamento: dia(9, 10) },
         ],

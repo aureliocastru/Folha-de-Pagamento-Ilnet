@@ -1,6 +1,5 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma, TipoMovimentoDaRua } from '@prisma/client';
-import { BaixasDoIxcService } from '../contas-abertas/baixas-do-ixc.service';
 import { DespesasService } from '../contas-abertas/despesas.service';
 import { PagamentosService } from '../contas-abertas/pagamentos.service';
 import { ConfigFinanceiraService } from '../financeiro/config-financeira.service';
@@ -78,7 +77,6 @@ export class FechamentoCaixaService {
     private readonly config: ConfigFinanceiraService,
     private readonly despesas: DespesasService,
     private readonly pagamentos: PagamentosService,
-    private readonly baixas: BaixasDoIxcService,
   ) {}
 
   /** Os caixas do IXC, para escolher qual bater. */
@@ -704,15 +702,15 @@ export class FechamentoCaixaService {
    * mudou de dia e a compensação ficou presa no 30/10: a gaveta descontava o
    * gasto sem devolvê-lo, e só acertava com o "Até" da tela em 31/10.
    *
-   * Então cada leitura pergunta ao IXC pela baixa dos títulos que ainda pesam
-   * na gaveta aberta. Baixado em outro dia, a compensação vai junto; estornado
-   * e sem baixa, ela some — não há mais saída lá para compensar. A nota fica
-   * na conta da pessoa: o gasto aconteceu, o que falta é o título ser pago de
-   * novo, e quando for a compensação volta pelo dia dessa baixa.
+   * Foi o que aconteceu com a nota da Oficina do Murilo, de R$ 400,00: lançada
+   * com 28/10, corrigida no IXC para 28/09, e a tela de 07/10 mostrava R$ 341,00
+   * numa gaveta de R$ 741,00.
    *
-   * "Sem baixa" só vale com o título confirmando: a leitura das baixas que
-   * volta vazia pode ser base que ignora o filtro, e tirar a compensação de
-   * uma saída viva desconta o mesmo dinheiro duas vezes.
+   * Então cada leitura pergunta ao IXC pelo título de cada nota que ainda pesa
+   * na gaveta aberta. Pago em outro dia, a compensação vai junto; estornado e
+   * sem baixa, ela some — não há mais saída lá para compensar. A nota fica na
+   * conta da pessoa: o gasto aconteceu, o que falta é o título ser pago de
+   * novo, e quando for a compensação volta pelo dia desse pagamento.
    *
    * Falha para dentro: sem resposta do IXC, fica o que estava.
    */
@@ -828,28 +826,22 @@ export class FechamentoCaixaService {
    * Em que dia o título saiu deste caixa, segundo o IXC agora.
    *
    * Null = não saiu daqui (estornado, ou pago por outra conta). Undefined =
-   * não deu para saber, e nada muda. A conta da baixa só decide quando vem na
-   * linha; sem ela, a nota que nunca foi compensada continua sem — começar a
-   * compensar um título pago pelo banco daria à gaveta um dinheiro que ela não
-   * viu.
+   * não deu para saber, e nada muda. A conta só decide quando o título a traz;
+   * sem ela, a nota que nunca foi compensada continua sem — começar a compensar
+   * um título pago pelo banco daria à gaveta um dinheiro que ela não viu.
    */
   private async diaDaSaidaNoIxc(
     idFnApagar: number,
     caixaId: number,
     jaCompensada: boolean,
   ): Promise<Date | null | undefined> {
-    const lida = await this.baixas.lidaDoTitulo(idFnApagar);
-    if (!lida) return undefined;
+    const saida = await this.pagamentos.saidaDoTitulo(idFnApagar);
+    if (saida === null) return undefined;
+    if (saida === 'sem-baixa') return null;
 
-    if (lida.ultima) {
-      const conta = lida.ultima.contaPagamento ?? null;
-      if (conta !== null && conta !== caixaId) return null;
-      if (conta === null && !jaCompensada) return undefined;
-      return diaDaBaixa(lida.ultima.data);
-    }
-
-    const temBaixa = await this.pagamentos.temBaixa(idFnApagar);
-    return temBaixa === false ? null : undefined;
+    if (saida.conta !== null && saida.conta !== caixaId) return null;
+    if (saida.conta === null && !jaCompensada) return undefined;
+    return diaDaBaixa(saida.dia);
   }
 
   /**

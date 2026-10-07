@@ -25,6 +25,10 @@ import {
 import { parseIxcId } from '../ixc/ixc.parse';
 import { PrismaService } from '../prisma/prisma.service';
 import { campoDeBaixa, statusDizPago } from './contas-abertas.mapper';
+import {
+  mapPagamento,
+  motivoDeNaoSerPagamento,
+} from './historico-pagamentos.mapper';
 
 /** Por onde o dinheiro sai. */
 export type FormaDePagar = 'BANCO' | 'EM_MAOS';
@@ -891,22 +895,42 @@ export class PagamentosService {
   }
 
   /**
-   * O título ainda tem baixa no IXC? Pela mesma régua do `excluir`.
+   * De onde e em que dia o dinheiro deste título saiu, segundo o IXC agora.
    *
-   * Null quando não deu para saber — e também quando o título não existe mais:
-   * apagar o título não desfaz a baixa, e a saída pode continuar no caixa.
+   * Lido do próprio título, como o histórico de pagamentos lê: o dia do débito
+   * (`debito_data`) e a conta (`id_contas`). A linha de baixa seria o caminho
+   * natural, mas nesta base o webservice não a devolve.
+   *
+   * `'sem-baixa'` = estornado, cancelado ou nunca pago: não há saída nenhuma.
+   * Null = não deu para saber — inclusive quando o título não existe mais, porque
+   * apagar o título não desfaz a baixa (ver `excluir`).
    */
-  async temBaixa(idFnApagar: number): Promise<boolean | null> {
+  async saidaDoTitulo(
+    idFnApagar: number,
+  ): Promise<{ dia: Date; conta: number | null } | 'sem-baixa' | null> {
+    let raw: Record<string, unknown> | null;
     try {
-      const raw = await this.ixc.getById<Record<string, unknown>>(
+      raw = await this.ixc.getById<Record<string, unknown>>(
         'fn_apagar',
         'fn_apagar.id',
         idFnApagar,
       );
-      return raw ? marcaDeBaixa(raw) !== null : null;
     } catch {
       return null;
     }
+    if (!raw) return null;
+
+    const motivo = motivoDeNaoSerPagamento(raw);
+    if (motivo?.motivo === 'cancelado') return 'sem-baixa';
+    // Sem baixa pelas colunas, mas com dinheiro pago, é baixa parcial: saiu.
+    if (motivo?.motivo === 'nao-pago') {
+      return marcaDeBaixa(raw) === null ? 'sem-baixa' : null;
+    }
+    if (motivo) return null;
+
+    const pagamento = mapPagamento(raw);
+    if (!pagamento) return null;
+    return { dia: pagamento.pagoEm, conta: pagamento.caixa.id };
   }
 }
 
