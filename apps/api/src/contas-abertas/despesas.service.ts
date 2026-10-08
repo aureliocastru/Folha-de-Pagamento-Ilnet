@@ -424,40 +424,31 @@ export class DespesasService {
    *
    * No IXC a conta paga de uma vez é um título só, e é a observação dele que
    * diz o que se pagou: quem abre o título por lá — o financeiro, o contador —
-   * tem de ler cada nota sem vir até aqui. Uma linha por nota, com o veículo,
-   * o que foi, a categoria e o valor; o texto escrito na tela vai em cima, e o
-   * total embaixo.
+   * tem de ler cada nota sem vir até aqui. Uma linha por nota, só com o
+   * veículo, o que foi e o valor — a categoria fica aqui, que é onde se olha;
+   * o texto escrito na tela vai em cima, e o total embaixo.
+   *
+   * Entre o veículo e o que foi, hífen comum: o travessão o IXC mostra como "?".
    */
   private async observacaoComNotas(
     texto: string,
     notas: NonNullable<CriarDespesaDto['notas']>,
   ): Promise<string> {
-    const ids = (campo: 'veiculoId' | 'categoriaId') => [
-      ...new Set(notas.map((n) => n[campo]).filter((v): v is string => !!v)),
-    ];
-    const [veiculos, categorias] = await Promise.all([
-      this.prisma.veiculo.findMany({
-        where: { id: { in: ids('veiculoId') } },
-        select: { id: true, apelido: true },
-      }),
-      this.prisma.categoriaDespesa.findMany({
-        where: { id: { in: ids('categoriaId') } },
-        select: { id: true, nome: true },
-      }),
-    ]);
+    const veiculos = await this.prisma.veiculo.findMany({
+      where: {
+        id: {
+          in: [...new Set(notas.map((n) => n.veiculoId).filter((v): v is string => !!v))],
+        },
+      },
+      select: { id: true, apelido: true },
+    });
     const apelido = new Map(veiculos.map((v) => [v.id, v.apelido]));
-    const categoria = new Map(categorias.map((c) => [c.id, c.nome]));
 
     const linhas = notas.map((n, i) => {
       const doVeiculo = n.veiculoId ? apelido.get(n.veiculoId) : undefined;
-      const daCategoria = n.categoriaId ? categoria.get(n.categoriaId) : undefined;
-      const oQue = [doVeiculo, n.descricao?.trim()].filter(Boolean).join(' — ');
-      const nome = oQue
-        ? daCategoria
-          ? `${oQue} (${daCategoria})`
-          : oQue
-        : (daCategoria ?? 'Nota');
-      return `${i + 1}. ${nome}: ${reais(centavos(n.valor))}`;
+      const oQue = [doVeiculo, n.descricao?.trim()].filter(Boolean).join(' - ');
+      const valor = reais(centavos(n.valor));
+      return `${i + 1}. ${oQue ? `${oQue}: ${valor}` : valor}`;
     });
     const total = centavos(notas.reduce((t, n) => t + n.valor, 0));
     return [texto, ...linhas, `Total: ${reais(total)}`].join('\n');
