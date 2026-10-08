@@ -214,6 +214,37 @@ export class CategoriasService {
       create: { idFnApagar, categoriaId, classificadoPor: usuarioId ?? null },
       update: { categoriaId, classificadoPor: usuarioId ?? null },
     });
+    await this.ensinarAsMensais([idFnApagar], categoriaId);
+  }
+
+  /**
+   * A conta que veio de uma mensal ensina a categoria a ela.
+   *
+   * A mensal cadastrada sem categoria gerava todo mês uma conta "sem
+   * classificação", e todo mês alguém classificava igual. Classificada uma
+   * vez, as seguintes já nascem com ela; trocada, as seguintes trocam junto.
+   *
+   * Falhar aqui não desfaz a etiqueta: ela é o que foi pedido.
+   */
+  private async ensinarAsMensais(
+    idsFnApagar: number[],
+    categoriaId: string,
+  ): Promise<void> {
+    try {
+      const { count } = await this.prisma.despesaRecorrente.updateMany({
+        where: { contas: { some: { idFnApagarIxc: { in: idsFnApagar } } } },
+        data: { categoriaId },
+      });
+      if (count > 0) {
+        this.logger.log(`${count} conta(s) mensal(is) passam a nascer com a categoria.`);
+      }
+    } catch (err) {
+      this.logger.warn(
+        `A mensal não aprendeu a categoria: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
   }
 
   /**
@@ -262,6 +293,7 @@ export class CategoriasService {
     this.logger.log(
       `${ids.length} conta(s) classificadas como "${categoria.nome}".`,
     );
+    await this.ensinarAsMensais(ids, categoriaId);
     return ids.length;
   }
 

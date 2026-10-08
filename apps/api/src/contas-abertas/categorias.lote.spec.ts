@@ -23,6 +23,9 @@ function montarServico(opts: { categoria?: unknown } = {}) {
       deleteMany: jest.fn().mockResolvedValue({ count: 2 }),
       createMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
+    despesaRecorrente: {
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
     // A transação devolve o que as operações devolveriam; aqui só interessa
     // que as duas foram entregues juntas.
     $transaction: jest.fn(async (ops: unknown[]) => ops),
@@ -45,6 +48,21 @@ describe('CategoriasService.classificarEmLote', () => {
         { idFnApagar: 20, categoriaId: 'cat-1', classificadoPor: 'u1' },
         { idFnApagar: 30, categoriaId: 'cat-1', classificadoPor: 'u1' },
       ],
+    });
+  });
+
+  /*
+   * A mensal cadastrada sem categoria gerava todo mês uma conta sem
+   * classificação; classificada a conta dela, as próximas nascem com a mesma.
+   */
+  it('a mensal que gerou a conta passa a nascer com a categoria dada', async () => {
+    const { service, prisma } = montarServico();
+
+    await service.classificarEmLote([10, 20], 'cat-1');
+
+    expect(prisma.despesaRecorrente.updateMany).toHaveBeenCalledWith({
+      where: { contas: { some: { idFnApagarIxc: { in: [10, 20] } } } },
+      data: { categoriaId: 'cat-1' },
     });
   });
 

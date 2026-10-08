@@ -66,22 +66,40 @@ function montarServico(
     antecipadasSalvas?: unknown[];
     /** Os títulos que já têm etiqueta. */
     classificadas?: number[];
+    /** As etiquetas que esses títulos têm, quando a categoria importa. */
+    etiquetas?: Record<number, string>;
+    /** Os títulos do fornecedor no IXC, do vencimento mais recente ao mais antigo. */
+    historico?: Array<Record<string, unknown>>;
   } = {},
 ) {
   const atualizacoes: Array<Record<string, unknown>> = [];
 
   const antecipadas: Array<Record<string, unknown>> = [];
 
+  const lista = (opts.lista ?? [recorrente()]) as Array<Record<string, unknown>>;
+
   const prisma = {
     despesaRecorrente: {
-      findMany: jest.fn().mockResolvedValue(opts.lista ?? [recorrente()]),
+      findMany: jest.fn(async (args?: { where?: Record<string, unknown> }) =>
+        // A procura das mensais sem categoria.
+        args?.where && 'categoriaId' in args.where
+          ? lista.filter((r) => !r.categoriaId)
+          : lista,
+      ),
       findUnique: jest
         .fn()
         .mockResolvedValue(opts.registro ?? recorrente()),
-      update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
-        atualizacoes.push(data);
-        return data;
-      }),
+      update: jest.fn(
+        async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+          atualizacoes.push(data);
+          // A categoria aprendida vale para a leitura seguinte, como no banco.
+          if ('categoriaId' in data) {
+            const r = lista.find((x) => x.id === where.id);
+            if (r) r.categoriaId = data.categoriaId;
+          }
+          return data;
+        },
+      ),
       create: jest.fn(async ({ data }: { data: unknown }) => data),
       delete: jest.fn(),
     },
@@ -90,9 +108,13 @@ function montarServico(
       update: jest.fn(async ({ data }: { data: unknown }) => data),
     },
     classificacaoConta: {
-      findMany: jest.fn(async () =>
-        (opts.classificadas ?? []).map((idFnApagar) => ({ idFnApagar })),
-      ),
+      findMany: jest.fn(async () => [
+        ...(opts.classificadas ?? []).map((idFnApagar) => ({ idFnApagar })),
+        ...Object.entries(opts.etiquetas ?? {}).map(([id, categoriaId]) => ({
+          idFnApagar: Number(id),
+          categoriaId,
+        })),
+      ]),
     },
     parcelaAntecipada: {
       findMany: jest.fn(async () => opts.antecipadasSalvas ?? []),
@@ -115,12 +137,17 @@ function montarServico(
 
   const categorias = { classificar: jest.fn() };
 
+  const ixc = {
+    list: jest.fn(async () => ({ registros: opts.historico ?? [], total: 0 })),
+  };
+
   const service = new RecorrentesService(
     prisma as never,
     contasPagar as never,
     categorias as never,
+    ixc as never,
   );
-  return { service, prisma, contasPagar, categorias, atualizacoes, antecipadas };
+  return { service, prisma, contasPagar, categorias, ixc, atualizacoes, antecipadas };
 }
 
 describe('mesSeguinte', () => {
@@ -274,6 +301,88 @@ describe('RecorrentesService.gerarPendentes', () => {
 
     expect(categorias.classificar).toHaveBeenCalledTimes(1);
     expect(categorias.classificar).toHaveBeenCalledWith(37529, 'cat-1', 'u1');
+  });
+});
+
+/*
+ * A mensal cadastrada sem categoria gerava todo mês uma conta "sem
+ * classificação", e todo mês alguém classificava igual ao anterior. O
+ * histórico do fornecedor já sabia a resposta.
+ */
+describe('RecorrentesService.gerarPendentes — categoria pelo histórico', () => {
+  beforeAll(() => {
+    jest.useFakeTimers().setSystemTime(HOJE);
+  });
+  afterAll(() => {
+    jest.useRealTimers();
+  });
+
+  const titulo = (id: number, obs: string, idFornecedor = 196) => ({
+    id: String(id),
+    id_fornecedor: String(idFornecedor),
+    obs,
+  });
+
+  it('a mensal sem categoria aprende a do último título igual, e a conta já nasce com ela', async () => {
+    const { service, categorias, atualizacoes } = montarServico({
+      lista: [recorrente({ observacao: 'SERVIÇO DE DADOS M2M CHIP RASTEADOR 22 VEÌCULOS' })],
+      historico: [
+        titulo(300, 'Instalação de rastreador Strada'),
+        titulo(200, 'SERVIÇO DE DADOS M2M CHIP RASTEADOR 24 VEÍCULOS'),
+        titulo(100, 'SERVIÇO DE DADOS M2M CHIP RASTEADOR 22 VEÍCULOS'),
+      ],
+      etiquetas: { 300: 'mao-de-obra', 200: 'assinaturas', 100: 'servicos' },
+    });
+
+    await service.gerarPendentes('u1');
+
+    // O número de veículos muda de um mês para o outro; a conta é a mesma.
+    expect(atualizacoes[0]).toEqual({ categoriaId: 'assinaturas' });
+    expect(categorias.classificar).toHaveBeenCalledWith(7777, 'assinaturas', 'u1');
+  });
+
+  it('do mesmo fornecedor, outra descrição não serve', async () => {
+    // O mesmo Marco recebe a previdência e a carne, cada uma na sua categoria.
+    const { service, categorias, atualizacoes } = montarServico({
+      lista: [recorrente({ observacao: 'Previdência' })],
+      historico: [titulo(300, 'Carne')],
+      etiquetas: { 300: 'uso-e-consumo' },
+    });
+
+    await service.gerarPendentes('u1');
+
+    expect(atualizacoes.some((a) => 'categoriaId' in a)).toBe(false);
+    expect(categorias.classificar).not.toHaveBeenCalled();
+  });
+
+  it('título de outro fornecedor não ensina nada', async () => {
+    // Base que ignore o filtro devolve os títulos de todo mundo.
+    const { service, atualizacoes } = montarServico({
+      lista: [recorrente({ observacao: 'Link de internet' })],
+      historico: [titulo(300, 'Link de internet', 999)],
+      etiquetas: { 300: 'internet' },
+    });
+
+    await service.gerarPendentes('u1');
+
+    expect(atualizacoes.some((a) => 'categoriaId' in a)).toBe(false);
+  });
+
+  it('a mensal que já tem categoria não vai ao IXC', async () => {
+    const { service, ixc } = montarServico({
+      lista: [recorrente({ categoriaId: 'cat-1' })],
+    });
+
+    await service.gerarPendentes('u1');
+
+    expect(ixc.list).not.toHaveBeenCalled();
+  });
+
+  it('o IXC fora do ar não impede a conta de nascer', async () => {
+    const { service, ixc } = montarServico();
+    ixc.list.mockRejectedValueOnce(new Error('IXC fora do ar'));
+
+    expect((await service.gerarPendentes('u1')).geradas).toBe(1);
   });
 });
 

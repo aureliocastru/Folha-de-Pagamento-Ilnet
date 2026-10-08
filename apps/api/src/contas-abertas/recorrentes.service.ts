@@ -6,8 +6,11 @@ import {
 } from '@nestjs/common';
 import { DespesaRecorrente, Prisma } from '@prisma/client';
 import { ContasPagarService } from '../financeiro/contas-pagar.service';
+import { IxcClient } from '../ixc/ixc.client';
+import { parseIxcId } from '../ixc/ixc.parse';
 import { PrismaService } from '../prisma/prisma.service';
 import { CategoriasService } from './categorias.service';
+import { primeiroTexto } from './contas-abertas.mapper';
 import { proximoDiaUtil } from './dias-uteis';
 
 /** Uma parcela paga fora da ordem, como a tela a mostra. */
@@ -64,6 +67,7 @@ export class RecorrentesService {
     private readonly prisma: PrismaService,
     private readonly contasPagar: ContasPagarService,
     private readonly categorias: CategoriasService,
+    private readonly ixc: IxcClient,
   ) {}
 
   async listar(incluirDesligadas = true): Promise<RecorrenteComResumo[]> {
@@ -551,6 +555,8 @@ export class RecorrentesService {
    */
   async gerarPendentes(usuarioId?: string): Promise<ResultadoDaGeracao> {
     const hoje = hojeUtc();
+    // Antes de gerar: a conta de hoje já nasce com a categoria aprendida.
+    await this.aprenderCategorias();
     const pendentes = await this.prisma.despesaRecorrente.findMany({
       where: { ativa: true },
       include: { antecipadas: { select: { numero: true } } },
@@ -719,6 +725,84 @@ export class RecorrentesService {
   }
 
   /**
+   * Dá categoria às mensais que não têm, pelo que já se fez à mão.
+   *
+   * A mensal cadastrada sem categoria gerava todo mês uma conta "sem
+   * classificação" — e todo mês alguém a classificava igual ao mês anterior.
+   * A categoria que falta está no histórico do fornecedor: o título mais
+   * recente dele, com a mesma descrição, que alguém classificou. Achada, fica
+   * gravada na mensal, e daí em diante as contas nascem com ela.
+   *
+   * A descrição tem de ser a mesma porque o fornecedor não basta: o mesmo
+   * Marco recebe a previdência, a carne e o salário, cada um na sua categoria.
+   */
+  private async aprenderCategorias(): Promise<void> {
+    const sem = await this.prisma.despesaRecorrente.findMany({
+      where: { ativa: true, categoriaId: null },
+      select: { id: true, idFornecedorIxc: true, fornecedorNome: true, observacao: true },
+    });
+
+    for (const r of sem) {
+      try {
+        const categoriaId = await this.categoriaDoHistorico(r);
+        if (!categoriaId) continue;
+        await this.prisma.despesaRecorrente.update({
+          where: { id: r.id },
+          data: { categoriaId },
+        });
+        this.logger.log(
+          `Recorrente de ${r.fornecedorNome} ganhou a categoria do histórico.`,
+        );
+      } catch (err) {
+        this.logger.warn(
+          `Recorrente de ${r.fornecedorNome}: não deu para ler o histórico (${
+            err instanceof Error ? err.message : String(err)
+          }).`,
+        );
+      }
+    }
+  }
+
+  /** A categoria do título mais recente do fornecedor com a mesma descrição. */
+  private async categoriaDoHistorico(r: {
+    idFornecedorIxc: number;
+    observacao: string;
+  }): Promise<string | null> {
+    const procurada = descricaoComparavel(r.observacao);
+    if (!procurada) return null;
+
+    const { registros } = await this.ixc.list<Record<string, unknown>>('fn_apagar', {
+      qtype: 'fn_apagar.id_fornecedor',
+      query: String(r.idFornecedorIxc),
+      oper: '=',
+      sortname: 'fn_apagar.data_vencimento',
+      sortorder: 'desc',
+      // Folga para o fornecedor que tem parcelas lançadas meses à frente — o
+      // consórcio, o cartão — e o histórico da mensal ficaria atrás delas.
+      rp: 300,
+    });
+    const mesmos = registros
+      // Base que ignore o filtro devolve os títulos de todo mundo.
+      .filter((t) => parseIxcId(t.id_fornecedor ?? t.fornecedor_id) === r.idFornecedorIxc)
+      .filter((t) => descricaoComparavel(primeiroTexto(t, ['obs', 'observacao', 'historico']) ?? '') === procurada)
+      .map((t) => parseIxcId(t.id))
+      .filter((id): id is number => id !== null);
+    if (mesmos.length === 0) return null;
+
+    const etiquetas = await this.prisma.classificacaoConta.findMany({
+      where: { idFnApagar: { in: mesmos } },
+      select: { idFnApagar: true, categoriaId: true },
+    });
+    const daConta = new Map(etiquetas.map((e) => [e.idFnApagar, e.categoriaId]));
+    // Do vencimento mais recente para o mais antigo: vale a última decisão.
+    for (const id of mesmos) {
+      const categoriaId = daConta.get(id);
+      if (categoriaId) return categoriaId;
+    }
+    return null;
+  }
+
+  /**
    * Põe a categoria da recorrente nas contas dela que nasceram sem.
    *
    * A etiqueta é gravada logo depois que o IXC devolve o número do título, e
@@ -819,6 +903,22 @@ function proximaEmAberto(
 }
 
 /** Hoje à meia-noite em UTC, como o resto das datas desta base. */
+/**
+ * A descrição sem o que muda de um mês para o outro.
+ *
+ * Os números saem — "22 veículos" num mês e "24" no outro, o "(12/60)" da
+ * parcela —, e com eles acento, caixa e pontuação: o título digitado à mão no
+ * IXC e o gerado aqui são a mesma conta.
+ */
+export function descricaoComparavel(texto: string): string {
+  return texto
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z]+/g, ' ')
+    .trim();
+}
+
 function hojeUtc(): Date {
   const agora = new Date();
   return new Date(
