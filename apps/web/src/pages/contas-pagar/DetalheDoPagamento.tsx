@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { NotasDoTitulo } from '../../components/NotasDoTitulo';
 import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
+import { CategoriasDeDentro } from '../../components/SeloDaCategoria';
+import { estaClassificado } from '../../lib/categorias';
 import { Carregando, Janela, Selo } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
@@ -246,7 +248,12 @@ export function DetalheDoPagamento({
               (pagamento.categoria.id ? `conta ${pagamento.categoria.id}` : '—')}
           </Dado>
           <Dado rotulo="Classificação daqui">
-            <ClassificacaoDoPagamento pagamento={pagamento} />
+            {/* Várias notas ou fatura: quem responde são as de dentro. */}
+            {pagamento.rateio?.length && estaClassificado(pagamento) ? (
+              <CategoriasDeDentro fatias={pagamento.rateio} />
+            ) : (
+              <ClassificacaoDoPagamento pagamento={pagamento} />
+            )}
           </Dado>
           <Dado rotulo="Status no IXC">
             {pagamento.statusEhDePago

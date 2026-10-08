@@ -16,6 +16,23 @@ export function estaClassificado(titulo: {
   return !!titulo.classificacao;
 }
 
+/**
+ * A etiqueta que responde pelo título inteiro, quando uma só responde.
+ *
+ * Na conta de várias notas e na fatura do cartão quem fala são as categorias
+ * de dentro, e a etiqueta do título pode estar vazia: com todas as notas na
+ * mesma categoria, é ela; divididas em mais de uma, nenhuma sozinha.
+ */
+export function etiquetaDoTitulo(titulo: {
+  classificacao: EtiquetaDaConta | null;
+  rateio?: FatiaDoRateio[];
+}): EtiquetaDaConta | null {
+  if (titulo.rateio?.length) {
+    return titulo.rateio.length === 1 ? titulo.rateio[0].classificacao : null;
+  }
+  return titulo.classificacao;
+}
+
 /** Uma categoria de cima com as subcategorias que moram nela. */
 export interface GrupoDeCategorias {
   mae: CategoriaDespesa;

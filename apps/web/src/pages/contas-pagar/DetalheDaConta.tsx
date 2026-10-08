@@ -4,6 +4,8 @@ import { NotasDoTitulo } from '../../components/NotasDoTitulo';
 import { Aviso, Carregando, Janela, Selo } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
+import { CategoriasDeDentro } from '../../components/SeloDaCategoria';
+import { estaClassificado } from '../../lib/categorias';
 import { formatBRL, formatData } from '../../lib/format';
 import { TIPO_LABEL } from '../../lib/status';
 import { CampoDeData } from '../../components/CampoDeData';
@@ -144,42 +146,50 @@ export function DetalheDaConta({
         </div>
 
         {/* A etiqueta é nossa e é o eixo dos relatórios — por isso ela fica
-            logo abaixo do essencial, e não perdida no fim da ficha. */}
-        <div className="mt-5 rounded-2xl border border-tinta-100 p-4">
-          <label className="rotulo" htmlFor="categoria">
-            A que se refere este débito
-          </label>
-          {/* A escolha é guardada aqui além de ir para a API: a lista de trás
-              é recarregada depois de salvar, e até ela voltar o `conta` que
-              chegou por prop ainda é o antigo — sem este estado, o campo
-              voltaria sozinho para a opção anterior na frente de quem acabou
-              de escolher. */}
-          <SeletorDeCategoria
-            id="categoria"
-            categorias={categorias.data}
-            value={categoriaId}
-            vazio="Sem classificação"
-            ajuda="Ela entra no cadastro e já fica valendo para este débito."
-            carregando={categorias.isLoading}
-            desabilitado={classificar.isPending}
-            onChange={(id) => {
-              setCategoriaId(id);
-              classificar.mutate(id || null);
-            }}
-          />
-          <p className="ajuda">
-            {classificar.isPending
-              ? 'Salvando…'
-              : conta.categoria.nome
-                ? `No IXC este título está na conta de despesa "${conta.categoria.nome}".`
-                : 'É por esta escolha que o dashboard separa os gastos: ele soma pela categoria e destrincha pela subcategoria. Fica guardada aqui — o IXC não tem onde recebê-la.'}
-          </p>
-          {classificar.isError && (
-            <p className="mt-2 text-sm text-rose-700">
-              {mensagemErro(classificar.error)}
+            logo abaixo do essencial, e não perdida no fim da ficha. Na conta
+            de várias notas e na fatura, quem responde são as de dentro. */}
+        {conta.rateio?.length && estaClassificado(conta) ? (
+          <div className="mt-5 rounded-2xl border border-tinta-100 p-4">
+            <div className="rotulo">A que se refere este débito</div>
+            <CategoriasDeDentro fatias={conta.rateio} />
+          </div>
+        ) : (
+          <div className="mt-5 rounded-2xl border border-tinta-100 p-4">
+            <label className="rotulo" htmlFor="categoria">
+              A que se refere este débito
+            </label>
+            {/* A escolha é guardada aqui além de ir para a API: a lista de trás
+                é recarregada depois de salvar, e até ela voltar o `conta` que
+                chegou por prop ainda é o antigo — sem este estado, o campo
+                voltaria sozinho para a opção anterior na frente de quem acabou
+                de escolher. */}
+            <SeletorDeCategoria
+              id="categoria"
+              categorias={categorias.data}
+              value={categoriaId}
+              vazio="Sem classificação"
+              ajuda="Ela entra no cadastro e já fica valendo para este débito."
+              carregando={categorias.isLoading}
+              desabilitado={classificar.isPending}
+              onChange={(id) => {
+                setCategoriaId(id);
+                classificar.mutate(id || null);
+              }}
+            />
+            <p className="ajuda">
+              {classificar.isPending
+                ? 'Salvando…'
+                : conta.categoria.nome
+                  ? `No IXC este título está na conta de despesa "${conta.categoria.nome}".`
+                  : 'É por esta escolha que o dashboard separa os gastos: ele soma pela categoria e destrincha pela subcategoria. Fica guardada aqui — o IXC não tem onde recebê-la.'}
             </p>
-          )}
-        </div>
+            {classificar.isError && (
+              <p className="mt-2 text-sm text-rose-700">
+                {mensagemErro(classificar.error)}
+              </p>
+            )}
+          </div>
+        )}
 
         {conta.observacao && (
           <div className="mt-4">

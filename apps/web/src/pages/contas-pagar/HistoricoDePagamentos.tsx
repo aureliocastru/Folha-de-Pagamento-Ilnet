@@ -16,6 +16,7 @@ import { TIPO_LABEL } from '../../lib/status';
 import type { HistoricoPagamentos, PagamentoFeito } from '../../lib/types';
 import { DetalheDoPagamento, PrazoDoPagamento } from './DetalheDoPagamento';
 import { CampoDeData } from '../../components/CampoDeData';
+import { SeloDaCategoria } from '../../components/SeloDaCategoria';
 
 /**
  * O que a empresa já pagou, lido do IXC na hora.
@@ -389,19 +390,7 @@ function Linha({
                 {pagamento.parcial ? 'parcial' : 'confira'}
               </Selo>
             ))}
-          {pagamento.classificacao && (
-            <Selo
-              pequeno
-              tom="info"
-              titulo={
-                pagamento.classificacao.grupo
-                  ? `${pagamento.classificacao.grupo.nome} · ${pagamento.classificacao.nome}`
-                  : undefined
-              }
-            >
-              {pagamento.classificacao.nome}
-            </Selo>
-          )}
+          <SeloDaCategoria titulo={pagamento} />
           {pagamento.origem && (
             <Selo
               pequeno

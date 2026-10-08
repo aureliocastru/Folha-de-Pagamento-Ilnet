@@ -15,6 +15,7 @@ import { api, mensagemErro } from '../../lib/api';
 import { combina, semAcento } from '../../lib/busca';
 import { estaClassificado } from '../../lib/categorias';
 import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
+import { SeloDaCategoria } from '../../components/SeloDaCategoria';
 import { formatBRL, formatData } from '../../lib/format';
 import { TIPO_LABEL } from '../../lib/status';
 import type {
@@ -686,43 +687,7 @@ function Linha({
           </div>
         )}
         <div className="mt-1 flex flex-wrap items-center gap-1.5">
-          {/* A fatura do cartão se classifica pelas compras de dentro: o selo
-              diz em quantas categorias ela se divide, e o nome delas fica no
-              título do selo. */}
-          {conta.rateio && conta.rateio.length > 1 ? (
-            <Selo
-              pequeno
-              tom={estaClassificado(conta) ? 'info' : 'atencao'}
-              titulo={conta.rateio
-                .map(
-                  (f) =>
-                    `${f.classificacao?.nome ?? 'Sem categoria'}: ${formatBRL(f.valor)}`,
-                )
-                .join(' · ')}
-            >
-              cartão · {conta.rateio.length} categorias
-            </Selo>
-          ) : conta.classificacao ? (
-            <Selo
-              pequeno
-              tom="info"
-              titulo={
-                conta.classificacao.grupo
-                  ? `${conta.classificacao.grupo.nome} · ${conta.classificacao.nome}`
-                  : undefined
-              }
-            >
-              {conta.classificacao.nome}
-            </Selo>
-          ) : (
-            <Selo
-              pequeno
-              tom="atencao"
-              titulo="Sem isto o débito fica de fora dos relatórios por categoria — clique para escolher"
-            >
-              sem classificação
-            </Selo>
-          )}
+          <SeloDaCategoria titulo={conta} avisarSemCategoria />
           {conta.origem && (
             <Selo
               pequeno
