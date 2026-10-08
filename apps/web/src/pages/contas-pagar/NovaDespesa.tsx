@@ -2219,13 +2219,29 @@ function TelaDasNotas({
   const mudar = (chave: string, parte: Partial<NotaDaConta>) =>
     onMudar(notas.map((n) => (n.chave === chave ? { ...n, ...parte } : n)));
 
+  /*
+   * O print colado vai para a nota em que se está mexendo — a última tocada,
+   * ou a última da lista. Uma só escuta o Ctrl+V: com todas escutando, o
+   * mesmo print entraria em todas.
+   */
+  const [tocada, setTocada] = useState<string | null>(null);
+  const colando = notas.some((n) => n.chave === tocada)
+    ? tocada
+    : (notas[notas.length - 1]?.chave ?? null);
+
   return (
     <div>
       <div className="space-y-3">
         {notas.map((n, i) => (
           <div
             key={n.chave}
-            className={`grid grid-cols-1 gap-3 rounded-xl border border-tinta-200 p-3 lg:items-start ${
+            onFocus={() => setTocada(n.chave)}
+            onPointerDown={() => setTocada(n.chave)}
+            className={`grid grid-cols-1 gap-3 rounded-xl border p-3 lg:items-start ${
+              notas.length > 1 && n.chave === colando
+                ? 'border-brand-400'
+                : 'border-tinta-200'
+            } ${
               temFrota
                 ? 'lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.2fr)_8.5rem_minmax(0,1.2fr)_auto]'
                 : 'lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.4fr)_8.5rem_minmax(0,1.2fr)_auto]'
@@ -2286,7 +2302,8 @@ function TelaDasNotas({
             <CampoDaNota
               notas={n.notas}
               onMudar={(arquivos) => mudar(n.chave, { notas: arquivos })}
-              colar={false}
+              colar={n.chave === colando}
+              dicaDeColar="ou Ctrl+V"
               rotulo="Foto"
             />
             {notas.length > 1 && (
@@ -2304,9 +2321,11 @@ function TelaDasNotas({
 
       <button
         type="button"
-        onClick={() =>
-          onMudar([...notas, novaNotaDaConta({ categoriaId: categoriaDaConta })])
-        }
+        onClick={() => {
+          const nova = novaNotaDaConta({ categoriaId: categoriaDaConta });
+          onMudar([...notas, nova]);
+          setTocada(nova.chave);
+        }}
         className="btn btn-neutro btn-p mt-3"
       >
         + Outra nota
@@ -2395,6 +2414,7 @@ function CampoDaNota({
   onMudar,
   parcelado = false,
   colar = true,
+  dicaDeColar = 'ou dê Ctrl+V para colar um print — ele vai como foto',
   rotulo = 'Notas',
 }: {
   notas: ArquivoDaNota[];
@@ -2406,6 +2426,8 @@ function CampoDaNota({
    * veículo abertas, o print colado iria para todas ao mesmo tempo.
    */
   colar?: boolean;
+  /** Ao lado do botão, enquanto não há arquivo — curta onde a coluna é estreita. */
+  dicaDeColar?: string;
   rotulo?: string;
 }) {
   const [erro, setErro] = useState<string | null>(null);
@@ -2536,9 +2558,7 @@ function CampoDaNota({
         )}
 
         {colar && notas.length === 0 && (
-          <span className="text-xs text-tinta-400">
-            ou dê Ctrl+V para colar um print — ele vai como foto
-          </span>
+          <span className="text-xs text-tinta-400">{dicaDeColar}</span>
         )}
       </div>
       {parcelado && notas.length > 0 && (
