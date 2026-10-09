@@ -80,7 +80,8 @@ export function AjustesDaContabilidade() {
   }
 
   const dados = cfg.data;
-  const contas = dados.contas.filter((c) => inativas || c.ativa || (papeis[c.id] ?? c.papel) !== 'ignorar');
+  // Conta inativa some, como em toda tela nova: só aparece a pedido.
+  const contas = dados.contas.filter((c) => inativas || c.ativa);
   const mudou = Object.keys(papeis).length > 0 || Object.keys(selecoes).length > 0;
 
   return (
