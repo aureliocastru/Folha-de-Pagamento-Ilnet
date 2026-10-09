@@ -27,6 +27,7 @@ import {
   EnviarArquivoDto,
   LerDeNovoDto,
   MarcarDto,
+  MarcarVariosDto,
 } from './dto/contabilidade.dto';
 import { PacoteZipService } from './pacote-zip.service';
 import { PacoteContabilService } from './pacote.service';
@@ -109,6 +110,12 @@ export class ContabilidadeController {
     return this.pacotes.marcar(id, dto, usuarioId(req));
   }
 
+  /** "Não tem comprovante" em vários pagamentos de uma vez. */
+  @Put('pacotes/:id/marcas/pagamentos')
+  marcarVarios(@Param('id') id: string, @Body() dto: MarcarVariosDto, @Req() req: Request) {
+    return this.pacotes.marcarVarios(id, dto.titulos, dto.motivo ?? null, usuarioId(req));
+  }
+
   // --- Arquivos ---
 
   @Post('pacotes/:id/arquivos')
@@ -150,7 +157,7 @@ export class ContabilidadeController {
     @Query('id') id: string,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile> {
-    if (!['ixc', 'caixa', 'conta', 'recibo', 'pacote'].includes(origem) || !id) {
+    if (!['ixc', 'caixa', 'conta', 'recibo', 'rh', 'pacote'].includes(origem) || !id) {
       throw new BadRequestException('Comprovante inválido.');
     }
     const lido = await this.zip.lerComprovante({ origem: origem as 'ixc', id, nome: '' });

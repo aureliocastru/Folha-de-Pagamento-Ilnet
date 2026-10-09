@@ -320,12 +320,19 @@ function CartaoDoItem({
         )}
         {outros.length > 0 && (
           <dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-2">
-            {outros.map((r) => (
-              <div key={r.rotulo} className="flex min-w-0 justify-between gap-2">
-                <dt className="truncate text-tinta-500">{r.rotulo}</dt>
-                <dd className="num shrink-0 font-semibold text-tinta-800">{valorDoResumo(r)}</dd>
-              </div>
-            ))}
+            {outros.map((r) =>
+              r.tipo === 'texto' && String(r.valor).length > 14 ? (
+                <div key={r.rotulo} className="min-w-0 sm:col-span-2">
+                  <dt className="inline text-tinta-500">{r.rotulo}: </dt>
+                  <dd className="inline font-semibold text-tinta-800">{valorDoResumo(r)}</dd>
+                </div>
+              ) : (
+                <div key={r.rotulo} className="flex min-w-0 justify-between gap-2">
+                  <dt className="truncate text-tinta-500">{r.rotulo}</dt>
+                  <dd className="num shrink-0 font-semibold text-tinta-800">{valorDoResumo(r)}</dd>
+                </div>
+              ),
+            )}
           </dl>
         )}
 
@@ -602,6 +609,7 @@ const MOTIVOS = [
 ];
 
 function JanelaDePagamentos({ pacoteId, item, onFechar }: { pacoteId: string; item: ItemNaTela; onFechar: () => void }) {
+  const qc = useQueryClient();
   const [busca, setBusca] = useState('');
   const [soSem, setSoSem] = useState(item.numero === 8);
 
@@ -617,11 +625,31 @@ function JanelaDePagamentos({ pacoteId, item, onFechar }: { pacoteId: string; it
     return (pagamentos.data ?? []).filter((p) => {
       if (soSem && (p.comprovantes.length > 0 || p.semComprovante)) return false;
       if (!termo) return true;
-      return semAcento(`${p.fornecedor} ${p.idFnApagar} ${p.notaFiscal} ${p.observacao} ${p.conta}`).includes(termo);
+      return semAcento(
+        `${p.fornecedor} ${p.idFnApagar} ${p.notaFiscal} ${p.observacao} ${p.conta} ${p.planoDeContas} ` +
+          p.categorias.map((c) => c.nome).join(' '),
+      ).includes(termo);
     });
   }, [pagamentos.data, busca, soSem]);
 
   const sem = (pagamentos.data ?? []).filter((p) => p.comprovantes.length === 0 && !p.semComprovante).length;
+  const semNaLista = lista.filter((p) => p.comprovantes.length === 0 && !p.semComprovante);
+  const [marcandoVarios, setMarcandoVarios] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  const marcarVarios = useMutation({
+    mutationFn: async (motivo: string) =>
+      api.put(`/contabilidade/pacotes/${pacoteId}/marcas/pagamentos`, {
+        titulos: semNaLista.map((p) => p.idFnApagar),
+        motivo,
+      }),
+    onSuccess: () => {
+      setMarcandoVarios(false);
+      void qc.invalidateQueries({ queryKey: ['contabilidade', 'pagamentos', pacoteId] });
+      void qc.invalidateQueries({ queryKey: chaveDoPacote(pacoteId) });
+    },
+    onError: (e) => setErro(mensagemErro(e)),
+  });
 
   return (
     <Janela titulo={`${String(item.numero).padStart(2, '0')} · ${item.titulo}`} onFechar={onFechar} larga>
@@ -640,6 +668,34 @@ function JanelaDePagamentos({ pacoteId, item, onFechar }: { pacoteId: string; it
           Sem comprovante ({sem})
         </button>
       </div>
+
+      {semNaLista.length > 1 && busca.trim() !== '' && (
+        <div className="mb-3 rounded-xl border border-tinta-100 p-3">
+          {marcandoVarios ? (
+            <div className="flex flex-wrap gap-2">
+              {MOTIVOS.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  className="btn btn-p btn-neutro"
+                  disabled={marcarVarios.isPending}
+                  onClick={() => marcarVarios.mutate(m)}
+                >
+                  {m}
+                </button>
+              ))}
+              <button type="button" className="btn btn-p btn-sutil" onClick={() => setMarcandoVarios(false)}>
+                Cancelar
+              </button>
+            </div>
+          ) : (
+            <button type="button" className="btn btn-p btn-ferramenta" onClick={() => setMarcandoVarios(true)}>
+              Marcar os {semNaLista.length} desta busca como "não tem"
+            </button>
+          )}
+        </div>
+      )}
+      {erro && <Aviso tom="erro">{erro}</Aviso>}
 
       {pagamentos.isLoading ? (
         <Carregando />
@@ -738,6 +794,11 @@ function LinhaDePagamento({ pagamento: p, pacoteId }: { pagamento: PagamentoNaLi
             {diaBr(p.dia)} · título {p.idFnApagar}
             {p.notaFiscal && ` · nota ${p.notaFiscal}`} · {p.conta}
           </p>
+          {(p.categorias.length > 0 || p.planoDeContas) && (
+            <p className="text-xs text-tinta-500">
+              {p.categorias.filter((c) => c.nome).map((c) => c.nome).join(', ') || p.planoDeContas}
+            </p>
+          )}
           {p.observacao && <p className="mt-0.5 line-clamp-2 text-xs text-tinta-400">{p.observacao}</p>}
         </div>
         <p className="num shrink-0 font-display text-base font-semibold text-tinta-900">{formatBRL(p.pago)}</p>

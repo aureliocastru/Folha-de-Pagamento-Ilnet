@@ -77,7 +77,7 @@ export interface PacoteNaLista {
 }
 
 export interface Comprovante {
-  origem: 'ixc' | 'caixa' | 'conta' | 'recibo' | 'pacote';
+  origem: 'ixc' | 'caixa' | 'conta' | 'recibo' | 'rh' | 'pacote';
   id: string;
   nome: string;
 }

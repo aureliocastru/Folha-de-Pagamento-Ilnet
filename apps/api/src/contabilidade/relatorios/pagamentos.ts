@@ -120,8 +120,9 @@ export function foiPagoNoPeriodo(raw: Record<string, unknown>, de: string, ate: 
 /** Um papel que comprova um pagamento, venha de onde vier. */
 export interface Comprovante {
   /** De onde: anexado no título do IXC, foto da conferência do caixa, nota
-   * guardada na conta, recibo assinado da diária, ou enviado no pacote. */
-  origem: 'ixc' | 'caixa' | 'conta' | 'recibo' | 'pacote';
+   * guardada na conta, recibo assinado da diária, recibo da folha guardado no
+   * RH, ou enviado no pacote. */
+  origem: 'ixc' | 'caixa' | 'conta' | 'recibo' | 'rh' | 'pacote';
   id: string;
   nome: string;
 }

@@ -91,6 +91,20 @@ export class MarcarDto {
   valor?: number | null;
 }
 
+export class MarcarVariosDto {
+  @IsArray()
+  @ArrayMaxSize(2000)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  titulos!: number[];
+
+  /** Null desfaz. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  motivo?: string | null;
+}
+
 export class EncerrarContratoDto {
   @Matches(DIA, { message: 'A data precisa ser AAAA-MM-DD.' })
   em!: string;

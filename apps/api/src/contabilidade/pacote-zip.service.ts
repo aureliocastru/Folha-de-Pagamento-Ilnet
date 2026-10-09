@@ -246,6 +246,15 @@ export class PacoteZipService {
         const real = tipoPeloConteudo(conteudo) ?? tipo;
         return { conteudo, tipo: real, extensao: extensaoDoTipo(real) };
       }
+      case 'rh': {
+        const d = await this.prisma.documentoRh.findUnique({
+          where: { id: c.id },
+          select: { arquivo: true, arquivoTipo: true, arquivoNome: true },
+        });
+        if (!d) return null;
+        const extensao = (/\.([a-z0-9]{1,5})$/i.exec(d.arquivoNome)?.[1] ?? extensaoDoTipo(d.arquivoTipo)).toLowerCase();
+        return { conteudo: Buffer.from(d.arquivo), tipo: d.arquivoTipo, extensao };
+      }
       case 'recibo': {
         const a = await this.prisma.assinaturaDiaria.findUnique({
           where: { diariaId: c.id },

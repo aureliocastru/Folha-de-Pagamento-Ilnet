@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma, type ItemDoPacote } from '@prisma/client';
 import { lerDataUrl } from '../arquivos/data-url';
 import { ehDiaUtil } from '../contas-abertas/dias-uteis';
+import { TIPO_RECIBO } from '../rh/recibos.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   ConfiguracaoContabilService,
@@ -329,7 +330,8 @@ export class PacoteContabilService {
     base: { lidoEm: Date | null; erro: string | null } | undefined,
   ): ItemNaTela {
     const doIxc = GRUPO_DO_ITEM[item.numero] !== undefined;
-    const lido = !!base?.lidoEm || [13, 14, 18, 20, 11].includes(item.numero);
+    // Os que não guardam leitura própria: montados da leitura de outro item.
+    const lido = !!base?.lidoEm || [9, 11, 13, 14, 18, 20].includes(item.numero);
 
     if (item.naoTeve && item.podeNaoTer) {
       item.estado = 'nao_teve';
@@ -533,6 +535,9 @@ export class PacoteContabilService {
         item.lidoEm = c.linha(10)?.lidoEm ?? null;
         for (const k of caixas) {
           const s = saldoNoDia(k, c.ate);
+          if (s.como.startsWith('Calculado:')) {
+            item.avisos.push(`${k.nome}: calculado, não contado (o último fechamento é de ${diaBr(k.fechadoAte)}).`);
+          }
           const precisa = s.valor === null || s.como === 'Informado aqui';
           if (!precisa) continue;
           item.vagas.push({
@@ -704,6 +709,9 @@ export class PacoteContabilService {
         where: { idFnApagarIxc: { in: ids } },
         select: {
           idFnApagarIxc: true,
+          funcionarioId: true,
+          competencia: true,
+          origem: true,
           partes: { select: { fotos: { select: { id: true } } } },
           diaria: { select: { id: true, assinatura: { select: { assinadoEm: true } } } },
         },
@@ -749,6 +757,36 @@ export class PacoteContabilService {
         de(c.idFnApagarIxc).comprovantes.push({ origem: 'recibo', id: c.diaria.id, nome: 'Recibo assinado da diária' });
       }
     }
+    /*
+     * O pagamento da folha tem papel: o recibo do mês que a contabilidade
+     * mandou e que o RH separou por funcionário (`Recibos da folha`). Quem
+     * tem carteira assinada tem recibo; quem não tem, não — e para esse a
+     * pessoa marca o motivo.
+     */
+    const daFolha = contas.filter(
+      (c) => c.idFnApagarIxc !== null && c.origem === 'FOLHA' && c.funcionarioId && c.competencia,
+    );
+    if (daFolha.length > 0) {
+      const recibos = await this.prisma.documentoRh.findMany({
+        where: {
+          tipo: TIPO_RECIBO,
+          competencia: { in: [...new Set(daFolha.map((c) => c.competencia as string))] },
+          pasta: { funcionarioId: { in: [...new Set(daFolha.map((c) => c.funcionarioId as string))] } },
+        },
+        select: { id: true, competencia: true, pasta: { select: { funcionarioId: true } } },
+      });
+      for (const c of daFolha) {
+        const recibo = recibos.find((r) => r.competencia === c.competencia && r.pasta.funcionarioId === c.funcionarioId);
+        if (recibo) {
+          de(c.idFnApagarIxc as number).comprovantes.push({
+            origem: 'rh',
+            id: recibo.id,
+            nome: `Recibo da folha ${c.competencia!.slice(5)}/${c.competencia!.slice(0, 4)}`,
+          });
+        }
+      }
+    }
+
     const porMovimento = new Map(movimentos.map((p) => [p.idMovimento as number, p]));
     for (const conf of conferencias) {
       const p = porMovimento.get(conf.idLancamentoIxc);
@@ -943,6 +981,31 @@ export class PacoteContabilService {
         marcadoPor: usuarioId ?? null,
       },
     });
+  }
+
+  /**
+   * Marca vários pagamentos de uma vez como "não tem comprovante", com o mesmo
+   * motivo — a folha do mês são cem pagamentos, e cem cliques não. `motivo`
+   * nulo desfaz.
+   */
+  async marcarVarios(
+    pacoteId: string,
+    titulos: number[],
+    motivo: string | null,
+    usuarioId?: string,
+  ): Promise<{ marcados: number }> {
+    await this.pacote(pacoteId);
+    const chaves = [...new Set(titulos)].map((t) => `titulo:${t}`);
+    await this.prisma.$transaction(
+      chaves.map((chave) =>
+        this.prisma.itemDoPacote.upsert({
+          where: { pacoteId_item_chave: { pacoteId, item: 8, chave } },
+          create: { pacoteId, item: 8, chave, naoTeve: motivo !== null, observacao: motivo, marcadoPor: usuarioId ?? null },
+          update: { naoTeve: motivo !== null, observacao: motivo, marcadoPor: usuarioId ?? null },
+        }),
+      ),
+    );
+    return { marcados: chaves.length };
   }
 
   async marcarBaixado(pacoteId: string): Promise<void> {
