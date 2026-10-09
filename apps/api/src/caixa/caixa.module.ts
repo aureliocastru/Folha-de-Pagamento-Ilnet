@@ -18,5 +18,8 @@ import { FechamentoCaixaService } from './fechamento-caixa.service';
   imports: [IxcModule, FinanceiroModule, ContasAbertasModule],
   controllers: [FechamentoCaixaController],
   providers: [FechamentoCaixaService],
+  // A contabilidade lê o caixa físico do mês pelo mesmo extrato desta tela:
+  // um segundo jeito de somar a gaveta seria um segundo saldo para ela.
+  exports: [FechamentoCaixaService],
 })
 export class CaixaModule {}

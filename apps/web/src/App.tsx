@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { useAuth } from './lib/auth';
 import {
+  MODULO_CONTABILIDADE,
   MODULO_CONTAS_PAGAR,
   MODULO_ALMOXARIFADO,
   MODULO_FOLHA,
@@ -77,6 +78,9 @@ import { Licitacoes } from './pages/rh/Licitacoes';
 import { NotasFiscais } from './pages/rh/NotasFiscais';
 import { PastasRh } from './pages/rh/Pastas';
 import { RecibosDaFolha } from './pages/rh/RecibosDaFolha';
+import { AjustesDaContabilidade } from './pages/contabilidade/Ajustes';
+import { MesDaContabilidade } from './pages/contabilidade/Mes';
+import { MesesDaContabilidade } from './pages/contabilidade/Meses';
 import type { ReactNode } from 'react';
 
 function Protegida({ children }: { children: ReactNode }) {
@@ -375,6 +379,25 @@ export default function App() {
         <Route path="pontuar" element={<Pontuar />} />
         <Route path="motivos" element={<Motivos />} />
         <Route path="coordenadores" element={<Coordenadores />} />
+        <Route path="minha-conta" element={<MinhaConta />} />
+      </Route>
+
+      {/* Contabilidade — só ADMIN: o extrato de todas as contas e o que os
+          sócios retiraram não são assunto de outro perfil. */}
+      <Route
+        path="/contabilidade"
+        element={
+          <Protegida>
+            <SomenteAdmin>
+              <Layout modulo={MODULO_CONTABILIDADE} />
+            </SomenteAdmin>
+          </Protegida>
+        }
+      >
+        <Route index element={<Navigate to="meses" replace />} />
+        <Route path="meses" element={<MesesDaContabilidade />} />
+        <Route path="meses/:id" element={<MesDaContabilidade />} />
+        <Route path="ajustes" element={<AjustesDaContabilidade />} />
         <Route path="minha-conta" element={<MinhaConta />} />
       </Route>
 

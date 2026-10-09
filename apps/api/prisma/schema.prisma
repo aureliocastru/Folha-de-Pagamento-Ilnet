@@ -3558,3 +3558,134 @@ model DinheiroAReceber {
   @@index([usuarioId, recebidoEm])
   @@map("dinheiro_a_receber")
 }
+
+// ---------------------------------------------------------------------------
+// Contabilidade: o que o escritório de contabilidade pede todo mês
+//
+// O papel deles lista vinte coisas, e cada uma mora num lugar: o saldo de
+// clientes e o faturamento estão no IXC, o caixa físico está no fechamento de
+// caixa daqui, o extrato está no site do banco. O pacote é o período pedido
+// com tudo isso junto — o que foi lido do IXC fica congelado como estava no
+// dia da leitura, o que veio de fora fica guardado com ele, e o zip sai daqui.
+// ---------------------------------------------------------------------------
+
+/// Um período mandado (ou a mandar) para a contabilidade.
+///
+/// Quase sempre é o mês fechado, mas o período é livre: o papel diz "o mês
+/// anterior", e quem decide o recorte é quem manda.
+model PacoteContabil {
+  id  String   @id @default(uuid())
+  de  DateTime @db.Date
+  ate DateTime @db.Date
+
+  /// Quando a última leitura do IXC começou e quando terminou. Começada e não
+  /// terminada = está lendo.
+  leituraEm    DateTime? @map("leitura_em")
+  leituraFimEm DateTime? @map("leitura_fim_em")
+
+  /// Quando o zip foi baixado pela última vez.
+  baixadoEm DateTime? @map("baixado_em")
+
+  criadoPor String?  @map("criado_por")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  itens    ItemDoPacote[]
+  arquivos ArquivoContabil[]
+
+  @@unique([de, ate])
+  @@map("pacotes_contabeis")
+}
+
+/// O que se sabe de um item do papel — ou de um pedaço dele — num pacote.
+///
+/// `chave` vazia é o item inteiro; preenchida, é uma parte: a conta 14 do
+/// extrato ("conta:14:ofx"), o título 12345 da documentação das saídas
+/// ("titulo:12345"), o caixa 23. É ela que deixa marcar "este não tem" sem
+/// marcar o item todo.
+model ItemDoPacote {
+  id String @id @default(uuid())
+
+  pacote   PacoteContabil @relation(fields: [pacoteId], references: [id], onDelete: Cascade)
+  pacoteId String         @map("pacote_id")
+
+  /// 1 a 20, a numeração do papel da contabilidade.
+  item  Int
+  chave String @default("")
+
+  /// Não houve no período (aplicação, doação), ou o documento não existe (a
+  /// tarifa do banco não tem nota). Com o motivo em `observacao`.
+  naoTeve    Boolean @default(false) @map("nao_teve")
+  observacao String?
+
+  /// O relatório lido do IXC, como estava no dia da leitura. As linhas vão em
+  /// `dados` (só a planilha as lê); a tela recebe só `resumo`.
+  dados  Json?
+  resumo Json?
+  avisos Json?
+  lidoEm DateTime? @map("lido_em")
+  erro   String?
+
+  marcadoPor String?  @map("marcado_por")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([pacoteId, item, chave])
+  @@map("itens_do_pacote")
+}
+
+/// Um arquivo que entrou pela tela: extrato, contrato, relatório da
+/// maquininha, a nota de um pagamento.
+model ArquivoContabil {
+  id String @id @default(uuid())
+
+  /// Vazio = vale para todo pacote enquanto não for encerrado: é o contrato de
+  /// empréstimo, que se manda uma vez e continua valendo pelos meses afora.
+  pacote   PacoteContabil? @relation(fields: [pacoteId], references: [id], onDelete: Cascade)
+  pacoteId String?         @map("pacote_id")
+
+  item  Int
+  chave String @default("")
+
+  nome    String
+  tipo    String
+  tamanho Int
+  /// O conteúdo. Nunca vai numa listagem: só na rota que serve um por vez.
+  conteudo Bytes
+
+  /// Contrato de empréstimo: desde quando ele vale e quando foi quitado.
+  vigenteDesde DateTime? @map("vigente_desde") @db.Date
+  encerradoEm  DateTime? @map("encerrado_em") @db.Date
+
+  criadoPor String?  @map("criado_por")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([pacoteId, item])
+  @@index([item, encerradoEm])
+  @@map("arquivos_contabeis")
+}
+
+/// Como a contabilidade enxerga as contas e as categorias desta casa. Uma
+/// linha só.
+///
+/// Fica guardado em vez de deduzido a cada vez porque é escolha de quem manda:
+/// "Conta aplicação Bradesco" é aplicação (item 2) e não conta corrente (item
+/// 1), e o PagSeguro é maquininha (item 16). O nome sugere; quem confirma é a
+/// pessoa, uma vez.
+model ConfiguracaoContabil {
+  id Int @id @default(1)
+
+  /// id da conta no IXC → "extrato" | "aplicacao" | "maquininha" | "ignorar".
+  papelDasContas Json @default("{}") @map("papel_das_contas")
+  /// Os caixas de dinheiro que a contabilidade acompanha (ids do IXC).
+  caixas         Json @default("[]")
+  /// Que categorias (desta casa e do plano de contas do IXC) e que
+  /// fornecedores são cada coisa que o papel pede à parte.
+  lucros         Json @default("{}")
+  doacoes        Json @default("{}")
+  link           Json @default("{}")
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("configuracao_contabil")
+}

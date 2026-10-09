@@ -364,6 +364,31 @@ const pontuacao: Modulo = {
   ],
 };
 
+/**
+ * Contabilidade — o que o escritório de contabilidade pede todo mês.
+ *
+ * Os vinte itens do papel deles num lugar só: o que sai do IXC já vem lido,
+ * o que só existe fora (extrato do banco, contrato, maquininha) entra pela
+ * tela, e o mês sai num zip. Só ADMIN: é o extrato de todas as contas e o que
+ * os sócios retiraram.
+ */
+const contabilidade: Modulo = {
+  id: 'contabilidade',
+  nome: 'Contabilidade',
+  descricao:
+    'Os documentos do mês para a contabilidade: o que sai do IXC já vem pronto, ' +
+    'o que falta aparece para você enviar',
+  base: '/contabilidade',
+  inicio: 'meses',
+  icone: IconeCalculo,
+  tom: 'bg-cyan-500/15 text-cyan-300',
+  papeis: ['ADMIN'],
+  menu: [
+    { to: 'meses', label: 'Meses', icone: IconeChecklist },
+    { to: 'ajustes', label: 'Ajustes', icone: IconeEngrenagem },
+  ],
+};
+
 /** A ordem daqui é a ordem dos cartões na tela de módulos. */
 export const MODULOS: Modulo[] = [
   folha,
@@ -373,6 +398,7 @@ export const MODULOS: Modulo[] = [
   rh,
   seguranca,
   pontuacao,
+  contabilidade,
 ];
 
 /**
@@ -393,6 +419,7 @@ export const MODULO_OS = os;
 export const MODULO_RH = rh;
 export const MODULO_SEGURANCA = seguranca;
 export const MODULO_PONTUACAO = pontuacao;
+export const MODULO_CONTABILIDADE = contabilidade;
 
 /**
  * A tela do colaborador — a pontuação, o abastecimento e a análise de risco de

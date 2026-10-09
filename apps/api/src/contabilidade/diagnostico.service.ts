@@ -26,7 +26,12 @@ export const TABELAS_DA_CONTABILIDADE = new Set([
   'fn_carteira_cobranca',
   'almox',
   'filial',
+  'fl_adto_salario',
+  'unidades',
 ]);
+
+/** Colunas que guardam segredo (token de integração, senha) não saem daqui. */
+const SEGREDO = /secret|token|senha|password|chave_api|api_key|client_id|certificado/i;
 
 const OPERADORES: ReadonlySet<string> = new Set([
   '=',
@@ -102,6 +107,9 @@ export class DiagnosticoService {
     };
 
     const res = await this.ixc.list<Record<string, unknown>>(tabela, parametros);
-    return { ...res, pedido: { tabela, ...parametros } };
+    const registros = res.registros.map((r) =>
+      Object.fromEntries(Object.entries(r).filter(([coluna]) => !SEGREDO.test(coluna))),
+    );
+    return { ...res, registros, pedido: { tabela, ...parametros } };
   }
 }

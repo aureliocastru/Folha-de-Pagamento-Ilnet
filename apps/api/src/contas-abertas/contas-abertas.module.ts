@@ -89,6 +89,14 @@ import { ManutencaoService } from './manutencao.service';
   // um dinheiro que ninguém compensa deste lado.
   // `AbastecimentosService` vai para a tela do colaborador, que lança o
   // abastecimento pelo login em vez do CPF — a mesma regra, outra porta.
-  exports: [DespesasService, PagamentosService, AbastecimentosService],
+  // A contabilidade usa as categorias dos títulos (para achar lucros, doações
+  // e link) e a fatura de cada cartão — os mesmos que as telas daqui mostram.
+  exports: [
+    DespesasService,
+    PagamentosService,
+    AbastecimentosService,
+    CategoriasService,
+    CartoesCreditoService,
+  ],
 })
 export class ContasAbertasModule {}
