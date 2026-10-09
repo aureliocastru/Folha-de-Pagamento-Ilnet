@@ -1,5 +1,6 @@
 import { centavos, diaBr, diaDoIxc, diasEntre, idDoIxc, numero, texto } from '../ixc-leitura';
 import type { ExtratoOfx, LancamentoDoBanco } from '../ofx';
+import type { Aba } from '../planilha';
 import { moeda, quantidade, reais, soma, type Relatorio } from './relatorio';
 
 /**
@@ -126,6 +127,50 @@ export function conciliar(banco: LancamentoDoBanco[], ixc: LancamentoDoIxc[]): R
     soNoBanco: [...restoBanco].map((i) => banco[i]).sort((a, b) => a.dia.localeCompare(b.dia)),
     soNoIxc: [...restoIxc].map((j) => ixc[j]).sort((a, b) => a.dia.localeCompare(b.dia)),
   };
+}
+
+/** "22 diferenças", "1 diferença", "bate". */
+export function situacaoDaConciliacao(resumo: Array<{ rotulo: string; valor: number | string }>): string {
+  const n = resumo.filter((x) => /^Só no/.test(x.rotulo)).reduce((s, x) => s + Number(x.valor), 0);
+  return n === 0 ? 'bate' : `${n} diferença${n > 1 ? 's' : ''}`;
+}
+
+/**
+ * A planilha do item com todas as contas: a primeira aba põe as contas lado
+ * a lado, e cada conta segue com as abas dela, pelo nome curto. Com cinco
+ * abas por conta e "Conta …" na frente de todas, a barra do Excel só
+ * mostrava as da primeira conta — as outras pareciam não ter conciliação.
+ */
+export function planilhaDasConciliacoes(relatorios: Relatorio[], de: string, ate: string): Aba[] {
+  const nomeDaConta = (r: Relatorio) => r.arquivo.replace(/^Conciliacao /, '');
+  const valor = (r: Relatorio, rotulo: string) => r.resumo.find((x) => x.rotulo === rotulo)?.valor ?? null;
+  const contas: Aba = {
+    nome: 'Contas',
+    cabecalho: [`Conciliação bancária — ${diaBr(de)} a ${diaBr(ate)}`],
+    colunas: [
+      { titulo: 'Conta', tipo: 'texto', largura: 28 },
+      { titulo: 'Lançamentos no banco', tipo: 'inteiro', largura: 20 },
+      { titulo: 'Conciliados', tipo: 'inteiro', largura: 13 },
+      { titulo: 'Só no banco', tipo: 'inteiro', largura: 13 },
+      { titulo: 'Só no IXC', tipo: 'inteiro', largura: 13 },
+      { titulo: 'Saldo no banco', tipo: 'moeda', largura: 17 },
+      { titulo: 'Situação', tipo: 'texto', largura: 16 },
+    ],
+    linhas: relatorios.map((r) => [
+      nomeDaConta(r),
+      valor(r, 'Lançamentos no banco'),
+      valor(r, 'Conciliados'),
+      valor(r, 'Só no banco'),
+      valor(r, 'Só no IXC'),
+      valor(r, 'Saldo no banco'),
+      situacaoDaConciliacao(r.resumo),
+    ]),
+  };
+  const abasDaConta = (r: Relatorio) => {
+    const curto = nomeDaConta(r).replace(/^Conta /i, '').slice(0, 17).trim();
+    return r.abas.map((a) => ({ ...a, nome: `${curto} - ${a.nome}` }));
+  };
+  return [contas, ...relatorios.flatMap(abasDaConta)];
 }
 
 function deslocarDia(dia: string, dias: number): string {

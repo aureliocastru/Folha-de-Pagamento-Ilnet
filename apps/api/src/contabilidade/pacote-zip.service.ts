@@ -14,6 +14,7 @@ import type { DadosDasSaidas } from './leitor.service';
 import { PacoteContabilService, type ItemNaTela } from './pacote.service';
 import { montarPlanilha, type Aba } from './planilha';
 import { relatorioDoCaixaFisico, relatorioDoSaldoDoCaixa, type CaixaNoPeriodo } from './relatorios/caixa';
+import { planilhaDasConciliacoes } from './relatorios/conciliacao';
 import {
   planilhaDePagamentos,
   relatorioDeDescontos,
@@ -97,15 +98,14 @@ export class PacoteZipService {
     }
 
     if (item === 9) {
-      const contas = linhas.filter((l) => l.item === 9 && l.chave.startsWith('conta:') && relatorio(l));
-      if (contas.length === 0) return null;
-      // Uma planilha com todas as contas: cada conta em abas com o nome dela.
-      const abas = contas.flatMap((l) => {
-        const r = relatorio(l)!;
-        const conta = r.arquivo.replace(/^Conciliacao /, '');
-        return r.abas.map((a) => ({ ...a, nome: `${conta.slice(0, 14)} - ${a.nome}` }));
-      });
-      return { nome: `Conciliacao bancaria ${periodo}`, abas };
+      // Na ordem das contas, a mesma do item 1.
+      const relatorios = linhas
+        .filter((l) => l.item === 9 && l.chave.startsWith('conta:'))
+        .sort((a, b) => Number(a.chave.slice(6)) - Number(b.chave.slice(6)))
+        .map(relatorio)
+        .filter((r): r is Relatorio => r !== null);
+      if (relatorios.length === 0) return null;
+      return { nome: `Conciliacao bancaria ${periodo}`, abas: planilhaDasConciliacoes(relatorios, de, ate) };
     }
 
     if (item === 10 || item === 11) {

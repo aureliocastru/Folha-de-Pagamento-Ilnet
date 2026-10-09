@@ -22,6 +22,7 @@ import {
 } from './leitor.service';
 import { lerOfx } from './ofx';
 import { relatorioDoSaldoDoCaixa, saldoNoDia, type CaixaNoPeriodo } from './relatorios/caixa';
+import { situacaoDaConciliacao } from './relatorios/conciliacao';
 import {
   relatorioDeDescontos,
   resumoDePagamentos,
@@ -506,9 +507,7 @@ export class PacoteContabilService {
           if (l?.erro) {
             item.pendencias.push(`${conta.nome}: ${l.erro}`);
           } else if (l?.resumo) {
-            const r = (l.resumo as unknown) as LinhaDoResumo[];
-            const so = r.filter((x) => /^Só no/.test(x.rotulo)).reduce((s, x) => s + Number(x.valor), 0);
-            resumo.push({ rotulo: conta.nome, valor: so === 0 ? 'bate' : `${so} diferenças`, tipo: 'texto' });
+            resumo.push({ rotulo: conta.nome, valor: situacaoDaConciliacao((l.resumo as unknown) as LinhaDoResumo[]), tipo: 'texto' });
           } else if (naoFornece) {
             resumo.push({ rotulo: conta.nome, valor: 'sem OFX', tipo: 'texto' });
           } else if (!temOfx) {

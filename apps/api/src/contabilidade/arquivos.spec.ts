@@ -1,4 +1,4 @@
-import { conciliar, lerLancamentoDoIxc } from './relatorios/conciliacao';
+import { conciliar, lerLancamentoDoIxc, planilhaDasConciliacoes, relatorioDeConciliacao } from './relatorios/conciliacao';
 import { lerOfx, valorDoOfx } from './ofx';
 import { escaparXml, letraDaColuna, montarPlanilha, nomesDasAbas, serialDoExcel } from './planilha';
 import { lerTudo } from './ixc-leitura';
@@ -115,6 +115,52 @@ describe('conciliação bancária', () => {
     const r = conciliar([banco('a', '2026-09-01', 50), banco('b', '2026-09-01', 50)], [ixc(1, '2026-09-01', 50)]);
     expect(r.casamentos).toHaveLength(1);
     expect(r.soNoBanco).toHaveLength(1);
+  });
+
+  it('a planilha começa pelas contas lado a lado, e cada conta segue pelo nome curto', () => {
+    const extrato = { banco: null, agencia: null, conta: null, inicio: null, fim: null, saldoFinal: 900, saldoEm: '2026-09-30' };
+    const de = '2026-09-01';
+    const ate = '2026-09-30';
+    const lidoEm = new Date();
+    const alfa = relatorioDeConciliacao({
+      conta: 'Conta Banco Alfa',
+      de,
+      ate,
+      extrato: { ...extrato, lancamentos: [banco('a', '2026-09-01', 50)] },
+      arquivoOfx: 'alfa.ofx',
+      ixc: [ixc(1, '2026-09-01', 50)],
+      lidoEm,
+    });
+    const beta = relatorioDeConciliacao({
+      conta: 'Conta Beta Pagamentos PIX',
+      de,
+      ate,
+      extrato: { ...extrato, lancamentos: [banco('b', '2026-09-02', 10), banco('c', '2026-09-03', 20)] },
+      arquivoOfx: 'beta.ofx',
+      ixc: [],
+      lidoEm,
+    });
+
+    const abas = planilhaDasConciliacoes([alfa, beta], de, ate);
+    expect(abas[0].nome).toBe('Contas');
+    expect(abas[0].linhas).toEqual([
+      ['Conta Banco Alfa', 1, 1, 0, 0, 900, 'bate'],
+      ['Conta Beta Pagamentos PIX', 2, 0, 2, 0, 900, '2 diferenças'],
+    ]);
+    expect(abas.slice(1).map((a) => a.nome)).toEqual([
+      'Banco Alfa - Resumo',
+      'Banco Alfa - Só no banco',
+      'Banco Alfa - Só no IXC',
+      'Banco Alfa - Dia a dia',
+      'Banco Alfa - Conciliados',
+      'Beta Pagamentos P - Resumo',
+      'Beta Pagamentos P - Só no banco',
+      'Beta Pagamentos P - Só no IXC',
+      'Beta Pagamentos P - Dia a dia',
+      'Beta Pagamentos P - Conciliados',
+    ]);
+    // Nenhum nome passa dos 31 caracteres do Excel.
+    expect(abas.every((a) => a.nome.length <= 31)).toBe(true);
   });
 
   it('lê o razão do IXC com débito entrando e crédito saindo', () => {
