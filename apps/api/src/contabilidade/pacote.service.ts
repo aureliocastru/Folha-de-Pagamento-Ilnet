@@ -758,6 +758,7 @@ export class PacoteContabilService {
           funcionarioId: true,
           competencia: true,
           origem: true,
+          tipo: true,
           partes: { select: { fotos: { select: { id: true } } } },
           diaria: { select: { id: true, assinatura: { select: { assinadoEm: true } } } },
         },
@@ -809,20 +810,38 @@ export class PacoteContabilService {
      * tem carteira assinada tem recibo; quem não tem, não — e para esse a
      * pessoa marca o motivo.
      */
+    // Salário, férias e adiantamento estão no recibo; a gratificação é paga
+    // por fora da folha da contabilidade, e o recibo não a comprova.
     const daFolha = contas.filter(
-      (c) => c.idFnApagarIxc !== null && c.origem === 'FOLHA' && c.funcionarioId && c.competencia,
+      (c) =>
+        c.idFnApagarIxc !== null &&
+        c.origem === 'FOLHA' &&
+        ['SALARIO', 'FERIAS', 'ADIANTAMENTO'].includes(c.tipo) &&
+        c.funcionarioId &&
+        c.competencia,
     );
     if (daFolha.length > 0) {
+      // O recibo mora na divisória de recibos dentro da pasta da pessoa: o
+      // dono pode ser a pasta dele ou a mãe dela.
+      const funcionarios = [...new Set(daFolha.map((c) => c.funcionarioId as string))];
       const recibos = await this.prisma.documentoRh.findMany({
         where: {
           tipo: TIPO_RECIBO,
           competencia: { in: [...new Set(daFolha.map((c) => c.competencia as string))] },
-          pasta: { funcionarioId: { in: [...new Set(daFolha.map((c) => c.funcionarioId as string))] } },
+          OR: [
+            { pasta: { funcionarioId: { in: funcionarios } } },
+            { pasta: { pai: { funcionarioId: { in: funcionarios } } } },
+          ],
         },
-        select: { id: true, competencia: true, pasta: { select: { funcionarioId: true } } },
+        select: {
+          id: true,
+          competencia: true,
+          pasta: { select: { funcionarioId: true, pai: { select: { funcionarioId: true } } } },
+        },
       });
+      const donoDo = (r: (typeof recibos)[number]) => r.pasta.funcionarioId ?? r.pasta.pai?.funcionarioId ?? null;
       for (const c of daFolha) {
-        const recibo = recibos.find((r) => r.competencia === c.competencia && r.pasta.funcionarioId === c.funcionarioId);
+        const recibo = recibos.find((r) => r.competencia === c.competencia && donoDo(r) === c.funcionarioId);
         if (recibo) {
           de(c.idFnApagarIxc as number).comprovantes.push({
             origem: 'rh',
