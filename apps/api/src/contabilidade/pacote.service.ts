@@ -30,7 +30,7 @@ import {
   type Pagamento,
   type SituacaoDoComprovante,
 } from './relatorios/pagamentos';
-import type { LinhaDoResumo, Relatorio } from './relatorios/relatorio';
+import type { LinhaDoResumo } from './relatorios/relatorio';
 import { moeda, quantidade, soma } from './relatorios/relatorio';
 
 /** O teto de cada arquivo. O corpo do pedido aceita 24 MB em base64. */
@@ -230,7 +230,7 @@ export class PacoteContabilService {
     const lendo = this.lendo(p);
 
     const [linhas, arquivos, contratos, cfg] = await Promise.all([
-      this.prisma.itemDoPacote.findMany({ where: { pacoteId: id } }),
+      this.itensSemPeso(id),
       this.prisma.arquivoContabil.findMany({
         where: { pacoteId: id },
         select: { id: true, item: true, chave: true, nome: true, tamanho: true, createdAt: true, tipo: true },
@@ -323,6 +323,50 @@ export class PacoteContabilService {
     };
   }
 
+  /**
+   * As linhas do pacote como a tela precisa delas.
+   *
+   * O `dados` do saldo de clientes e do faturamento são as planilhas inteiras
+   * — oito mil títulos, alguns megabytes —, e a tela que acompanha a leitura
+   * pede o pacote a cada três segundos. Só vêm os `dados` que a tela usa: as
+   * contas (1), os pagamentos (8), o caixa (10) e as faturas do cartão (15).
+   */
+  private async itensSemPeso(pacoteId: string): Promise<ItemDoPacote[]> {
+    const [linhas, comDados] = await Promise.all([
+      this.prisma.itemDoPacote.findMany({
+        where: { pacoteId },
+        select: {
+          id: true,
+          pacoteId: true,
+          item: true,
+          chave: true,
+          naoTeve: true,
+          observacao: true,
+          resumo: true,
+          avisos: true,
+          lidoEm: true,
+          erro: true,
+          marcadoPor: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      }),
+      this.prisma.itemDoPacote.findMany({
+        where: { pacoteId, chave: '', item: { in: [1, 8, 10, 15] } },
+        select: { id: true, dados: true },
+      }),
+    ]);
+    const dados = new Map(comDados.map((l) => [l.id, l.dados]));
+    return linhas.map((l) => {
+      let d = dados.get(l.id) ?? null;
+      // A fatura do cartão guarda a planilha junto: só as faturas interessam.
+      if (l.item === 15 && d && typeof d === 'object' && !Array.isArray(d)) {
+        d = { faturas: (d as { faturas?: Prisma.JsonValue }).faturas ?? [] } as Prisma.JsonValue;
+      }
+      return { ...l, dados: d };
+    });
+  }
+
   /** O estado final do item, depois de montado. */
   private decidirEstado(
     item: ItemNaTela,
@@ -391,7 +435,9 @@ export class PacoteContabilService {
       };
     };
     const falta = (v: Vaga) => v.obrigatoria && v.arquivos.length === 0 && !v.naoTem;
-    const temRelatorio = !!dadosDe<{ relatorio?: Relatorio }>(c.base)?.relatorio;
+    // As linhas do relatório não vêm para a tela (ver `itensSemPeso`): lido e
+    // sem erro de leitura nenhuma vez é ter o que baixar.
+    const temRelatorio = !!c.base?.lidoEm;
 
     switch (item.numero) {
       case 1: {
@@ -585,8 +631,8 @@ export class PacoteContabilService {
       }
 
       case 15: {
-        const dados = dadosDe<{ relatorio?: Relatorio; faturas?: Array<{ cartaoId: string; cartao: string; competencia: string; total: number }> }>(c.base);
-        item.temPlanilha = !!dados?.relatorio;
+        const dados = dadosDe<{ faturas?: Array<{ cartaoId: string; cartao: string; competencia: string; total: number }> }>(c.base);
+        item.temPlanilha = temRelatorio;
         item.naoTeve = false;
         for (const f of dados?.faturas ?? []) {
           const grupo = `${f.cartao} — fatura ${f.competencia.slice(5)}/${f.competencia.slice(0, 4)}`;

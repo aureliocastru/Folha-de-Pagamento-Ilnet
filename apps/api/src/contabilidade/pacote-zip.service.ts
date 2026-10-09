@@ -85,6 +85,9 @@ export class PacoteZipService {
       const lista =
         item === 8 ? saidas.pagamentos : this.pacotes.recorte(saidas.pagamentos, item === 13 ? 'lucros' : item === 14 ? 'link' : 'doacoes', cfg);
       const comprovantes = await this.pacotes.comprovantes(pacoteId, saidas);
+      // Recorte vazio não vira planilha: a pasta diz "não teve", e uma
+      // planilha só com o cabeçalho faria pensar que faltou alguma coisa.
+      if (lista.length === 0 && item !== 8) return null;
       const titulo =
         item === 8 ? 'Pagamentos do período' : item === 13 ? 'Distribuição de lucros' : item === 14 ? 'Compra de link' : 'Doações';
       return {
@@ -189,6 +192,16 @@ export class PacoteZipService {
         incluir(
           `${pasta}Nao teve no periodo.txt`,
           Buffer.from(`Item ${item.numero} — ${item.titulo}\r\nNão teve no período de ${diaBr(de)} a ${diaBr(ate)}.\r\n${item.observacao ?? ''}\r\n`, 'utf8'),
+          true,
+        );
+      }
+
+      // Mandado pela metade, a pasta diz o que ficou faltando.
+      if (item.estado === 'falta' || item.estado === 'erro') {
+        const linhas = [...(item.erro && item.estado === 'erro' ? [item.erro] : []), ...item.pendencias];
+        incluir(
+          `${pasta}O que falta.txt`,
+          Buffer.from(`Item ${item.numero} — ${item.titulo}\r\n\r\n${linhas.map((l) => `- ${l}`).join('\r\n')}\r\n`, 'utf8'),
           true,
         );
       }
