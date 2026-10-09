@@ -24,7 +24,7 @@ import { lerOfx } from './ofx';
 import type { CaixaNoPeriodo } from './relatorios/caixa';
 import { relatorioDeClientes } from './relatorios/clientes';
 import { lerLancamentoDoIxc, relatorioDeConciliacao } from './relatorios/conciliacao';
-import { relatorioDeEstoque, estoqueNoDia } from './relatorios/estoque';
+import { MENOR_CUSTO_DE_VERDADE, relatorioDeEstoque } from './relatorios/estoque';
 import {
   foiPagoNoPeriodo,
   lerPagamento,
@@ -667,39 +667,43 @@ export class LeitorDoPacoteService {
       if (id !== null) unidades.set(id, texto(u.sigla) || texto(u.descricao));
     }
 
-    const base = { dia: ate, produtos, saldos, movimentosDepois, almoxarifados, unidades, lidoEm: ctx.lidoEm };
-
-    // Quem não tem custo médio vai pelo preço da última compra: só esses são
-    // perguntados, um a um, e só a compra até o dia do saldo vale.
-    const semCusto = estoqueNoDia({ ...base, ultimaCompra: new Map() })
-      .produtos.filter((p) => p.origemDoCusto !== 'Custo médio')
-      .map((p) => p.produtoId);
-    const ultimaCompra = new Map<number, { valor: number; dia: string | null }>();
-    for (let i = 0; i < semCusto.length; i += 6) {
-      await Promise.all(
-        semCusto.slice(i, i + 6).map(async (produtoId) => {
-          const res = await this.ixc.list<Record<string, unknown>>('movimento_produtos', {
-            qtype: 'movimento_produtos.id_produto',
-            query: String(produtoId),
-            oper: '=',
-            sortname: 'movimento_produtos.id',
-            sortorder: 'desc',
-            rp: 1,
-            gridParam: [
-              { TB: 'movimento_produtos.tipo', OP: '=', P: 'E' },
-              { TB: 'movimento_produtos.id_entrada', OP: '>', P: '0' },
-              { TB: 'movimento_produtos.data', OP: '<=', P: ate },
-            ],
-          });
-          const ultima = res.registros[0];
-          if (ultima && numero(ultima.valor_unitario) > 0) {
-            ultimaCompra.set(produtoId, { valor: numero(ultima.valor_unitario), dia: diaDoIxc(ultima.data) });
-          }
-        }),
-      );
+    // As compras de verdade (entrada de nota, com preço de R$ 0,10 para cima),
+    // todas de uma vez: são quatro mil e poucas linhas, cinco páginas — contra
+    // uma pergunta ao IXC por produto. Fica a última de cada um até o dia.
+    const compras = await lerTudo(
+      this.ixc,
+      {
+        tabela: 'movimento_produtos',
+        qtype: 'movimento_produtos.tipo',
+        query: 'E',
+        oper: '=',
+        sortname: 'movimento_produtos.id',
+        grid: [
+          { TB: 'movimento_produtos.id_entrada', OP: '>', P: '0' },
+          { TB: 'movimento_produtos.valor_unitario', OP: '>=', P: String(MENOR_CUSTO_DE_VERDADE) },
+        ],
+      },
+      { podeVirVazio: true },
+    );
+    const ultimaCompra = new Map<number, { valor: number; dia: string | null; id: number }>();
+    for (const c of compras) {
+      const produtoId = idDoIxc(c.id_produto);
+      const id = idDoIxc(c.id) ?? 0;
+      const dia = diaDoIxc(c.data);
+      const valor = numero(c.valor_unitario);
+      if (produtoId === null || !dia || dia > ate || valor < MENOR_CUSTO_DE_VERDADE) continue;
+      const atual = ultimaCompra.get(produtoId);
+      // A mais nova pelo dia; no mesmo dia, a lançada por último.
+      if (!atual || dia > (atual.dia ?? '') || (dia === atual.dia && id > atual.id)) {
+        ultimaCompra.set(produtoId, { valor, dia, id });
+      }
     }
 
-    await this.guardarRelatorio(ctx, 5, relatorioDeEstoque({ ...base, ultimaCompra }));
+    await this.guardarRelatorio(
+      ctx,
+      5,
+      relatorioDeEstoque({ dia: ate, produtos, saldos, movimentosDepois, almoxarifados, unidades, lidoEm: ctx.lidoEm, ultimaCompra }),
+    );
   }
 
   // -------------------------------------------------------------------------

@@ -15,11 +15,27 @@ import { moeda, quantidade, reais, soma, type Relatorio } from './relatorio';
  * por produto e por almoxarifado. Um mês depois são mil linhas, contra as
  * novecentas mil do razão inteiro.
  *
- * **O valor** é o custo, e o cadastro de produtos desta base não é confiável
- * nisso: `valor_custo` traz R$ 0,01 em muita coisa e `preco_base` vem zerado
- * em outras (conferido em 09/10/2026). A ordem é: o custo médio do IXC; sem
- * ele, o preço da última compra; sem ela, o preço base. Cada linha diz qual
- * foi usado — a contabilidade decide se concorda.
+ * **O valor** é o custo, e nesta base nenhuma fonte de custo é confiável
+ * sozinha (conferido em 09/10/2026): o custo médio do IXC chega a R$ 55
+ * milhões por roteador — compras lançadas com o ponto decimal no lugar errado
+ * —, há compra de acerto a R$ 0,01, e cabo comprado por caixa e contado em
+ * metro. Então o custo só entra no total quando se confirma:
+ *
+ * - havendo compra até o dia, o preço dela concorda com o custo médio ou com
+ *   o preço base (a maior não passa de uma vez e meia a menor);
+ * - sem compra, o custo médio e o preço base concordam entre si;
+ * - só existe uma fonte, e a linha inteira (quantidade × custo) não passa de
+ *   R$ 10.000.
+ *
+ * A compra manda porque é o que se pagou. Custo médio e preço base iguais e
+ * errados acontecem (o access point de R$ 800 mil, os dois copiados da mesma
+ * nota digitada errado), e por isso dois deles concordando contra a compra
+ * não confirmam nada.
+ *
+ * O resto vai para a aba "Custo a conferir", fora do total, com a quantidade
+ * e as três fontes lado a lado: é a lista do que precisa ser acertado no IXC,
+ * e um total com R$ 18 bilhões de estoque é pior que um total com um aviso.
+ * Valor abaixo de R$ 0,10 não conta como fonte (é acerto, não compra).
  *
  * Fica fora do total o mesmo que a tela de estoque deixa fora: Perdas e
  * Saídas (não são prateleira), produto inativo (saiu de circulação), serviço
@@ -35,7 +51,7 @@ export interface DadosDoEstoque {
   saldos: Array<Record<string, unknown>>;
   /** Movimentos com data depois do dia. */
   movimentosDepois: Array<Record<string, unknown>>;
-  /** Preço da última compra, por produto (só dos que não têm custo médio). */
+  /** Preço da última compra de verdade até o dia, por produto. */
   ultimaCompra: Map<number, { valor: number; dia: string | null }>;
   /** Nome dos almoxarifados que não aparecem nas linhas de saldo. */
   almoxarifados: Map<number, string>;
@@ -46,6 +62,58 @@ export interface DadosDoEstoque {
 
 type OrigemDoCusto = 'Custo médio' | 'Última compra' | 'Preço base' | 'Sem custo';
 
+/** Abaixo disto o valor é acerto de estoque, e não preço. */
+export const MENOR_CUSTO_DE_VERDADE = 0.1;
+/** Duas fontes concordam quando a maior não passa disto vezes a menor. */
+const CONCORDAM = 1.5;
+/** Uma fonte sozinha só confirma a linha (quantidade × custo) até isto. */
+const TETO_DE_UMA_FONTE = 10_000;
+
+export interface CustoDecidido {
+  custo: number;
+  origem: OrigemDoCusto;
+  confirmado: boolean;
+  /** Por que não entrou no total, quando não entrou. */
+  motivo: string | null;
+}
+
+/**
+ * O custo de um produto, e se ele se confirma. Ver o comentário do arquivo.
+ *
+ * Na ordem de preferência: a última compra (é o que se pagou de fato), o
+ * custo médio, o preço base.
+ */
+export function decidirCusto(
+  fontes: { ultimaCompra: number; custoMedio: number; precoBase: number },
+  quantidade: number,
+): CustoDecidido {
+  const tem = (v: number) => v >= MENOR_CUSTO_DE_VERDADE;
+  const concordam = (a: number, b: number) => tem(a) && tem(b) && Math.max(a, b) / Math.min(a, b) <= CONCORDAM;
+  const { ultimaCompra: compra, custoMedio: medio, precoBase: base } = fontes;
+
+  const sim = (custo: number, origem: OrigemDoCusto): CustoDecidido => ({ custo, origem, confirmado: true, motivo: null });
+  const nao = (custo: number, origem: OrigemDoCusto, motivo: string): CustoDecidido => ({ custo, origem, confirmado: false, motivo });
+  // Uma fonte sozinha: só se a linha inteira for pequena.
+  const sozinha = (custo: number, origem: OrigemDoCusto): CustoDecidido =>
+    quantidade * custo <= TETO_DE_UMA_FONTE
+      ? sim(custo, origem)
+      : nao(custo, origem, `Só há o ${origem.toLowerCase()}, e o valor da linha é alto demais para confiar nele sozinho`);
+
+  if (tem(compra)) {
+    if (concordam(compra, medio) || concordam(compra, base)) return sim(compra, 'Última compra');
+    if (!tem(medio) && !tem(base)) return sozinha(compra, 'Última compra');
+    return nao(compra, 'Última compra', 'A última compra não bate com o custo médio nem com o preço base');
+  }
+  if (tem(medio) && tem(base)) {
+    return concordam(medio, base)
+      ? sim(medio, 'Custo médio')
+      : nao(medio, 'Custo médio', 'Sem compra, e o custo médio não bate com o preço base');
+  }
+  if (tem(medio)) return sozinha(medio, 'Custo médio');
+  if (tem(base)) return sozinha(base, 'Preço base');
+  return nao(0, 'Sem custo', 'Nenhum custo no IXC');
+}
+
 export interface ProdutoNoDia {
   produtoId: number;
   descricao: string;
@@ -55,6 +123,9 @@ export interface ProdutoNoDia {
   custo: number;
   origemDoCusto: OrigemDoCusto;
   valor: number;
+  confirmado: boolean;
+  motivo: string | null;
+  fontes: { ultimaCompra: number; custoMedio: number; precoBase: number };
   porAlmox: Array<{ almoxId: number; almox: string; quantidade: number }>;
 }
 
@@ -73,6 +144,7 @@ function arredondar3(n: number): number {
 
 export function estoqueNoDia(dados: DadosDoEstoque): {
   produtos: ProdutoNoDia[];
+  aConferir: ProdutoNoDia[];
   inativos: ProdutoNoDia[];
   negativos: ProdutoNoDia[];
 } {
@@ -113,6 +185,7 @@ export function estoqueNoDia(dados: DadosDoEstoque): {
   }
 
   const produtos: ProdutoNoDia[] = [];
+  const aConferir: ProdutoNoDia[] = [];
   const inativos: ProdutoNoDia[] = [];
   const negativos: ProdutoNoDia[] = [];
 
@@ -135,21 +208,12 @@ export function estoqueNoDia(dados: DadosDoEstoque): {
     const total = arredondar3(almoxes.reduce((s, a) => s + a.quantidade, 0));
     if (Math.abs(total) < 0.0005) continue;
 
-    const custoMedio = numero(cad?.custo_medio);
-    const ultima = dados.ultimaCompra.get(produtoId);
-    const precoBase = numero(cad?.preco_base);
-    let custo = 0;
-    let origemDoCusto: OrigemDoCusto = 'Sem custo';
-    if (custoMedio > 0) {
-      custo = custoMedio;
-      origemDoCusto = 'Custo médio';
-    } else if (ultima && ultima.valor > 0) {
-      custo = ultima.valor;
-      origemDoCusto = 'Última compra';
-    } else if (precoBase > 0) {
-      custo = precoBase;
-      origemDoCusto = 'Preço base';
-    }
+    const fontes = {
+      ultimaCompra: dados.ultimaCompra.get(produtoId)?.valor ?? 0,
+      custoMedio: numero(cad?.custo_medio),
+      precoBase: numero(cad?.preco_base),
+    };
+    const decidido = decidirCusto(fontes, total);
 
     const item: ProdutoNoDia = {
       produtoId,
@@ -157,9 +221,12 @@ export function estoqueNoDia(dados: DadosDoEstoque): {
       tipo: TIPOS[tipo] ?? tipo,
       unidade: dados.unidades.get(idDoIxc(cad?.unidade) ?? 0) ?? '',
       quantidade: total,
-      custo: Math.round(custo * 10_000) / 10_000,
-      origemDoCusto,
-      valor: Math.round(total * custo * 100) / 100,
+      custo: Math.round(decidido.custo * 10_000) / 10_000,
+      origemDoCusto: decidido.origem,
+      valor: Math.round(total * decidido.custo * 100) / 100,
+      confirmado: decidido.confirmado,
+      motivo: decidido.motivo,
+      fontes,
       porAlmox: almoxes,
     };
 
@@ -167,11 +234,17 @@ export function estoqueNoDia(dados: DadosDoEstoque): {
     const ativo = texto(cad?.ativo).toUpperCase() !== 'N';
     if (!ativo) inativos.push(item);
     else if (total < 0) negativos.push(item);
+    else if (!item.confirmado) aConferir.push(item);
     else produtos.push(item);
   }
 
   const porNome = (a: ProdutoNoDia, b: ProdutoNoDia) => a.descricao.localeCompare(b.descricao, 'pt-BR');
-  return { produtos: produtos.sort(porNome), inativos: inativos.sort(porNome), negativos: negativos.sort(porNome) };
+  return {
+    produtos: produtos.sort(porNome),
+    aConferir: aConferir.sort(porNome),
+    inativos: inativos.sort(porNome),
+    negativos: negativos.sort(porNome),
+  };
 }
 
 const COLUNAS = [
@@ -191,21 +264,23 @@ function linha(p: ProdutoNoDia) {
 
 export function relatorioDeEstoque(dados: DadosDoEstoque): Relatorio {
   const { dia } = dados;
-  const { produtos, inativos, negativos } = estoqueNoDia(dados);
+  const { produtos, aConferir, inativos, negativos } = estoqueNoDia(dados);
   const total = soma(produtos, (p) => p.valor);
-  const semCusto = produtos.filter((p) => p.origemDoCusto === 'Sem custo');
 
   const cabecalho = [
     `Saldo de estoque em ${diaBr(dia)}`,
     `Lido do IXC em ${dados.lidoEm.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}.`,
     'Quantidade no dia = saldo de hoje menos o que entrou e saiu depois do dia.',
-    'Custo: o custo médio do IXC; sem ele, a última compra; sem ela, o preço base do cadastro.',
-    'Fora do total: Perdas e Saídas, serviços, produtos inativos e saldos negativos (em abas à parte).',
+    'Custo: a última compra até o dia, quando o custo médio ou o preço base do IXC a confirma.',
+    'Fora do total: Perdas e Saídas, serviços, inativos, saldos negativos e custos a conferir (em abas à parte).',
   ];
 
   const avisos: string[] = [];
-  if (semCusto.length > 0) {
-    avisos.push(`${semCusto.length} produtos com saldo não têm custo nenhum no IXC e entraram com valor zero.`);
+  if (aConferir.length > 0) {
+    avisos.push(
+      `${aConferir.length} produtos com saldo têm custo errado ou nenhum custo no IXC e ficaram fora do total ` +
+        '(aba "Custo a conferir").',
+    );
   }
   if (negativos.length > 0) {
     avisos.push(`${negativos.length} produtos estavam com saldo negativo no dia (fora do total).`);
@@ -233,9 +308,9 @@ export function relatorioDeEstoque(dados: DadosDoEstoque): Relatorio {
   return {
     arquivo: `Saldo de estoque ${diaBr(dia).replace(/\//g, '-')}`,
     resumo: [
-      moeda(`Estoque em ${diaBr(dia)}`, total, true),
+      moeda(`Estoque em ${diaBr(dia)} (custo confirmado)`, total, true),
       quantidade('Produtos com saldo', produtos.length),
-      ...(semCusto.length ? [quantidade('Sem custo no IXC', semCusto.length)] : []),
+      ...(aConferir.length ? [quantidade('Custo a conferir', aConferir.length)] : []),
     ],
     avisos,
     abas: [
@@ -261,6 +336,37 @@ export function relatorioDeEstoque(dados: DadosDoEstoque): Relatorio {
         linhas: linhasPorAlmox.map((l) => [l.almox, l.produto, l.produtoId, l.unidade, l.quantidade, l.custo, l.valor]),
         totais: ['Total', '', null, '', null, null, soma(linhasPorAlmox, (l) => l.valor)],
       },
+      ...(aConferir.length
+        ? [
+            {
+              nome: 'Custo a conferir',
+              cabecalho: [
+                'Produtos com saldo no dia e custo que não se confirma no IXC — fora do total',
+                'As três fontes lado a lado: corrigido o custo no IXC, o produto entra no total na próxima leitura.',
+              ],
+              colunas: [
+                { titulo: 'Produto', tipo: 'texto' as const, largura: 44 },
+                { titulo: 'Código', tipo: 'inteiro' as const },
+                { titulo: 'Unidade', tipo: 'texto' as const, largura: 9 },
+                { titulo: 'Quantidade', tipo: 'numero' as const },
+                { titulo: 'Última compra', tipo: 'moeda' as const },
+                { titulo: 'Custo médio no IXC', tipo: 'moeda' as const, largura: 18 },
+                { titulo: 'Preço base', tipo: 'moeda' as const },
+                { titulo: 'Por quê', tipo: 'texto' as const, largura: 34 },
+              ],
+              linhas: aConferir.map((p) => [
+                p.descricao,
+                p.produtoId,
+                p.unidade,
+                p.quantidade,
+                p.fontes.ultimaCompra || null,
+                p.fontes.custoMedio || null,
+                p.fontes.precoBase || null,
+                p.motivo,
+              ]),
+            },
+          ]
+        : []),
       ...(negativos.length
         ? [
             {

@@ -1,6 +1,6 @@
 import { prazoDoPacote } from './pacote.service';
 import { titulosEmAbertoNoDia, relatorioDeClientes } from './relatorios/clientes';
-import { estoqueNoDia } from './relatorios/estoque';
+import { decidirCusto, estoqueNoDia } from './relatorios/estoque';
 import { dividasNoDia, lerPagamento, relatorioDeDescontos } from './relatorios/pagamentos';
 import { lerRecebimento, relatorioDeFaturamento, relatorioDeJuros } from './relatorios/receitas';
 import { saldoNoDia, type CaixaNoPeriodo } from './relatorios/caixa';
@@ -271,6 +271,40 @@ describe('05 — estoque no último dia', () => {
       ['ONU TESTE', 12, 'Custo médio', 2202.54],
     ]);
     expect(r.inativos.map((p) => p.descricao)).toEqual(['SWITCH ANTIGO']);
+  });
+});
+
+describe('05 — o custo que entra no total', () => {
+  // Os casos de verdade desta base, com os números de lá (09/10/2026).
+  it('confirma a compra quando outra fonte concorda com ela', () => {
+    // Roteador: compra a 350, preço base 350, custo médio estragado em 5.744.
+    expect(decidirCusto({ ultimaCompra: 350, custoMedio: 5744.94, precoBase: 350 }, 263)).toMatchObject({
+      custo: 350,
+      origem: 'Última compra',
+      confirmado: true,
+    });
+  });
+
+  it('não deixa dois números errados e iguais vencerem a compra', () => {
+    // Access point: custo médio e preço base em R$ 800 mil, comprado por 300.
+    expect(decidirCusto({ ultimaCompra: 300, custoMedio: 800000.24, precoBase: 800000.24 }, 1).confirmado).toBe(false);
+  });
+
+  it('não confia numa fonte só quando a linha fica grande', () => {
+    // Roteador com custo médio de R$ 55 milhões e preço base de um centavo.
+    expect(decidirCusto({ ultimaCompra: 0, custoMedio: 55591058.2, precoBase: 0.01 }, 327).confirmado).toBe(false);
+    // Cabo de 300 m com preço do rolo, contado em metros.
+    expect(decidirCusto({ ultimaCompra: 0, custoMedio: 0, precoBase: 261.27 }, 3000).confirmado).toBe(false);
+    // Fonte de 12 V, uma compra só e linha pequena: entra.
+    expect(decidirCusto({ ultimaCompra: 11.41, custoMedio: 0, precoBase: 0.01 }, 343)).toMatchObject({ confirmado: true, custo: 11.41 });
+  });
+
+  it('ignora compra de acerto (abaixo de R$ 0,10) como fonte', () => {
+    expect(decidirCusto({ ultimaCompra: 0.01, custoMedio: 183.54, precoBase: 250 }, 10)).toMatchObject({
+      custo: 183.54,
+      origem: 'Custo médio',
+      confirmado: true,
+    });
   });
 });
 
