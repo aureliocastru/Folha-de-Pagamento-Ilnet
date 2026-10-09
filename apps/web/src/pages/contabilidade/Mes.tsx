@@ -10,7 +10,7 @@ import { formatBRL } from '../../lib/format';
 import {
   diaBr,
   nomeDoPeriodo,
-  tamanhoLegivel,
+  type ArquivoNaTela,
   type Comprovante,
   type Estado,
   type ItemNaTela,
@@ -357,8 +357,8 @@ function CartaoDoItem({
 
         {grupos.map(([grupo, vagas]) => (
           <div key={grupo || 'sem-grupo'} className="rounded-xl border border-tinta-100 p-3">
-            {grupo && <p className="mb-2 text-sm font-semibold text-tinta-800">{grupo}</p>}
-            <div className="space-y-3">
+            {grupo && <TituloDoGrupo texto={grupo} />}
+            <div className="space-y-2">
               {vagas.map((v) =>
                 v.tipo === 'valor' ? (
                   <VagaDeValor key={v.chave} vaga={v} item={item} pacoteId={pacote.id} />
@@ -416,6 +416,17 @@ function CartaoDoItem({
         </div>
       </div>
     </section>
+  );
+}
+
+/** "Conta Sicoob (ag. 4436 c/c 6726-1)": o nome manda, agência e conta ficam miúdas. */
+function TituloDoGrupo({ texto }: { texto: string }) {
+  const m = /^(.*?) \((.+)\)$/.exec(texto);
+  return (
+    <p className="mb-2 text-sm font-semibold text-tinta-800">
+      {m ? m[1] : texto}
+      {m && <span className="ml-1.5 text-xs font-normal text-tinta-400">{m[2]}</span>}
+    </p>
   );
 }
 
@@ -482,14 +493,48 @@ function VagaDeArquivo({ vaga, item, pacoteId }: { vaga: Vaga; item: ItemNaTela;
 
   const falta = vaga.obrigatoria && vaga.arquivos.length === 0 && !vaga.naoTem;
   const podeEnviarMais = vaga.multiplo || vaga.arquivos.length === 0;
+  // Vaga de um arquivo só (o PDF, o Excel, o OFX de uma conta): o nome do
+  // arquivo não diz nada que o rótulo já não diga — o rótulo é que abre.
+  const unico = vaga.multiplo ? undefined : vaga.arquivos[0];
+
+  function abrir(a: ArquivoNaTela) {
+    void abrirDaApi(`/contabilidade/arquivos/${a.id}`, a.nome).catch((e: unknown) =>
+      setErro(e instanceof Error ? e.message : String(e)),
+    );
+  }
+
+  const botaoDeTirar = (a: ArquivoNaTela) => (
+    <button
+      type="button"
+      className="btn btn-p btn-alerta"
+      disabled={tirar.isPending}
+      onClick={() => {
+        if (window.confirm(`Tirar "${a.nome}"?`)) tirar.mutate(a.id);
+      }}
+    >
+      Tirar
+    </button>
+  );
 
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className={`text-sm ${falta ? 'font-semibold text-rose-700 dark:text-rose-300' : 'text-tinta-700'}`}>
-          {vaga.rotulo}
-          {!vaga.obrigatoria && <span className="ml-1 text-xs font-normal text-tinta-400">(se tiver)</span>}
-        </p>
+        {unico ? (
+          <button
+            type="button"
+            title={unico.nome}
+            className="min-w-0 text-left text-sm font-semibold text-brand-700 hover:underline dark:text-brand-300"
+            onClick={() => abrir(unico)}
+          >
+            <span className="mr-1 text-emerald-600 dark:text-emerald-400">✓</span>
+            {vaga.rotulo}
+          </button>
+        ) : (
+          <p className={`min-w-0 text-sm ${falta ? 'font-semibold text-rose-700 dark:text-rose-300' : 'text-tinta-700'}`}>
+            {vaga.rotulo}
+            {!vaga.obrigatoria && <span className="ml-1 text-xs font-normal text-tinta-400">(se tiver)</span>}
+          </p>
+        )}
         <div className="flex flex-wrap gap-2">
           {!vaga.naoTem && (
             <>
@@ -511,6 +556,7 @@ function VagaDeArquivo({ vaga, item, pacoteId }: { vaga: Vaga; item: ItemNaTela;
               </button>
             </>
           )}
+          {unico && botaoDeTirar(unico)}
           {vaga.rotuloDoNaoTem && vaga.arquivos.length === 0 && (
             <button
               type="button"
@@ -523,34 +569,18 @@ function VagaDeArquivo({ vaga, item, pacoteId }: { vaga: Vaga; item: ItemNaTela;
           )}
         </div>
       </div>
-      {vaga.arquivos.length > 0 && (
+      {vaga.multiplo && vaga.arquivos.length > 0 && (
         <ul className="mt-1.5 space-y-1">
           {vaga.arquivos.map((a) => (
             <li key={a.id} className="flex min-w-0 items-center justify-between gap-2 text-sm">
               <button
                 type="button"
                 className="min-w-0 truncate text-left text-brand-700 hover:underline dark:text-brand-300"
-                onClick={() =>
-                  void abrirDaApi(`/contabilidade/arquivos/${a.id}`, a.nome).catch((e: unknown) =>
-                    setErro(e instanceof Error ? e.message : String(e)),
-                  )
-                }
+                onClick={() => abrir(a)}
               >
                 {a.nome}
               </button>
-              <span className="flex shrink-0 items-center gap-2">
-                <span className="text-xs text-tinta-400">{a.detalhe ?? tamanhoLegivel(a.tamanho)}</span>
-                <button
-                  type="button"
-                  className="btn btn-p btn-alerta"
-                  disabled={tirar.isPending}
-                  onClick={() => {
-                    if (window.confirm(`Tirar "${a.nome}"?`)) tirar.mutate(a.id);
-                  }}
-                >
-                  Tirar
-                </button>
-              </span>
+              <span className="shrink-0">{botaoDeTirar(a)}</span>
             </li>
           ))}
         </ul>

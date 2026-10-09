@@ -14,7 +14,6 @@ export interface ArquivoNaTela {
   nome: string;
   tamanho: number;
   createdAt: string;
-  detalhe?: string;
 }
 
 export interface Vaga {
@@ -158,10 +157,4 @@ export function mesAnterior(hoje = new Date()): { de: string; ate: string } {
   const ultimo = new Date(ano, mes, 0).getDate();
   const mm = String(mes).padStart(2, '0');
   return { de: `${ano}-${mm}-01`, ate: `${ano}-${mm}-${String(ultimo).padStart(2, '0')}` };
-}
-
-export function tamanhoLegivel(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1).replace('.', ',')} MB`;
 }

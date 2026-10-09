@@ -109,15 +109,29 @@ export function lerOfx(conteudo: Buffer): ExtratoOfx {
     });
   }
 
+  lancamentos.sort((a, b) => a.dia.localeCompare(b.dia));
+
+  // O Bradesco escreve no DTSTART e no DTEND o dia em que o arquivo foi
+  // gerado, e não o período. Lançamento fora do que o cabeçalho diz é
+  // cabeçalho errado: o período passa a ser o dos lançamentos.
+  let inicio = diaDoOfx(valorDe(texto, 'DTSTART'));
+  let fim = diaDoOfx(valorDe(texto, 'DTEND'));
+  const primeiro = lancamentos[0]?.dia;
+  const ultimo = lancamentos[lancamentos.length - 1]?.dia;
+  if (primeiro && ultimo && ((inicio && primeiro < inicio) || (fim && ultimo > fim))) {
+    inicio = primeiro;
+    fim = ultimo;
+  }
+
   const ledger = /<LEDGERBAL>([\s\S]*?)(<\/LEDGERBAL>|<AVAILBAL>|<\/STMTRS>)/i.exec(texto)?.[1] ?? '';
   return {
     banco: valorDe(texto, 'BANKID'),
     agencia: valorDe(texto, 'BRANCHID'),
     conta: valorDe(texto, 'ACCTID'),
-    inicio: diaDoOfx(valorDe(texto, 'DTSTART')),
-    fim: diaDoOfx(valorDe(texto, 'DTEND')),
+    inicio,
+    fim,
     saldoFinal: valorDoOfx(valorDe(ledger, 'BALAMT')),
     saldoEm: diaDoOfx(valorDe(ledger, 'DTASOF')),
-    lancamentos: lancamentos.sort((a, b) => a.dia.localeCompare(b.dia)),
+    lancamentos,
   };
 }

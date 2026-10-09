@@ -59,6 +59,16 @@ describe('OFX', () => {
     ]);
   });
 
+  it('tira o período dos lançamentos quando o cabeçalho traz o dia em que o arquivo foi gerado', () => {
+    const gerado = Buffer.from(
+      OFX_SGML.toString('latin1')
+        .replace('<DTSTART>20260901<DTEND>20260930', '<DTSTART>20261009120000<DTEND>20261009120000')
+        .replace('<DTPOSTED>20260901<TRNAMT>-96,03', '<DTPOSTED>20261009<TRNAMT>-96,03'),
+      'latin1',
+    );
+    expect(lerOfx(gerado)).toMatchObject({ inicio: '2026-09-01', fim: '2026-10-09' });
+  });
+
   it('recusa o que não é OFX', () => {
     expect(() => lerOfx(Buffer.from('%PDF-1.7 extrato'))).toThrow(/não é um extrato OFX/);
   });

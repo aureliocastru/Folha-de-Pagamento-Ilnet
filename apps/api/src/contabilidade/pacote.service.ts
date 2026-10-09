@@ -43,8 +43,6 @@ export interface ArquivoNaTela {
   nome: string;
   tamanho: number;
   createdAt: Date;
-  /** O que se leu dele — o OFX diz o período e quantos lançamentos tem. */
-  detalhe?: string;
 }
 
 /** Um lugar onde um arquivo (ou um valor) é esperado. */
@@ -254,27 +252,6 @@ export class PacoteContabilService {
     const saidas = dadosDe<DadosDasSaidas>(linha(8));
     const comprovantes = saidas ? await this.comprovantes(id, saidas) : new Map<number, SituacaoDoComprovante>();
 
-    // Os OFX enviados, lidos para dizer na tela o que eles cobrem.
-    const detalhesDoOfx = new Map<string, string>();
-    const ofxs = arquivos.filter((a) => a.item === 1 && a.chave.endsWith(':ofx'));
-    if (ofxs.length > 0) {
-      const conteudos = await this.prisma.arquivoContabil.findMany({
-        where: { id: { in: ofxs.map((a) => a.id) } },
-        select: { id: true, conteudo: true },
-      });
-      for (const c of conteudos) {
-        try {
-          const e = lerOfx(Buffer.from(c.conteudo));
-          detalhesDoOfx.set(
-            c.id,
-            `${e.inicio ? diaBr(e.inicio) : '?'} a ${e.fim ? diaBr(e.fim) : '?'} · ${e.lancamentos.length} lançamentos`,
-          );
-        } catch {
-          detalhesDoOfx.set(c.id, 'Não consegui ler este OFX');
-        }
-      }
-    }
-
     const itens: ItemNaTela[] = ITENS.map((papel) => {
       const base = linha(papel.numero);
       const item: ItemNaTela = {
@@ -304,7 +281,6 @@ export class PacoteContabilService {
         linha,
         arquivosDe,
         marca,
-        detalhesDoOfx,
       });
       return this.decidirEstado(item, lendo, base);
     });
@@ -417,7 +393,6 @@ export class PacoteContabilService {
       linha: (item: number, chave?: string) => ItemDoPacote | undefined;
       arquivosDe: (item: number, chave: string) => ArquivoNaTela[];
       marca: (item: number, chave: string) => { naoTem: boolean; motivo: string | null };
-      detalhesDoOfx: Map<string, string>;
     },
   ): void {
     const vaga = (v: Partial<Vaga> & Pick<Vaga, 'chave' | 'rotulo'>, numeroDoItem = item.numero): Vaga => {
@@ -450,9 +425,6 @@ export class PacoteContabilService {
             vaga({ chave: `conta:${conta.id}:excel`, rotulo: 'Excel', aceita: '.xls,.xlsx,.csv', grupo, rotuloDoNaoTem: 'O banco não fornece' }),
             vaga({ chave: `conta:${conta.id}:ofx`, rotulo: 'OFX', aceita: '.ofx', grupo, rotuloDoNaoTem: 'O banco não fornece' }),
           );
-        }
-        for (const v of item.vagas) {
-          for (const a of v.arquivos) a.detalhe = c.detalhesDoOfx.get(a.id);
         }
         const faltando = contas.filter((k) => item.vagas.some((v) => v.grupo === rotuloDaConta(k) && falta(v)));
         if (faltando.length > 0) item.pendencias.push(`Falta extrato de ${faltando.map((k) => k.nome).join(', ')}.`);
