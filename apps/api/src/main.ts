@@ -20,6 +20,26 @@ import type { AppConfig } from './config/configuration';
  */
 const LIMITE_CORPO = '24mb';
 
+/**
+ * Promessa que falha sem ninguém para segurar não derruba a API.
+ *
+ * No Node 22 ela encerra o processo, e várias coisas daqui rodam em segundo
+ * plano depois de a tela já ter recebido a resposta — a transferência do
+ * almoxarifado, o acerto de negativos, o pacote da contabilidade, os vigias
+ * do IXC. Cada uma trata o próprio erro, mas a que escapasse levaria junto
+ * todo mundo que está usando o sistema, e o andamento das transferências que
+ * estão rodando (que mora na memória). Fica no log, com a pilha, para ser
+ * consertado na origem.
+ */
+process.on('unhandledRejection', (motivo) => {
+  Logger.error(
+    `Promessa rejeitada sem tratamento: ${
+      motivo instanceof Error ? (motivo.stack ?? motivo.message) : String(motivo)
+    }`,
+    'Processo',
+  );
+});
+
 async function bootstrap() {
   // O parser vem desligado para entrar de novo logo abaixo com o teto maior:
   // se o padrão for registrado antes, é ele quem recusa o corpo grande.
