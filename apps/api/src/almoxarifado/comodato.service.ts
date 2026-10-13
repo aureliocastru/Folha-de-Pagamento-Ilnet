@@ -27,6 +27,17 @@ export interface ComodatoNaTela {
   lidoEm: string;
 }
 
+/** Da tabela inteira, só os registros dos ids procurados, por id. */
+function soOsProcurados<T extends { id?: string }>(todos: T[], ids: number[]): Map<number, T> {
+  const procurados = new Set(ids);
+  const mapa = new Map<number, T>();
+  for (const r of todos) {
+    const id = numeroDoIxc(r.id);
+    if (procurados.has(id)) mapa.set(id, r);
+  }
+  return mapa;
+}
+
 /**
  * O que está em comodato — emprestado a cliente — e onde, lido do IXC.
  *
@@ -48,6 +59,13 @@ export class ComodatoService {
       return this.guardado.dados;
     }
 
+    /*
+     * O que não depende de nada vai junto: os nomes de produto e de
+     * almoxarifado saem ao mesmo tempo que as peças, e a tabela de clientes,
+     * quando é para ler inteira, sai junto com a de contratos — em fila, as
+     * cinco leituras somavam 41 segundos (13/10/2026).
+     */
+    const nomes = Promise.all([this.nomesDeProdutos(), this.nomesDeAlmoxarifados()]);
     // "Comodato - Produto (listar)", com o filtro do exemplo da documentação.
     const linhas = await this.ixc.listAll<LinhaDeComodatoIxc>(
       'cliente_contrato_comodato',
@@ -65,14 +83,20 @@ export class ComodatoService {
     const idsContrato = [...new Set(linhas.map((l) => numeroDoIxc(l.id_contrato)))].filter(
       (id) => id > 0,
     );
+    // Muitos contratos são muitos clientes: a tabela de clientes vai ser lida
+    // inteira de qualquer jeito, e já começa agora.
+    const clientesInteira =
+      idsContrato.length > UM_A_UM_ATE ? this.tabelaInteira<ClienteIxc>('cliente') : null;
+    clientesInteira?.catch(() => undefined); // a falha aparece no `await` lá embaixo
     const contratos = await this.porId<ContratoIxc>('cliente_contrato', idsContrato);
     const idsCliente = [
       ...new Set([...contratos.values()].map((c) => numeroDoIxc(c.id_cliente))),
     ].filter((id) => id > 0);
-    const [clientes, produtos, almoxarifados] = await Promise.all([
-      this.porId<ClienteIxc>('cliente', idsCliente),
-      this.nomesDeProdutos(),
-      this.nomesDeAlmoxarifados(),
+    const [clientes, [produtos, almoxarifados]] = await Promise.all([
+      clientesInteira
+        ? clientesInteira.then((todos) => soOsProcurados(todos, idsCliente))
+        : this.porId<ClienteIxc>('cliente', idsCliente),
+      nomes,
     ]);
 
     const itens = montarComodatos(linhas, contratos, clientes, produtos, almoxarifados);
@@ -116,17 +140,15 @@ export class ComodatoService {
       return mapa;
     }
 
-    const todos = await this.ixc.listAll<T>(
+    return soOsProcurados(await this.tabelaInteira<T>(tabela), ids);
+  }
+
+  private tabelaInteira<T>(tabela: string): Promise<T[]> {
+    return this.ixc.listAll<T>(
       tabela,
       { qtype: `${tabela}.id`, query: '0', oper: '>', sortname: `${tabela}.id`, sortorder: 'asc' },
       { pageSize: 500 },
     );
-    const procurados = new Set(ids);
-    for (const r of todos) {
-      const id = numeroDoIxc(r.id);
-      if (procurados.has(id)) mapa.set(id, r);
-    }
-    return mapa;
   }
 
   private async nomesDeProdutos(): Promise<Map<number, string>> {

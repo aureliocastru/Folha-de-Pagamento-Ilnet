@@ -82,6 +82,61 @@ describe('IxcClient.listAll', () => {
     expect(all.map((r: any) => r.id)).toEqual(['1', '2', '3']);
     expect(request).toHaveBeenCalledTimes(2);
   });
+
+  /** Uma base de mentira: `total` registros, e a página `n` responde depois de `atraso(n)` ms. */
+  function base(total: number, atraso: (pagina: number) => number = () => 0, totalDito = total) {
+    let simultaneos = 0;
+    let pico = 0;
+    const request = jest.fn(async ({ data }: { data: { page: string; rp: string } }) => {
+      const pagina = Number(data.page);
+      const rp = Number(data.rp);
+      simultaneos += 1;
+      pico = Math.max(pico, simultaneos);
+      await new Promise((r) => setTimeout(r, atraso(pagina)));
+      simultaneos -= 1;
+      const de = (pagina - 1) * rp;
+      const registros = Array.from({ length: Math.max(0, Math.min(rp, total - de)) }, (_, i) => ({
+        id: String(de + i + 1),
+      }));
+      return { status: 200, data: { total: String(totalDito), registros } };
+    });
+    return { request, pico: () => pico };
+  }
+
+  it('pede as páginas em lotes e devolve na ordem, mesmo chegando fora de ordem', async () => {
+    // As páginas pares respondem antes das ímpares.
+    const { request, pico } = base(23, (p) => (p % 2 ? 15 : 1));
+    const client = new IxcClient(makeHttp(request));
+
+    const all = await client.listAll('x', { qtype: 'x.id', query: '0', oper: '>' }, { pageSize: 2 });
+
+    expect(all.map((r: any) => Number(r.id))).toEqual(Array.from({ length: 23 }, (_, i) => i + 1));
+    expect(request).toHaveBeenCalledTimes(12);
+    expect(pico()).toBe(4);
+  });
+
+  it('um total exagerado custa no máximo um lote a mais, e não centenas de pedidos', async () => {
+    const { request } = base(5, () => 0, 100_000);
+    const client = new IxcClient(makeHttp(request));
+
+    const all = await client.listAll('x', { qtype: 'x.id', query: '0', oper: '>' }, { pageSize: 2 });
+
+    expect(all).toHaveLength(5);
+    expect(request.mock.calls.length).toBeLessThanOrEqual(5);
+  });
+
+  it('sem total, fica com a primeira página', async () => {
+    const request = jest.fn().mockResolvedValue({
+      status: 200,
+      data: { registros: [{ id: '1' }, { id: '2' }] },
+    });
+    const client = new IxcClient(makeHttp(request));
+
+    const all = await client.listAll('x', { qtype: 'x.id', query: '0', oper: '>' }, { pageSize: 2 });
+
+    expect(all).toHaveLength(2);
+    expect(request).toHaveBeenCalledTimes(1);
+  });
 });
 
 /**

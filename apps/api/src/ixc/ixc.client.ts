@@ -14,6 +14,14 @@ import type {
 } from './ixc.types';
 
 /**
+ * Quantas páginas de uma listagem grande se pedem ao mesmo tempo (ver
+ * `listAll`). Quatro: o bastante para a leitura grande parar de esperar em
+ * fila, e pouco para não pesar no IXC — outras leituras podem estar correndo
+ * junto, de outras telas.
+ */
+const PAGINAS_EM_PARALELO = 4;
+
+/**
  * Cliente de alto nível para o webservice do IXC.
  * Encapsula o protocolo (header ixcsoft, paginação, tratamento de erro) e
  * expõe operações tipadas. Recebe a AxiosInstance por injeção para permitir
@@ -247,8 +255,15 @@ export class IxcClient {
   }
 
   /**
-   * Percorre todas as páginas e devolve todos os registros.
+   * Percorre todas as páginas e devolve todos os registros, na ordem.
    * `maxPages` protege contra loops caso `total` venha inconsistente.
+   *
+   * A primeira página diz o total; as outras vão `PAGINAS_EM_PARALELO` por
+   * vez, e não uma atrás da outra. Em fila, as 14 mil peças do comodato eram
+   * 28 esperas seguidas, e depois vinham as tabelas de contrato e de cliente:
+   * 41 segundos de tela parada (medido em 13/10/2026). Os lotes param na
+   * primeira página curta ou vazia, como a fila parava — um `total` exagerado
+   * do IXC custa no máximo um lote a mais, e não centenas de pedidos.
    */
   async listAll<T = Record<string, unknown>>(
     resource: string,
@@ -257,24 +272,24 @@ export class IxcClient {
   ): Promise<T[]> {
     const pageSize = opts.pageSize ?? 500;
     const maxPages = opts.maxPages ?? 1000;
+    const pagina = (page: number) => this.list<T>(resource, { ...params, page, rp: pageSize });
 
-    const out: T[] = [];
-    let page = 1;
-    let total = Infinity;
+    const primeira = await pagina(1);
+    const total = primeira.total;
+    const out: T[] = [...primeira.registros];
+    if (primeira.registros.length < pageSize || out.length >= total) return out;
 
-    while (out.length < total && page <= maxPages) {
-      const res = await this.list<T>(resource, {
-        ...params,
-        page,
-        rp: pageSize,
-      });
-      total = res.total;
-      if (res.registros.length === 0) break;
-      out.push(...res.registros);
-      if (res.registros.length < pageSize) break;
-      page += 1;
+    // Sem total que se possa usar (NaN), fica a primeira página — como antes.
+    const ultima = Math.min(maxPages, Math.ceil(total / pageSize));
+    for (let proxima = 2; proxima <= ultima; proxima += PAGINAS_EM_PARALELO) {
+      const lote: number[] = [];
+      for (let p = proxima; p < proxima + PAGINAS_EM_PARALELO && p <= ultima; p++) lote.push(p);
+      for (const res of await Promise.all(lote.map(pagina))) {
+        if (res.registros.length === 0) return out;
+        out.push(...res.registros);
+        if (res.registros.length < pageSize || out.length >= total) return out;
+      }
     }
-
     return out;
   }
 }
