@@ -228,6 +228,9 @@ export class ContasAbertasService {
   /** O mesmo para o plano de contas, que dá nome à categoria da despesa. */
   private indiceCategorias: { em: number; nomes: Map<number, string> } | null =
     null;
+  /** O plano de contas de despesa, com a hora da leitura — ver `planoDeContas`. */
+  private planoGuardado: { em: number; contas: Array<{ id: number; nome: string }> } | null =
+    null;
 
   constructor(
     private readonly ixc: IxcClient,
@@ -559,6 +562,14 @@ export class ContasAbertasService {
    * certa.
    */
   async planoDeContas(): Promise<Array<{ id: number; nome: string }>> {
+    // Avulsos, cartões e contas contrato pedem a lista a cada abertura, e ela
+    // vem em até quatro páginas do IXC e quase nunca muda: fica guardada pelo
+    // mesmo tempo do índice de nomes. Lista vazia não se guarda — é falha de
+    // leitura.
+    const agora = Date.now();
+    if (this.planoGuardado && agora - this.planoGuardado.em < VALIDADE_DO_INDICE_MS) {
+      return this.planoGuardado.contas;
+    }
     for (const tabela of TABELAS_PLANO_DE_CONTAS) {
       try {
         const registros = await this.ixc.listAll<Record<string, unknown>>(
@@ -572,7 +583,9 @@ export class ContasAbertasService {
           .filter((c) => Number.isInteger(c.id) && c.id > 0 && c.nome);
 
         if (contas.length > 0) {
-          return contas.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+          contas.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+          this.planoGuardado = { em: agora, contas };
+          return contas;
         }
       } catch {
         continue;
