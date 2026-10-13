@@ -247,6 +247,12 @@ describe('o FGTS lido da imagem', () => {
     ]);
   });
 
+  it('a data do "pagar até" com espaço em volta das barras é a mesma data', () => {
+    // Assim o OCR leu a guia de setembro/2026: "20 / 10 / 2026".
+    const texto = OCR_FGTS.replace('Empregador 18/09/2026', 'Empregador 18 / 09 / 2026');
+    expect(lerGuia(textoDaImagem(texto, [PIX])).vencimento).toBe('2026-09-18');
+  });
+
   it('sem o QR Code decodificado, fica sem PIX — e não com o do OCR', () => {
     expect(lerGuia(textoDaImagem(OCR_FGTS, [])).pagamento).toBeNull();
   });

@@ -664,11 +664,15 @@ function competenciaPorExtenso(texto: string): string {
  * rótulo, junto dos quadros vizinhos — e no DARF um deles é a "Data de
  * Vencimento" original (18/09), que no documento atualizado já passou. O "pagar
  * até" é a mais tarde das duas: é até ela que vale o total impresso, com multa.
+ *
+ * O OCR às vezes separa as barras da data — "20 / 10 / 2026" na guia do FGTS
+ * de setembro/2026 —, e a data com espaços é a mesma data.
  */
 function vencimento(texto: string, competencia: string): string {
-  const rodape = /Pagar até:\s*(\d{2}\/\d{2}\/\d{4})/.exec(texto)?.[1];
+  const data = String.raw`\d{2}\s*\/\s*\d{2}\s*\/\s*\d{4}`;
+  const rodape = new RegExp(String.raw`Pagar até:\s*(${data})`).exec(texto)?.[1];
   const quadro = /Pagar este documento até([^\n]*\n?){3}/.exec(texto)?.[0] ?? '';
-  const doQuadro = (quadro.match(/\d{2}\/\d{2}\/\d{4}/g) ?? []).map(isoDe).sort().reverse();
+  const doQuadro = (quadro.match(new RegExp(data, 'g')) ?? []).map(isoDe).sort().reverse();
   const candidatas = [...(rodape ? [isoDe(rodape)] : []), ...doQuadro];
 
   if (candidatas.length === 0) {
@@ -686,9 +690,9 @@ function vencimento(texto: string, competencia: string): string {
   return possivel;
 }
 
-/** "21/09/2026" → "2026-09-21" */
+/** "21/09/2026" (ou "21 / 09 / 2026") → "2026-09-21" */
 function isoDe(data: string): string {
-  const [d, m, a] = data.split('/');
+  const [d, m, a] = data.replace(/\s/g, '').split('/');
   return `${a}-${m}-${d}`;
 }
 
