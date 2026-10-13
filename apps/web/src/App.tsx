@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { useAuth } from './lib/auth';
 import {
@@ -13,75 +13,80 @@ import {
   destinoDepoisDoLogin,
 } from './lib/modulos';
 import { useTabelasNoCelular } from './lib/tabela-no-celular';
-import { Aprs, AprAberta, AprNova } from './pages/apr/Aprs';
-import {
-  Campo,
-  CampoAbastecimento,
-  CampoApr,
-  CampoAprs,
-  CampoInicio,
-  CampoNova,
-  CampoPontuacao,
-  CampoPontuar,
-} from './pages/apr/Campo';
-import { Formularios } from './pages/apr/Formularios';
-import { Assinar } from './pages/Assinar';
-import { CampoMinhasOs, CampoOs } from './pages/os/NoCampo';
-import { Materiais as MateriaisDeOs } from './pages/os/Materiais';
-import { Recolhidos } from './pages/os/Recolhidos';
-import { Registros as RegistrosDeOs } from './pages/os/Registros';
-import { Relatorio as RelatorioDeOs } from './pages/os/Relatorio';
-import { Tecnicos as TecnicosDeOs } from './pages/os/Tecnicos';
 import { Login } from './pages/Login';
-import { Modulos } from './pages/Modulos';
 import { TelaDeFora } from './components/TelaDeFora';
-import { Inicio as ContasPagarInicio } from './pages/contas-pagar/Inicio';
-import { Estoque } from './pages/almoxarifado/Estoque';
-import { Conferencia } from './pages/almoxarifado/Conferencia';
-import { Almoxarifados } from './pages/almoxarifado/Almoxarifados';
-import { AlmoxarifadoDetalhe } from './pages/almoxarifado/AlmoxarifadoDetalhe';
-import { PecasDoProduto } from './pages/almoxarifado/PecasDoProduto';
-import { Transferir } from './pages/almoxarifado/Transferir';
-import { Ferramentas } from './pages/almoxarifado/Ferramentas';
-import { Fornecedores as FornecedoresDeCotacao } from './pages/almoxarifado/Fornecedores';
-import { Comodato } from './pages/almoxarifado/Comodato';
-import { Precos } from './pages/almoxarifado/Precos';
-import { Categorias as ContasPagarCategorias } from './pages/contas-pagar/Categorias';
-import { Dashboard as ContasPagarDashboard } from './pages/contas-pagar/Dashboard';
-import { FechamentoCaixa } from './pages/contas-pagar/FechamentoCaixa';
-import { Transferencias } from './pages/contas-pagar/Transferencias';
-import { HistoricoDePagamentos } from './pages/contas-pagar/HistoricoDePagamentos';
-import { Controle } from './pages/contas-pagar/Controle';
-import { CartoesCredito } from './pages/contas-pagar/CartoesCredito';
-import { ContasContrato } from './pages/contas-pagar/ContasContrato';
-import { Recorrentes } from './pages/contas-pagar/Recorrentes';
-import { Veiculos } from './pages/contas-pagar/Veiculos';
-import { Avulsos } from './pages/folha/Avulsos';
-import { Configuracoes } from './pages/folha/Configuracoes';
-import { ContasPagar } from './pages/folha/ContasPagar';
-import { Dashboard } from './pages/folha/Dashboard';
-import { Diaristas } from './pages/folha/Diaristas';
-import { Ferias } from './pages/folha/Ferias';
-import { Folha } from './pages/folha/Folha';
-import { FuncionarioDetalhe } from './pages/folha/FuncionarioDetalhe';
-import { Funcionarios } from './pages/folha/Funcionarios';
-import { Impostos } from './pages/folha/Impostos';
-import { MinhaConta } from './pages/folha/MinhaConta';
-import { Usuarios } from './pages/folha/Usuarios';
-import { Vales } from './pages/folha/Vales';
-import { Portal as PortalDePontos } from './pages/pontos/Portal';
-import { Coordenadores } from './pages/pontuacao/Coordenadores';
-import { Motivos } from './pages/pontuacao/Motivos';
-import { Pontuar } from './pages/pontuacao/Pontuar';
-import { PastaDaEmpresa, PastaRhAberta } from './pages/rh/Pasta';
-import { Licitacoes } from './pages/rh/Licitacoes';
-import { NotasFiscais } from './pages/rh/NotasFiscais';
-import { PastasRh } from './pages/rh/Pastas';
-import { RecibosDaFolha } from './pages/rh/RecibosDaFolha';
-import { AjustesDaContabilidade } from './pages/contabilidade/Ajustes';
-import { MesDaContabilidade } from './pages/contabilidade/Mes';
-import { MesesDaContabilidade } from './pages/contabilidade/Meses';
-import type { ReactNode } from 'react';
+import { TelaProtegida } from './components/TelaProtegida';
+import { Suspense, useEffect, type ReactNode } from 'react';
+import { preCarregarQuandoOcioso, telaSobDemanda } from './lib/tela-sob-demanda';
+
+const Aprs = telaSobDemanda(() => import('./pages/apr/Aprs').then((m) => m.Aprs));
+const AprAberta = telaSobDemanda(() => import('./pages/apr/Aprs').then((m) => m.AprAberta));
+const AprNova = telaSobDemanda(() => import('./pages/apr/Aprs').then((m) => m.AprNova));
+const Campo = telaSobDemanda(() => import('./pages/apr/Campo').then((m) => m.Campo));
+const CampoAbastecimento = telaSobDemanda(() => import('./pages/apr/Campo').then((m) => m.CampoAbastecimento));
+const CampoApr = telaSobDemanda(() => import('./pages/apr/Campo').then((m) => m.CampoApr));
+const CampoAprs = telaSobDemanda(() => import('./pages/apr/Campo').then((m) => m.CampoAprs));
+const CampoInicio = telaSobDemanda(() => import('./pages/apr/Campo').then((m) => m.CampoInicio));
+const CampoNova = telaSobDemanda(() => import('./pages/apr/Campo').then((m) => m.CampoNova));
+const CampoPontuacao = telaSobDemanda(() => import('./pages/apr/Campo').then((m) => m.CampoPontuacao));
+const CampoPontuar = telaSobDemanda(() => import('./pages/apr/Campo').then((m) => m.CampoPontuar));
+const Formularios = telaSobDemanda(() => import('./pages/apr/Formularios').then((m) => m.Formularios));
+const Assinar = telaSobDemanda(() => import('./pages/Assinar').then((m) => m.Assinar));
+const CampoMinhasOs = telaSobDemanda(() => import('./pages/os/NoCampo').then((m) => m.CampoMinhasOs));
+const CampoOs = telaSobDemanda(() => import('./pages/os/NoCampo').then((m) => m.CampoOs));
+const MateriaisDeOs = telaSobDemanda(() => import('./pages/os/Materiais').then((m) => m.Materiais));
+const Recolhidos = telaSobDemanda(() => import('./pages/os/Recolhidos').then((m) => m.Recolhidos));
+const RegistrosDeOs = telaSobDemanda(() => import('./pages/os/Registros').then((m) => m.Registros));
+const RelatorioDeOs = telaSobDemanda(() => import('./pages/os/Relatorio').then((m) => m.Relatorio));
+const TecnicosDeOs = telaSobDemanda(() => import('./pages/os/Tecnicos').then((m) => m.Tecnicos));
+const Modulos = telaSobDemanda(() => import('./pages/Modulos').then((m) => m.Modulos));
+const ContasPagarInicio = telaSobDemanda(() => import('./pages/contas-pagar/Inicio').then((m) => m.Inicio));
+const Estoque = telaSobDemanda(() => import('./pages/almoxarifado/Estoque').then((m) => m.Estoque));
+const Conferencia = telaSobDemanda(() => import('./pages/almoxarifado/Conferencia').then((m) => m.Conferencia));
+const Almoxarifados = telaSobDemanda(() => import('./pages/almoxarifado/Almoxarifados').then((m) => m.Almoxarifados));
+const AlmoxarifadoDetalhe = telaSobDemanda(() => import('./pages/almoxarifado/AlmoxarifadoDetalhe').then((m) => m.AlmoxarifadoDetalhe));
+const PecasDoProduto = telaSobDemanda(() => import('./pages/almoxarifado/PecasDoProduto').then((m) => m.PecasDoProduto));
+const Transferir = telaSobDemanda(() => import('./pages/almoxarifado/Transferir').then((m) => m.Transferir));
+const Ferramentas = telaSobDemanda(() => import('./pages/almoxarifado/Ferramentas').then((m) => m.Ferramentas));
+const FornecedoresDeCotacao = telaSobDemanda(() => import('./pages/almoxarifado/Fornecedores').then((m) => m.Fornecedores));
+const Comodato = telaSobDemanda(() => import('./pages/almoxarifado/Comodato').then((m) => m.Comodato));
+const Precos = telaSobDemanda(() => import('./pages/almoxarifado/Precos').then((m) => m.Precos));
+const ContasPagarCategorias = telaSobDemanda(() => import('./pages/contas-pagar/Categorias').then((m) => m.Categorias));
+const ContasPagarDashboard = telaSobDemanda(() => import('./pages/contas-pagar/Dashboard').then((m) => m.Dashboard));
+const FechamentoCaixa = telaSobDemanda(() => import('./pages/contas-pagar/FechamentoCaixa').then((m) => m.FechamentoCaixa));
+const Transferencias = telaSobDemanda(() => import('./pages/contas-pagar/Transferencias').then((m) => m.Transferencias));
+const HistoricoDePagamentos = telaSobDemanda(() => import('./pages/contas-pagar/HistoricoDePagamentos').then((m) => m.HistoricoDePagamentos));
+const Controle = telaSobDemanda(() => import('./pages/contas-pagar/Controle').then((m) => m.Controle));
+const CartoesCredito = telaSobDemanda(() => import('./pages/contas-pagar/CartoesCredito').then((m) => m.CartoesCredito));
+const ContasContrato = telaSobDemanda(() => import('./pages/contas-pagar/ContasContrato').then((m) => m.ContasContrato));
+const Recorrentes = telaSobDemanda(() => import('./pages/contas-pagar/Recorrentes').then((m) => m.Recorrentes));
+const Veiculos = telaSobDemanda(() => import('./pages/contas-pagar/Veiculos').then((m) => m.Veiculos));
+const Avulsos = telaSobDemanda(() => import('./pages/folha/Avulsos').then((m) => m.Avulsos));
+const Configuracoes = telaSobDemanda(() => import('./pages/folha/Configuracoes').then((m) => m.Configuracoes));
+const ContasPagar = telaSobDemanda(() => import('./pages/folha/ContasPagar').then((m) => m.ContasPagar));
+const Dashboard = telaSobDemanda(() => import('./pages/folha/Dashboard').then((m) => m.Dashboard));
+const Diaristas = telaSobDemanda(() => import('./pages/folha/Diaristas').then((m) => m.Diaristas));
+const Ferias = telaSobDemanda(() => import('./pages/folha/Ferias').then((m) => m.Ferias));
+const Folha = telaSobDemanda(() => import('./pages/folha/Folha').then((m) => m.Folha));
+const FuncionarioDetalhe = telaSobDemanda(() => import('./pages/folha/FuncionarioDetalhe').then((m) => m.FuncionarioDetalhe));
+const Funcionarios = telaSobDemanda(() => import('./pages/folha/Funcionarios').then((m) => m.Funcionarios));
+const Impostos = telaSobDemanda(() => import('./pages/folha/Impostos').then((m) => m.Impostos));
+const MinhaConta = telaSobDemanda(() => import('./pages/folha/MinhaConta').then((m) => m.MinhaConta));
+const Usuarios = telaSobDemanda(() => import('./pages/folha/Usuarios').then((m) => m.Usuarios));
+const Vales = telaSobDemanda(() => import('./pages/folha/Vales').then((m) => m.Vales));
+const PortalDePontos = telaSobDemanda(() => import('./pages/pontos/Portal').then((m) => m.Portal));
+const Coordenadores = telaSobDemanda(() => import('./pages/pontuacao/Coordenadores').then((m) => m.Coordenadores));
+const Motivos = telaSobDemanda(() => import('./pages/pontuacao/Motivos').then((m) => m.Motivos));
+const Pontuar = telaSobDemanda(() => import('./pages/pontuacao/Pontuar').then((m) => m.Pontuar));
+const PastaDaEmpresa = telaSobDemanda(() => import('./pages/rh/Pasta').then((m) => m.PastaDaEmpresa));
+const PastaRhAberta = telaSobDemanda(() => import('./pages/rh/Pasta').then((m) => m.PastaRhAberta));
+const Licitacoes = telaSobDemanda(() => import('./pages/rh/Licitacoes').then((m) => m.Licitacoes));
+const NotasFiscais = telaSobDemanda(() => import('./pages/rh/NotasFiscais').then((m) => m.NotasFiscais));
+const PastasRh = telaSobDemanda(() => import('./pages/rh/Pastas').then((m) => m.PastasRh));
+const RecibosDaFolha = telaSobDemanda(() => import('./pages/rh/RecibosDaFolha').then((m) => m.RecibosDaFolha));
+const AjustesDaContabilidade = telaSobDemanda(() => import('./pages/contabilidade/Ajustes').then((m) => m.AjustesDaContabilidade));
+const MesDaContabilidade = telaSobDemanda(() => import('./pages/contabilidade/Mes').then((m) => m.MesDaContabilidade));
+const MesesDaContabilidade = telaSobDemanda(() => import('./pages/contabilidade/Meses').then((m) => m.MesesDaContabilidade));
 
 function Protegida({ children }: { children: ReactNode }) {
   const { usuario, carregando } = useAuth();
@@ -120,12 +125,58 @@ function ParaOnde() {
   return <Navigate to={destinoDepoisDoLogin(usuario)} replace />;
 }
 
+/**
+ * As telas de cada módulo, para baixar sem pressa quando se entra nele — a
+ * próxima tela aberta já está no aparelho. Ver `telaSobDemanda`.
+ */
+const TELAS_DO_MODULO: Record<string, Array<{ preCarregar: () => void }>> = {
+  folha: [
+    Dashboard, Funcionarios, FuncionarioDetalhe, Diaristas, Vales, Ferias, Folha, ContasPagar,
+    Avulsos, Impostos, Configuracoes, MinhaConta,
+  ],
+  'contas-pagar': [
+    ContasPagarInicio, HistoricoDePagamentos, Controle, ContasPagarDashboard, Avulsos,
+    Recorrentes, ContasContrato, CartoesCredito, Veiculos, ContasPagarCategorias,
+    FechamentoCaixa, MinhaConta,
+  ],
+  almoxarifado: [
+    Estoque, Conferencia, Almoxarifados, AlmoxarifadoDetalhe, PecasDoProduto, Transferir,
+    Ferramentas, Comodato, Precos, FornecedoresDeCotacao, MinhaConta,
+  ],
+  os: [RegistrosDeOs, Recolhidos, TecnicosDeOs, MateriaisDeOs, RelatorioDeOs, MinhaConta],
+  rh: [PastasRh, PastaDaEmpresa, RecibosDaFolha, Licitacoes, NotasFiscais, MinhaConta],
+  seguranca: [Aprs, Formularios, MinhaConta],
+  campo: [CampoMinhasOs, MinhaConta],
+  pontuacao: [Pontuar, Motivos, Coordenadores, MinhaConta],
+  contabilidade: [MesesDaContabilidade, MesDaContabilidade, AjustesDaContabilidade, MinhaConta],
+};
+
+function usePreCarregarOModulo() {
+  const modulo = useLocation().pathname.split('/')[1] ?? '';
+  useEffect(() => preCarregarQuandoOcioso(TELAS_DO_MODULO[modulo] ?? []), [modulo]);
+}
+
+/** Enquanto o pedaço da tela chega — só na primeira vez que ela é aberta. */
+function TelaChegando() {
+  return (
+    <div className="flex h-screen items-center justify-center bg-tinta-50 text-tinta-500">
+      Carregando…
+    </div>
+  );
+}
+
 export default function App() {
   // No celular toda tabela vira lista de cartões; isto põe o nome da coluna em
   // cada célula. Ver `lib/tabela-no-celular.ts`.
   useTabelasNoCelular();
+  usePreCarregarOModulo();
 
   return (
+    // A tela de dentro de um módulo tem o seu próprio Suspense e a sua
+    // proteção contra erro, no Layout: lá o menu fica de pé. Estes são os das
+    // telas de fora (módulos, logins, assinatura, portal de pontos).
+    <TelaProtegida>
+    <Suspense fallback={<TelaChegando />}>
     <Routes>
       <Route path="/login" element={<Login />} />
 
@@ -403,5 +454,7 @@ export default function App() {
 
       <Route path="*" element={<ParaOnde />} />
     </Routes>
+    </Suspense>
+    </TelaProtegida>
   );
 }

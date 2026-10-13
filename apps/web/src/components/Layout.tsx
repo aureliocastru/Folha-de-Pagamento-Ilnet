@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { Navigate, NavLink, Outlet, useNavigate } from 'react-router-dom';
 import { useAvisosDoMenu } from '../lib/avisos';
 import { useAuth } from '../lib/auth';
@@ -6,7 +7,8 @@ import { itemDoMenuAparece, modulosDoUsuario, type Modulo } from '../lib/modulos
 import { useTema } from '../lib/tema';
 import { LayoutCelular } from './LayoutCelular';
 import { IconeGrade, IconeLua, IconeSol } from './icones';
-import { PontoDeAviso } from './ui';
+import { Carregando, PontoDeAviso } from './ui';
+import { TelaProtegida } from './TelaProtegida';
 
 /**
  * A casca de um módulo — e a escolha de qual delas usar.
@@ -182,7 +184,13 @@ function LayoutComputador({ modulo }: { modulo: Modulo }) {
       </aside>
 
       <main className="min-w-0 flex-1" data-modulo={modulo.id}>
-        <Outlet />
+        {/* A tela vem sob demanda (`telaSobDemanda`) e o erro dela fica nela: o
+            menu fica de pé enquanto ela chega, e se ela quebrar. */}
+        <TelaProtegida>
+          <Suspense fallback={<Carregando />}>
+            <Outlet />
+          </Suspense>
+        </TelaProtegida>
       </main>
     </div>
   );

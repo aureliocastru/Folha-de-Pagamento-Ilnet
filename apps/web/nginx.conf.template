@@ -5,6 +5,26 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    # Compacta o que é texto — o pacote do app, o CSS e o JSON da API. Sem
+    # isto (até 13/10/2026) o pacote ia com 1,4 MB pela rede, quando
+    # compactado são ~370 KB: no 4G do técnico, a diferença entre abrir na
+    # hora e ficar olhando a tela branca. PDF e imagem já vêm compactados de
+    # fábrica e ficam de fora. `gzip_proxied any`: a resposta da API passa
+    # pelo proxy daqui, e sem ele o nginx não a compactaria.
+    gzip on;
+    gzip_comp_level 5;
+    gzip_min_length 1024;
+    gzip_proxied any;
+    gzip_vary on;
+    gzip_types
+        text/plain
+        text/css
+        text/csv
+        application/javascript
+        application/json
+        application/manifest+json
+        image/svg+xml;
+
     # Encaminha /api/* para o serviço da API (mantém o prefixo /api).
     location /api/ {
         # O padrão do nginx é 1 MB, e a API aceita corpo de até 24 MB — a guia

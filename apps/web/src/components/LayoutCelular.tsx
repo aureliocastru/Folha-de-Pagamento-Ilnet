@@ -1,11 +1,12 @@
-import { useEffect, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { useAvisosDoMenu, type AvisoDoMenu } from '../lib/avisos';
 import { itemDoMenuAparece, type ItemMenu, type Modulo } from '../lib/modulos';
 import { useTema } from '../lib/tema';
 import { IconeGrade, IconeLua, IconeSol } from './icones';
-import { PontoDeAviso } from './ui';
+import { Carregando, PontoDeAviso } from './ui';
+import { TelaProtegida } from './TelaProtegida';
 
 /**
  * A casca de um módulo no celular.
@@ -122,7 +123,13 @@ export function LayoutCelular({ modulo }: { modulo: Modulo }) {
       </header>
 
       <main className="min-w-0 flex-1" data-modulo={modulo.id}>
-        <Outlet />
+        {/* A tela vem sob demanda (`telaSobDemanda`) e o erro dela fica nela: o
+            menu fica de pé enquanto ela chega, e se ela quebrar. */}
+        <TelaProtegida>
+          <Suspense fallback={<Carregando />}>
+            <Outlet />
+          </Suspense>
+        </TelaProtegida>
       </main>
 
       {aberta && (

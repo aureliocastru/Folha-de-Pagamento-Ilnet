@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useState, type ReactNode } from 'react';
+import { Suspense, useState, type ReactNode } from 'react';
 import { Link, NavLink, Outlet, useNavigate, useParams } from 'react-router-dom';
 import {
   IconeBomba,
@@ -33,6 +33,7 @@ import {
 import { type MinhaPontuacao, TelaDaMinhaPontuacao } from '../pontos/MinhaPontuacao';
 import { DetalheApr } from './DetalheApr';
 import { FormularioApr } from './FormularioApr';
+import { TelaProtegida } from '../../components/TelaProtegida';
 
 /**
  * A tela do colaborador — e, para o técnico de campo, a única que ele vê do
@@ -105,7 +106,13 @@ export function Campo() {
       </header>
 
       <main className="mx-auto w-full max-w-3xl px-4 py-5">
-        <Outlet />
+        {/* A tela vem sob demanda (`telaSobDemanda`) e o erro dela fica nela: o
+            menu fica de pé enquanto ela chega, e se ela quebrar. */}
+        <TelaProtegida>
+          <Suspense fallback={<Carregando />}>
+            <Outlet />
+          </Suspense>
+        </TelaProtegida>
       </main>
     </div>
   );
