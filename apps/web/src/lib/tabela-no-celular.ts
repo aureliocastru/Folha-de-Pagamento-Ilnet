@@ -60,12 +60,30 @@ export function useTabelasNoCelular(): void {
   }, []);
 }
 
+/**
+ * O que cada linha era na última marcação: o cabeçalho, o texto e quantas
+ * peças ela tem dentro. Igual, a linha é pulada.
+ *
+ * O vigia acorda a cada mudança na tela — cada letra digitada numa busca que
+ * filtra a lista —, e remarcar todas as células de todas as tabelas a cada
+ * vez custava ~18 ms com 600 linhas no computador, e umas cinco vezes isso no
+ * celular: o teclado engasgava. Marcar só a linha que mudou é o que deixa a
+ * digitação leve. Peça que entra ou sai (o botão que aparece, o campo da
+ * edição) muda a contagem, e a linha é remarcada.
+ */
+const marcadas = new WeakMap<HTMLTableRowElement, string>();
+
 function marcarTabela(tabela: HTMLTableElement): void {
   const { rotulos, dicas } = rotulosDoCabecalho(tabela);
+  const cabecalho = `${rotulos.join('|')}#${dicas.join('|')}`;
 
   for (const secao of [...Array.from(tabela.tBodies), tabela.tFoot]) {
     if (!secao) continue;
     for (const linha of Array.from(secao.rows)) {
+      const assinatura =
+        `${cabecalho}#${linha.textContent ?? ''}#${linha.getElementsByTagName('*').length}`;
+      if (marcadas.get(linha) === assinatura) continue;
+      marcadas.set(linha, assinatura);
       const celulas = Array.from(linha.cells);
       const papeis = celulas.map(papelDaCelula);
       const colunas: number[] = [];
