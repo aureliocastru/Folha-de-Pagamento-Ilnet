@@ -47,11 +47,24 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <!-- Space Grotesk (títulos e números grandes) + IBM Plex Sans (interface e
-         tabelas). Se as fontes não carregarem, a pilha do sistema assume. -->
+         tabelas). Se as fontes não carregarem, a pilha do sistema assume.
+
+         Sem travar a primeira pintura: como `stylesheet` comum, a página
+         esperava o servidor do Google responder antes de desenhar qualquer
+         coisa — no 4G fraco, segundos de tela branca por causa de uma fonte.
+         Agora ela vem por baixo e troca quando chega (`display=swap`). -->
     <link
+      rel="preload"
+      as="style"
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
-      rel="stylesheet"
+      onload="this.onload=null;this.rel='stylesheet'"
     />
+    <noscript>
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap"
+      />
+    </noscript>
     <!--
       O tema é decidido antes de qualquer pintura. Se esperasse o React, quem
       escolheu o escuro veria a tela branca piscar a cada carregamento — e
