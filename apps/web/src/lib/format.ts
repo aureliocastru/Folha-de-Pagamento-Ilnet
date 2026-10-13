@@ -61,6 +61,25 @@ export function formatNumeroBR(valor: number, casas = 2): string {
  */
 
 /**
+ * A fração digitada do jeito daqui — meia diária, taxa do consórcio, 2,5
+ * metros: "1,5", "1.5" e "1.250,5" viram número. Vazio ou inválido → NaN.
+ *
+ * Para os campos `text` com `inputMode="decimal"`. Eles eram
+ * `type="number"`, e no celular esse tipo devolve vazio quando recebe a
+ * vírgula: a meia diária digitada "1,5" virava zero diária sem aviso.
+ */
+export function numeroDigitado(texto: string): number {
+  const t = texto.trim();
+  if (!t) return NaN;
+  return Number(t.includes(',') ? t.replace(/\./g, '').replace(',', '.') : t);
+}
+
+/** O que um campo de fração aceita enquanto se digita: algarismos, vírgula e ponto. */
+export function soFracao(texto: string): string {
+  return texto.replace(/[^\d.,]/g, '');
+}
+
+/**
  * Hoje, "AAAA-MM-DD", no fuso de Brasília — o mesmo dia que o servidor usa
  * para o IXC (`hojeParaIxc`), para a tela e a API não discordarem às 22h.
  */

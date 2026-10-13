@@ -720,6 +720,7 @@ function JanelaMandarParaFerias({
           <label className="rotulo">Dias</label>
           <input
             type="number"
+            inputMode="numeric"
             min={1}
             max={30}
             value={dias}

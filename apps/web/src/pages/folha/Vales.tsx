@@ -533,6 +533,7 @@ function NovoVale({ onCriado }: { onCriado: () => void }) {
         <Campo label="Nº de parcelas">
           <input
             type="number"
+            inputMode="numeric"
             min={1}
             step={1}
             value={parcelas}

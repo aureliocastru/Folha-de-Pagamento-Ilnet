@@ -16,7 +16,7 @@ import {
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { useTermoAdiado } from '../../lib/busca';
-import { formatBRL } from '../../lib/format';
+import { formatBRL, numeroDigitado, soFracao } from '../../lib/format';
 import { prepararArquivo } from '../../lib/foto';
 import { CampoDeData } from '../../components/CampoDeData';
 import {
@@ -749,8 +749,8 @@ export function NovaDespesa({
     if (restantes < 1 || !vencimento) return [];
 
     const base = Number(valor) || 0;
-    const comTaxa = base * (1 + (Number(taxaAdmin) || 0) / 100);
-    const reajuste = (Number(reajusteAnual) || 0) / 100;
+    const comTaxa = base * (1 + (numeroDigitado(taxaAdmin) || 0) / 100);
+    const reajuste = (numeroDigitado(reajusteAnual) || 0) / 100;
 
     return Array.from({ length: restantes }, (_, i) => {
       // A cada doze parcelas o valor sobe uma vez — o reajuste do grupo.
@@ -1639,6 +1639,7 @@ export function NovaDespesa({
                             <input
                               id="total-parcelas"
                               type="number"
+                              inputMode="numeric"
                               min={1}
                               max={240}
                               value={totalParcelas}
@@ -1655,6 +1656,7 @@ export function NovaDespesa({
                             <input
                               id="parcelas-pagas"
                               type="number"
+                              inputMode="numeric"
                               min={0}
                               value={parcelasPagas}
                               onChange={(e) => setParcelasPagas(e.target.value)}
@@ -1669,11 +1671,9 @@ export function NovaDespesa({
                             </label>
                             <input
                               id="taxa-admin"
-                              type="number"
-                              step="0.01"
-                              min={0}
+                              inputMode="decimal"
                               value={taxaAdmin}
-                              onChange={(e) => setTaxaAdmin(e.target.value)}
+                              onChange={(e) => setTaxaAdmin(soFracao(e.target.value))}
                               onBlur={refazerConsorcio}
                               className="campo"
                               placeholder="0"
@@ -1685,11 +1685,9 @@ export function NovaDespesa({
                             </label>
                             <input
                               id="reajuste"
-                              type="number"
-                              step="0.01"
-                              min={0}
+                              inputMode="decimal"
                               value={reajusteAnual}
-                              onChange={(e) => setReajusteAnual(e.target.value)}
+                              onChange={(e) => setReajusteAnual(soFracao(e.target.value))}
                               onBlur={refazerConsorcio}
                               className="campo"
                               placeholder="0"
@@ -1758,6 +1756,7 @@ export function NovaDespesa({
                         <input
                           id="quantas"
                           type="number"
+                          inputMode="numeric"
                           min={1}
                           max={60}
                           value={quantasParcelas}

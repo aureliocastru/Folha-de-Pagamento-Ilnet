@@ -14,7 +14,7 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
-import { formatBRL, formatData } from '../../lib/format';
+import { formatBRL, formatData, numeroDigitado, soFracao } from '../../lib/format';
 import { FORMA_PAGAMENTO_LABEL, STATUS_LABEL, STATUS_TOM } from '../../lib/status';
 import { TIPOS_CHAVE_PIX } from '../../lib/types';
 import { CampoDeData } from '../../components/CampoDeData';
@@ -1338,7 +1338,7 @@ function FormularioDiaria({
       (await api.get<CategoriaDespesa[]>('/categorias-despesa')).data,
   });
 
-  const diarias = (Number(quantidade) || 0) * (Number(valorDiaria) || 0);
+  const diarias = (numeroDigitado(quantidade) || 0) * (Number(valorDiaria) || 0);
   const comissao = (Number(vendas) || 0) * (Number(valorPorVenda) || 0);
   const extra = Number(valorExtra) || 0;
   const total = diarias + comissao + extra;
@@ -1369,13 +1369,14 @@ function FormularioDiaria({
 
       <Parte titulo="Dias trabalhados" valor={diarias}>
         <Campo label="Quantas diárias">
+          {/* Texto com teclado de números: a meia diária se digita "1,5", e o
+              `type="number"` devolvia vazio para a vírgula no celular. */}
           <input
-            type="number"
-            step="0.5"
-            min="0"
+            inputMode="decimal"
             value={quantidade}
-            onChange={(e) => setQuantidade(e.target.value)}
+            onChange={(e) => setQuantidade(soFracao(e.target.value))}
             className="campo"
+            autoComplete="off"
           />
         </Campo>
         <Campo label="Valor do dia (R$)">
@@ -1495,7 +1496,7 @@ function FormularioDiaria({
           onClick={() =>
             onConfirmar({
               data,
-              quantidade: Number(quantidade) || 0,
+              quantidade: numeroDigitado(quantidade) || 0,
               valorDiaria: valorDiaria || undefined,
               vendas: Number(vendas) || 0,
               valorPorVenda: valorPorVenda || undefined,

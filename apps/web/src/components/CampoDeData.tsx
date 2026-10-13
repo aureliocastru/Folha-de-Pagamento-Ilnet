@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useCelular } from '../lib/celular';
+import { useLugarDoPainel } from '../lib/lugar-do-painel';
 
 /**
  * Uma data, com calendário desta casa.
@@ -150,31 +151,9 @@ function Calendario({
     const base = escolhido ?? new Date();
     return new Date(base.getFullYear(), base.getMonth(), 1);
   });
-  const [lugar, setLugar] = useState<{ left: number; top: number } | null>(null);
-
-  // Onde ele cai, medido antes da pintura; sem espaço embaixo, sobe.
-  useLayoutEffect(() => {
-    if (!ancora) return;
-    const medir = () => {
-      const r = ancora.getBoundingClientRect();
-      const altura = painel.current?.offsetHeight ?? 340;
-      const largura = painel.current?.offsetWidth ?? 300;
-      setLugar({
-        left: Math.max(8, Math.min(r.left, window.innerWidth - largura - 8)),
-        top:
-          r.bottom + altura + 8 < window.innerHeight
-            ? r.bottom + 4
-            : Math.max(8, r.top - altura - 4),
-      });
-    };
-    medir();
-    window.addEventListener('resize', medir);
-    window.addEventListener('scroll', medir, true);
-    return () => {
-      window.removeEventListener('resize', medir);
-      window.removeEventListener('scroll', medir, true);
-    };
-  }, [ancora]);
+  // Embaixo do campo, ou em cima se não couber, e nunca atrás do teclado de
+  // quem está digitando a data — ver `useLugarDoPainel`.
+  const lugar = useLugarDoPainel(ancora, painel, { larguraDoPainel: true });
 
   // Digitando com o calendário aberto, ele acompanha: escrever 07/11 leva o
   // mês para novembro, em vez de deixar setembro à mostra dizendo outra coisa.
@@ -203,8 +182,8 @@ function Calendario({
       <div onClick={onFechar} aria-hidden className="fixed inset-0 z-[55]" />
       <div
         ref={painel}
-        style={lugar ? { left: lugar.left, top: lugar.top } : { left: -9999, top: 0 }}
-        className="fixed z-[56] w-[19rem] rounded-2xl border border-tinta-200 bg-papel p-3 shadow-2xl"
+        style={lugar}
+        className="rolagem-fina fixed z-[56] w-[19rem] max-w-[calc(100vw-1rem)] overflow-y-auto rounded-2xl border border-tinta-200 bg-papel p-3 shadow-2xl"
       >
         <div className="mb-2 flex items-center justify-between gap-2">
           <SetaDoMes para={-1} onClick={() => setMes(mesVizinho(mes, -1))} />

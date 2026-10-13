@@ -27,6 +27,7 @@ import {
   type ResultadoDaGravacao,
 } from '../../lib/os';
 import { VoltarAoInicio } from '../apr/Campo';
+import { useTecladoAberto } from '../../lib/teclado';
 
 /**
  * As ordens de serviço no celular do técnico.
@@ -156,6 +157,7 @@ export function CampoOs() {
   const [resultado, setResultado] = useState<{ tom: 'pago' | 'atencao' | 'erro'; texto: string } | null>(
     null,
   );
+  const teclado = useTecladoAberto();
 
   const aberta = useQuery({
     queryKey: chave,
@@ -297,8 +299,9 @@ export function CampoOs() {
             )}
           </section>
 
-          {aEnviar > 0 && !recusa && (
-            <div className="fixed inset-x-0 bottom-0 z-30 border-t border-tinta-200 bg-papel/95 px-4 py-3 backdrop-blur">
+          {/* Digitando, a barra sai da frente do campo — ver `useTecladoAberto`. */}
+          {aEnviar > 0 && !recusa && !teclado && (
+            <div className="fixed inset-x-0 bottom-0 z-30 border-t border-tinta-200 bg-papel/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
               <div className="mx-auto max-w-3xl">
                 <button
                   type="button"

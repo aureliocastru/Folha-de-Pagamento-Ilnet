@@ -29,6 +29,7 @@ import {
   type DefinirMarcacoes,
   type Marcacao,
 } from './marcar';
+import { useTecladoAberto } from '../../lib/teclado';
 
 /**
  * A APR sendo preenchida.
@@ -510,9 +511,12 @@ function Rodape({
   onLiberar: () => void;
 }) {
   const ultimo = passo === PASSOS.length - 1;
+  // Digitando, a barra sai da frente do campo — ver `useTecladoAberto`.
+  const teclado = useTecladoAberto();
+  if (teclado) return null;
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-tinta-200 bg-papel/95 backdrop-blur">
+    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-tinta-200 bg-papel/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
       <div className="mx-auto w-full max-w-3xl px-4 py-3">
         {erro && (
           <p className="mb-2.5 rounded-xl bg-rose-50 px-3.5 py-2.5 text-[13px] text-rose-700 dark:bg-rose-500/15 dark:text-rose-200">

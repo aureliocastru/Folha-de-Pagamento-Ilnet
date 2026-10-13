@@ -1,10 +1,11 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api, mensagemErro } from '../lib/api';
 import { semAcento } from '../lib/busca';
 import { emArvore } from '../lib/categorias';
 import type { CategoriaDespesa } from '../lib/types';
+import { useLugarDoPainel } from '../lib/lugar-do-painel';
 
 /** Uma opção de fora do cadastro — hoje só o "— tirar a categoria —". */
 export interface OpcaoExtra {
@@ -290,40 +291,12 @@ function ListaDeCategorias({
   onFechar: () => void;
 }) {
   const painel = useRef<HTMLDivElement>(null);
-  const [lugar, setLugar] = useState<{
-    left: number;
-    top: number;
-    width: number;
-  } | null>(null);
-
   /*
-   * Onde a lista cai. Medido depois da montagem e antes da pintura, para ela
-   * não aparecer no canto da tela antes de saltar para o lugar.
-   *
-   * Se não couber embaixo do campo, ela sobe: numa linha de tabela lá no pé da
-   * página, "embaixo" é fora da janela.
+   * Onde a lista cai: embaixo do campo, ou em cima se não couber — numa linha
+   * de tabela lá no pé da página, "embaixo" é fora da janela —, e nunca atrás
+   * do teclado (ver `useLugarDoPainel`).
    */
-  useLayoutEffect(() => {
-    if (!ancora) return;
-    const medir = () => {
-      const r = ancora.getBoundingClientRect();
-      const altura = painel.current?.offsetHeight ?? 320;
-      const cabeEmbaixo = r.bottom + altura + 8 < window.innerHeight;
-      setLugar({
-        left: Math.max(8, Math.min(r.left, window.innerWidth - r.width - 8)),
-        top: cabeEmbaixo ? r.bottom + 4 : Math.max(8, r.top - altura - 4),
-        width: Math.max(r.width, 260),
-      });
-    };
-    medir();
-    window.addEventListener('resize', medir);
-    // `true` para pegar a rolagem de qualquer container, e não só a da página.
-    window.addEventListener('scroll', medir, true);
-    return () => {
-      window.removeEventListener('resize', medir);
-      window.removeEventListener('scroll', medir, true);
-    };
-  }, [ancora]);
+  const lugar = useLugarDoPainel(ancora, painel, { larguraMinima: 260, remedir: busca });
 
   useEffect(() => {
     const aoTeclar = (e: KeyboardEvent) => {
@@ -371,14 +344,10 @@ function ListaDeCategorias({
       <div
         ref={painel}
         role="listbox"
-        style={
-          lugar
-            ? { left: lugar.left, top: lugar.top, width: lugar.width }
-            : { left: -9999, top: 0 }
-        }
-        className={`fixed z-[56] overflow-hidden rounded-xl border border-tinta-200 bg-papel shadow-2xl`}
+        style={lugar}
+        className="fixed z-[56] flex flex-col overflow-hidden rounded-xl border border-tinta-200 bg-papel shadow-2xl"
       >
-        <div className="border-b border-tinta-200 p-2">
+        <div className="shrink-0 border-b border-tinta-200 p-2">
           {/* No computador a busca já abre com o cursor: digitar é o jeito
               mais rápido de achar. Na tela de toque, não — o foco levanta o
               teclado, que cobre metade da lista que se abriu para ser vista.
@@ -393,7 +362,7 @@ function ListaDeCategorias({
           />
         </div>
 
-        <div className={`rolagem-fina overflow-y-auto ${ALTURA_DA_LISTA}`}>
+        <div className={`rolagem-fina min-h-0 overflow-y-auto ${ALTURA_DA_LISTA}`}>
           {termo ? (
             achados.length === 0 ? (
               <p className="px-3 py-6 text-center text-sm text-tinta-400">

@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { semAcento } from '../lib/busca';
+import { useLugarDoPainel } from '../lib/lugar-do-painel';
 
 export interface OpcaoComBusca {
   /** O que vai para o `onChange`. */
@@ -120,31 +121,6 @@ function Lista({
   const [busca, setBusca] = useState('');
   /** A linha que o Enter escolhe — as setas do teclado a movem. */
   const [destaque, setDestaque] = useState(0);
-  const [lugar, setLugar] = useState<{ left: number; top: number; width: number } | null>(null);
-
-  // Onde a lista cai, medido antes da pintura; sem espaço embaixo, ela sobe.
-  useLayoutEffect(() => {
-    if (!ancora) return;
-    const medir = () => {
-      const r = ancora.getBoundingClientRect();
-      const altura = painel.current?.offsetHeight ?? 360;
-      const cabeEmbaixo = r.bottom + altura + 8 < window.innerHeight;
-      const largura = Math.min(Math.max(r.width, 280), window.innerWidth - 16);
-      setLugar({
-        left: Math.max(8, Math.min(r.left, window.innerWidth - largura - 8)),
-        top: cabeEmbaixo ? r.bottom + 4 : Math.max(8, r.top - altura - 4),
-        width: largura,
-      });
-    };
-    medir();
-    window.addEventListener('resize', medir);
-    window.addEventListener('scroll', medir, true);
-    return () => {
-      window.removeEventListener('resize', medir);
-      window.removeEventListener('scroll', medir, true);
-    };
-  }, [ancora]);
-
   const termo = semAcento(busca.trim());
   const achadas = termo
     ? opcoes.filter((o) => semAcento(o.rotulo).includes(termo))
@@ -156,6 +132,8 @@ function Lista({
     ...achadas,
   ];
   const marcada = Math.min(destaque, Math.max(0, linhas.length - 1));
+  // Junto do campo, e nunca atrás do teclado — ver `useLugarDoPainel`.
+  const lugar = useLugarDoPainel(ancora, painel, { larguraMinima: 280, remedir: linhas.length });
 
   // A linha em destaque acompanha as setas, sem sair da área visível.
   useEffect(() => {
@@ -191,10 +169,10 @@ function Lista({
         ref={painel}
         role="listbox"
         onKeyDown={aoTeclar}
-        style={lugar ? { left: lugar.left, top: lugar.top, width: lugar.width } : { left: -9999, top: 0 }}
-        className="fixed z-[56] overflow-hidden rounded-xl border border-tinta-200 bg-papel shadow-2xl"
+        style={lugar}
+        className="fixed z-[56] flex flex-col overflow-hidden rounded-xl border border-tinta-200 bg-papel shadow-2xl"
       >
-        <div className="border-b border-tinta-200 p-2">
+        <div className="shrink-0 border-b border-tinta-200 p-2">
           <input
             autoFocus={!TELA_DE_TOQUE}
             value={busca}
@@ -209,7 +187,7 @@ function Lista({
           />
         </div>
 
-        <div className="rolagem-fina max-h-[19rem] overflow-y-auto">
+        <div className="rolagem-fina max-h-[19rem] min-h-0 overflow-y-auto">
           {linhas.length === 0 ? (
             <p className="px-3 py-6 text-center text-sm text-tinta-400">
               Nada com esse nome.

@@ -1,6 +1,7 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { semAcento } from '../lib/busca';
+import { useLugarDoPainel } from '../lib/lugar-do-painel';
 
 interface Props {
   value: string;
@@ -136,43 +137,16 @@ function ListaDeSugestoes({
   onEscolher: (s: string) => void;
 }) {
   const painel = useRef<HTMLUListElement>(null);
-  const [lugar, setLugar] = useState<{
-    left: number;
-    top: number;
-    width: number;
-  } | null>(null);
-
-  useLayoutEffect(() => {
-    if (!ancora) return;
-    const medir = () => {
-      const r = ancora.getBoundingClientRect();
-      const altura = painel.current?.offsetHeight ?? 240;
-      const cabeEmbaixo = r.bottom + altura + 8 < window.innerHeight;
-      setLugar({
-        left: r.left,
-        top: cabeEmbaixo ? r.bottom + 4 : Math.max(8, r.top - altura - 4),
-        width: r.width,
-      });
-    };
-    medir();
-    window.addEventListener('resize', medir);
-    window.addEventListener('scroll', medir, true);
-    return () => {
-      window.removeEventListener('resize', medir);
-      window.removeEventListener('scroll', medir, true);
-    };
-  }, [ancora, opcoes.length]);
+  // Quem vê as sugestões está digitando: no celular o teclado está aberto, e
+  // embaixo do campo é debaixo das teclas. Ver `useLugarDoPainel`.
+  const lugar = useLugarDoPainel(ancora, painel, { alturaMaxima: 240, remedir: opcoes.length });
 
   return createPortal(
     <ul
       ref={painel}
       role="listbox"
-      style={
-        lugar
-          ? { left: lugar.left, top: lugar.top, width: lugar.width }
-          : { left: -9999, top: 0 }
-      }
-      className="rolagem-fina fixed z-[70] max-h-60 overflow-y-auto rounded-xl border border-tinta-200 bg-papel py-1 shadow-2xl"
+      style={lugar}
+      className="rolagem-fina fixed z-[70] overflow-y-auto rounded-xl border border-tinta-200 bg-papel py-1 shadow-2xl"
     >
       {opcoes.map((s, i) => (
         <li

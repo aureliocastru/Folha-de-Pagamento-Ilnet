@@ -1068,6 +1068,7 @@ function FormularioDaCompra({
                 <input
                   id={`parc-${cartaoId}`}
                   type="number"
+                  inputMode="numeric"
                   min={1}
                   max={99}
                   value={parcela}
@@ -1085,6 +1086,7 @@ function FormularioDaCompra({
               <input
                 id={`qtd-${cartaoId}`}
                 type="number"
+                inputMode="numeric"
                 min={1}
                 max={99}
                 value={parcelas}
@@ -1416,6 +1418,7 @@ function CadastroDoCartao({
           <input
             id="cartao-vencimento"
             type="number"
+            inputMode="numeric"
             min={1}
             max={31}
             value={diaDeVencimento}

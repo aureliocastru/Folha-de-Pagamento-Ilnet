@@ -1609,6 +1609,7 @@ function CadastroDoEndereco({
           <input
             id="cc-chegada"
             type="number"
+            inputMode="numeric"
             min={1}
             max={31}
             value={diaDeChegada}
@@ -1628,6 +1629,7 @@ function CadastroDoEndereco({
           <input
             id="cc-vencimento"
             type="number"
+            inputMode="numeric"
             min={1}
             max={31}
             value={diaDeVencimento}
@@ -2019,6 +2021,7 @@ function ImportarDoHistorico({
                           palpite bem informado, não um dado do cadastro. */}
                       <input
                         type="number"
+                        inputMode="numeric"
                         min={1}
                         max={31}
                         value={

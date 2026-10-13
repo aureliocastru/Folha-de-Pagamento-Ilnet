@@ -14,7 +14,7 @@ import {
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { combina } from '../../lib/busca';
-import { formatData, formatPrecoUnitario } from '../../lib/format';
+import { formatData, formatPrecoUnitario, numeroDigitado, soFracao } from '../../lib/format';
 import { CampoDeData } from '../../components/CampoDeData';
 import type {
   FornecedorCotacao,
@@ -555,7 +555,7 @@ function FormularioDePreco({
           fornecedorId,
           valor: Number(valor),
           data,
-          quantidadeMinima: minima ? Number(minima) : undefined,
+          quantidadeMinima: minima ? numeroDigitado(minima) : undefined,
           observacao: observacao.trim() || undefined,
         });
         setValor('');
@@ -628,12 +628,9 @@ function FormularioDePreco({
               </label>
               <input
                 id="preco-minima"
-                type="number"
-                min="0"
-                step="any"
                 inputMode="decimal"
                 value={minima}
-                onChange={(e) => setMinima(e.target.value)}
+                onChange={(e) => setMinima(soFracao(e.target.value))}
                 className="campo"
                 placeholder={`em ${unidade} — vazio = qualquer`}
               />

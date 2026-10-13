@@ -577,6 +577,7 @@ function VariaveisMesBloco({
           <label className="rotulo">Vendas no mês</label>
           <input
             type="number"
+            inputMode="numeric"
             min={0}
             value={vendas}
             onChange={(e) => setVendas(e.target.value)}
