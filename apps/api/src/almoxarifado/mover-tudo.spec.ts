@@ -424,7 +424,13 @@ describe('TransferenciasService', () => {
           new Map(ids.flatMap((id) => (CADASTROS.has(id) ? [[id, CADASTROS.get(id)!]] : []))),
       ),
     };
-    const service = new TransferenciasService(ixc as never, estoque as never, produtos as never);
+    const config = { obter: async () => ({ empresaNome: 'ILNET', empresaCnpj: '' }) };
+    const service = new TransferenciasService(
+      ixc as never,
+      estoque as never,
+      produtos as never,
+      config as never,
+    );
     service.pausaAntesDeRepetirMs = 0;
     return { service, ixc, concorrencia };
   }
@@ -573,6 +579,37 @@ describe('TransferenciasService', () => {
       expect.objectContaining({ id_produto: '10', qtde: '5.00000' }),
     );
     expect(ixc.create).toHaveBeenCalledTimes(3); // a transferência e os dois itens
+  });
+
+  it('o comprovante sai quando ela termina, com quem fez e a etiqueta de cada peça', async () => {
+    const { service } = montar();
+    const inicio = await service.iniciar(
+      {
+        de: 29,
+        para: 1,
+        observacao: ' kit da van ',
+        produtos: [{ produtoId: 10, quantidade: 5 }],
+        patrimonios: [1],
+      },
+      eu,
+    );
+    await expect(service.comprovante(inicio.id)).rejects.toThrow(/ainda está rodando/);
+
+    const fim = await terminar(service, inicio);
+    expect(fim).toMatchObject({ por: 'Administrador', observacao: 'kit da van' });
+    expect(fim.movidos.find((m) => m.chave === 'patrimonio-1')).toMatchObject({
+      quantidade: 1,
+      peca: { numeroPatrimonial: 'PAT1', mac: 'AA:BB:CC:00:00:01', numeroSerie: 'HWTC1' },
+    });
+    expect(fim.movidos.find((m) => m.chave === 'produto-10')).toMatchObject({
+      produtoId: 10,
+      quantidade: 5,
+      peca: null,
+    });
+
+    const { nome, conteudo } = await service.comprovante(inicio.id);
+    expect(nome).toBe('Comprovante da transferência 77.pdf');
+    expect(conteudo.subarray(0, 5).toString('latin1')).toBe('%PDF-');
   });
 
   it('recusa a lista que não bate com a origem — antes de abrir a transferência', async () => {

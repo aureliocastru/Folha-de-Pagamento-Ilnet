@@ -354,6 +354,17 @@ export function IconeMais({ className }: IconeProps) {
   );
 }
 
+/** A caixa com a seta saindo: mandar o arquivo pelo WhatsApp, e-mail… */
+export function IconeCompartilhar({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M12 3.5v11" />
+      <path d="m8 7.5 4-4 4 4" />
+      <path d="M6 11.5H5.5a1.5 1.5 0 0 0-1.5 1.5v6a1.5 1.5 0 0 0 1.5 1.5h13a1.5 1.5 0 0 0 1.5-1.5v-6a1.5 1.5 0 0 0-1.5-1.5H18" />
+    </svg>
+  );
+}
+
 /** A lupa: procurar o que foi digitado no campo ao lado. */
 export function IconeLupa({ className }: IconeProps) {
   return (

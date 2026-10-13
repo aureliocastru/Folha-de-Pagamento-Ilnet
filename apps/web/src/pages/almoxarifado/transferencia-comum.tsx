@@ -1,7 +1,9 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { IconeCompartilhar } from '../../components/icones';
 import { Aviso } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { abrirNumaAba, motivoDoErroEmArquivo } from '../../lib/arquivo';
 import { formatData, hojeEmBrasilia } from '../../lib/format';
 import type {
   AndamentoDaTransferencia,
@@ -214,6 +216,8 @@ export function Andamento({
         </Aviso>
       )}
 
+      {a.status !== 'rodando' && a.movidos.length > 0 && <Comprovante a={a} />}
+
       {a.falharam.length > 0 && (
         <div className="mb-3">
           <p className="mb-1 text-sm font-semibold text-rose-700 dark:text-rose-300">
@@ -268,6 +272,97 @@ export function Andamento({
       )}
     </div>
   );
+}
+
+/**
+ * O comprovante da transferência terminada: o PDF que vai para quem recebe,
+ * com data, hora, quem mandou, para onde, e tombo, MAC e série de cada peça.
+ *
+ * O arquivo é buscado assim que ela termina, e não no toque: o celular só
+ * abre a janela de compartilhar enquanto o toque ainda vale, e depois de
+ * esperar a rede ele já não vale (a mesma lição de `abrirNumaAba`). Onde o
+ * navegador não compartilha arquivo, fica só o "Ver PDF".
+ */
+function Comprovante({ a }: { a: AndamentoDaTransferencia }) {
+  const [recusado, setRecusado] = useState(false);
+  const pdf = useQuery({
+    queryKey: ['almoxarifado', 'comprovante', a.id],
+    queryFn: async () => {
+      try {
+        const res = await api.get(`/almoxarifado/transferencias/${a.id}/comprovante`, {
+          responseType: 'blob',
+        });
+        return new File([res.data as BlobPart], nomeDoComprovante(a), {
+          type: 'application/pdf',
+        });
+      } catch (erro) {
+        throw new Error(await motivoDoErroEmArquivo(erro));
+      }
+    },
+    staleTime: Infinity,
+    retry: 1,
+  });
+  const arquivo = pdf.data;
+  const compartilha =
+    !!arquivo && typeof navigator.canShare === 'function' && navigator.canShare({ files: [arquivo] });
+
+  function compartilhar(f: File) {
+    setRecusado(false);
+    navigator.share({ files: [f], title: f.name }).catch((e: unknown) => {
+      // Fechar a janela de compartilhar sem escolher ninguém não é erro.
+      if (e instanceof DOMException && e.name === 'AbortError') return;
+      setRecusado(true);
+    });
+  }
+
+  return (
+    <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-tinta-100 px-3 py-2.5">
+      <span className="text-[13px] font-semibold text-tinta-800">
+        Comprovante <span className="num font-normal text-tinta-500">#{a.transferenciaId}</span>
+      </span>
+      {pdf.isPending ? (
+        <span className="text-[12px] text-tinta-400">Preparando…</span>
+      ) : pdf.isError ? (
+        <button type="button" onClick={() => void pdf.refetch()} className="btn btn-ferramenta btn-p">
+          Tentar de novo
+        </button>
+      ) : (
+        arquivo && (
+          <div className="flex flex-wrap gap-2">
+            {compartilha && (
+              <button type="button" onClick={() => compartilhar(arquivo)} className="btn btn-ok">
+                <IconeCompartilhar />
+                Compartilhar
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => void abrirNumaAba(async () => arquivo, arquivo.name)}
+              className="btn btn-ferramenta"
+            >
+              Ver PDF
+            </button>
+          </div>
+        )
+      )}
+      {pdf.isError && (
+        <p className="basis-full text-[12px] text-rose-600 dark:text-rose-300">
+          {mensagemErro(pdf.error)}
+        </p>
+      )}
+      {recusado && (
+        <p className="basis-full text-[12px] text-rose-600 dark:text-rose-300">
+          O aparelho não deixou compartilhar daqui. Abra em "Ver PDF" e compartilhe por lá.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** "Comprovante transferência 2931 - PRINCIPAL para VAN 2.pdf" — sem o que o nome de arquivo não aceita. */
+function nomeDoComprovante(a: AndamentoDaTransferencia): string {
+  const nome = `Comprovante transferência ${a.transferenciaId} - ${a.de.nome} para ${a.para.nome}`;
+  return `${nome.replace(/[\\/:*?"<>|#]+/g, '-').replace(/\s+/g, ' ').trim()}.pdf`;
 }
 
 export function FicamDeFora({ itens }: { itens: ConteudoDoAlmoxarifado['deFora'] }) {

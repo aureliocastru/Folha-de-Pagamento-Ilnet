@@ -12,8 +12,10 @@ import {
   Post,
   Query,
   Req,
+  Res,
+  StreamableFile,
 } from '@nestjs/common';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { transfereEntreAlmoxarifados } from '../colaborador/areas';
 import { AcertoDeNegativosService } from './acerto-negativos.service';
 import { AlmoxarifadosService } from './almoxarifados.service';
@@ -51,6 +53,15 @@ function ehSim(valor?: string): boolean {
 
 function nomeDoLogado(req: Request): string | undefined {
   return (req.user as { nome?: string } | undefined)?.nome;
+}
+
+/** O cabeçalho HTTP não carrega acento: a versão sem ele é a de reserva do nome do arquivo. */
+function nomeSemAcento(nome: string): string {
+  return nome
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/[^\x20-\x7E]/g, '_')
+    .replace(/"/g, '');
 }
 
 /** Quem está mexendo no IXC — vai para o log e para a observação da transferência. */
@@ -468,6 +479,28 @@ export class AlmoxarifadoController {
   @Get('transferencias/:id')
   andamentoDaTransferencia(@Param('id', ParseUUIDPipe) id: string) {
     return this.transferencias.andamento(id);
+  }
+
+  /**
+   * O comprovante da transferência terminada, em PDF — para mandar a quem
+   * recebe. `inline`: no computador abre na aba; no celular a tela o
+   * compartilha.
+   */
+  @Get('transferencias/:id/comprovante')
+  async comprovanteDaTransferencia(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const { nome, conteudo } = await this.transferencias.comprovante(id);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Length': String(conteudo.length),
+      'Content-Disposition':
+        `inline; filename="${nomeSemAcento(nome)}"; ` +
+        `filename*=UTF-8''${encodeURIComponent(nome)}`,
+      'Cache-Control': 'private, no-store',
+    });
+    return new StreamableFile(conteudo);
   }
 
   /** Uma transferência nova com o que a terminada não conseguiu levar. */

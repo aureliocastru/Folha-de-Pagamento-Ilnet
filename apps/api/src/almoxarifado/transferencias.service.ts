@@ -5,7 +5,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { EMPRESA_DO_PAPEL } from '../apr/modelo-ilnet';
+import { ConfigFinanceiraService } from '../financeiro/config-financeira.service';
 import { IxcClient } from '../ixc/ixc.client';
+import { gerarComprovantePdf, type ItemDoComprovante } from './comprovante-transferencia.pdf';
 import { numeroDoIxc } from './estoque.mapper';
 import { EstoqueService } from './estoque.service';
 import {
@@ -48,10 +51,12 @@ export interface ConteudoDoAlmoxarifado {
   deFora: ItemDeFora[];
 }
 
-/** Uma linha do resultado: o que foi (ou não foi), dito para gente ler. */
-interface LinhaDoResultado {
+/**
+ * Uma linha do resultado: o que foi (ou não foi), dito para gente ler — e o
+ * item inteiro, com a etiqueta da peça, que é o que o comprovante imprime.
+ */
+interface LinhaDoResultado extends ItemDoComprovante {
   chave: string;
-  descricao: string;
   /** "40 UND" ou "nº 00123 · MAC …". */
   detalhe: string;
 }
@@ -65,6 +70,10 @@ export interface AndamentoDaTransferencia {
   transferenciaId: number;
   /** O dia dela no IXC, "AAAA-MM-DD" — hoje, ou o de antes que se escolheu. */
   data: string;
+  /** Quem fez, pelo login — vai no comprovante. */
+  por: string;
+  /** A observação digitada, sem o que o sistema acrescenta para o IXC. */
+  observacao: string | null;
   status: 'rodando' | 'terminou' | 'falhou';
   total: number;
   feitos: number;
@@ -223,6 +232,7 @@ export class TransferenciasService {
     private readonly ixc: IxcClient,
     private readonly estoque: EstoqueService,
     private readonly produtos: ProdutosService,
+    private readonly config: ConfigFinanceiraService,
   ) {}
 
   /**
@@ -580,6 +590,8 @@ export class TransferenciasService {
         para: { id: destino.id, nome: destino.nome },
         transferenciaId,
         data: dia.split('/').reverse().join('-'),
+        por: quem.nome,
+        observacao: pedido.observacao?.trim() || null,
         status: 'rodando',
         total: itens.length,
         feitos: 0,
@@ -616,6 +628,40 @@ export class TransferenciasService {
       );
     }
     return a;
+  }
+
+  /**
+   * O comprovante da transferência terminada, em PDF — o que se manda para
+   * quem recebe. Sai do andamento guardado aqui, que vive uma hora (ver
+   * `GUARDA_MS`); passado isso, o registro é a transferência no IXC.
+   */
+  async comprovante(id: string): Promise<{ nome: string; conteudo: Buffer }> {
+    const a = this.andamento(id);
+    if (a.status === 'rodando') {
+      throw new BadRequestException(
+        'A transferência ainda está rodando. O comprovante sai quando ela terminar.',
+      );
+    }
+    if (a.movidos.length === 0) {
+      throw new BadRequestException('Nada foi movido nesta transferência — não há o que comprovar.');
+    }
+    // O mesmo timbre da APR: a empresa da configuração, ou a do papel.
+    const cfg = await this.config.obter();
+    const conteudo = await gerarComprovantePdf({
+      empresaNome: cfg.empresaNome.trim() || EMPRESA_DO_PAPEL.nome,
+      empresaCnpj: cfg.empresaCnpj.trim() || EMPRESA_DO_PAPEL.cnpj,
+      transferenciaId: a.transferenciaId,
+      de: a.de.nome,
+      para: a.para.nome,
+      por: a.por,
+      feitaEm: new Date(a.iniciadoEm),
+      data: a.data,
+      observacao: a.observacao,
+      enviados: a.movidos,
+      recusados: a.falharam.map((f) => ({ ...f, talvezTenhaIdo: f.jaSaiu })),
+      parouNoMeio: a.status === 'falhou' ? (a.erro ?? 'erro sem descrição') : null,
+    });
+    return { nome: `Comprovante da transferência ${a.transferenciaId}.pdf`, conteudo };
   }
 
   /**
@@ -936,11 +982,24 @@ function linhaDe(i: ItemDaTransferencia): LinhaDoResultado {
         chave: `produto-${i.item.produtoId}`,
         descricao: i.item.descricao,
         detalhe: `${i.quantidade} ${i.item.unidadeSigla}`,
+        produtoId: i.item.produtoId,
+        quantidade: i.quantidade,
+        unidade: i.item.unidadeSigla,
+        peca: null,
       }
     : {
         chave: `patrimonio-${i.peca.patrimonioId}`,
         descricao: i.peca.descricao,
         detalhe: identificacao(i.peca),
+        produtoId: i.peca.produtoId,
+        quantidade: 1,
+        unidade: i.peca.unidadeSigla,
+        peca: {
+          patrimonioId: i.peca.patrimonioId,
+          numeroPatrimonial: i.peca.numeroPatrimonial,
+          mac: i.peca.mac,
+          numeroSerie: i.peca.numeroSerie,
+        },
       };
 }
 

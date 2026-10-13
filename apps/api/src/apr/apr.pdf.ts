@@ -77,7 +77,7 @@ const FAIXA = '#eef4fb';
 const ALERTA = '#b91c1c';
 
 /** O caminho da logo. Ao lado do arquivo compilado — ver o `nest-cli.json`. */
-const LOGO = path.join(__dirname, 'logo-ilnet.png');
+export const LOGO = path.join(__dirname, 'logo-ilnet.png');
 
 export function gerarAprPdf(d: DadosDaApr): Promise<Buffer> {
   const doc = new PDFDocument({
