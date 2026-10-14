@@ -7,6 +7,7 @@ import {
   MODULO_ALMOXARIFADO,
   MODULO_FOLHA,
   MODULO_OS,
+  MODULO_PATROCINIO,
   MODULO_PONTUACAO,
   MODULO_RH,
   MODULO_SEGURANCA,
@@ -32,6 +33,7 @@ const CampoPontuacao = telaSobDemanda(() => import('./pages/apr/Campo').then((m)
 const CampoPontuar = telaSobDemanda(() => import('./pages/apr/Campo').then((m) => m.CampoPontuar));
 const Formularios = telaSobDemanda(() => import('./pages/apr/Formularios').then((m) => m.Formularios));
 const Assinar = telaSobDemanda(() => import('./pages/Assinar').then((m) => m.Assinar));
+const AssinarContrato = telaSobDemanda(() => import('./pages/AssinarContrato').then((m) => m.AssinarContrato));
 const CampoMinhasOs = telaSobDemanda(() => import('./pages/os/NoCampo').then((m) => m.CampoMinhasOs));
 const CampoOs = telaSobDemanda(() => import('./pages/os/NoCampo').then((m) => m.CampoOs));
 const MateriaisDeOs = telaSobDemanda(() => import('./pages/os/Materiais').then((m) => m.Materiais));
@@ -87,6 +89,9 @@ const RecibosDaFolha = telaSobDemanda(() => import('./pages/rh/RecibosDaFolha').
 const AjustesDaContabilidade = telaSobDemanda(() => import('./pages/contabilidade/Ajustes').then((m) => m.AjustesDaContabilidade));
 const MesDaContabilidade = telaSobDemanda(() => import('./pages/contabilidade/Mes').then((m) => m.MesDaContabilidade));
 const MesesDaContabilidade = telaSobDemanda(() => import('./pages/contabilidade/Meses').then((m) => m.MesesDaContabilidade));
+const Patrocinados = telaSobDemanda(() => import('./pages/patrocinio/Patrocinados').then((m) => m.Patrocinados));
+const PatrocinadoAberto = telaSobDemanda(() => import('./pages/patrocinio/Patrocinado').then((m) => m.PatrocinadoAberto));
+const ContratoPadrao = telaSobDemanda(() => import('./pages/patrocinio/ContratoPadrao').then((m) => m.ContratoPadrao));
 
 function Protegida({ children }: { children: ReactNode }) {
   const { usuario, carregando } = useAuth();
@@ -149,6 +154,7 @@ const TELAS_DO_MODULO: Record<string, Array<{ preCarregar: () => void }>> = {
   campo: [CampoMinhasOs, MinhaConta],
   pontuacao: [Pontuar, Motivos, Coordenadores, MinhaConta],
   contabilidade: [MesesDaContabilidade, MesDaContabilidade, AjustesDaContabilidade, MinhaConta],
+  patrocinio: [Patrocinados, PatrocinadoAberto, ContratoPadrao, MinhaConta],
 };
 
 function usePreCarregarOModulo() {
@@ -183,6 +189,9 @@ export default function App() {
       {/* Quem recebeu o dinheiro assina aqui. Fora do login de propósito: o
           diarista não tem conta no sistema, e o link é a credencial dele. */}
       <Route path="/assinar/:token" element={<Assinar />} />
+      {/* O patrocinado assina o contrato aqui, pelo mesmo motivo: sem conta,
+          com o link. */}
+      <Route path="/assinar-contrato/:token" element={<AssinarContrato />} />
 
       {/* O portal de pontos: fora do login do sistema de propósito. O
           coordenador entra com CPF e senha, o funcionário só com o CPF — nenhum
@@ -413,6 +422,24 @@ export default function App() {
         <Route path="nova" element={<CampoNova />} />
         <Route path="minha-conta" element={<MinhaConta />} />
         <Route path=":id" element={<CampoApr />} />
+      </Route>
+
+      {/* Patrocinadores — quem a ILNET patrocina. O pagamento sai pela aba
+          Diaristas da folha; aqui ficam o contato, o que já se mandou, o
+          contrato e os arquivos. */}
+      <Route
+        path="/patrocinio"
+        element={
+          <Protegida>
+            <Layout modulo={MODULO_PATROCINIO} />
+          </Protegida>
+        }
+      >
+        <Route index element={<Navigate to="patrocinados" replace />} />
+        <Route path="patrocinados" element={<Patrocinados />} />
+        <Route path="patrocinados/:id" element={<PatrocinadoAberto />} />
+        <Route path="contrato" element={<ContratoPadrao />} />
+        <Route path="minha-conta" element={<MinhaConta />} />
       </Route>
 
       {/* Pontuação por dentro — só ADMIN, e sem login novo. */}

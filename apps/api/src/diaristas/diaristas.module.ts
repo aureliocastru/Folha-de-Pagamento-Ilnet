@@ -12,5 +12,7 @@ import { DiaristasService } from './diaristas.service';
   imports: [IxcModule, FinanceiroModule, ContasAbertasModule],
   controllers: [DiaristasController],
   providers: [DiaristasService],
+  // O patrocínio cadastra quem recebe pelo mesmo caminho daqui.
+  exports: [DiaristasService],
 })
 export class DiaristasModule {}

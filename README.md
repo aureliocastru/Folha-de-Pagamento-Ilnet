@@ -11,6 +11,7 @@ organizado em módulos. Depois do login você escolhe em qual trabalhar:
 | Ordens de Serviço     | `/os`           | O que o técnico instala, retira e gasta em cada OS do IXC   |
 | RH                    | `/rh`           | A estante de documentos: a pasta de cada funcionário        |
 | Segurança do Trabalho | `/seguranca`    | As análises de risco (APR) dos serviços e o formulário      |
+| Patrocinadores        | `/patrocinio`   | Quem a ILNET patrocina: contato, pagamentos, contrato e arquivos |
 | — (tela do técnico)   | `/campo`        | A APR e as OS no celular, para quem trabalha em campo       |
 
 Um módulo novo se declara em `apps/web/src/lib/modulos.ts` — o cartão na tela

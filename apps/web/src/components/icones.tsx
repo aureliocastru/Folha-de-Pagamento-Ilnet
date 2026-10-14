@@ -591,3 +591,14 @@ export function IconeRecolhido({ className }: IconeProps) {
     </svg>
   );
 }
+
+/** O megafone: quem a casa patrocina leva a marca dela adiante. */
+export function IconeMegafone({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M4 10v4a1 1 0 0 0 1 1h2l8 4.5V4.5L7 9H5a1 1 0 0 0-1 1Z" />
+      <path d="M7 15l1.2 4.2a1 1 0 0 0 1 .8h1.3" />
+      <path d="M18.5 9.5a3.5 3.5 0 0 1 0 5" />
+    </svg>
+  );
+}

@@ -135,6 +135,9 @@ export class DiaristasService {
             contaPagar: { select: { status: true } },
           },
         },
+        // O patrocinado que recebe por este cadastro: a tela marca a linha e
+        // abre o pagamento já com o valor do mês combinado.
+        patrocinado: { select: { id: true, nome: true, valorMensal: true } },
       },
     });
 

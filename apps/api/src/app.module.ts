@@ -28,6 +28,7 @@ import { PontuacaoModule } from './pontuacao/pontuacao.module';
 import { ColaboradorModule } from './colaborador/colaborador.module';
 import { OsModule } from './os/os.module';
 import { ContabilidadeModule } from './contabilidade/contabilidade.module';
+import { PatrocinioModule } from './patrocinio/patrocinio.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { ModulosGuard } from './auth/modulos.guard';
 import { RolesGuard } from './auth/roles.guard';
@@ -66,6 +67,7 @@ import { HealthController } from './health/health.controller';
     ColaboradorModule,
     OsModule,
     ContabilidadeModule,
+    PatrocinioModule,
   ],
   controllers: [HealthController],
   providers: [

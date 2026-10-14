@@ -15,6 +15,7 @@ export const MODULOS = [
   'seguranca',
   'almoxarifado',
   'os',
+  'patrocinio',
 ] as const;
 export type ModuloId = (typeof MODULOS)[number];
 
@@ -47,8 +48,9 @@ const ESCRITA = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
  * O que não está aqui é livre: login, saúde, gerenciamento de usuários, o
  * bloco de notas (`agenda`, que abre em qualquer tela e é de quem escreveu), a
  * tela do colaborador (`colaborador`, que só devolve o que é de quem entrou),
- * as OS do técnico (`minhas-os`, idem) e a assinatura pública do recibo não
- * pertencem a módulo nenhum.
+ * as OS do técnico (`minhas-os`, idem) e as assinaturas públicas — do recibo
+ * e do contrato de patrocínio (`assinar-contrato`) — não pertencem a módulo
+ * nenhum.
  */
 const MODULO_DA_ROTA: Array<[string, ModuloId[]]> = [
   ['rh', ['rh']],
@@ -66,6 +68,10 @@ const MODULO_DA_ROTA: Array<[string, ModuloId[]]> = [
   // fica de fora de propósito: é da pessoa que entrou, como a tela do
   // colaborador, e quem decide é a marca "Ordens de serviço" da Minha área.
   ['os', ['os']],
+
+  // Quem a ILNET patrocina. O pagamento sai pela aba Diaristas, que é da
+  // folha: quem abre só o patrocínio vê o que já se mandou, e não paga.
+  ['patrocinios', ['patrocinio']],
 
   ['contas-abertas', ['contas-pagar']],
   ['pagamentos-feitos', ['contas-pagar']],

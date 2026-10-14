@@ -662,6 +662,8 @@ export interface Diarista {
   idFornecedorIxc: number | null;
   /** Veio da importação de fornecedores "Estrangeiro", não do cadastro à mão */
   importadoDoIxc: boolean;
+  /** O patrocinado que recebe por este cadastro (só na listagem) */
+  patrocinado?: { id: string; nome: string; valorMensal: string | null } | null;
 }
 
 export interface DiaristaComResumo {
@@ -2733,4 +2735,129 @@ export interface AReceber {
   /** Null = ainda deve. */
   recebidoEm: string | null;
   createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Patrocínio — quem a ILNET patrocina. O dinheiro sai pela aba Diaristas; aqui
+// se lê o que já saiu, e se guardam o contrato e os arquivos.
+// ---------------------------------------------------------------------------
+export interface Patrocinado {
+  id: string;
+  nome: string;
+  projeto: string | null;
+  cpfCnpj: string | null;
+  responsavel: string | null;
+  telefone: string | null;
+  email: string | null;
+  instagram: string | null;
+  cidade: string | null;
+  /** Decimal do Prisma: chega como texto */
+  valorMensal: string | null;
+  inicio: string | null;
+  fim: string | null;
+  observacoes: string | null;
+  ativo: boolean;
+  diaristaId: string | null;
+  createdAt: string;
+}
+
+export type SituacaoDoContrato = 'ASSINADO' | 'AGUARDANDO' | 'VENCIDO' | 'SEM_CONTRATO';
+export type SituacaoDoPagamento = 'PAGO' | 'AGUARDANDO' | 'NAO_SAIU';
+
+export interface ResumoDosPagamentos {
+  totalPago: number;
+  quantidadePagos: number;
+  totalAguardando: number;
+  ultimoPagamento: string | null;
+}
+
+export interface PatrocinadoNaLista extends ResumoDosPagamentos {
+  patrocinado: Patrocinado;
+  recebedor: { id: string; nome: string; ativo: boolean } | null;
+  contrato: SituacaoDoContrato;
+  arquivos: number;
+}
+
+export type OrigemDoContrato = 'LINK' | 'ESCANEADO';
+
+export interface ContratoDePatrocinio {
+  id: string;
+  origem: OrigemDoContrato;
+  token: string | null;
+  expiraEm: string | null;
+  assinadoEm: string | null;
+  nomeAssinante: string | null;
+  modo: ModoAssinatura;
+  arquivoNome: string | null;
+  arquivoTipo: string | null;
+  arquivoTamanho: number | null;
+  createdAt: string;
+  /** Só na consulta de um contrato (a janela do link) */
+  assinaturaPng?: string | null;
+}
+
+export interface ArquivoDoPatrocinado {
+  id: string;
+  titulo: string;
+  arquivoNome: string;
+  arquivoTipo: string;
+  arquivoTamanho: number;
+  createdAt: string;
+}
+
+export interface PagamentoAoPatrocinado {
+  id: string;
+  data: string;
+  valor: string;
+  descricao: string;
+  forma: FormaPagamento;
+  situacao: SituacaoDoPagamento;
+  reciboAssinado: boolean;
+}
+
+export interface FichaDoPatrocinado {
+  patrocinado: Patrocinado;
+  recebedor: {
+    id: string;
+    nome: string;
+    cpfCnpj: string | null;
+    chavePix: string | null;
+    formaPagamento: FormaPagamento;
+    ativo: boolean;
+  } | null;
+  contrato: SituacaoDoContrato;
+  contratos: ContratoDePatrocinio[];
+  arquivos: ArquivoDoPatrocinado[];
+  pagamentos: PagamentoAoPatrocinado[];
+  resumo: ResumoDosPagamentos;
+}
+
+/** Um diarista que pode receber por um patrocinado. */
+export interface RecebedorPossivel {
+  id: string;
+  nome: string;
+  nomeFantasia: string | null;
+  cpfCnpj: string | null;
+  patrocinado: { id: string; nome: string } | null;
+}
+
+export type BlocoDoContrato =
+  | { tipo: 'secao'; texto: string }
+  | { tipo: 'item'; texto: string }
+  | { tipo: 'paragrafo'; texto: string };
+
+/** O contrato como a tela pública (sem login) o mostra. */
+export interface ContratoPublico {
+  empresa: { nome: string; cnpj: string | null };
+  patrocinado: { nome: string; cpfCnpj: string | null; projeto: string | null };
+  quemAssina: string;
+  valorMensal: string | null;
+  inicio: string | null;
+  fim: string | null;
+  texto: string;
+  assinado: boolean;
+  assinadoEm: string | null;
+  assinaturaPng: string | null;
+  nomeAssinante: string | null;
+  modo: ModoAssinatura;
 }

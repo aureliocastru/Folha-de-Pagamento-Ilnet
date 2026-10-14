@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ColetarAssinatura } from '../../components/ColetarAssinatura';
 import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
 import {
@@ -49,6 +50,11 @@ type Cadastro = typeof CADASTRO_VAZIO;
 
 function hojeISO(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+/** "outubro de 2026" — o mês que o patrocínio paga. */
+function mesPorExtenso(): string {
+  return new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
 }
 
 /**
@@ -150,6 +156,12 @@ export function Diaristas() {
   const [pagando, setPagando] = useState<Diarista | null>(null);
   /** Diária cuja assinatura estamos coletando. */
   const [coletando, setColetando] = useState<Diaria | null>(null);
+  /**
+   * `?pagar=<id>`: quem chega da ficha do patrocinado vem pagar alguém
+   * específico, e a tela abre já no pagamento dele.
+   */
+  const [parametros, setParametros] = useSearchParams();
+  const pagarQuem = parametros.get('pagar');
 
   const categorias = useQuery({
     queryKey: ['categorias-despesa'],
@@ -391,6 +403,22 @@ export function Diaristas() {
 
   const itens = lista.data ?? [];
   const pendentes = itens.reduce((s, i) => s + i.pendentesNoCaixa, 0);
+
+  // A lista chega, o pagamento abre, e o parâmetro sai do endereço: voltar ou
+  // recarregar a página não reabre a janela de pagar.
+  useEffect(() => {
+    if (!pagarQuem || !lista.data) return;
+    const achado = lista.data.find((i) => i.diarista.id === pagarQuem)?.diarista;
+    if (achado?.ativo) setPagando(achado);
+    else avisar('Não achei esse diarista entre os ativos — confira o cadastro dele.', true);
+    setParametros(
+      (p) => {
+        p.delete('pagar');
+        return p;
+      },
+      { replace: true },
+    );
+  }, [pagarQuem, lista.data, setParametros]);
   const abertoDiarista = itens.find((i) => i.diarista.id === aberto)?.diarista;
   const editandoNovo = cadastro !== null && cadastro.id === null;
   const nomeValido = form.nome.trim().length >= 2;
@@ -654,6 +682,17 @@ export function Diaristas() {
                         <Selo tom="neutro" pequeno>
                           desativado
                         </Selo>
+                      )}
+                      {d.patrocinado && (
+                        <Link
+                          to={`/patrocinio/patrocinados/${d.patrocinado.id}`}
+                          onClick={(e) => e.stopPropagation()}
+                          title="Recebe o patrocínio da ILNET — abre a ficha do patrocinado"
+                        >
+                          <Selo tom="marca" pequeno>
+                            patrocínio: {d.patrocinado.nome}
+                          </Selo>
+                        </Link>
                       )}
                       {d.importadoDoIxc && (
                         <Selo
@@ -1310,14 +1349,20 @@ function FormularioDiaria({
 }) {
   const [data, setData] = useState(hojeISO());
   const [quantidade, setQuantidade] = useState('1');
-  const [valorDiaria, setValorDiaria] = useState(diarista.valorDiaria ?? '');
+  // O patrocinado recebe o combinado do mês, e é ele que já vem no valor.
+  const patrocinio = diarista.patrocinado;
+  const [valorDiaria, setValorDiaria] = useState(
+    diarista.valorDiaria ?? patrocinio?.valorMensal ?? '',
+  );
   const [vendas, setVendas] = useState('');
   const [valorPorVenda, setValorPorVenda] = useState(
     diarista.valorPorVenda ?? '',
   );
   const [valorExtra, setValorExtra] = useState('');
   const [descricaoExtra, setDescricaoExtra] = useState('');
-  const [descricao, setDescricao] = useState('');
+  const [descricao, setDescricao] = useState(() =>
+    patrocinio ? `Patrocínio ${patrocinio.nome} — ${mesPorExtenso()}` : '',
+  );
   const [forma, setForma] = useState<FormaPagamento>(diarista.formaPagamento);
   const [chavePix, setChavePix] = useState(diarista.chavePix ?? '');
   const [tipoChavePix, setTipoChavePix] = useState(diarista.tipoChavePix ?? '');

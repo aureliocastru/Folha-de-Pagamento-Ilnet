@@ -808,6 +808,10 @@ model Diarista {
   diarias     Diaria[]
   contasPagar ContaPagar[]
 
+  /// O patrocinado que recebe por este cadastro, quando é o caso. Ver o
+  /// modelo `Patrocinado`.
+  patrocinado Patrocinado?
+
   @@index([ativo])
   @@index([nome])
   @@index([nomeFantasia])
@@ -3688,4 +3692,173 @@ model ConfiguracaoContabil {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("configuracao_contabil")
+}
+
+// ---------------------------------------------------------------------------
+// Patrocínio — quem a ILNET patrocina.
+//
+// O atleta, o time de futsal, o grupo de dança: gente que leva a marca da casa
+// em troca de apoio. Três perguntas que não tinham lugar para morar: quem é e
+// como falo com ele, quanto já mandei e quando, e onde está o papel que ele
+// assinou.
+//
+// O dinheiro não passa por aqui. O patrocinado recebe pela aba Diaristas, como
+// quem trabalha por dia — conta a pagar no IXC ou em mãos, com recibo —, e é
+// por isso que cada um tem um cadastro de diarista ligado. Copiar o caminho
+// do pagamento para cá seria um segundo lugar para o IXC e a casa divergirem;
+// daqui se lê o que já saiu por lá.
+// ---------------------------------------------------------------------------
+model Patrocinado {
+  id String @id @default(uuid())
+
+  /// Como a casa chama o patrocinado: a pessoa ("Maria Clara") ou o projeto
+  /// ("Futsal Unidos do Bairro").
+  nome    String
+  /// O que se patrocina, em poucas palavras: "Atleta de jiu-jitsu", "Time de
+  /// vôlei sub-17". É o que aparece no contrato.
+  projeto String?
+  cpfCnpj String? @map("cpf_cnpj")
+
+  // --- Contato ---
+  /// Quem responde pelo patrocinado — o técnico do time, a mãe do atleta.
+  /// Vazio = o próprio patrocinado.
+  responsavel String?
+  telefone    String?
+  email       String?
+  /// O perfil que a ILNET acompanha (e que deve marcá-la nas publicações).
+  instagram   String?
+  cidade      String?
+
+  // --- O combinado ---
+  /// Quanto se combinou mandar por mês. Só referência: o que saiu de verdade
+  /// são as diárias pagas ao cadastro ligado.
+  valorMensal Decimal?  @map("valor_mensal") @db.Decimal(14, 2)
+  inicio      DateTime? @db.Date
+  fim         DateTime? @db.Date
+
+  observacoes String?
+  ativo       Boolean @default(true)
+
+  /// Por onde ele recebe. Único: um cadastro de diarista paga um patrocinado
+  /// só, ou a soma do que se mandou a cada um deixaria de fazer sentido.
+  ///
+  /// `SetNull` porque apagar o diarista não pode levar o histórico de
+  /// contratos e arquivos junto. O que sobra é um patrocinado sem por onde
+  /// receber, que a tela mostra e pede para ligar de novo.
+  diarista   Diarista? @relation(fields: [diaristaId], references: [id], onDelete: SetNull)
+  diaristaId String?   @unique @map("diarista_id")
+
+  contratos ContratoDePatrocinio[]
+  arquivos  ArquivoDoPatrocinado[]
+
+  criadoPor String?  @map("criado_por")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([ativo])
+  @@index([nome])
+  @@map("patrocinados")
+}
+
+/// De onde veio o contrato.
+enum OrigemDoContrato {
+  /// Assinado na tela, pelo link que a casa mandou — o caminho do patrocínio
+  /// novo
+  LINK
+  /// O papel assinado à mão, escaneado e guardado — o patrocínio de antes
+  ESCANEADO
+}
+
+/// Um contrato de patrocínio.
+///
+/// Os dois caminhos moram na mesma tabela porque a pergunta é uma só — "este
+/// patrocinado tem contrato?" — e a resposta não pode depender de lembrar de
+/// olhar em dois lugares.
+///
+/// O assinado pelo link guarda o texto e os dados como estavam quando o link
+/// foi gerado, igual ao recibo da diária: é exatamente isso que a pessoa lê
+/// antes de assinar, e o papel que ela assinou não pode mudar porque alguém
+/// corrigiu o contrato padrão ou o valor do cadastro depois. O PDF é montado
+/// desse retrato, a cada vez que se pede.
+///
+/// O escaneado guarda o arquivo, e só.
+model ContratoDePatrocinio {
+  id String @id @default(uuid())
+
+  patrocinado   Patrocinado @relation(fields: [patrocinadoId], references: [id], onDelete: Cascade)
+  patrocinadoId String      @map("patrocinado_id")
+
+  origem OrigemDoContrato
+
+  // --- Pelo link ---
+  /// Segredo que vai na URL pública. Quem tem o link assina — por isso ele é
+  /// sorteado grande e não serve mais depois de usado.
+  token    String?   @unique
+  expiraEm DateTime? @map("expira_em")
+
+  /// O contrato que a pessoa leu, congelado na hora do link.
+  texto           String?
+  nomePatrocinado String?   @map("nome_patrocinado")
+  cpfPatrocinado  String?   @map("cpf_patrocinado")
+  projeto         String?
+  valorMensal     Decimal?  @map("valor_mensal") @db.Decimal(14, 2)
+  inicio          DateTime? @db.Date
+  fim             DateTime? @db.Date
+  /// Quem patrocina, como sai no cabeçalho do contrato
+  empresaNome     String?   @map("empresa_nome")
+  empresaCnpj     String?   @map("empresa_cnpj")
+
+  /// PNG da assinatura, em data URL. Vazio até alguém assinar.
+  assinaturaPng String?        @map("assinatura_png")
+  modo          ModoAssinatura @default(DESENHADA)
+  /// Nome que a pessoa confirmou ser o dela ao assinar
+  nomeAssinante String?        @map("nome_assinante")
+  /// De onde veio a assinatura, para o caso de alguém contestar
+  ip            String?
+  userAgent     String?        @map("user_agent")
+
+  /// Quando foi assinado. No escaneado é o dia escrito no papel, quando se
+  /// sabe; vazio = não se sabe.
+  assinadoEm DateTime? @map("assinado_em")
+
+  // --- Escaneado ---
+  arquivoNome    String? @map("arquivo_nome")
+  arquivoTipo    String? @map("arquivo_tipo")
+  arquivoTamanho Int?    @map("arquivo_tamanho")
+  /// O conteúdo. Nunca vai numa listagem: só na rota que serve um por vez.
+  arquivo        Bytes?
+
+  criadoPor String?  @map("criado_por")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([patrocinadoId])
+  @@map("contratos_de_patrocinio")
+}
+
+/// Um arquivo guardado na ficha do patrocinado: a foto do evento com a camisa
+/// da ILNET, o print das publicações do mês, o RG do responsável.
+///
+/// Mora no banco pelo mesmo motivo do documento do RH: o backup é um só.
+model ArquivoDoPatrocinado {
+  id String @id @default(uuid())
+
+  patrocinado   Patrocinado @relation(fields: [patrocinadoId], references: [id], onDelete: Cascade)
+  patrocinadoId String      @map("patrocinado_id")
+
+  /// Como o arquivo é chamado na lista ("Publicações de setembro").
+  titulo String
+
+  arquivoNome    String @map("arquivo_nome")
+  arquivoTipo    String @map("arquivo_tipo")
+  /// Em bytes, para a lista dizer o tamanho sem ler o arquivo.
+  arquivoTamanho Int    @map("arquivo_tamanho")
+  /// O conteúdo. Nunca vai numa listagem: só na rota que serve um por vez.
+  arquivo        Bytes
+
+  criadoPor String?  @map("criado_por")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([patrocinadoId])
+  @@map("arquivos_do_patrocinado")
 }

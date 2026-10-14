@@ -15,6 +15,7 @@ import {
   IconeEtiqueta,
   IconeGuia,
   IconeMartelo,
+  IconeMegafone,
   IconeMoeda,
   IconeOs,
   IconePainel,
@@ -389,6 +390,32 @@ const contabilidade: Modulo = {
   ],
 };
 
+/**
+ * Patrocinadores — quem a ILNET patrocina.
+ *
+ * O atleta, o time, o grupo de dança: o contato, o que já se mandou e quando,
+ * o contrato que eles assinam e os arquivos de cada um. O dinheiro não sai
+ * daqui: o patrocinado recebe pela aba Diaristas da folha, e a ficha lê de lá
+ * o que já foi pago.
+ */
+const patrocinio: Modulo = {
+  id: 'patrocinio',
+  nome: 'Patrocinadores',
+  descricao:
+    'Quem a ILNET patrocina: contato, o que já se mandou, o contrato assinado ' +
+    'e os arquivos de cada um',
+  base: '/patrocinio',
+  inicio: 'patrocinados',
+  icone: IconeMegafone,
+  tom: 'bg-fuchsia-500/15 text-fuchsia-300',
+  papeis: ['ADMIN', 'RH', 'VISUALIZADOR'],
+  menu: [
+    { to: 'patrocinados', label: 'Patrocinados', icone: IconeMegafone },
+    // O texto que vai no link, para ler antes de mandar.
+    { to: 'contrato', label: 'Contrato padrão', icone: IconeDocumento },
+  ],
+};
+
 /** A ordem daqui é a ordem dos cartões na tela de módulos. */
 export const MODULOS: Modulo[] = [
   folha,
@@ -397,6 +424,7 @@ export const MODULOS: Modulo[] = [
   os,
   rh,
   seguranca,
+  patrocinio,
   pontuacao,
   contabilidade,
 ];
@@ -420,6 +448,7 @@ export const MODULO_RH = rh;
 export const MODULO_SEGURANCA = seguranca;
 export const MODULO_PONTUACAO = pontuacao;
 export const MODULO_CONTABILIDADE = contabilidade;
+export const MODULO_PATROCINIO = patrocinio;
 
 /**
  * A tela do colaborador — a pontuação, o abastecimento e a análise de risco de
