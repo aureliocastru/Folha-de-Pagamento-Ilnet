@@ -84,7 +84,7 @@ export function lerPagamento(
     fornecedorId,
     fornecedor: fornecedor?.nome || (fornecedorId !== null ? `Fornecedor ${fornecedorId}` : ''),
     fornecedorDocumento: fornecedor?.documento ?? '',
-    notaFiscal: texto(raw.numero_nota),
+    notaFiscal: numeroDaNota(texto(raw.numero_nota)),
     documento: texto(raw.documento),
     valor,
     pago,
@@ -141,12 +141,66 @@ export function textoDoComprovante(s: SituacaoDoComprovante | undefined): string
   return 'FALTA';
 }
 
+// ---------------------------------------------------------------------------
+// A nota fiscal de cada pagamento
+// ---------------------------------------------------------------------------
+
+/**
+ * O número da nota que o título traz — ou vazio.
+ *
+ * Nesta base o "Número da nota" do IXC guarda também a parcela: "16/48",
+ * "4/4" (é dele que o contas a pagar tira a numeração das parcelas). Em
+ * set/2026 os 18 pagamentos com o campo preenchido eram todos parcela, e a
+ * planilha os entregava à contabilidade como número de nota.
+ */
+export function numeroDaNota(valor: string): string {
+  const t = valor.trim();
+  return /^\d{1,4}\s*\/\s*\d{1,4}$/.test(t) ? '' : t;
+}
+
+/** O que se anotou da nota de um pagamento, na lista da contabilidade. */
+export interface MarcaDaNota {
+  numero: string | null;
+  semNota: boolean;
+}
+
+export interface NotaDoPagamento {
+  tem: 'Sim' | 'Não' | 'Não informado';
+  numero: string;
+}
+
+/**
+ * Se o pagamento tem nota fiscal, e o número dela — o que a contabilidade
+ * pediu ao lado de cada lançamento da conciliação (14/10/2026).
+ *
+ * Do mais certo para o menos: o que foi anotado na lista; o número no título;
+ * o papel que comprova o pagamento. A foto da nota do caixa e o anexo dizem
+ * que há nota, mas não o número. O recibo — da folha, da diária — é o papel
+ * de quem não emite nota.
+ */
+export function notaDoPagamento(
+  p: Pick<Pagamento, 'notaFiscal'>,
+  comprovante?: SituacaoDoComprovante,
+  marca?: MarcaDaNota,
+): NotaDoPagamento {
+  if (marca?.semNota) return { tem: 'Não', numero: '' };
+  const numero = marca?.numero?.trim() || numeroDaNota(p.notaFiscal);
+  if (numero) return { tem: 'Sim', numero };
+  const origens = new Set((comprovante?.comprovantes ?? []).map((c) => c.origem));
+  if (['caixa', 'conta', 'ixc', 'pacote'].some((o) => origens.has(o as Comprovante['origem']))) {
+    return { tem: 'Sim', numero: '' };
+  }
+  if (origens.has('rh') || origens.has('recibo') || comprovante?.semComprovante) return { tem: 'Não', numero: '' };
+  return { tem: 'Não informado', numero: '' };
+}
+
 const COLUNAS_DO_PAGAMENTO: Coluna[] = [
   { titulo: 'Pago em', tipo: 'data' },
   { titulo: 'Fornecedor', tipo: 'texto', largura: 36 },
   { titulo: 'CPF/CNPJ', tipo: 'texto', largura: 20 },
   { titulo: 'Título', tipo: 'inteiro' },
-  { titulo: 'Nota fiscal', tipo: 'texto', largura: 12 },
+  { titulo: 'Nota fiscal', tipo: 'texto', largura: 14 },
+  { titulo: 'Nº da nota', tipo: 'texto', largura: 14 },
   { titulo: 'Valor do título', tipo: 'moeda' },
   { titulo: 'Valor pago', tipo: 'moeda' },
   { titulo: 'Conta', tipo: 'texto', largura: 24 },
@@ -157,13 +211,19 @@ const COLUNAS_DO_PAGAMENTO: Coluna[] = [
   { titulo: 'Observação', tipo: 'texto', largura: 40 },
 ];
 
-function linhaDoPagamento(p: Pagamento, comprovante: SituacaoDoComprovante | undefined): Valor[] {
+function linhaDoPagamento(
+  p: Pagamento,
+  comprovante: SituacaoDoComprovante | undefined,
+  marca: MarcaDaNota | undefined,
+): Valor[] {
+  const nota = notaDoPagamento(p, comprovante, marca);
   return [
     p.dia,
     p.fornecedor,
     p.fornecedorDocumento,
     p.idFnApagar,
-    p.notaFiscal,
+    nota.tem,
+    nota.numero,
     p.valor,
     p.pago,
     p.conta,
@@ -193,6 +253,8 @@ export function planilhaDePagamentos(opcoes: {
   lidoEm: Date;
   pagamentos: Pagamento[];
   comprovantes: Map<number, SituacaoDoComprovante>;
+  /** O que se anotou da nota de cada título. */
+  notas?: Map<number, MarcaDaNota>;
   explicacao?: string;
 }): Relatorio['abas'] {
   const lista = ordenarPagamentos(opcoes.pagamentos);
@@ -208,8 +270,10 @@ export function planilhaDePagamentos(opcoes: {
       nome: 'Pagamentos',
       cabecalho,
       colunas: COLUNAS_DO_PAGAMENTO,
-      linhas: lista.map((p) => linhaDoPagamento(p, opcoes.comprovantes.get(p.idFnApagar))),
-      totais: ['Total', '', '', lista.length, '', soma(lista, (p) => p.valor), soma(lista, (p) => p.pago), '', '', '', '', faltam.length ? `${faltam.length} sem` : '', ''],
+      linhas: lista.map((p) =>
+        linhaDoPagamento(p, opcoes.comprovantes.get(p.idFnApagar), opcoes.notas?.get(p.idFnApagar)),
+      ),
+      totais: ['Total', '', '', lista.length, '', '', soma(lista, (p) => p.valor), soma(lista, (p) => p.pago), '', '', '', '', faltam.length ? `${faltam.length} sem` : '', ''],
     },
     ...porFornecedor(lista, cabecalho[0]),
   ];
@@ -392,7 +456,7 @@ export function dividasNoDia(dados: DadosDoSaldoDeFornecedores): DividaNoDia[] {
       idFnApagar: id,
       fornecedor: fornecedor?.nome || (fornecedorId !== null ? `Fornecedor ${fornecedorId}` : ''),
       fornecedorDocumento: fornecedor?.documento ?? '',
-      notaFiscal: texto(raw.numero_nota),
+      notaFiscal: numeroDaNota(texto(raw.numero_nota)),
       documento: texto(raw.documento),
       emissao,
       vencimento: diaDoIxc(raw.data_vencimento),

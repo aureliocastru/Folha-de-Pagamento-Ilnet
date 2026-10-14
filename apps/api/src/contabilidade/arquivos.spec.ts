@@ -1,4 +1,11 @@
-import { conciliar, lerLancamentoDoIxc, planilhaDasConciliacoes, relatorioDeConciliacao } from './relatorios/conciliacao';
+import {
+  conciliar,
+  guardarConciliacao,
+  lerConciliacaoGuardada,
+  lerLancamentoDoIxc,
+  planilhaDasConciliacoes,
+  relatorioDeConciliacao,
+} from './relatorios/conciliacao';
 import { lerOfx, valorDoOfx } from './ofx';
 import { escaparXml, letraDaColuna, montarPlanilha, nomesDasAbas, serialDoExcel } from './planilha';
 import { lerTudo } from './ixc-leitura';
@@ -161,6 +168,53 @@ describe('conciliação bancária', () => {
     ]);
     // Nenhum nome passa dos 31 caracteres do Excel.
     expect(abas.every((a) => a.nome.length <= 31)).toBe(true);
+  });
+
+  /*
+   * O que a contabilidade pediu (14/10/2026): ao lado de cada lançamento, o
+   * fornecedor, se houve nota fiscal e o número dela. O lançamento que não é
+   * pagamento de título — tarifa, transferência — fica com as colunas vazias.
+   */
+  it('põe o fornecedor e a nota ao lado de cada lançamento do IXC, conciliado ou não', () => {
+    const extrato = { banco: null, agencia: null, conta: null, inicio: null, fim: null, saldoFinal: null, saldoEm: null };
+    const dados = {
+      conta: 'Conta Banco Alfa',
+      de: '2026-09-01',
+      ate: '2026-09-30',
+      extrato: { ...extrato, lancamentos: [banco('pix', '2026-09-03', -170), banco('tarifa', '2026-09-04', -9.5)] },
+      arquivoOfx: 'alfa.ofx',
+      ixc: [ixc(11, '2026-09-03', -170), ixc(12, '2026-09-04', -9.5), ixc(13, '2026-09-10', -40)],
+      lidoEm: new Date(),
+    };
+    const identificacao = new Map([
+      [11, { fornecedor: 'Madeireira Teste', documento: '00.000.000/0001-00', titulos: '37229', nota: 'Sim', numero: '4512' }],
+      [13, { fornecedor: 'Fulano Diarista', documento: '000.000.000-00', titulos: '37230', nota: 'Não', numero: '' }],
+    ]);
+
+    const r = relatorioDeConciliacao(dados, (id) => identificacao.get(id));
+
+    const conciliados = r.abas.find((a) => a.nome === 'Conciliados')!;
+    expect(conciliados.colunas.slice(-5).map((c) => c.titulo)).toEqual([
+      'Fornecedor',
+      'CPF/CNPJ',
+      'Título',
+      'Nota fiscal',
+      'Nº da nota',
+    ]);
+    expect(conciliados.linhas.map((l) => l.slice(-5))).toEqual([
+      ['Madeireira Teste', '00.000.000/0001-00', '37229', 'Sim', '4512'],
+      ['', '', '', '', ''],
+    ]);
+    const soNoIxc = r.abas.find((a) => a.nome === 'Só no IXC')!;
+    expect(soNoIxc.linhas).toEqual([['2026-09-10', '13', -40, 13, 'Fulano Diarista', '000.000.000-00', '37230', 'Não', '']]);
+    expect(soNoIxc.totais).toHaveLength(soNoIxc.colunas.length);
+  });
+
+  it('a conciliação guardada volta igual, com a data de leitura de volta em data', () => {
+    const extrato = { banco: null, agencia: null, conta: null, inicio: null, fim: null, saldoFinal: null, saldoEm: null, lancamentos: [] };
+    const dados = { conta: 'C', de: '2026-09-01', ate: '2026-09-30', extrato, arquivoOfx: 'c.ofx', ixc: [], lidoEm: new Date('2026-10-09T18:55:38Z') };
+    const guardada = JSON.parse(JSON.stringify(guardarConciliacao(dados)));
+    expect(lerConciliacaoGuardada(guardada)).toEqual(dados);
   });
 
   it('lê o razão do IXC com débito entrando e crédito saindo', () => {

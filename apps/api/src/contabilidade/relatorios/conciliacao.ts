@@ -188,7 +188,53 @@ export interface DadosDaConciliacao {
   lidoEm: Date;
 }
 
-export function relatorioDeConciliacao(dados: DadosDaConciliacao): Relatorio {
+/**
+ * O que entra na conciliação, guardado junto dela para a planilha ser refeita
+ * na hora do zip: quem recebeu e a nota mudam depois da leitura — a nota é
+ * anotada na lista dos pagamentos — e o relatório congelado não as veria.
+ */
+export type ConciliacaoGuardada = Omit<DadosDaConciliacao, 'lidoEm'> & { lidoEm: string };
+
+export function guardarConciliacao(dados: DadosDaConciliacao): ConciliacaoGuardada {
+  return { ...dados, lidoEm: dados.lidoEm.toISOString() };
+}
+
+export function lerConciliacaoGuardada(g: ConciliacaoGuardada): DadosDaConciliacao {
+  return { ...g, lidoEm: new Date(g.lidoEm) };
+}
+
+/**
+ * Quem recebeu e a nota fiscal de um lançamento do IXC que pagou título.
+ *
+ * É o que a contabilidade pediu ao lado de cada linha (14/10/2026): sem isto
+ * a conciliação só tinha o histórico ("Pag. Fulano - doc.: 9"), que nem
+ * sempre diz o fornecedor e nunca diz se houve nota.
+ */
+export interface IdentificacaoDoLancamento {
+  fornecedor: string;
+  documento: string;
+  /** Os títulos pagos por este lançamento — quase sempre um. */
+  titulos: string;
+  nota: string;
+  numero: string;
+}
+
+const COLUNAS_DA_IDENTIFICACAO: Aba['colunas'] = [
+  { titulo: 'Fornecedor', tipo: 'texto', largura: 36 },
+  { titulo: 'CPF/CNPJ', tipo: 'texto', largura: 20 },
+  { titulo: 'Título', tipo: 'texto', largura: 10 },
+  { titulo: 'Nota fiscal', tipo: 'texto', largura: 14 },
+  { titulo: 'Nº da nota', tipo: 'texto', largura: 14 },
+];
+
+function colunasDaIdentificacao(i: IdentificacaoDoLancamento | undefined): string[] {
+  return i ? [i.fornecedor, i.documento, i.titulos, i.nota, i.numero] : ['', '', '', '', ''];
+}
+
+export function relatorioDeConciliacao(
+  dados: DadosDaConciliacao,
+  identificar: (idLancamento: number) => IdentificacaoDoLancamento | undefined = () => undefined,
+): Relatorio {
   const { de, ate } = dados;
   const doBanco = dados.extrato.lancamentos.filter((l) => l.dia >= de && l.dia <= ate);
   const doIxc = dados.ixc.filter((l) => l.dia >= de && l.dia <= ate);
@@ -279,9 +325,10 @@ export function relatorioDeConciliacao(dados: DadosDaConciliacao): Relatorio {
           { titulo: 'Histórico no IXC', tipo: 'texto', largura: 54 },
           { titulo: 'Valor', tipo: 'moeda' },
           { titulo: 'Lançamento no IXC', tipo: 'inteiro', largura: 16 },
+          ...COLUNAS_DA_IDENTIFICACAO,
         ],
-        linhas: r.soNoIxc.map((l) => [l.dia, l.historico, l.valor, l.id]),
-        totais: ['Total', '', soma(r.soNoIxc, (l) => l.valor), null],
+        linhas: r.soNoIxc.map((l) => [l.dia, l.historico, l.valor, l.id, ...colunasDaIdentificacao(identificar(l.id))]),
+        totais: ['Total', '', soma(r.soNoIxc, (l) => l.valor), null, '', '', '', '', ''],
       },
       {
         nome: 'Dia a dia',
@@ -307,6 +354,7 @@ export function relatorioDeConciliacao(dados: DadosDaConciliacao): Relatorio {
           { titulo: 'Data no IXC', tipo: 'data' },
           { titulo: 'Histórico no IXC', tipo: 'texto', largura: 44 },
           { titulo: 'Valor no IXC', tipo: 'moeda' },
+          ...COLUNAS_DA_IDENTIFICACAO,
         ],
         linhas: r.casamentos.flatMap((c) => {
           const n = Math.max(c.banco.length, c.ixc.length);
@@ -318,6 +366,7 @@ export function relatorioDeConciliacao(dados: DadosDaConciliacao): Relatorio {
             c.ixc[i]?.dia ?? null,
             c.ixc[i]?.historico ?? '',
             c.ixc[i]?.valor ?? null,
+            ...colunasDaIdentificacao(c.ixc[i] ? identificar(c.ixc[i].id) : undefined),
           ]);
         }),
       },

@@ -22,12 +22,14 @@ import {
 } from './leitor.service';
 import { lerOfx } from './ofx';
 import { relatorioDoSaldoDoCaixa, saldoNoDia, type CaixaNoPeriodo } from './relatorios/caixa';
-import { situacaoDaConciliacao } from './relatorios/conciliacao';
+import { situacaoDaConciliacao, type IdentificacaoDoLancamento } from './relatorios/conciliacao';
 import {
+  notaDoPagamento,
   relatorioDeDescontos,
   resumoDePagamentos,
   textoDoComprovante,
   type Comprovante,
+  type MarcaDaNota,
   type Pagamento,
   type SituacaoDoComprovante,
 } from './relatorios/pagamentos';
@@ -846,6 +848,58 @@ export class PacoteContabilService {
     return mapa;
   }
 
+  /**
+   * O que se anotou da nota de cada título na lista dos pagamentos: o número,
+   * ou "sem nota". Mora na linha `nota:<título>` do item 8.
+   */
+  async notasAnotadas(pacoteId: string): Promise<Map<number, MarcaDaNota>> {
+    const linhas = await this.prisma.itemDoPacote.findMany({
+      where: { pacoteId, item: 8, chave: { startsWith: 'nota:' } },
+      select: { chave: true, naoTeve: true, observacao: true },
+    });
+    const mapa = new Map<number, MarcaDaNota>();
+    for (const l of linhas) {
+      const id = Number(l.chave.slice('nota:'.length));
+      if (!Number.isInteger(id) || (!l.naoTeve && !l.observacao)) continue;
+      mapa.set(id, { numero: l.observacao, semNota: l.naoTeve });
+    }
+    return mapa;
+  }
+
+  /**
+   * Quem recebeu e a nota de cada lançamento do IXC que pagou título, pelo id
+   * do lançamento — é o que a conciliação põe ao lado de cada linha.
+   *
+   * O vínculo é o `idMovimento` dos pagamentos (a perna "P" aponta o
+   * lançamento do dinheiro): em set/2026, 421 dos 438 pagamentos o tinham.
+   * Uma baixa de vários títulos de uma vez é um lançamento só, e aí os
+   * fornecedores e as notas vão juntos na mesma linha.
+   */
+  async identificacaoDosLancamentos(
+    pacoteId: string,
+    saidas: DadosDasSaidas,
+  ): Promise<Map<number, IdentificacaoDoLancamento>> {
+    const [comprovantes, notas] = await Promise.all([this.comprovantes(pacoteId, saidas), this.notasAnotadas(pacoteId)]);
+    const porLancamento = new Map<number, Pagamento[]>();
+    for (const p of saidas.pagamentos) {
+      if (p.idMovimento === null) continue;
+      porLancamento.set(p.idMovimento, [...(porLancamento.get(p.idMovimento) ?? []), p]);
+    }
+    const juntar = (valores: string[]) => [...new Set(valores.filter(Boolean))].join(' / ');
+    const mapa = new Map<number, IdentificacaoDoLancamento>();
+    for (const [lancamento, pagos] of porLancamento) {
+      const doTitulo = pagos.map((p) => notaDoPagamento(p, comprovantes.get(p.idFnApagar), notas.get(p.idFnApagar)));
+      mapa.set(lancamento, {
+        fornecedor: juntar(pagos.map((p) => p.fornecedor)),
+        documento: juntar(pagos.map((p) => p.fornecedorDocumento)),
+        titulos: pagos.map((p) => p.idFnApagar).join(', '),
+        nota: juntar(doTitulo.map((n) => n.tem)),
+        numero: juntar(doTitulo.map((n) => n.numero)),
+      });
+    }
+    return mapa;
+  }
+
   /** A lista de pagamentos de um item (8, 13, 14, 18), com o comprovante de cada um. */
   async pagamentosDoItem(pacoteId: string, item: number) {
     if (![8, 13, 14, 18].includes(item)) throw new BadRequestException('Este item não tem lista de pagamentos.');
@@ -859,7 +913,7 @@ export class PacoteContabilService {
       item === 8
         ? saidas.pagamentos
         : this.recorte(saidas.pagamentos, item === 13 ? 'lucros' : item === 14 ? 'link' : 'doacoes', cfg);
-    const comprovantes = await this.comprovantes(pacoteId, saidas);
+    const [comprovantes, notas] = await Promise.all([this.comprovantes(pacoteId, saidas), this.notasAnotadas(pacoteId)]);
     return {
       lidoEm: saidas.lidoEm,
       pagamentos: [...lista]
@@ -868,6 +922,8 @@ export class PacoteContabilService {
           ...p,
           comprovantes: comprovantes.get(p.idFnApagar)?.comprovantes ?? [],
           semComprovante: comprovantes.get(p.idFnApagar)?.semComprovante ?? null,
+          nota: notaDoPagamento(p, comprovantes.get(p.idFnApagar), notas.get(p.idFnApagar)),
+          notaAnotada: notas.get(p.idFnApagar) ?? null,
         })),
     };
   }

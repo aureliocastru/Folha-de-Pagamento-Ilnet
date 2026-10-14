@@ -656,7 +656,7 @@ function JanelaDePagamentos({ pacoteId, item, onFechar }: { pacoteId: string; it
       if (soSem && (p.comprovantes.length > 0 || p.semComprovante)) return false;
       if (!termo) return true;
       return semAcento(
-        `${p.fornecedor} ${p.idFnApagar} ${p.notaFiscal} ${p.observacao} ${p.conta} ${p.planoDeContas} ` +
+        `${p.fornecedor} ${p.idFnApagar} ${p.nota.numero} ${p.observacao} ${p.conta} ${p.planoDeContas} ` +
           p.categorias.map((c) => c.nome).join(' '),
       ).includes(termo);
     });
@@ -821,8 +821,7 @@ function LinhaDePagamento({ pagamento: p, pacoteId }: { pagamento: PagamentoNaLi
         <div className="min-w-0">
           <p className="truncate font-semibold text-tinta-900">{p.fornecedor || 'Sem fornecedor'}</p>
           <p className="text-xs text-tinta-500">
-            {diaBr(p.dia)} · título {p.idFnApagar}
-            {p.notaFiscal && ` · nota ${p.notaFiscal}`} · {p.conta}
+            {diaBr(p.dia)} · título {p.idFnApagar} · {p.conta}
           </p>
           {(p.categorias.length > 0 || p.planoDeContas) && (
             <p className="text-xs text-tinta-500">
@@ -885,6 +884,13 @@ function LinhaDePagamento({ pagamento: p, pacoteId }: { pagamento: PagamentoNaLi
             )}
           </>
         )}
+        {/* A chave recomeça o campo quando o número gravado muda. */}
+        <NotaFiscalDoPagamento
+          key={p.notaAnotada?.numero ?? p.nota.numero}
+          pagamento={p}
+          pacoteId={pacoteId}
+          onErro={setErro}
+        />
       </div>
 
       {escolhendoMotivo && (
@@ -901,5 +907,89 @@ function LinhaDePagamento({ pagamento: p, pacoteId }: { pagamento: PagamentoNaLi
       )}
       {erro && <p className="mt-1 text-sm text-rose-700 dark:text-rose-300">{erro}</p>}
     </li>
+  );
+}
+
+/**
+ * A nota fiscal do pagamento: o número, ou "sem nota". É o que vai ao lado do
+ * lançamento na conciliação — a contabilidade pediu as duas coisas
+ * (14/10/2026), e o IXC desta casa não guarda nenhuma: o "Número da nota" de
+ * lá é usado para a parcela.
+ *
+ * O campo já vem com o número que se conhece (anotado aqui ou escrito no
+ * título) e grava ao sair dele.
+ */
+function NotaFiscalDoPagamento({
+  pagamento: p,
+  pacoteId,
+  onErro,
+}: {
+  pagamento: PagamentoNaLista;
+  pacoteId: string;
+  onErro: (erro: string | null) => void;
+}) {
+  const qc = useQueryClient();
+  const conhecido = p.notaAnotada?.numero ?? p.nota.numero;
+  const [numero, setNumero] = useState(conhecido);
+
+  const gravar = useMutation({
+    mutationFn: async (marca: { numero: string | null; semNota: boolean }) =>
+      api.put(`/contabilidade/pacotes/${pacoteId}/marcas`, {
+        item: 8,
+        chave: `nota:${p.idFnApagar}`,
+        naoTeve: marca.semNota,
+        observacao: marca.numero,
+      }),
+    onSuccess: () => {
+      onErro(null);
+      void qc.invalidateQueries({ queryKey: ['contabilidade', 'pagamentos', pacoteId] });
+    },
+    onError: (e) => onErro(mensagemErro(e)),
+  });
+
+  if (p.notaAnotada?.semNota) {
+    return (
+      <button
+        type="button"
+        className="btn btn-p btn-neutro"
+        disabled={gravar.isPending}
+        onClick={() => gravar.mutate({ numero: null, semNota: false })}
+      >
+        Sem nota · desfazer
+      </button>
+    );
+  }
+
+  const salvar = () => {
+    const limpo = numero.trim();
+    if (limpo === conhecido.trim()) return;
+    gravar.mutate({ numero: limpo || null, semNota: false });
+  };
+
+  return (
+    <span className="flex items-center gap-1">
+      <input
+        className="campo w-32 py-1"
+        placeholder="Nº da nota"
+        aria-label={`Número da nota do título ${p.idFnApagar}`}
+        value={numero}
+        disabled={gravar.isPending}
+        onChange={(e) => setNumero(e.target.value)}
+        onBlur={salvar}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur();
+        }}
+      />
+      {!numero.trim() && (
+        <button
+          type="button"
+          className="btn btn-p btn-sutil"
+          disabled={gravar.isPending}
+          onClick={() => gravar.mutate({ numero: null, semNota: true })}
+        >
+          Sem nota
+        </button>
+      )}
+    </span>
   );
 }

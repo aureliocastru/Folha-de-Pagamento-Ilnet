@@ -1,7 +1,14 @@
 import { prazoDoPacote } from './pacote.service';
 import { titulosEmAbertoNoDia, relatorioDeClientes } from './relatorios/clientes';
 import { decidirCusto, estoqueNoDia } from './relatorios/estoque';
-import { dividasNoDia, lerPagamento, relatorioDeDescontos } from './relatorios/pagamentos';
+import {
+  dividasNoDia,
+  lerPagamento,
+  notaDoPagamento,
+  numeroDaNota,
+  relatorioDeDescontos,
+  type Comprovante,
+} from './relatorios/pagamentos';
 import { lerRecebimento, relatorioDeFaturamento, relatorioDeJuros } from './relatorios/receitas';
 import { saldoNoDia, type CaixaNoPeriodo } from './relatorios/caixa';
 
@@ -208,6 +215,37 @@ describe('08, 12 e 20 — o que saiu e o que se devia', () => {
     expect(comDesconto).toMatchObject({ pago: 95, desconto: 5 });
     const r = relatorioDeDescontos({ de: '2026-09-01', ate: '2026-09-30', lidoEm, pagamentos: [comAcrescimo, comDesconto] });
     expect(r.resumo[0].valor).toBe(5);
+  });
+
+  it('parcela escrita no "Número da nota" não é nota', () => {
+    // Em set/2026 os 18 títulos com o campo preenchido eram todos parcela.
+    expect(numeroDaNota('16/48')).toBe('');
+    expect(numeroDaNota(' 4 / 4 ')).toBe('');
+    expect(numeroDaNota('4512')).toBe('4512');
+    expect(numeroDaNota('NF 000.123')).toBe('NF 000.123');
+    const p = lerPagamento({ id: '1', debito_data: '2026-09-03', valor: '10.00', numero_nota: '16/48' }, cad)!;
+    expect(p.notaFiscal).toBe('');
+  });
+
+  it('a nota de cada pagamento: anotada, no título, pelo papel, ou não informada', () => {
+    const papel = (...origens: Comprovante['origem'][]) => ({
+      comprovantes: origens.map((origem) => ({ origem, id: 'x', nome: 'x' })),
+      semComprovante: null,
+    });
+    const semNumero = { notaFiscal: '' };
+
+    // O anotado na lista vale sobre tudo.
+    expect(notaDoPagamento({ notaFiscal: '777' }, papel('caixa'), { numero: '4512', semNota: false })).toEqual({ tem: 'Sim', numero: '4512' });
+    expect(notaDoPagamento({ notaFiscal: '777' }, papel('caixa'), { numero: null, semNota: true })).toEqual({ tem: 'Não', numero: '' });
+    // O número no título, que não seja parcela.
+    expect(notaDoPagamento({ notaFiscal: '777' })).toEqual({ tem: 'Sim', numero: '777' });
+    expect(notaDoPagamento({ notaFiscal: '16/48' })).toEqual({ tem: 'Não informado', numero: '' });
+    // A foto da nota diz que há nota, não o número; o recibo é de quem não emite.
+    expect(notaDoPagamento(semNumero, papel('caixa'))).toEqual({ tem: 'Sim', numero: '' });
+    expect(notaDoPagamento(semNumero, papel('rh'))).toEqual({ tem: 'Não', numero: '' });
+    expect(notaDoPagamento(semNumero, papel('recibo'))).toEqual({ tem: 'Não', numero: '' });
+    expect(notaDoPagamento(semNumero, { comprovantes: [], semComprovante: 'Tarifa bancária' })).toEqual({ tem: 'Não', numero: '' });
+    expect(notaDoPagamento(semNumero, papel())).toEqual({ tem: 'Não informado', numero: '' });
   });
 
   it('reconstrói o que se devia no dia: aberto hoje, pago depois e o status parado em aberto', () => {

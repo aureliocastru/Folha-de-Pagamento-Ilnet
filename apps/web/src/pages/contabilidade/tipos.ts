@@ -96,6 +96,10 @@ export interface PagamentoNaLista {
   observacao: string;
   comprovantes: Comprovante[];
   semComprovante: string | null;
+  /** O que a conciliação diz da nota: do anotado, do título ou do papel. */
+  nota: { tem: 'Sim' | 'Não' | 'Não informado'; numero: string };
+  /** O que foi anotado aqui, quando foi. */
+  notaAnotada: { numero: string | null; semNota: boolean } | null;
 }
 
 export type PapelDaConta = 'extrato' | 'aplicacao' | 'maquininha' | 'caixa' | 'ignorar';

@@ -14,7 +14,13 @@ import type { DadosDasSaidas } from './leitor.service';
 import { PacoteContabilService, type ItemNaTela } from './pacote.service';
 import { montarPlanilha, type Aba } from './planilha';
 import { relatorioDoCaixaFisico, relatorioDoSaldoDoCaixa, type CaixaNoPeriodo } from './relatorios/caixa';
-import { planilhaDasConciliacoes } from './relatorios/conciliacao';
+import {
+  lerConciliacaoGuardada,
+  planilhaDasConciliacoes,
+  relatorioDeConciliacao,
+  type ConciliacaoGuardada,
+  type IdentificacaoDoLancamento,
+} from './relatorios/conciliacao';
 import {
   planilhaDePagamentos,
   relatorioDeDescontos,
@@ -85,7 +91,10 @@ export class PacoteZipService {
       const cfg = await this.configuracao.obter();
       const lista =
         item === 8 ? saidas.pagamentos : this.pacotes.recorte(saidas.pagamentos, item === 13 ? 'lucros' : item === 14 ? 'link' : 'doacoes', cfg);
-      const comprovantes = await this.pacotes.comprovantes(pacoteId, saidas);
+      const [comprovantes, notas] = await Promise.all([
+        this.pacotes.comprovantes(pacoteId, saidas),
+        this.pacotes.notasAnotadas(pacoteId),
+      ]);
       // Recorte vazio não vira planilha: a pasta diz "não teve", e uma
       // planilha só com o cabeçalho faria pensar que faltou alguma coisa.
       if (lista.length === 0 && item !== 8) return null;
@@ -93,16 +102,29 @@ export class PacoteZipService {
         item === 8 ? 'Pagamentos do período' : item === 13 ? 'Distribuição de lucros' : item === 14 ? 'Compra de link' : 'Doações';
       return {
         nome: `${titulo} ${periodo}`,
-        abas: planilhaDePagamentos({ titulo, de, ate, lidoEm, pagamentos: lista, comprovantes }),
+        abas: planilhaDePagamentos({ titulo, de, ate, lidoEm, pagamentos: lista, comprovantes, notas }),
       };
     }
 
     if (item === 9) {
+      /*
+       * Refeita aqui, e não a congelada da leitura: o fornecedor e a nota de
+       * cada pagamento vêm da lista do item 8, onde a nota é anotada depois.
+       * A conciliação lida antes de a entrada ser guardada só tem a congelada,
+       * sem essas colunas — lê-la de novo resolve.
+       */
+      const saidas = linha(8)?.dados as DadosDasSaidas | null | undefined;
+      const identificacao = saidas ? await this.pacotes.identificacaoDosLancamentos(pacoteId, saidas) : new Map<number, IdentificacaoDoLancamento>();
+      const refeita = (l: ItemDoPacote): Relatorio | null => {
+        const entrada = (l.dados as { entrada?: ConciliacaoGuardada } | null)?.entrada;
+        if (!entrada) return relatorio(l);
+        return relatorioDeConciliacao(lerConciliacaoGuardada(entrada), (id) => identificacao.get(id));
+      };
       // Na ordem das contas, a mesma do item 1.
       const relatorios = linhas
         .filter((l) => l.item === 9 && l.chave.startsWith('conta:'))
         .sort((a, b) => Number(a.chave.slice(6)) - Number(b.chave.slice(6)))
-        .map(relatorio)
+        .map(refeita)
         .filter((r): r is Relatorio => r !== null);
       if (relatorios.length === 0) return null;
       return { nome: `Conciliacao bancaria ${periodo}`, abas: planilhaDasConciliacoes(relatorios, de, ate) };

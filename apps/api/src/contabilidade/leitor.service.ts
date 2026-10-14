@@ -23,7 +23,12 @@ import {
 import { lerOfx } from './ofx';
 import type { CaixaNoPeriodo } from './relatorios/caixa';
 import { relatorioDeClientes } from './relatorios/clientes';
-import { lerLancamentoDoIxc, relatorioDeConciliacao } from './relatorios/conciliacao';
+import {
+  guardarConciliacao,
+  lerLancamentoDoIxc,
+  relatorioDeConciliacao,
+  type DadosDaConciliacao,
+} from './relatorios/conciliacao';
 import { MENOR_CUSTO_DE_VERDADE, relatorioDeEstoque } from './relatorios/estoque';
 import {
   foiPagoNoPeriodo,
@@ -940,7 +945,7 @@ export class LeitorDoPacoteService {
           },
           { podeVirVazio: true },
         );
-        const r = relatorioDeConciliacao({
+        const entrada: DadosDaConciliacao = {
           conta: conta.nome,
           de: ctx.de,
           ate: ctx.ate,
@@ -948,8 +953,15 @@ export class LeitorDoPacoteService {
           arquivoOfx: arquivo.nome,
           ixc: movimento.map(lerLancamentoDoIxc).filter((l): l is NonNullable<typeof l> => l !== null),
           lidoEm: ctx.lidoEm,
+        };
+        const r = relatorioDeConciliacao(entrada);
+        // A entrada vai junto: a planilha é refeita no zip, com o fornecedor
+        // e a nota de cada pagamento como estiverem naquela hora.
+        await this.guardar(ctx, 9, chave, {
+          dados: { relatorio: r, entrada: guardarConciliacao(entrada) },
+          resumo: r.resumo,
+          avisos: r.avisos,
         });
-        await this.guardarRelatorio(ctx, 9, r, chave);
       } catch (e) {
         await this.marcarErro(ctx.pacoteId, 9, chave, e instanceof Error ? e.message : String(e));
       }
