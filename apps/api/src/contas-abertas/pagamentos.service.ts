@@ -22,7 +22,7 @@ import {
   type MapaTipoChavePix,
   type TipoChavePix,
 } from '../ixc/ixc.financeiro';
-import { parseIxcId } from '../ixc/ixc.parse';
+import { parseIxcDecimal, parseIxcId } from '../ixc/ixc.parse';
 import { PrismaService } from '../prisma/prisma.service';
 import { campoDeBaixa, statusDizPago } from './contas-abertas.mapper';
 import {
@@ -68,6 +68,11 @@ export interface ResultadoDoPagamento {
    * pagar adiantado. Zero no caso comum.
    */
   desconto: number;
+  /**
+   * Quanto o título subiu antes da baixa, quando saiu mais do que ele pedia.
+   * Zero no caso comum.
+   */
+  acrescimo: number;
   /** Conta de onde o dinheiro saiu (ou vai sair, no caso do ModoBank). */
   contaPagamento: number;
   /**
@@ -166,13 +171,26 @@ export class PagamentosService {
        * conciliação vai achar no extrato.
        */
       desconto?: number;
+      /**
+       * Quanto saiu, quando saiu **mais** do que o título pede — o boleto
+       * pago com juros, a parcela que veio corrigida.
+       *
+       * Não vira acréscimo na baixa: o título é editado para esse valor antes,
+       * e a baixa sai cheia sobre ele. O que saiu passa a ser o principal da
+       * conta, que é como ela fica no IXC e no histórico.
+       *
+       * É o valor de destino, e não a diferença, de propósito: se a edição
+       * passa e a baixa falha, repetir o pagamento acha o título já no valor
+       * certo e não sobe de novo.
+       */
+      valorPago?: number;
       /** @deprecated A conta escolhida é quem manda; fica por compatibilidade. */
       forma?: FormaDePagar;
     },
     usuarioNome?: string,
   ): Promise<ResultadoDoPagamento> {
     const avisos: string[] = [];
-    const raw = await this.ixc.getById<Record<string, unknown>>(
+    let raw = await this.ixc.getById<Record<string, unknown>>(
       'fn_apagar',
       'fn_apagar.id',
       idFnApagar,
@@ -199,11 +217,73 @@ export class PagamentosService {
       );
     }
 
-    const valor = situacao.valorAberto;
+    let valor = situacao.valorAberto;
     if (valor < 0.01) {
       throw new BadRequestException(
         `O título ${idFnApagar} está sem saldo a pagar.`,
       );
+    }
+
+    // Reprovado é decisão de alguém: destravar isso daqui por baixo seria
+    // passar por cima de quem reprovou — e isso inclui subir o valor dele.
+    if (lerStatusAuditoria(raw) === 'R') {
+      throw new BadRequestException(
+        `O título ${idFnApagar} foi reprovado na auditoria do IXC. Resolva por ` +
+          'lá antes de pagar.',
+      );
+    }
+
+    /*
+     * Saiu mais do que o título pede: o título sobe para o que saiu, e a baixa
+     * sai cheia sobre ele. O que saiu passa a ser o principal da conta.
+     *
+     * Antes, a tela recusava — "pagar a mais é juros e multa" — e mandava
+     * registrar a diferença no IXC à mão. Era a mesma edição do "Editar conta",
+     * feita em outra tela e depois de abrir o pagamento de novo.
+     *
+     * O título é relido depois da edição e só se paga se o saldo lido for o
+     * que saiu: baixar sobre um valor que o IXC não gravou quitaria a conta
+     * pelo número errado, e a conciliação não acharia a linha do extrato.
+     */
+    const alvo = Math.round(Math.max(0, opcoes.valorPago ?? 0) * 100) / 100;
+    let acrescimo = 0;
+    if (alvo > valor + 0.005) {
+      if ((opcoes.desconto ?? 0) > 0) {
+        throw new BadRequestException(
+          `Desconto e valor pago acima do título (${moeda(alvo)} em ` +
+            `${moeda(valor)}) no mesmo pagamento não fecham. Nada foi pago.`,
+        );
+      }
+      acrescimo = Math.round((alvo - valor) * 100) / 100;
+      // O que sobe é o título inteiro: num título com baixa parcial, o saldo
+      // é só uma parte dele, e é o saldo que tem de chegar ao que saiu.
+      const valorDoTitulo = parseIxcDecimal(raw.valor) || valor;
+      const novoValorDoTitulo =
+        Math.round((valorDoTitulo + acrescimo) * 100) / 100;
+
+      await this.editar(idFnApagar, { valor: novoValorDoTitulo });
+
+      const editado = await this.ixc
+        .getById<Record<string, unknown>>('fn_apagar', 'fn_apagar.id', idFnApagar)
+        .catch(() => null);
+      const saldo = editado ? lerSituacaoContaPagar(editado).valorAberto : null;
+      if (!editado || saldo === null || Math.abs(saldo - alvo) > 0.005) {
+        throw new ServiceUnavailableException(
+          `O título ${idFnApagar} foi alterado para ${moeda(novoValorDoTitulo)} ` +
+            'no IXC, mas a releitura ' +
+            (saldo === null
+              ? 'não respondeu'
+              : `mostra ${moeda(saldo)} em aberto`) +
+            '. Nada foi pago — confira o título lá antes de pagar.',
+        );
+      }
+
+      this.logger.log(
+        `Título ${idFnApagar}: subiu de ${moeda(valor)} para ${moeda(alvo)} ` +
+          'antes da baixa, para quitar pelo que saiu.',
+      );
+      raw = editado;
+      valor = saldo;
     }
 
     /*
@@ -256,13 +336,14 @@ export class PagamentosService {
     const valorPago = Math.round((valor - desconto) * 100) / 100;
 
     // --- 1. Auditoria ---
-    // Reprovado é decisão de alguém: destravar isso daqui por baixo seria
-    // passar por cima de quem reprovou.
+    // O reprovado já foi recusado lá em cima. Aqui `raw` pode ser o relido
+    // depois de subir o valor: a edição reprova e aprova de novo, e o que
+    // vale é como ele ficou.
     const auditoriaAtual = lerStatusAuditoria(raw);
     if (auditoriaAtual === 'R') {
       throw new BadRequestException(
-        `O título ${idFnApagar} foi reprovado na auditoria do IXC. Resolva por ` +
-          'lá antes de pagar.',
+        `O título ${idFnApagar} ficou reprovado na auditoria do IXC depois de ` +
+          `ir para ${moeda(valor)}. Aprove pela lista e pague de novo.`,
       );
     }
 
@@ -320,6 +401,7 @@ export class PagamentosService {
         valor,
         valorPago: valor,
         desconto: 0,
+        acrescimo,
         contaPagamento: contaPagamentoId,
         aguardandoBanco: true,
         avisos,
@@ -484,6 +566,7 @@ export class PagamentosService {
       valor,
       valorPago,
       desconto,
+      acrescimo,
       contaPagamento: contaPagamentoId,
       aguardandoBanco: false,
       avisos,
@@ -509,6 +592,11 @@ export class PagamentosService {
        * ver a recusa logo abaixo.
        */
       desconto?: number;
+      /**
+       * Quanto saiu, quando foi mais que o título. Também só para o lote de
+       * uma conta, pelo mesmo motivo do desconto.
+       */
+      valorPago?: number;
       forma?: FormaDePagar;
     },
     usuarioNome?: string,
@@ -519,6 +607,8 @@ export class PagamentosService {
     total: number;
     /** Quanto se deixou de gastar: a soma dos descontos obtidos. */
     economia: number;
+    /** Quanto os títulos subiram antes da baixa, por ter saído mais. */
+    acrescimo: number;
   }> {
     const pagas: ResultadoDoPagamento[] = [];
     const falhas: Array<{ idFnApagar: number; erro: string }> = [];
@@ -536,6 +626,13 @@ export class PagamentosService {
         'Desconto vale para uma conta de cada vez: não há como dividir um ' +
           `abatimento entre as ${unicos.length} deste lote. Pague com desconto ` +
           'a conta que o teve, e as outras à parte.',
+      );
+    }
+    // Um valor pago para várias contas também não diz quanto é de cada uma.
+    if ((opcoes.valorPago ?? 0) > 0 && unicos.length > 1) {
+      throw new BadRequestException(
+        'O valor pago vale para uma conta de cada vez: não há como saber ' +
+          `quanto dele é de cada uma das ${unicos.length} deste lote.`,
       );
     }
 
@@ -558,6 +655,8 @@ export class PagamentosService {
       total: Math.round(pagas.reduce((s, p) => s + p.valorPago, 0) * 100) / 100,
       economia:
         Math.round(pagas.reduce((s, p) => s + p.desconto, 0) * 100) / 100,
+      acrescimo:
+        Math.round(pagas.reduce((s, p) => s + p.acrescimo, 0) * 100) / 100,
     };
   }
 

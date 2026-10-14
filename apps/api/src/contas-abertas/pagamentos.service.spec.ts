@@ -36,9 +36,11 @@ function montarServico(
     naoDeixaReler?: boolean;
     /** O cadastro da conta não traz a conta do razão. */
     contaSemPlanejamento?: boolean;
+    /** O IXC aceita a edição do título e não grava o valor novo. */
+    edicaoNaoPega?: boolean;
   } = {},
 ) {
-  const titulo =
+  let titulo =
     'titulo' in opts
       ? opts.titulo
       : {
@@ -53,7 +55,7 @@ function montarServico(
         };
 
   const criados: Array<{ recurso: string; payload: Record<string, unknown> }> = [];
-  let leituras = 0;
+  let baixou = false;
 
   const ixc = {
     getById: jest.fn(async (recurso: string) => {
@@ -71,10 +73,9 @@ function montarServico(
       if (recurso === 'filial') return { id: '1', filial: 'Matriz' };
       if (recurso === 'fornecedor') return { id: '7', razao: 'Banco Bradesco S/A' };
 
-      leituras += 1;
-      // A segunda leitura é a conferência de depois da baixa: por padrão o IXC
-      // devolve o título já quitado, que é o que acontece quando dá certo.
-      if (leituras > 1) {
+      // Lido depois da baixa é a conferência: por padrão o IXC devolve o
+      // título já quitado, que é o que acontece quando dá certo.
+      if (baixou) {
         if (opts.naoDeixaReler) throw new Error('IXC fora do ar');
         return (
           opts.depoisDaBaixa ?? {
@@ -92,9 +93,28 @@ function montarServico(
       criados.push({ recurso, payload });
       return { id: 1, raw: {} };
     }),
+    /*
+     * A edição do título. O IXC refaz o saldo a partir do valor novo — o que
+     * já foi pago continua pago, e o que falta é o resto.
+     */
+    update: jest.fn(
+      async (recurso: string, _id: number, payload: Record<string, unknown>) => {
+        criados.push({ recurso, payload });
+        if (opts.edicaoNaoPega || !titulo) return {};
+        const pago = Number(titulo.valor_total_pago ?? 0);
+        titulo = {
+          ...titulo,
+          valor: payload.valor,
+          valor_aberto: (Number(payload.valor) - pago).toFixed(2),
+        };
+        return {};
+      },
+    ),
     // A baixa vai pelo endpoint de botão do IXC, não pelo CRUD.
     action: jest.fn(async (recurso: string, payload: Record<string, unknown>) => {
       criados.push({ recurso, payload });
+      // Até a baixa recusada pode ter sido gravada: quem diz é a releitura.
+      baixou = true;
       if (opts.recusaABaixa) throw new Error(opts.recusaABaixa);
       return {};
     }),
@@ -109,6 +129,8 @@ function montarServico(
       // cadastro daqui o serviço cai no que o título trouxer.
       findFirst: jest.fn().mockResolvedValue(null),
     },
+    // A conta lançada com várias notas não tem o valor editável.
+    parteDaConta: { count: jest.fn().mockResolvedValue(0) },
   };
   // O quarto: quem sabe o que cai junto ao apagar uma conta a pagar daqui.
   const contasPagar = { apagarLocalPorTituloIxc: jest.fn() };
@@ -473,6 +495,162 @@ describe('PagamentosService.pagar', () => {
 
     expect(r.paga).toBe(false);
     expect(r.avisos.join(' ')).toContain('continua aparecendo como aberto');
+  });
+});
+
+/*
+ * Saiu mais do que o título pedia — o boleto pago com juros, a parcela
+ * corrigida. O título sobe para o que saiu antes da baixa, e ela sai cheia
+ * sobre ele: o que saiu passa a ser o principal da conta.
+ *
+ * O caso que motivou: a parcela 16/48 da carta de crédito do Bradesco, de
+ * R$ 1.975,44, paga com R$ 1.985,80 em 14/10/2026.
+ */
+describe('PagamentosService.pagar — saiu mais do que o título pede', () => {
+  const PARCELA = {
+    id: '5151',
+    status: 'A',
+    valor: '1975.44',
+    valor_aberto: '1975.44',
+    id_contas: '18',
+    id_conta: '2468',
+    filial_id: '1',
+  };
+
+  it('sobe o título para o que saiu, e só então dá a baixa cheia', async () => {
+    const { service, criados } = montarServico({ titulo: PARCELA });
+
+    const r = await service.pagar(
+      5151,
+      { data: '2026-10-14', jaSaiu: true, valorPago: 1985.8 },
+      'Aurelio',
+    );
+
+    // A edição vem antes de tudo — inclusive da aprovação.
+    expect(criados.map((c) => c.recurso)).toEqual([
+      'fn_apagar',
+      'fn_apagar_auditoria',
+      'botao_pagar_26409',
+    ]);
+    expect(criados[0].payload.valor).toBe('1985.80');
+    // Baixa cheia sobre o valor novo: nada de acréscimo nem desconto nela.
+    expect(criados[2].payload).toMatchObject({
+      debito: '1985,80',
+      valor_total_pago: '1985,80',
+      vacrescimo: '',
+      vdesconto: '',
+    });
+    expect(r).toMatchObject({
+      paga: true,
+      valor: 1985.8,
+      valorPago: 1985.8,
+      acrescimo: 10.36,
+      desconto: 0,
+    });
+  });
+
+  it('título aprovado: a edição reprova e aprova de novo, e a baixa não aprova outra vez', async () => {
+    const { service, criados } = montarServico({
+      titulo: { ...PARCELA, status_auditoria: 'A' },
+    });
+
+    await service.pagar(5151, { jaSaiu: true, valorPago: 1985.8 }, 'Aurelio');
+
+    expect(
+      criados.map((c) =>
+        c.recurso === 'fn_apagar_auditoria'
+          ? `${c.recurso}:${String(c.payload.status)}`
+          : c.recurso,
+      ),
+    ).toEqual([
+      'fn_apagar_auditoria:R',
+      'fn_apagar',
+      'fn_apagar_auditoria:A',
+      'botao_pagar_26409',
+    ]);
+  });
+
+  it('repetir depois de uma falha não sobe o título de novo', async () => {
+    // A edição passou, a baixa não: na segunda vez o título já está no valor
+    // que saiu, e é por isso que vai o valor de destino, não a diferença.
+    const { service, criados } = montarServico({
+      titulo: { ...PARCELA, valor: '1985.80', valor_aberto: '1985.80' },
+    });
+
+    const r = await service.pagar(5151, { jaSaiu: true, valorPago: 1985.8 });
+
+    expect(criados.some((c) => c.recurso === 'fn_apagar')).toBe(false);
+    expect(r).toMatchObject({ paga: true, valorPago: 1985.8, acrescimo: 0 });
+  });
+
+  it('o IXC não gravou o valor novo: não paga', async () => {
+    // Baixar sobre o valor velho quitaria a conta por um número que não é o
+    // que saiu, e a conciliação não acharia a linha do extrato.
+    const { service, criados } = montarServico({
+      titulo: PARCELA,
+      edicaoNaoPega: true,
+    });
+
+    await expect(
+      service.pagar(5151, { jaSaiu: true, valorPago: 1985.8 }),
+    ).rejects.toThrow(/Nada foi pago/);
+    expect(criados.some((c) => c.recurso.includes('botao_pagar'))).toBe(false);
+  });
+
+  it('com baixa parcial, o título sobe o que falta para o saldo chegar ao que saiu', async () => {
+    const { service, criados } = montarServico({
+      titulo: {
+        ...PARCELA,
+        valor: '1500.00',
+        valor_aberto: '500.00',
+        valor_total_pago: '1000.00',
+      },
+    });
+
+    const r = await service.pagar(5151, { jaSaiu: true, valorPago: 600 });
+
+    expect(criados[0].payload.valor).toBe('1600.00');
+    expect(r).toMatchObject({ valorPago: 600, acrescimo: 100 });
+  });
+
+  it('valor pago menor ou igual ao título não mexe no título', async () => {
+    // Pagar menos é desconto, e vai pelo campo dele.
+    const { service, criados } = montarServico({ titulo: PARCELA });
+
+    await service.pagar(5151, { jaSaiu: true, valorPago: 1975.44 });
+
+    expect(criados.some((c) => c.recurso === 'fn_apagar')).toBe(false);
+  });
+
+  it('reprovado na auditoria não tem o valor mexido', async () => {
+    const { service, criados } = montarServico({
+      titulo: { ...PARCELA, status_auditoria: 'R' },
+    });
+
+    await expect(
+      service.pagar(5151, { jaSaiu: true, valorPago: 1985.8 }),
+    ).rejects.toThrow(/reprovado/);
+    expect(criados).toEqual([]);
+  });
+
+  it('desconto junto com valor acima do título é recusado sem escrever nada', async () => {
+    const { service, criados } = montarServico({ titulo: PARCELA });
+
+    await expect(
+      service.pagar(5151, { jaSaiu: true, valorPago: 1985.8, desconto: 5 }),
+    ).rejects.toThrow(BadRequestException);
+    expect(criados).toEqual([]);
+  });
+
+  it('o lote recusa valor pago para várias contas, e soma o acréscimo da que sobe', async () => {
+    const { service } = montarServico({ titulo: PARCELA });
+
+    await expect(
+      service.pagarEmLote([5151, 5152], { jaSaiu: true, valorPago: 1985.8 }),
+    ).rejects.toThrow(BadRequestException);
+
+    const r = await service.pagarEmLote([5151], { jaSaiu: true, valorPago: 1985.8 });
+    expect(r).toMatchObject({ total: 1985.8, acrescimo: 10.36, economia: 0 });
   });
 });
 

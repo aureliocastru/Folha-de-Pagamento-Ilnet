@@ -105,6 +105,16 @@ export class PagarLoteDto {
   @Min(0)
   desconto?: number;
 
+  /**
+   * Quanto saiu, quando foi mais do que o título pede: o título sobe para
+   * esse valor antes da baixa. Também só no lote de uma conta.
+   */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsNumber()
+  @Min(0)
+  valorPago?: number;
+
   /** @deprecated A conta escolhida manda; fica por compatibilidade. */
   @IsOptional() @IsIn(['BANCO', 'EM_MAOS']) forma?: 'BANCO' | 'EM_MAOS';
 }

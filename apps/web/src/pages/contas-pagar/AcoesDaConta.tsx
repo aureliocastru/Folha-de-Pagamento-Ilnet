@@ -86,12 +86,15 @@ export function PagarEmMaos({
    */
   const [jaSaiu, setJaSaiu] = useState(false);
   /**
-   * Quanto de fato saiu, quando saiu menos do que o título pedia.
+   * Quanto de fato saiu, quando saiu diferente do que o título pedia.
    *
    * O campo pergunta o **valor pago**, e não o desconto: quem paga um boleto
    * com abatimento tem na mão o valor que o banco cobrou, não a diferença. A
    * diferença é conta de cabeça — e conta de cabeça na hora de pagar é onde
    * nasce o erro de centavo. Aqui ela é calculada e mostrada.
+   *
+   * Menos que o título é desconto; mais, o título sobe para esse valor antes
+   * da baixa (ver `pagouAMais`).
    *
    * Vale só no pagamento de uma conta: um desconto negociado é de uma conta, e
    * dividi-lo por um lote inventaria abatimento em título que ninguém
@@ -102,6 +105,7 @@ export function PagarEmMaos({
     pagas: number;
     total: number;
     economia: number;
+    acrescimo: number;
     aguardandoBanco: number;
     falhas: Array<{ idFnApagar: number; erro: string }>;
   } | null>(null);
@@ -177,11 +181,15 @@ export function PagarEmMaos({
   /** A diferença, que é o que a empresa deixou de gastar. */
   const descontoNumero = Math.round((total - aPagar) * 100) / 100;
   /**
-   * Pagar mais que o título é juros e multa, não desconto — e isso esta tela
-   * não sabe registrar. Recusar aqui é melhor do que mandar ao IXC um
-   * "desconto" negativo, que ele aceitaria calado.
+   * Saiu mais do que o título pede — boleto com juros, parcela corrigida.
+   *
+   * Não vai como desconto negativo, que o IXC aceitaria calado: o servidor
+   * sobe o título para o valor pago e só então dá a baixa, cheia. O que saiu
+   * fica sendo o principal da conta. Antes esta tela recusava e mandava
+   * acertar a diferença à mão no IXC.
    */
   const pagouAMais = pagoDigitado > total + 0.005;
+  const acrescimo = pagouAMais ? Math.round((aPagar - total) * 100) / 100 : 0;
   /**
    * O desconto digitado não cabe no percentual de quatro casas do IXC.
    *
@@ -202,6 +210,7 @@ export function PagarEmMaos({
         falhas: Array<{ idFnApagar: number; erro: string }>;
         total: number;
         economia: number;
+        acrescimo?: number;
       }>('/contas-abertas/pagar-lote', {
         idsFnApagar: contas.map((c) => c.idFnApagar),
         // Sem escolha, vai vazio: o servidor baixa cada título na conta que
@@ -212,6 +221,9 @@ export function PagarEmMaos({
         // Para a API vai o desconto, que é o campo que o IXC entende na baixa;
         // o valor pago é o jeito de digitá-lo, não o jeito de guardá-lo.
         desconto: descontoNumero > 0 ? descontoNumero : undefined,
+        // Acima do título vai o valor de destino, e não a diferença: repetir
+        // depois de uma falha acha o título já no valor e não o sobe de novo.
+        valorPago: pagouAMais ? aPagar : undefined,
       });
       return r;
     },
@@ -220,6 +232,7 @@ export function PagarEmMaos({
         pagas: r.pagas.length,
         total: r.total,
         economia: r.economia,
+        acrescimo: r.acrescimo ?? 0,
         aguardandoBanco: r.pagas.filter((p) => p.aguardandoBanco).length,
         falhas: r.falhas,
       });
@@ -281,6 +294,14 @@ export function PagarEmMaos({
           </p>
         )}
 
+        {resultado.acrescimo > 0 && (
+          <p className="mt-2 text-sm text-tinta-600">
+            O título subiu {formatBRL(resultado.acrescimo)} no IXC — de{' '}
+            {formatBRL(resultado.total - resultado.acrescimo)} para{' '}
+            {formatBRL(resultado.total)} — e foi quitado por esse valor.
+          </p>
+        )}
+
         {resultado.falhas.length > 0 && (
           <div className="mt-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:bg-amber-500/10 dark:text-amber-200">
             <p className="font-semibold">
@@ -326,6 +347,11 @@ export function PagarEmMaos({
               <div className="mt-0.5 text-xs text-tinta-400">
                 título de {formatBRL(total)} −{' '}
                 {formatBRL(descontoNumero)} de desconto
+              </div>
+            )}
+            {pagouAMais && (
+              <div className="mt-0.5 text-xs text-tinta-400">
+                título de {formatBRL(total)} + {formatBRL(acrescimo)}
               </div>
             )}
           </div>
@@ -489,6 +515,11 @@ export function PagarEmMaos({
                     {((descontoNumero / total) * 100).toFixed(1).replace('.', ',')}%)
                   </p>
                 )}
+                {pagouAMais && (
+                  <p className="mt-1 text-xs font-semibold text-amber-700 dark:text-amber-300">
+                    o título sobe {formatBRL(acrescimo)}
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -501,16 +532,14 @@ export function PagarEmMaos({
             que a conciliação acha a linha do extrato — não vale o dia de hoje
             se o dinheiro saiu antes.
           </p>
-          {/* O desconto muda o valor do pagamento, não o do título: é o que
-              explica a diferença entre o que o IXC diz que se devia e o que o
-              extrato do banco vai mostrar. */}
+          {/* O desconto muda o valor do pagamento, não o do título: o título
+              continua valendo o cheio, para o IXC vai o que saiu (é o que a
+              conciliação procura no extrato) e a diferença entra como
+              economia no painel do mês. A mais, é o título que sobe. */}
           {cabeDesconto && (
             <p className="mt-1 text-xs text-tinta-400">
               Em branco, sai o valor cheio. Preencha quando o banco cobrou
-              menos por antecipação: o título continua valendo{' '}
-              {formatBRL(total)}, e para o IXC vai o que saiu de verdade — é
-              esse valor que a conciliação procura no extrato. A diferença
-              entra como economia no painel do mês.
+              outro valor.
             </p>
           )}
         </div>
@@ -529,14 +558,6 @@ export function PagarEmMaos({
         </Aviso>
       )}
 
-      {pagouAMais && (
-        <Aviso tom="erro">
-          {formatBRL(aPagar)} é mais do que o título pede ({formatBRL(total)}).
-          Pagar a mais é juros e multa, e isso não entra por aqui: registre a
-          diferença no IXC, ou corrija o valor.
-        </Aviso>
-      )}
-
       {pagar.isError && <Aviso tom="erro">{mensagemErro(pagar.error)}</Aviso>}
 
       <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
@@ -550,7 +571,7 @@ export function PagarEmMaos({
         </button>
         <button
           onClick={() => pagar.mutate()}
-          disabled={pagar.isPending || pagouAMais || descontoNaoCabe}
+          disabled={pagar.isPending || descontoNaoCabe}
           className="btn btn-primario"
         >
           {pagar.isPending

@@ -152,6 +152,7 @@ export class DespesasController {
         data: dto.data,
         jaSaiu: dto.jaSaiu,
         desconto: dto.desconto,
+        valorPago: dto.valorPago,
       },
       usuarioNome(req),
     );
