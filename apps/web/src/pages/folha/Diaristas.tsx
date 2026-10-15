@@ -891,7 +891,7 @@ export function Diaristas() {
                               <button
                                 onClick={() => setColetando(d)}
                                 title="Dinheiro em mãos não deixa comprovante no banco — a assinatura de quem recebeu é o comprovante"
-                                className="btn btn-p border border-brand-200 bg-brand-50 text-brand-700 hover:bg-brand-100"
+                                className="btn btn-p btn-ferramenta"
                               >
                                 Coletar Assinatura
                               </button>
@@ -1046,7 +1046,7 @@ function AssinaturasPendentes({
                 <td className="td text-right">
                   <button
                     onClick={() => onColetar(d)}
-                    className="btn btn-p border border-brand-200 bg-brand-50 text-brand-700 hover:bg-brand-100"
+                    className="btn btn-p btn-ferramenta"
                   >
                     {d.assinatura ? 'Ver o link' : 'Coletar Assinatura'}
                   </button>

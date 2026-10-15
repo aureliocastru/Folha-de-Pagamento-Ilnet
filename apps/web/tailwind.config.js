@@ -67,6 +67,8 @@ export default {
          * dois casos.
          */
         barra: 'rgb(var(--barra) / <alpha-value>)',
+        /** O cinza do cabeçalho: faixa do título e nome das colunas. */
+        cabecalho: 'rgb(var(--cabecalho) / <alpha-value>)',
       },
       fontFamily: {
         display: ['"Space Grotesk"', 'ui-sans-serif', 'system-ui', 'sans-serif'],

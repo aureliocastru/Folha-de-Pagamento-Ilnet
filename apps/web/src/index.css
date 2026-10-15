@@ -11,19 +11,26 @@
 :root {
   color-scheme: light;
 
-  --tinta-50: 241 244 249;
-  --tinta-100: 225 231 240;
-  --tinta-200: 194 204 221;
-  --tinta-300: 118 134 165;
-  --tinta-400: 107 124 156;
-  --tinta-500: 70 88 122;
-  --tinta-600: 42 58 87;
-  --tinta-700: 27 39 64;
-  --tinta-800: 17 26 46;
-  --tinta-900: 10 16 32;
+  --tinta-50: 240 241 243;
+  --tinta-100: 226 228 231;
+  --tinta-200: 199 202 207;
+  --tinta-300: 124 128 136;
+  --tinta-400: 108 112 120;
+  --tinta-500: 76 80 88;
+  --tinta-600: 50 53 59;
+  --tinta-700: 34 36 41;
+  --tinta-800: 22 24 28;
+  --tinta-900: 13 14 17;
 
   --papel: 255 255 255;
-  --barra: 10 16 32;
+  --barra: 30 31 35;
+
+  /*
+   * O cabeçalho: a faixa do título de um cartão e a linha dos nomes das
+   * colunas. Um cinza próprio, um degrau abaixo do branco do cartão, como no
+   * IXC — é ele que diz onde um bloco começa, e não um véu azul.
+   */
+  --cabecalho: 233 234 237;
 
   /*
    * A faixa da linha par e o realce do ponteiro, na tabela.
@@ -37,8 +44,8 @@
    * ponteiro sobre uma linha par não daria retorno nenhum. Era `tinta-50/70`,
    * que sobre o branco dá quase exatamente a cor da faixa nova.
    */
-  --faixa: 247 249 252;
-  --linha-hover: 232 237 245;
+  --faixa: 247 247 249;
+  --linha-hover: 234 235 238;
 
   /*
    * O fundo do campo de digitar, e o dele em foco.
@@ -109,37 +116,44 @@
    * indicador parecia flutuar sem borda no meio da tela. Descendo a página e
    * subindo o cartão, o que se quer ler ganha um degrau de verdade por baixo.
    */
-  --tinta-50: 8 13 25;
-  --tinta-100: 24 34 55;
-  --tinta-200: 42 57 86;
-  --tinta-300: 108 125 158;
-  --tinta-400: 148 165 195;
-  --tinta-500: 188 201 222;
-  --tinta-600: 212 221 236;
-  --tinta-700: 230 236 246;
-  --tinta-800: 242 246 252;
-  --tinta-900: 252 253 255;
+  --tinta-50: 33 34 37;
+  --tinta-100: 54 56 60;
+  --tinta-200: 74 76 82;
+  --tinta-300: 128 131 138;
+  --tinta-400: 160 163 169;
+  --tinta-500: 196 198 203;
+  --tinta-600: 215 217 221;
+  --tinta-700: 230 231 234;
+  --tinta-800: 241 242 244;
+  --tinta-900: 251 251 252;
 
-  --papel: 27 38 62;
-  /* A barra fica entre a página e o cartão: mais escura que o conteúdo, para
-     não disputar com ele, e mais clara que o fundo, para ter forma. */
-  --barra: 14 21 38;
+  /*
+   * Cinza-grafite neutro, como o tema escuro do IXC — nada puxando para o
+   * azul. Era tudo azul-marinho (página, cartão, campo e faixa de título), e
+   * as áreas se confundiam umas com as outras. Agora cada área tem o seu
+   * cinza, e o azul fica para o que se clica e o que se marca.
+   *
+   * Do mais escuro ao mais claro: barra lateral, página, cartão, faixa da
+   * linha par, campo e cabeçalho.
+   */
+  --papel: 43 44 48;
+  --barra: 23 24 26;
+  --cabecalho: 60 62 67;
 
   /*
    * No escuro a faixa é mais clara que o cartão, não mais escura: abaixo dele
    * ela cairia no fundo da página e a linha par pareceria um buraco.
    */
-  --faixa: 34 47 74;
-  --linha-hover: 45 61 95;
+  --faixa: 49 50 54;
+  --linha-hover: 64 66 72;
 
   /*
    * Mais claro que o cartão **e** que a página — as duas superfícies em que um
-   * campo pode cair. Era a cor da página, e a busca de uma lista, que fica
-   * solta fora de cartão, ficava sem fundo nenhum: só a borda dizia que ali
-   * dava para escrever.
+   * campo pode cair. A busca de uma lista, solta fora de cartão, precisa ter
+   * fundo próprio, e não só a borda dizendo que ali dá para escrever.
    */
-  --campo: 39 55 88;
-  --campo-foco: 50 69 108;
+  --campo: 55 57 62;
+  --campo-foco: 64 66 72;
 
   /* Só o violeta muda: os outros quatro passam nos dois fundos. */
   --serie-5: #8b5cf6;
@@ -187,6 +201,12 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* O nome das colunas num cinza próprio, como no IXC: separa o cabeçalho das
+     linhas sem precisar de cor. */
+  thead {
+    background-color: rgb(var(--cabecalho));
+  }
+
   ::selection {
     @apply bg-brand-200 text-brand-900;
   }
@@ -206,16 +226,17 @@
   /*
    * A faixa do título, no alto de uma janela ou de um cartão.
    *
-   * Ganha um véu da cor da marca e um fio embaixo. Sem isso o título tinha o
+   * Ganha o cinza do cabeçalho e um fio embaixo. Sem isso o título tinha o
    * mesmo fundo do conteúdo, e cartão colado em cartão virava uma coluna
    * contínua em que não se via onde uma coisa acabava e a outra começava — numa
    * tela com seis blocos, achar o começo do que se procura dava trabalho.
    *
-   * O véu é fraco de propósito: ele separa, não disputa. Quem tem de se ler
-   * primeiro é o número embaixo dele.
+   * Era um véu azul, e com a página, o cartão e o campo também azulados tudo
+   * ficava parecido. Cinza, como o cabeçalho de tabela do IXC: o azul fica
+   * para o botão e para o que está marcado.
    */
   .faixa-titulo {
-    @apply rounded-t-2xl border-b border-tinta-200 bg-brand-500/[0.07] dark:bg-brand-400/[0.09];
+    @apply rounded-t-2xl border-b border-tinta-200 bg-cabecalho;
   }
   .card-hover {
     @apply transition duration-200 hover:-translate-y-0.5 hover:shadow-card-hover;
@@ -271,6 +292,11 @@
      tela, e ele não deve trocar de peso quando o resto escurece. */
   .btn-acao {
     @apply bg-barra text-white shadow-sm hover:bg-barra/90 active:bg-barra;
+  }
+  /* No escuro a barra é quase a cor da página, e o botão sumiria nela: ali ele
+     é azul sólido, como os botões de ação do IXC. */
+  .dark .btn-acao {
+    @apply bg-brand-600 hover:bg-brand-700 active:bg-brand-800;
   }
   /*
    * Dinheiro saindo — e, fora do financeiro, o verde de "faz acontecer" numa
@@ -355,21 +381,22 @@
    */
   .caixa-clara {
     color-scheme: light;
-    --tinta-50: 241 244 249;
-    --tinta-100: 225 231 240;
-    --tinta-200: 194 204 221;
-    --tinta-300: 118 134 165;
-    --tinta-400: 107 124 156;
-    --tinta-500: 70 88 122;
-    --tinta-600: 42 58 87;
-    --tinta-700: 27 39 64;
-    --tinta-800: 17 26 46;
-    --tinta-900: 10 16 32;
+    --tinta-50: 240 241 243;
+    --tinta-100: 226 228 231;
+    --tinta-200: 199 202 207;
+    --tinta-300: 124 128 136;
+    --tinta-400: 108 112 120;
+    --tinta-500: 76 80 88;
+    --tinta-600: 50 53 59;
+    --tinta-700: 34 36 41;
+    --tinta-800: 22 24 28;
+    --tinta-900: 13 14 17;
     --papel: 255 255 255;
     --campo: 255 255 255;
     --campo-foco: 255 255 255;
-    --faixa: 247 249 252;
-    --linha-hover: 232 237 245;
+    --faixa: 247 247 249;
+    --linha-hover: 234 235 238;
+    --cabecalho: 233 234 237;
     @apply rounded-2xl border border-tinta-200 bg-white text-tinta-800 shadow-lg;
   }
   /* O vermelho claro do escuro some no branco: aqui dentro vale o do claro. */
@@ -466,16 +493,12 @@
    * A linha que abre um grupo — a categoria-mãe, com as subcategorias dela
    * embaixo.
    *
-   * A cor é a da marca, e não um cinza a mais: ela já é, em toda a casa, o que
-   * diz "isto encabeça o que vem abaixo". O que mudou foi a força. Na tinta da
-   * faixa de título (7%) a linha se lia num cartão pequeno, mas não numa
-   * tabela de trinta linhas com faixa alternada por baixo: ali ela ficava a um
-   * fio de distância da linha comum, e o grupo voltava a se confundir com as
-   * filhas. Agora é uma faixa cheia, com a barra da marca à esquerda fechando
-   * o bloco por cima do trilho das filhas.
+   * O fundo é o cinza do cabeçalho, o mesmo que encabeça a tabela: é ele que
+   * diz "isto encabeça o que vem abaixo". A barra da marca à esquerda fecha o
+   * bloco por cima do trilho das filhas — o azul fica nela, só nela.
    */
   .faixa-do-grupo {
-    @apply bg-brand-500/[0.18] dark:bg-brand-400/[0.22];
+    @apply bg-cabecalho;
   }
   .faixa-do-grupo > td:first-child {
     @apply border-l-[3px] border-brand-500 dark:border-brand-400;

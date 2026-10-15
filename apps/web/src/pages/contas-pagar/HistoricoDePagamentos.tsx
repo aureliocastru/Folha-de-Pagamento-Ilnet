@@ -344,7 +344,7 @@ function Linha({
         }
       }}
       title="Abrir a ficha deste pagamento"
-      className="linha cursor-pointer focus:bg-brand-50 focus:outline-none"
+      className="linha cursor-pointer focus:bg-brand-500/10 focus:outline-none"
     >
       <td className={`td whitespace-nowrap border-l-4 ${barra}`}>
         <div className="num text-tinta-700">{formatData(pagamento.pagoEm)}</div>

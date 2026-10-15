@@ -66,7 +66,7 @@ export function Modulos() {
         className="pointer-events-none absolute -top-40 left-1/2 h-[620px] w-[620px] -translate-x-1/2 rounded-full opacity-40 blur-3xl"
         style={{
           background:
-            'radial-gradient(circle, rgba(58,159,243,0.45) 0%, rgba(10,16,32,0) 70%)',
+            'radial-gradient(circle, rgba(255,255,255,0.14) 0%, rgba(30,31,35,0) 70%)',
         }}
       />
 

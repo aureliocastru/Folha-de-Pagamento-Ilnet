@@ -284,7 +284,7 @@ export function DetalheDoPagamento({
         <NotasDoTitulo idFnApagar={pagamento.idFnApagar} />
 
         {pagamento.origem && (
-          <div className="mt-4 rounded-xl bg-brand-50 px-4 py-3 text-sm text-brand-800">
+          <div className="mt-4 rounded-xl bg-tinta-100 px-4 py-3 text-sm text-tinta-700">
             Este pagamento nasceu no módulo Folha de Pagamento —{' '}
             {TIPO_LABEL[pagamento.origem.tipo] ?? pagamento.origem.tipo}
             {pagamento.origem.beneficiario
