@@ -942,15 +942,36 @@
     @apply min-h-[40px];
   }
   /*
-   * As contas em aberto têm quatro botões em cada cartão, e de 40px eles eram
-   * metade do cartão — "da pra diminuir um pouco" (15/10/2026). Iguais na
-   * largura, alinham de cartão para cartão.
+   * As contas em aberto: cada uma é um cartão solto, com folga entre eles.
+   * Coladas por um fio de um pixel, os botões de uma pareciam ser da de baixo
+   * — "fica tudo embolado" (15/10/2026). Sem a caixa de marcar (pagar em lote
+   * é coisa do computador), e no pé só Pagar e Copiar, do mesmo tamanho, com
+   * o lápis de editar pequeno no canto.
    */
+  table.tabela-contas > tbody {
+    @apply flex flex-col gap-2.5 bg-tinta-50 p-2.5;
+  }
+  table.tabela-contas > tbody > tr {
+    @apply rounded-xl border border-tinta-200 bg-papel px-3.5 py-3 shadow-sm;
+  }
+  table.tabela-contas td[data-papel='controle'],
+  table.tabela-contas > thead > tr > th:has(input[type='checkbox']) {
+    display: none;
+  }
+  table.tabela-contas > thead:not(:has(button)) {
+    display: none;
+  }
+  table.tabela-contas td[data-papel='acoes'] {
+    @apply mt-2 border-t border-tinta-100 pt-2.5;
+  }
   table.tabela-contas td[data-papel='acoes'] > div {
-    @apply grid grid-cols-4 gap-1.5;
+    @apply grid grid-cols-[1fr_1fr_auto] gap-2;
   }
   table.tabela-contas td[data-papel='acoes'] .btn {
-    @apply min-h-[32px] px-2;
+    @apply min-h-[34px] px-2;
+  }
+  table.tabela-contas td[data-papel='acoes'] .lapis {
+    @apply w-[34px] px-0 text-tinta-500;
   }
 
   /*

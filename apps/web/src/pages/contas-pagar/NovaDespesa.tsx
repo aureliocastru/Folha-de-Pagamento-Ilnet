@@ -201,6 +201,7 @@ export function NovaDespesa({
   inicial,
   onLancada,
   edicao,
+  onExcluir,
 }: {
   onFechar: () => void;
   /** Lançada de dentro da ficha de um veículo: ele já vem escolhido. */
@@ -225,6 +226,8 @@ export function NovaDespesa({
   onLancada?: (dados: DespesaLancada, valorLancado: number) => void;
   /** Uma conta que já está no IXC: a tela abre nela e salva por cima. */
   edicao?: EdicaoDaConta;
+  /** Na edição: o botão de apagar a conta no IXC. */
+  onExcluir?: () => void;
 }) {
   const queryClient = useQueryClient();
 
@@ -922,7 +925,10 @@ export function NovaDespesa({
         ? `${notas.length} arquivo${notas.length > 1 ? 's' : ''}`
         : undefined,
     },
-  ]);
+  ],
+  // Editar abre na revisão: a conta inteira numa tela, com o "mudar" de cada parte.
+  { comecarNaRevisao: !!edicao },
+  );
 
   /** O título de cada coluna — só no computador: no celular o passo já tem o seu. */
   const tituloDaColuna = (texto: string) =>
@@ -1961,6 +1967,13 @@ export function NovaDespesa({
               some com ela só pelo IXC
             </Selo>
           </span>
+        )}
+        {/* No celular a lista só tem Pagar e Copiar: apagar a conta mora aqui,
+            longe do dedo que paga. */}
+        {edicao && onExcluir && (
+          <button onClick={onExcluir} className="btn btn-alerta mr-auto">
+            Excluir conta
+          </button>
         )}
         <button onClick={onFechar} className="btn btn-neutro">
           Cancelar

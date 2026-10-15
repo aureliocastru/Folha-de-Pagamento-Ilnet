@@ -43,9 +43,18 @@ export interface PassoDoAssistente {
  * mostra. Assim nada se perde ao andar para trás, e o que já estava preenchido
  * (a conta aberta de dentro de um veículo, por exemplo) continua preenchido.
  */
-export function useAssistente(passos: PassoDoAssistente[]) {
+export function useAssistente(
+  passos: PassoDoAssistente[],
+  opcoes: {
+    /**
+     * Abre na revisão, e não no primeiro passo — a edição do que já existe:
+     * a conta inteira numa tela, e o "mudar" leva ao que se quer trocar.
+     */
+    comecarNaRevisao?: boolean;
+  } = {},
+) {
   const celular = useCelular();
-  const [posicao, setPosicao] = useState(0);
+  const [posicao, setPosicao] = useState(opcoes.comecarNaRevisao ? passos.length : 0);
 
   /** A fila de verdade: o que não se aplica agora nem entra na contagem. */
   const fila = passos

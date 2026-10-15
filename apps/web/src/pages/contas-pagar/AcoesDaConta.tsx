@@ -595,9 +595,12 @@ export function PagarEmMaos({
 export function EditarConta({
   conta,
   onFechar,
+  onExcluir,
 }: {
   conta: ContaAberta;
   onFechar: () => void;
+  /** Apagar a conta, de dentro da edição. */
+  onExcluir?: () => void;
 }) {
   const bruto = useQuery({
     queryKey: ['conta-bruta', conta.idFnApagar],
@@ -635,6 +638,7 @@ export function EditarConta({
   return (
     <NovaDespesa
       onFechar={onFechar}
+      onExcluir={onExcluir}
       edicao={{
         conta,
         campos: bruto.data.campos,

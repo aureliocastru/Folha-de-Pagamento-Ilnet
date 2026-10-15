@@ -11,7 +11,7 @@ import {
   Vazio,
   type Tom,
 } from '../../components/ui';
-import { IconeCheckCirculo } from '../../components/icones';
+import { IconeCheckCirculo, IconeLapis } from '../../components/icones';
 import { api, mensagemErro } from '../../lib/api';
 import { combina, semAcento } from '../../lib/busca';
 import { estaClassificado } from '../../lib/categorias';
@@ -596,7 +596,14 @@ export function Inicio() {
       )}
 
       {editando && (
-        <EditarConta conta={editando} onFechar={() => setEditando(null)} />
+        <EditarConta
+          conta={editando}
+          onFechar={() => setEditando(null)}
+          onExcluir={() => {
+            setExcluindo(editando);
+            setEditando(null);
+          }}
+        />
       )}
 
       {excluindo && (
@@ -756,19 +763,30 @@ function Linha({
             Pagar
           </button>
           <CopiarMeioDePagamento conta={conta} />
+          {/* No celular, Editar e Excluir por extenso eram dois botões a mais
+              colados nos da conta de baixo. Lá fica só o lápis, no canto, e o
+              Excluir mora dentro do Editar. */}
           <button
             onClick={onEditar}
             title="Mudar meio de pagamento, valor, vencimento, categoria…"
-            className="btn btn-ferramenta btn-p border-brand-500/70 dark:border-brand-400/70"
+            className="btn btn-ferramenta btn-p border-brand-500/70 max-md:hidden dark:border-brand-400/70"
           >
             Editar
           </button>
           <button
             onClick={onExcluir}
             title="Apagar este título no IXC"
-            className="btn btn-alerta btn-p border-rose-500/70 dark:border-rose-400/70"
+            className="btn btn-alerta btn-p border-rose-500/70 max-md:hidden dark:border-rose-400/70"
           >
             Excluir
+          </button>
+          <button
+            onClick={onEditar}
+            aria-label="Editar esta conta"
+            title="Editar"
+            className="btn btn-sutil btn-p lapis md:hidden"
+          >
+            <IconeLapis className="h-4 w-4" />
           </button>
         </div>
       </td>
