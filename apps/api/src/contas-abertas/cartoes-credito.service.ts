@@ -52,8 +52,10 @@ export interface ItemDaFatura {
   /** Que parcela é esta ("3" de "10"). */
   parcela: number;
   parcelas: number;
-  /** O que cai nesta fatura. Na assinatura pode diferir do `valorTotal`. */
+  /** O que cai nesta fatura, com o ajuste do mês quando há. */
   valor: number;
+  /** O que cairia sem o ajuste do mês: a parcela calculada, ou a mensalidade. */
+  valorNormal: number;
   /** O cadastro da compra, para a tela poder editá-la sem outra leitura. */
   valorTotal: number;
   parcelaInicial: number;
@@ -201,9 +203,19 @@ export class CartoesCreditoService {
     return {
       competencia: alvo,
       cartoes: cartoes.map(({ compras, ...cartao }) => {
-        const parcelas = compras.flatMap((compra) =>
-          parcelasDaCompra(compra, horizonte).map((p) => ({ compra, ...p })),
-        );
+        // O ajuste do mês não muda o calendário: a k-ésima parcela com ajuste
+        // é a k-ésima sem.
+        const parcelas = compras.flatMap((compra) => {
+          const normais = parcelasDaCompra(
+            { ...compra, valoresNoMes: null },
+            horizonte,
+          );
+          return parcelasDaCompra(compra, horizonte).map((p, k) => ({
+            compra,
+            ...p,
+            valorNormal: normais[k]?.valor ?? p.valor,
+          }));
+        });
 
         const lancadaEm = (mes: string): FaturaLancada | null => {
           const conta = contas.find(
@@ -234,6 +246,7 @@ export class CartoesCreditoService {
             parcela: p.numero,
             parcelas: p.compra.parcelas,
             valor: p.valor,
+            valorNormal: p.valorNormal,
             valorTotal: Number(p.compra.valorTotal),
             parcelaInicial: p.compra.parcelaInicial,
             primeiraFatura: p.compra.primeiraFatura,
@@ -409,7 +422,11 @@ export class CartoesCreditoService {
    */
   async atualizarCompra(
     compraId: string,
-    dados: Partial<DadosDaCompra> & { aPartirDe?: string; soNesteMes?: boolean },
+    dados: Partial<DadosDaCompra> & {
+      aPartirDe?: string;
+      soNesteMes?: boolean;
+      valorNoMes?: number;
+    },
   ): Promise<CompraNoCartao> {
     const atual = await this.buscarCompra(compraId);
 
@@ -428,7 +445,31 @@ export class CartoesCreditoService {
       primeiraFatura: dados.primeiraFatura ?? atual.primeiraFatura,
     });
 
-    await this.conferirFaturasLancadas(atual.cartaoId, [atual], [nova]);
+    /*
+     * A parcela que veio diferente num mês (juro, IOF, o centavo do banco)
+     * guarda o valor só daquele mês. Os ajustes de meses em que a compra
+     * deixou de ter parcela — mudou o número de vezes, ou o mês da primeira
+     * — saem junto.
+     */
+    const ajustados = lerValoresNoMes(atual.valoresNoMes);
+    const calendario = parcelasDaCompra(nova);
+    let noMes = filtrarMeses(ajustados, (m) =>
+      calendario.some((p) => p.competencia === m),
+    );
+    if (dados.valorNoMes !== undefined) {
+      noMes = ajustarParcelaDoMes(noMes, calendario, {
+        mes: dados.aPartirDe ? validarCompetencia(dados.aPartirDe) : null,
+        valor: dados.valorNoMes,
+        sinal: Math.sign(nova.valorTotal),
+      });
+    }
+    const mudouMeses = !mesmosMeses(noMes, ajustados);
+
+    await this.conferirFaturasLancadas(
+      atual.cartaoId,
+      [atual],
+      [{ ...nova, valoresNoMes: noMes }],
+    );
 
     return this.prisma.compraNoCartao.update({
       where: { id: compraId },
@@ -438,6 +479,7 @@ export class CartoesCreditoService {
         parcelas: nova.parcelas,
         parcelaInicial: nova.parcelaInicial,
         primeiraFatura: nova.primeiraFatura,
+        ...(mudouMeses ? { valoresNoMes: jsonDosMeses(noMes) } : {}),
         // A categoria não mexe em valor nenhum: troca até em fatura lançada.
         ...(dados.categoriaId === undefined
           ? {}
@@ -998,6 +1040,53 @@ function filtrarMeses(
   fica: (mes: string) => boolean,
 ): Record<string, number> {
   return Object.fromEntries(Object.entries(meses).filter(([mes]) => fica(mes)));
+}
+
+/**
+ * Põe o valor de uma parcela só na fatura `mes`. Digitar o valor normal da
+ * parcela desfaz o ajuste, em vez de guardar um "diferente" igual ao normal.
+ */
+function ajustarParcelaDoMes(
+  meses: Record<string, number>,
+  calendario: Array<{ competencia: string; valor: number }>,
+  pedido: { mes: string | null; valor: number; sinal: number },
+): Record<string, number> {
+  const { mes, valor, sinal } = pedido;
+  if (!mes) {
+    throw new BadRequestException('Falta a fatura em que vale este valor.');
+  }
+  const normal = calendario.find((p) => p.competencia === mes);
+  if (!normal) {
+    throw new BadRequestException(
+      `A compra não tem parcela na fatura de ${mesPorExtenso(mes)}.`,
+    );
+  }
+  const centavos = Math.round(Number(valor) * 100);
+  if (!Number.isFinite(centavos) || centavos === 0) {
+    throw new BadRequestException('Falta o valor da parcela deste mês.');
+  }
+  if (Math.sign(centavos) !== sinal) {
+    throw new BadRequestException(
+      sinal < 0
+        ? 'A parcela de um estorno é negativa, como o estorno.'
+        : 'A parcela deste mês precisa ser maior que zero.',
+    );
+  }
+
+  const novos = { ...meses };
+  if (centavos === Math.round(normal.valor * 100)) delete novos[mes];
+  else novos[mes] = centavos;
+  return novos;
+}
+
+function mesmosMeses(
+  a: Record<string, number>,
+  b: Record<string, number>,
+): boolean {
+  const chaves = Object.keys(a);
+  return (
+    chaves.length === Object.keys(b).length && chaves.every((k) => a[k] === b[k])
+  );
 }
 
 /** Sem mês nenhum, a coluna volta a ser vazia em vez de guardar um "{}". */

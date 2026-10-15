@@ -24,15 +24,16 @@ export interface CompraCalculavel {
   primeiraFatura: string;
   assinatura?: boolean;
   ultimaFatura?: string | null;
-  /** Na assinatura, o valor de cada fatura que cobrou diferente (centavos). */
+  /** O valor de cada fatura que cobrou diferente do normal (centavos). */
   valoresNoMes?: Prisma.JsonValue | Record<string, number>;
 }
 
 /**
- * Os meses em que a assinatura cobrou diferente, em centavos.
+ * Os meses em que a assinatura ou a parcela cobrou diferente, em centavos.
  *
- * Vem de uma coluna JSON: o que não for "AAAA-MM" com um inteiro positivo é
- * ignorado, em vez de derrubar a fatura inteira por uma chave torta.
+ * Vem de uma coluna JSON: o que não for "AAAA-MM" com um inteiro diferente de
+ * zero é ignorado, em vez de derrubar a fatura inteira por uma chave torta.
+ * Negativo só existe na parcela de estorno.
  */
 export function lerValoresNoMes(
   valores: CompraCalculavel['valoresNoMes'],
@@ -46,7 +47,7 @@ export function lerValoresNoMes(
       /^\d{4}-(0[1-9]|1[0-2])$/.test(mes) &&
       typeof centavos === 'number' &&
       Number.isInteger(centavos) &&
-      centavos > 0
+      centavos !== 0
     ) {
       lidos[mes] = centavos;
     }
@@ -67,8 +68,10 @@ export function lerValoresNoMes(
  *
  * A assinatura não tem fim, e por isso pede um horizonte: `ate` é a última
  * fatura que interessa a quem pergunta. Sem ele (e sem `ultimaFatura`), ela
- * não devolve nada — uma lista infinita não cabe em lugar nenhum. O mês que
- * veio com centavos de diferença (`valoresNoMes`) cobra o dele.
+ * não devolve nada — uma lista infinita não cabe em lugar nenhum.
+ *
+ * Nos dois tipos, o mês que veio com centavos de diferença (`valoresNoMes`)
+ * cobra o dele, e só ele: o total da compra e as outras parcelas ficam.
  */
 export function parcelasDaCompra(
   compra: CompraCalculavel,
@@ -93,19 +96,21 @@ export function parcelasDaCompra(
   }
 
   const centavos = Math.round(Number(compra.valorTotal) * 100);
+  const noMes = lerValoresNoMes(compra.valoresNoMes);
   const n = Math.max(1, compra.parcelas);
   const base = Math.trunc(centavos / n);
   const sobra = centavos - base * n;
 
   const lista: ParcelaDaCompra[] = [];
   for (let numero = Math.max(1, compra.parcelaInicial); numero <= n; numero++) {
+    const competencia = somarMeses(
+      compra.primeiraFatura,
+      numero - compra.parcelaInicial,
+    );
     lista.push({
       numero,
-      competencia: somarMeses(
-        compra.primeiraFatura,
-        numero - compra.parcelaInicial,
-      ),
-      valor: (numero === 1 ? base + sobra : base) / 100,
+      competencia,
+      valor: (noMes[competencia] ?? (numero === 1 ? base + sobra : base)) / 100,
     });
   }
   return lista;

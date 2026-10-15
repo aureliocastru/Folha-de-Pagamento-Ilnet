@@ -1243,9 +1243,10 @@ model CompraNoCartao {
   assinatura   Boolean @default(false)
   /// A última fatura em que a assinatura cobra. Vazio = continua ativa.
   ultimaFatura String? @map("ultima_fatura")
-  /// A assinatura que veio com uns centavos de diferença numa fatura:
-  /// { "2026-10": 3512 }, em centavos. O mês que não está aqui cobra o
-  /// `valorTotal`. Mexer num mês não mexe nos outros.
+  /// A assinatura ou a parcela que veio com uns centavos de diferença numa
+  /// fatura: { "2026-10": 3512 }, em centavos. O mês que não está aqui cobra
+  /// o normal (o `valorTotal` da assinatura, a parcela calculada da compra).
+  /// Mexer num mês não mexe nos outros.
   valoresNoMes Json? @map("valores_no_mes")
 
   /// Com o que se gastou. É por compra, e não do cartão: na mesma fatura vêm

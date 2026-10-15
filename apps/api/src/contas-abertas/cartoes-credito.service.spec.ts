@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { CategoriasService } from './categorias.service';
 import {
   CartoesCreditoService,
@@ -640,6 +641,86 @@ describe('Assinatura no cartão', () => {
     expect(prisma.compraNoCartao.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ descricao: 'ChatGPT Plus' }) }),
     );
+  });
+});
+
+describe('Parcela com valor só do mês', () => {
+  // 10× de 300; outubro é a segunda parcela.
+  const notebook = (over: Record<string, unknown> = {}) =>
+    compra({ id: 'nb', descricao: 'Notebook', valorTotal: 3000, parcelas: 10, primeiraFatura: '2026-09', ...over });
+  const lancadaEmOutubro = [
+    { id: 'c0', competencia: '2026-10', idFnApagarIxc: 4444, valor: 300, status: 'APROVADO' },
+  ];
+
+  it('a parcela ajustada cobra a dela, e as outras seguem a conta', () => {
+    const p = parcelasDaCompra(notebook({ valoresNoMes: { '2026-10': 31250 } }));
+    expect(p.slice(0, 3).map((x) => x.valor)).toEqual([300, 312.5, 300]);
+  });
+
+  it('grava o valor de outubro sem mexer no total nem nas parcelas', async () => {
+    const { service, prisma } = montarServico({ compras: [notebook()] });
+    await service.atualizarCompra('nb', { valorNoMes: 312.5, aPartirDe: '2026-10' });
+    expect(prisma.compraNoCartao.update).toHaveBeenCalledWith({
+      where: { id: 'nb' },
+      data: expect.objectContaining({
+        valorTotal: expect.anything(),
+        parcelas: 10,
+        valoresNoMes: { '2026-10': 31250 },
+      }),
+    });
+    const data = (prisma.compraNoCartao.update.mock.calls[0] as unknown as [
+      { data: { valorTotal: unknown } },
+    ])[0].data;
+    expect(Number(data.valorTotal)).toBe(3000);
+  });
+
+  it('digitar a parcela normal desfaz o ajuste', async () => {
+    const { service, prisma } = montarServico({
+      compras: [notebook({ valoresNoMes: { '2026-10': 31250 } })],
+    });
+    await service.atualizarCompra('nb', { valorNoMes: 300, aPartirDe: '2026-10' });
+    const data = (prisma.compraNoCartao.update.mock.calls[0] as unknown as [
+      { data: Record<string, unknown> },
+    ])[0].data;
+    expect(data.valoresNoMes).toBe(Prisma.DbNull);
+  });
+
+  it('mês sem parcela da compra é recusado', async () => {
+    const { service } = montarServico({ compras: [notebook()] });
+    await expect(
+      service.atualizarCompra('nb', { valorNoMes: 312.5, aPartirDe: '2026-08' }),
+    ).rejects.toThrow(/não tem parcela na fatura de agosto/);
+  });
+
+  it('fatura já lançada não aceita parcela nova', async () => {
+    const { service, prisma } = montarServico({
+      compras: [notebook()],
+      contas: lancadaEmOutubro,
+    });
+    await expect(
+      service.atualizarCompra('nb', { valorNoMes: 312.5, aPartirDe: '2026-10' }),
+    ).rejects.toThrow(/outubro\/2026 já virou conta a pagar/);
+    expect(prisma.compraNoCartao.update).not.toHaveBeenCalled();
+  });
+
+  it('menos vezes leva embora o ajuste do mês que deixou de ter parcela', async () => {
+    const { service, prisma } = montarServico({
+      compras: [notebook({ valoresNoMes: { '2026-10': 31250, '2027-05': 29900 } })],
+    });
+    await service.atualizarCompra('nb', { parcelas: 5 });
+    const data = (prisma.compraNoCartao.update.mock.calls[0] as unknown as [
+      { data: Record<string, unknown> },
+    ])[0].data;
+    expect(data.valoresNoMes).toEqual({ '2026-10': 31250 });
+  });
+
+  it('a listagem dá o valor do mês e o normal, e o total soma o do mês', async () => {
+    const { service } = montarServico({
+      compras: [notebook({ valoresNoMes: { '2026-10': 31250 } })],
+    });
+    const k = (await service.listar('2026-10')).cartoes[0];
+    expect(k.itens[0]).toMatchObject({ valor: 312.5, valorNormal: 300 });
+    expect(k.total).toBe(312.5);
   });
 });
 

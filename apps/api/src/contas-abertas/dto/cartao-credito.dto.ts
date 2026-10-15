@@ -129,6 +129,12 @@ export class AtualizarCompraDto {
    */
   @IsOptional() @IsBoolean() soNesteMes?: boolean;
 
+  /**
+   * Na compra parcelada: o valor da parcela só na fatura `aPartirDe` (veio
+   * com juro ou centavo de diferença). O total e as outras parcelas ficam.
+   */
+  @IsOptional() @Transform(numero) @IsNumber() valorNoMes?: number;
+
   /** Trocar a categoria não mexe em valor: vale até em fatura já lançada. */
   @IsOptional() @IsUUID() categoriaId?: string | null;
 }

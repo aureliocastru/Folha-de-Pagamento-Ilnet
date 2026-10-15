@@ -53,7 +53,10 @@ interface ItemDaFatura {
   descricao: string;
   parcela: number;
   parcelas: number;
+  /** O que cai nesta fatura, com o ajuste do mês quando há. */
   valor: number;
+  /** O que cairia sem o ajuste: a parcela calculada, ou a mensalidade. */
+  valorNormal: number;
   valorTotal: number;
   parcelaInicial: number;
   primeiraFatura: string;
@@ -738,6 +741,16 @@ function FormularioDaCompra({
     corrigindo ? corrigindo.valorTotal < 0 : false,
   );
   const [daquiEmDiante, setDaquiEmDiante] = useState(false);
+  /*
+   * A parcela deste mês, na compra parcelada: a que veio com juro ou com o
+   * centavo do banco muda só aqui, e o total da compra fica. É o que se vem
+   * corrigir mês a mês, e por isso fica antes dos campos da compra.
+   */
+  const parcelaDoMes =
+    !!corrigindo && !corrigindo.assinatura && corrigindo.parcelas > 1;
+  const [valorMes, setValorMes] = useState(
+    corrigindo ? String(Math.abs(corrigindo.valor)) : '',
+  );
   const [parcela, setParcela] = useState(String(corrigindo?.parcela ?? 1));
   const [parcelas, setParcelas] = useState(String(corrigindo?.parcelas ?? 1));
   const [categoriaId, setCategoriaId] = useState(corrigindo?.categoriaId ?? '');
@@ -747,6 +760,10 @@ function FormularioDaCompra({
   const p = assinatura ? 1 : Number(parcela);
   const v = Number(valor);
   const parcelado = n > 1;
+  const vm = Number(valorMes);
+  const mudouMes =
+    parcelaDoMes &&
+    Math.round(vm * 100) !== Math.round(Math.abs(corrigindo.valor) * 100);
 
   const valido =
     travada ||
@@ -757,7 +774,8 @@ function FormularioDaCompra({
       n <= 99 &&
       Number.isInteger(p) &&
       p >= 1 &&
-      p <= n);
+      p <= n &&
+      (!parcelaDoMes || vm > 0));
 
   const salvar = useMutation({
     mutationFn: async () => {
@@ -791,6 +809,11 @@ function FormularioDaCompra({
           parcelaInicial: inicial,
           primeiraFatura: somarMeses(competencia, -(p - inicial)),
           categoriaId: categoria,
+          // Só vai quando foi mexido: com o total trocado, a parcela do mês
+          // que ficou como estava é recalculada, e não congelada no valor velho.
+          ...(mudouMes
+            ? { valorNoMes: estorno ? -vm : vm, aPartirDe: competencia }
+            : {}),
         });
       } else {
         await api.post(`/cartoes-credito/${cartaoId}/compras`, {
@@ -941,6 +964,20 @@ function FormularioDaCompra({
           />
         </div>
 
+        {!travada && parcelaDoMes && (
+          <div className="w-[140px]">
+            <label className="rotulo" htmlFor={`mes-${cartaoId}`}>
+              Valor em {rotuloDoMes(competencia)}
+            </label>
+            <CampoDinheiro
+              id={`mes-${cartaoId}`}
+              valor={valorMes}
+              onChange={setValorMes}
+              className="campo py-1.5 text-right"
+            />
+          </div>
+        )}
+
         {!travada && !assinatura && (
           <>
             <div className="w-[88px]">
@@ -1068,12 +1105,13 @@ function FormularioDaCompra({
         </p>
       )}
       {!travada &&
-        corrigindo?.assinatura &&
-        !daquiEmDiante &&
+        corrigindo &&
+        (corrigindo.assinatura ? !daquiEmDiante : parcelaDoMes) &&
         Math.round(corrigindo.valor * 100) !==
-          Math.round(corrigindo.valorTotal * 100) && (
+          Math.round(corrigindo.valorNormal * 100) && (
           <p className="num mt-2 text-[11px] text-tinta-400">
-            Todo mês: {formatBRL(corrigindo.valorTotal)}
+            {corrigindo.assinatura ? 'Todo mês' : 'Parcela normal'}:{' '}
+            {formatBRL(Math.abs(corrigindo.valorNormal))}
           </p>
         )}
 
