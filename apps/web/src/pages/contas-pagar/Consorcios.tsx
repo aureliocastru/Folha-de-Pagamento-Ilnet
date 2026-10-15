@@ -1016,7 +1016,13 @@ export function CadastroDoConsorcio({
   );
 
   const [categoriaId, setCategoriaId] = useState(base?.categoriaId ?? '');
-  const [tipoPagamento, setTipoPagamento] = useState(base?.tipoPagamentoIxc ?? 'Boleto');
+  /**
+   * Vazio é o tipo padrão das Configurações — é o que a recorrente sem tipo
+   * escolhido manda ao IXC, e a tela diz qual é em vez de fingir "Boleto".
+   */
+  const [tipoPagamento, setTipoPagamento] = useState(
+    base ? (base.tipoPagamentoIxc ?? '') : 'Boleto',
+  );
   const [contaContabil, setContaContabil] = useState(
     base?.contaContabil ? String(base.contaContabil) : '',
   );
@@ -1035,6 +1041,14 @@ export function CadastroDoConsorcio({
       ).data,
     enabled: buscaEfetiva.length >= 2 && !fornecedor,
     retry: 0,
+  });
+
+  const config = useQuery({
+    queryKey: ['config-financeira'],
+    queryFn: async () =>
+      (await api.get<{ tipoPagamentoPadrao: string }>('/config-financeira')).data,
+    retry: 0,
+    enabled: !!base && base.tipoPagamentoIxc == null,
   });
 
   const categorias = useQuery({
@@ -1445,7 +1459,12 @@ export function CadastroDoConsorcio({
             onChange={(e) => setTipoPagamento(e.target.value)}
             className="campo"
           >
-            {(TIPOS_DE_PAGAMENTO.includes(tipoPagamento)
+            {base && base.tipoPagamentoIxc == null && (
+              <option value="">
+                Padrão — {config.data?.tipoPagamentoPadrao ?? 'das Configurações'}
+              </option>
+            )}
+            {(TIPOS_DE_PAGAMENTO.includes(tipoPagamento) || !tipoPagamento
               ? TIPOS_DE_PAGAMENTO
               : [tipoPagamento, ...TIPOS_DE_PAGAMENTO]
             ).map((t) => (
