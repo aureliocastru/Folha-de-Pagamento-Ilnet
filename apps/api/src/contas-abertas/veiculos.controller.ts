@@ -46,11 +46,12 @@ export class VeiculosController {
   /**
    * `?ativos=true` traz só os ligados — é a lista do "Lançar conta". Cada um
    * vem com quantas trocas estão vencidas ou perto: o selo da lista da frota.
+   * `?competencia=AAAA-MM` soma só aquele mês; sem ela, desde sempre.
    */
   @Get()
-  async listar(@Query('ativos') ativos?: string) {
+  async listar(@Query('ativos') ativos?: string, @Query('competencia') competencia?: string) {
     const [veiculos, alertas] = await Promise.all([
-      this.service.listar(ativos !== 'true'),
+      this.service.listar(ativos !== 'true', competencia || undefined),
       this.manutencao.alertasDaFrota(),
     ]);
     return veiculos.map((v) => ({

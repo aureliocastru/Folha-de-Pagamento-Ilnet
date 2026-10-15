@@ -22,6 +22,7 @@ import {
   type ResumoDoCombustivel,
 } from './abastecimentos.service';
 import { CategoriasService, type EtiquetaDoTitulo } from './categorias.service';
+import { validarCompetencia } from './contas-contrato.service';
 import type { AtualizarVeiculoDto, CriarVeiculoDto } from './dto/veiculo.dto';
 
 /** Um veículo na lista, com o que já se gastou nele. */
@@ -126,7 +127,15 @@ export class VeiculosService {
     private readonly vinculos: VinculoDoLoginService,
   ) {}
 
-  async listar(incluirDesligados = true): Promise<VeiculoNaLista[]> {
+  /**
+   * Com a `competencia` ("AAAA-MM"), cada soma é só daquele mês: a conta paga
+   * conta no mês em que foi paga, a em aberto no do vencimento, e o
+   * abastecimento no dia em que foi lançado. O que é estado e não soma — o
+   * que está no galão agora, a manutenção — não muda com o mês.
+   */
+  async listar(incluirDesligados = true, competencia?: string): Promise<VeiculoNaLista[]> {
+    const mes = competencia == null ? null : validarCompetencia(competencia);
+    const noMes = mes ? { data: instantesDoMes(mes) } : {};
     const [veiculos, compras, saidas, precos, medidas] = await Promise.all([
       this.prisma.veiculo.findMany({
         where: incluirDesligados ? undefined : { ativo: true },
@@ -143,7 +152,7 @@ export class VeiculosService {
       // As idas ao posto: têm nota, e é a nota que vira dinheiro.
       this.prisma.abastecimento.groupBy({
         by: ['veiculoId'],
-        where: { galaoId: null },
+        where: { galaoId: null, ...noMes },
         _sum: { valor: true },
         // `valor` conta só os que têm valor: a diferença é a fila da conferência.
         _count: { _all: true, valor: true },
@@ -152,7 +161,7 @@ export class VeiculosService {
       // O que veio de um galão: vale os litros pelo preço daquele galão.
       this.prisma.abastecimento.groupBy({
         by: ['veiculoId', 'galaoId'],
-        where: { galaoId: { not: null } },
+        where: { galaoId: { not: null }, ...noMes },
         _sum: { litros: true },
         _count: { _all: true },
         _max: { km: true, horimetro: true },
@@ -168,11 +177,11 @@ export class VeiculosService {
       this.prisma.abastecimento.findMany({
         where: { veiculo: { tipo: { not: 'GALAO' } } },
         orderBy: [{ data: 'asc' }, { createdAt: 'asc' }],
-        select: { veiculoId: true, km: true, horimetro: true, litros: true },
+        select: { veiculoId: true, km: true, horimetro: true, litros: true, data: true },
       }),
     ]);
 
-    const medidasPorVeiculo = new Map<string, Medida[]>();
+    const medidasPorVeiculo = new Map<string, Array<Medida & { data: Date }>>();
     for (const m of medidas) {
       if (!m.veiculoId) continue;
       const lista = medidasPorVeiculo.get(m.veiculoId) ?? [];
@@ -181,6 +190,7 @@ export class VeiculosService {
         // Horímetro e litros são decimais no banco: chegam como `Decimal`.
         horimetro: m.horimetro == null ? null : Number(m.horimetro),
         litros: m.litros == null ? null : Number(m.litros),
+        data: m.data,
       });
       medidasPorVeiculo.set(m.veiculoId, lista);
     }
@@ -247,19 +257,19 @@ export class VeiculosService {
       estoques.set(v.id, await this.abastecimentos.estoqueDoGalao(v.id));
     }
 
-    return veiculos.map((v) =>
-      resumir(
+    return veiculos.map((v) => {
+      const contas = [...v.contas, ...partesComoContas(v.partesDeContas)];
+      const medidor = v.tipo === 'MAQUINA' ? 'horimetro' : 'km';
+      const ideal = v.consumoIdeal == null ? null : Number(v.consumoIdeal);
+      const todas = medidasPorVeiculo.get(v.id) ?? [];
+      return resumir(
         v,
-        [...v.contas, ...partesComoContas(v.partesDeContas)],
+        mes ? contas.filter((c) => mesDoGasto(c) === mes) : contas,
         porVeiculo.get(v.id),
         estoques.get(v.id) ?? null,
-        mediaDeConsumo(
-          medidasPorVeiculo.get(v.id) ?? [],
-          v.tipo === 'MAQUINA' ? 'horimetro' : 'km',
-          v.consumoIdeal == null ? null : Number(v.consumoIdeal),
-        ),
-      ),
-    );
+        mes ? mediaDoMes(todas, mes, medidor, ideal) : mediaDeConsumo(todas, medidor, ideal),
+      );
+    });
   }
 
   /**
@@ -666,6 +676,48 @@ export function resumir(
     consumo: v.tipo === 'GALAO' ? null : (consumo ?? combustivel?.consumo ?? null),
     consumoIdeal: v.consumoIdeal == null ? null : Number(v.consumoIdeal),
   };
+}
+
+/**
+ * O mês em que o gasto pesa: a conta paga, no do pagamento; a que ainda não
+ * foi paga, no do vencimento. Os dois são dia, sem hora — guardados à meia-noite
+ * em UTC —, então o mês sai da data em UTC.
+ */
+export function mesDoGasto(c: { pagoEm: Date | null; dataVencimento: Date }): string {
+  return (c.pagoEm ?? c.dataVencimento).toISOString().slice(0, 7);
+}
+
+/**
+ * O mês "AAAA-MM" em instantes, no horário de Brasília (UTC−3): o
+ * abastecimento guarda a hora em que foi lançado, e o lançado às 22h do dia 31
+ * é do dia 31, e não do 1º do mês seguinte.
+ */
+function instantesDoMes(mes: string): { gte: Date; lt: Date } {
+  const [ano, m] = mes.split('-').map(Number);
+  return {
+    gte: new Date(Date.UTC(ano, m - 1, 1, 3)),
+    lt: new Date(Date.UTC(ano, m, 1, 3)),
+  };
+}
+
+/**
+ * A média de um mês: os abastecimentos dele, a partir do último medidor de
+ * antes. O trecho que termina no mês é do mês — sem o ponto de partida, quem
+ * abastece uma vez por mês nunca teria média nenhuma. A `base` conta só os do
+ * mês: é o que a tela chama de "abastecimentos".
+ */
+export function mediaDoMes(
+  lista: Array<Medida & { data: Date }>,
+  mes: string,
+  medidor: 'km' | 'horimetro',
+  ideal: number | null,
+): Consumo {
+  const { gte, lt } = instantesDoMes(mes);
+  const medido = (a: Medida) => (medidor === 'km' ? a.km : a.horimetro) != null;
+  const doMes = lista.filter((a) => a.data >= gte && a.data < lt && medido(a));
+  const antes = lista.filter((a) => a.data < gte && medido(a)).pop();
+  const consumo = mediaDeConsumo(antes && doMes.length > 0 ? [antes, ...doMes] : doMes, medidor, ideal);
+  return { ...consumo, base: doMes.length };
 }
 
 /** O maior dos dois medidores, ignorando o que não veio. */

@@ -250,3 +250,120 @@ describe('VeiculosService', () => {
     expect(prisma.veiculo.delete).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * A frota de um mês só. A moto teve três contas — a de setembro paga em
+ * outubro, a de outubro em aberto e a de novembro — e abastecimentos em
+ * setembro e outubro. O que se protege:
+ *
+ *  - a conta paga pesa no mês do pagamento, e a em aberto no do vencimento;
+ *  - o abastecimento é do dia em Brasília: o das 22h do dia 30 é de setembro;
+ *  - a média do mês parte do último medidor de antes dele;
+ *  - sem mês, tudo desde sempre, como antes.
+ */
+describe('a frota num mês', () => {
+  const dia = (iso: string) => new Date(iso);
+  const abastecimentos = [
+    { veiculoId: 'v1', galaoId: null, valor: 50, km: 1000, horimetro: null, litros: 10, data: dia('2026-09-10T15:00:00Z') },
+    // 22h do dia 30 em Brasília: 1h do dia 1º em UTC, e ainda é setembro.
+    { veiculoId: 'v1', galaoId: null, valor: 60, km: 1300, horimetro: null, litros: 10, data: dia('2026-10-01T01:00:00Z') },
+    { veiculoId: 'v1', galaoId: null, valor: 70, km: 1700, horimetro: null, litros: 10, data: dia('2026-10-15T15:00:00Z') },
+    { veiculoId: 'v1', galaoId: null, valor: null, km: 2000, horimetro: null, litros: 10, data: dia('2026-10-20T15:00:00Z') },
+  ];
+
+  function montar() {
+    const contas = [
+      // Venceu em setembro e foi paga em outubro: é de outubro.
+      { ...conta(300, StatusContaPagar.PAGO, '2026-09-25'), pagoEm: dia('2026-10-02T00:00:00Z') },
+      conta(80, StatusContaPagar.APROVADO, '2026-10-20'),
+      conta(40, StatusContaPagar.APROVADO, '2026-11-05'),
+    ];
+    type Filtro = { galaoId?: unknown; data?: { gte: Date; lt: Date } };
+    const filtrar = (where: Filtro) =>
+      abastecimentos.filter(
+        (a) =>
+          (where.galaoId === null ? a.galaoId === null : a.galaoId !== null) &&
+          (!where.data || (a.data >= where.data.gte && a.data < where.data.lt)),
+      );
+    const prisma = {
+      veiculo: {
+        findMany: jest.fn(async () => [
+          { ...MOTO, consumoIdeal: null, contas, partesDeContas: [], responsaveis: [], logins: [] },
+        ]),
+      },
+      abastecimento: {
+        groupBy: jest.fn(async ({ where }: { where: Filtro }) => {
+          const lista = filtrar(where);
+          if (lista.length === 0) return [];
+          return [
+            {
+              veiculoId: 'v1',
+              galaoId: null,
+              _sum: { valor: lista.reduce((s, a) => s + (a.valor ?? 0), 0), litros: 0 },
+              _count: { _all: lista.length, valor: lista.filter((a) => a.valor != null).length },
+              _max: { km: Math.max(...lista.map((a) => a.km)), horimetro: null },
+            },
+          ];
+        }),
+        findMany: jest.fn(async () => abastecimentos),
+      },
+    };
+    const servicoDeAbastecimentos = { precosDosGaloes: jest.fn(async () => new Map()) };
+    return new VeiculosService(
+      prisma as never,
+      {} as never,
+      servicoDeAbastecimentos as never,
+      {} as never,
+    );
+  }
+
+  it('em outubro, só o de outubro', async () => {
+    const [moto] = await montar().listar(true, '2026-10');
+
+    // A paga em outubro e a em aberto que vence em outubro; a de novembro, não.
+    expect(moto.gasto).toBe(380);
+    expect(moto.emAberto).toBe(80);
+    expect(moto.quantidade).toBe(2);
+    // Os dois de outubro; o das 22h do dia 30 ficou em setembro.
+    expect(moto.combustivel).toBe(70);
+    expect(moto.abastecimentos).toBe(2);
+    expect(moto.abastecimentosAConferir).toBe(1);
+    expect(moto.ultimoKm).toBe(2000);
+    // De 1300 km (o último de setembro) a 2000 km, com os 20 L de outubro.
+    expect(moto.consumo).toMatchObject({ medio: 35, base: 2 });
+  });
+
+  it('em setembro, a conta que só foi paga em outubro não aparece', async () => {
+    const [moto] = await montar().listar(true, '2026-09');
+
+    expect(moto.gasto).toBe(0);
+    expect(moto.quantidade).toBe(0);
+    expect(moto.combustivel).toBe(110);
+    expect(moto.abastecimentos).toBe(2);
+    // Sem nada antes de setembro, a média começa no dia 10: 300 km com 10 L.
+    expect(moto.consumo).toMatchObject({ medio: 30, base: 2 });
+  });
+
+  it('mês sem abastecimento fica sem média', async () => {
+    const [moto] = await montar().listar(true, '2026-11');
+
+    expect(moto.gasto).toBe(40);
+    expect(moto.combustivel).toBe(0);
+    expect(moto.abastecimentos).toBe(0);
+    expect(moto.consumo).toMatchObject({ medio: null, base: 0 });
+  });
+
+  it('sem mês, tudo desde sempre', async () => {
+    const [moto] = await montar().listar(true);
+
+    expect(moto.gasto).toBe(420);
+    expect(moto.combustivel).toBe(180);
+    expect(moto.abastecimentos).toBe(4);
+    // De 1000 a 2000 km com os 30 L de depois do primeiro.
+    expect(moto.consumo).toMatchObject({ medio: 33.33, base: 4 });
+  });
+
+  it('mês fora do formato é recusado', async () => {
+    await expect(montar().listar(true, '10/2026')).rejects.toThrow(BadRequestException);
+  });
+});

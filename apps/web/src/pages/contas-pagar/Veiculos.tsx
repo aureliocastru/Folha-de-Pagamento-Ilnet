@@ -3,7 +3,12 @@ import { useState } from 'react';
 import { useAssistente } from '../../components/Assistente';
 import { FotoDaNota } from '../../components/FotoDaNota';
 import { NotasDaParte, NotasDoTitulo } from '../../components/NotasDoTitulo';
-import { FotoDoPonto } from '../../components/PainelDePontos';
+import {
+  FotoDoPonto,
+  mesAtual,
+  mesPorExtenso,
+  somarMeses,
+} from '../../components/PainelDePontos';
 import {
   Aviso,
   Bloco,
@@ -243,7 +248,7 @@ function identificacao(
  * Amarelo, e não vermelho: consumo que caiu é coisa para olhar (pneu murcho,
  * filtro sujo, bico entupido, combustível sumindo), não é erro do sistema.
  */
-function MediaDoVeiculo({ veiculo: v }: { veiculo: VeiculoNaLista }) {
+function MediaDoVeiculo({ veiculo: v, noMes }: { veiculo: VeiculoNaLista; noMes: boolean }) {
   const c = v.consumo;
   if (v.tipo === 'GALAO') {
     // O galão não anda: o que sai dele vira consumo de quem o bebeu.
@@ -254,7 +259,9 @@ function MediaDoVeiculo({ veiculo: v }: { veiculo: VeiculoNaLista }) {
       <span className="block text-xs text-tinta-400">
         {c && c.base === 1
           ? 'falta o segundo abastecimento'
-          : 'sem abastecimento com medidor'}
+          : noMes
+            ? 'sem abastecimento no mês'
+            : 'sem abastecimento com medidor'}
       </span>
     );
   }
@@ -325,11 +332,25 @@ export function Veiculos() {
   const [cadastrando, setCadastrando] = useState(false);
   const [abertoId, setAbertoId] = useState<string | null>(null);
   const [busca, setBusca] = useState('');
+  /** "AAAA-MM", ou null: o geral, desde sempre. */
+  const [competencia, setCompetencia] = useState<string | null>(null);
 
   const lista = useQuery({
-    queryKey: ['veiculos', 'todos'],
-    queryFn: async () => (await api.get<VeiculoNaLista[]>('/veiculos')).data,
+    queryKey: ['veiculos', 'todos', competencia ?? 'geral'],
+    queryFn: async () =>
+      (
+        await api.get<VeiculoNaLista[]>('/veiculos', {
+          params: competencia ? { competencia } : undefined,
+        })
+      ).data,
+    // Trocar de mês não pisca a tela vazia: o mês anterior fica até o novo
+    // chegar.
+    placeholderData: (anterior) => anterior,
   });
+
+  // Do geral, as setas levam ao mês de agora.
+  const andar = (meses: number) =>
+    setCompetencia((c) => (c ? somarMeses(c, meses) : mesAtual()));
 
   const veiculos = lista.data ?? [];
   const achados = veiculos.filter((v) => combina(camposDaBusca(v), busca));
@@ -352,6 +373,39 @@ export function Veiculos() {
       {lista.isError && <Aviso tom="erro">{mensagemErro(lista.error)}</Aviso>}
 
       <ConferenciaDeAbastecimentos onAbrirVeiculo={setAbertoId} />
+
+      {veiculos.length > 0 && (
+        <div className="mb-3 flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => andar(-1)}
+            className="btn btn-neutro btn-p"
+            aria-label="Mês anterior"
+          >
+            ‹
+          </button>
+          <span className="inline-block min-w-[128px] text-center text-sm font-semibold text-tinta-800 first-letter:uppercase">
+            {competencia ? mesPorExtenso(competencia) : 'Geral'}
+          </span>
+          <button
+            type="button"
+            onClick={() => andar(1)}
+            className="btn btn-neutro btn-p"
+            aria-label="Próximo mês"
+          >
+            ›
+          </button>
+          {competencia && (
+            <button
+              type="button"
+              onClick={() => setCompetencia(null)}
+              className="btn btn-neutro btn-p ml-1"
+            >
+              Geral
+            </button>
+          )}
+        </div>
+      )}
 
       {veiculos.length > 0 && (
         <div className="mb-4 grid grid-cols-2 gap-2.5 sm:gap-4 xl:grid-cols-3">
@@ -460,7 +514,7 @@ export function Veiculos() {
                       )}
                     </td>
                     <td className="td">
-                      <MediaDoVeiculo veiculo={v} />
+                      <MediaDoVeiculo veiculo={v} noMes={competencia != null} />
                     </td>
                     <td className="td whitespace-nowrap text-right">
                       <span className="valor">{formatBRL(v.gasto)}</span>
