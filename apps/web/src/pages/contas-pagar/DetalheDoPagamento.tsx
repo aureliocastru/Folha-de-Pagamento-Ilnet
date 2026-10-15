@@ -84,7 +84,7 @@ export function DetalheDoPagamento({
   const extras = pagamento.juros + pagamento.multa;
 
   return (
-    <Janela titulo="Detalhe do pagamento" onFechar={onFechar}>
+    <Janela media titulo="Detalhe do pagamento" onFechar={onFechar}>
       <div className="p-5 sm:p-6">
         {/* --- O que saiu, do tamanho de quem confere de longe --- */}
         <div className="rounded-2xl bg-realce p-5">

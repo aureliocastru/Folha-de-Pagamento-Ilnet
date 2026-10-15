@@ -227,7 +227,7 @@ function ListaDeVeiculos({
             }}
             placeholder="Procurar pela placa ou pelo nome…"
             aria-label="Procurar veículo"
-            className="campo py-1.5 text-sm"
+            className="campo"
             autoComplete="off"
           />
         </div>

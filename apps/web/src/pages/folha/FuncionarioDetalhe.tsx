@@ -376,13 +376,13 @@ function ConfigFolhaBloco({
         </Marcador>
       </div>
 
-      <div className="mt-5 flex flex-wrap items-end gap-4 border-t border-tinta-100 pt-5">
+      <div className="mt-5 grid max-w-2xl grid-cols-1 gap-3 border-t border-tinta-100 pt-5">
         <div>
           <label className="rotulo">Salário base (R$)</label>
           <CampoDinheiro
             valor={salario}
             onChange={setSalario}
-            className="campo w-40"
+            className="campo"
           />
         </div>
         {carteira && (
@@ -392,7 +392,7 @@ function ConfigFolhaBloco({
               valor={aReceber}
               onChange={setAReceber}
               placeholder="vazio = salário base"
-              className="campo w-44"
+              className="campo"
             />
           </div>
         )}
@@ -403,7 +403,7 @@ function ConfigFolhaBloco({
               valor={valorAdto}
               onChange={setValorAdto}
               placeholder="vazio = 40% do salário base"
-              className="campo w-40"
+              className="campo"
             />
           </div>
         )}
@@ -412,7 +412,7 @@ function ConfigFolhaBloco({
           <select
             value={comissao}
             onChange={(e) => setComissao(e.target.value)}
-            className="campo w-48"
+            className="campo"
           >
             <option value="">Não comissiona</option>
             <option value="5">R$ 5,00 por venda</option>
@@ -426,14 +426,14 @@ function ConfigFolhaBloco({
             <CampoDinheiro
               valor={comissaoOutro}
               onChange={setComissaoOutro}
-              className="campo w-40"
+              className="campo"
             />
           </div>
         )}
         <button
           onClick={() => salvar.mutate()}
           disabled={salvar.isPending}
-          className="btn btn-primario"
+          className="btn btn-primario justify-self-start"
         >
           {salvar.isPending ? 'Salvando…' : 'Salvar'}
         </button>
@@ -563,7 +563,7 @@ function VariaveisMesBloco({
         pagar.
       </p>
 
-      <div className="flex flex-wrap items-end gap-4">
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
         <div>
           <label className="rotulo">Mês trabalhado</label>
           <input
@@ -582,7 +582,7 @@ function VariaveisMesBloco({
             value={vendas}
             onChange={(e) => setVendas(e.target.value)}
             placeholder="0"
-            className="campo w-28"
+            className="campo"
           />
         </div>
         <div>
@@ -595,7 +595,7 @@ function VariaveisMesBloco({
                 ? `padrão ${formatBRL(valorPorVendaPadrao)}`
                 : 'sem padrão'
             }
-            className="campo w-40"
+            className="campo"
           />
         </div>
         {!carteiraAssinada && (
@@ -605,11 +605,11 @@ function VariaveisMesBloco({
               valor={horasExtras}
               onChange={setHorasExtras}
               placeholder="0,00"
-              className="campo w-36"
+              className="campo"
             />
           </div>
         )}
-        <div className="min-w-[160px] flex-1">
+        <div>
           <label className="rotulo">Observação</label>
           <input
             value={observacao}
@@ -621,7 +621,7 @@ function VariaveisMesBloco({
         <button
           onClick={() => salvar.mutate()}
           disabled={salvar.isPending}
-          className="btn btn-primario"
+          className="btn btn-primario justify-self-start"
         >
           {salvar.isPending ? 'Salvando…' : 'Salvar mês'}
         </button>
@@ -963,20 +963,20 @@ function LancamentosBloco({
         </p>
       )}
 
-      <div className="flex flex-wrap items-end gap-3">
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
         <div>
           <label className="rotulo">Tipo</label>
           <select
             value={tipo}
             onChange={(e) => setTipo(e.target.value as TipoLancamento)}
-            className="campo w-auto"
+            className="campo"
           >
             <option value="DESCONTO">Desconto</option>
             <option value="ADIANTAMENTO">Adiantamento</option>
             <option value="BONUS">Bônus</option>
           </select>
         </div>
-        <div className="min-w-[160px] flex-1">
+        <div>
           <label className="rotulo">Descrição</label>
           <input
             value={descricao}
@@ -991,7 +991,7 @@ function LancamentosBloco({
           <CampoDinheiro
             valor={valor}
             onChange={setValor}
-            className="campo w-32"
+            className="campo"
           />
         </div>
         <div>
@@ -1006,7 +1006,7 @@ function LancamentosBloco({
         <button
           onClick={() => (editando ? salvar.mutate() : adicionar.mutate())}
           disabled={emCurso || incompleto}
-          className={editando ? 'btn btn-primario' : 'btn btn-neutro'}
+          className={`justify-self-start ${editando ? 'btn btn-primario' : 'btn btn-neutro'}`}
         >
           {editando ? (salvar.isPending ? 'Salvando…' : 'Salvar') : 'Adicionar'}
         </button>

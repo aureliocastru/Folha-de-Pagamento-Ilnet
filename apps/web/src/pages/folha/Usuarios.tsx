@@ -721,7 +721,7 @@ function NovoUsuario({
   return (
     <Bloco titulo="Criar login" className="surgir surgir-1">
       <FormularioEmPassos>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
         <div>
           <label className="rotulo" htmlFor="u-nome">
             Nome
@@ -793,7 +793,7 @@ function NovoUsuario({
         </div>
       </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="mt-4 grid max-w-2xl grid-cols-1 gap-3">
         <div>
           <label className="rotulo" htmlFor="u-colaborador">
             Colaborador
@@ -968,7 +968,7 @@ function EditarLogin({
         }
       }}
     >
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
         <div>
           <label className="rotulo" htmlFor="editar-nome">
             Nome
@@ -1038,7 +1038,7 @@ function EditarLogin({
             </button>
           </div>
         </div>
-        <div className="sm:col-span-2">
+        <div>
           <label className="rotulo" htmlFor="editar-colaborador">
             Colaborador
           </label>
@@ -1199,7 +1199,7 @@ function SenhaDoLogin({
         {aviso && <p className="mt-2 text-sm text-emerald-700 dark:text-emerald-300">{aviso}</p>}
       </div>
 
-      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+      <div className="mt-4 grid max-w-2xl grid-cols-1 gap-3">
         <div>
           <p className="rotulo">Senha nova, sorteada</p>
           <button
@@ -1355,7 +1355,7 @@ function FormularioDePerfil({
   return (
     <Janela titulo={perfil ? `Perfil — ${perfil.nome}` : 'Criar perfil'} onFechar={onFechar}>
       <FormularioEmPassos>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
         <div>
           <label className="rotulo" htmlFor="perfil-nome">
             Nome

@@ -1177,7 +1177,7 @@ function CartaoDoEndereco({
   const teto = dados?.maior?.valor ?? 0;
 
   return (
-    <Janela titulo={contrato.apelido} onFechar={onFechar}>
+    <Janela media titulo={contrato.apelido} onFechar={onFechar}>
       <p className="num mb-4 text-[13px] text-tinta-500">
         CC: {contrato.numero} · {contrato.fornecedorNome}
         {!contrato.ativa && ' · desligado'}
@@ -1502,7 +1502,7 @@ function CadastroDoEndereco({
       onFechar={onFechar}
     >
       {a.cabecalho}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
         {a.mostrar(0) && (
         <>
         <div>
@@ -1544,7 +1544,7 @@ function CadastroDoEndereco({
         </>
         )}
         {a.mostrar(1) && (
-        <div className="sm:col-span-2">
+        <div>
           <label className="rotulo" htmlFor="cc-fornecedor">
             Quem recebe (fornecedor no IXC)
           </label>
@@ -1732,7 +1732,7 @@ function CadastroDoEndereco({
         </>
         )}
         {a.mostrar(4) && (
-        <div className="sm:col-span-2">
+        <div>
           <label className="rotulo" htmlFor="cc-obs">
             Observação (vai junto na conta gerada)
           </label>
@@ -1946,7 +1946,7 @@ function ImportarDoHistorico({
   );
 
   return (
-    <Janela titulo="Importar do histórico do IXC" onFechar={onFechar}>
+    <Janela media titulo="Importar do histórico do IXC" onFechar={onFechar}>
       <p className="text-sm text-tinta-500">
         Cole a lista dos endereços, um por linha, com o número da conta
         contrato — o nome antes, o número depois. O resto sai do IXC: as contas
@@ -2050,7 +2050,7 @@ function ImportarDoHistorico({
 
           {/* O que é igual em todos vem uma vez só: são contas da mesma
               companhia, na mesma conta contábil, pagas da mesma conta. */}
-          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="mt-4 grid max-w-2xl grid-cols-1 gap-3">
             <div>
               <label className="rotulo">Quem recebe</label>
               <div className="rounded-xl bg-realce px-3 py-2 text-sm text-tinta-800">

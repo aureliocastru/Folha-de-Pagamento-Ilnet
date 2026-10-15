@@ -1628,11 +1628,11 @@ export function FormularioDoDocumento({
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
         {/* Mudar de pasta é o único jeito de pôr numa divisória nova o que já
             estava guardado. O arquivo vai junto: é o mesmo documento. */}
         {editando && pastas && pastas.length > 0 && (
-          <div className="sm:col-span-2">
+          <div>
             <label className="rotulo" htmlFor="pasta-do-documento">
               Em que pasta ele fica
             </label>
@@ -1685,7 +1685,7 @@ export function FormularioDoDocumento({
             placeholder="Ex.: Contrato"
           />
         </div>
-        <div className="sm:col-span-2">
+        <div>
           <label className="rotulo" htmlFor="descricao-do-documento">
             Observação <span className="text-tinta-400">(opcional)</span>
           </label>

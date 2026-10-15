@@ -206,7 +206,7 @@ function Transferir() {
     <>
       <Bloco titulo="Nova transferência" className="surgir mb-5">
         <FormularioEmPassos>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="grid max-w-2xl grid-cols-1 gap-3">
           <div>
             <label className="rotulo" htmlFor="origem">
               De qual conta sai

@@ -338,6 +338,7 @@ export function Janela({
   onFechar,
   children,
   larga = false,
+  media = false,
 }: {
   titulo: string;
   onFechar: () => void;
@@ -347,6 +348,12 @@ export function Janela({
    * tela sem rolar. No celular não muda nada: lá ela é a folha de sempre.
    */
   larga?: boolean;
+  /**
+   * Para o que não é formulário — tabela, lista, detalhe de uma conta. Sem
+   * nada, a janela tem a largura de uma coluna de campos: um campo por linha
+   * numa janela larga virava uma faixa comprida e vazia à direita.
+   */
+  media?: boolean;
 }) {
   const celular = useCelular();
   const visivel = usePedacoVisivel();
@@ -469,7 +476,7 @@ export function Janela({
   }
 
   return createPortal(
-    <div className="rolagem-fina fixed inset-0 z-50 flex justify-center overflow-y-auto overflow-x-clip bg-barra/70 p-4 backdrop-blur-sm sm:p-6">
+    <div className="rolagem-fina fixed inset-0 z-50 flex justify-center overflow-y-auto overflow-x-clip bg-barra/70 p-4 backdrop-blur-sm">
       <div
         role="dialog"
         aria-modal="true"
@@ -477,14 +484,14 @@ export function Janela({
         onInput={marcarMexido}
         onChange={marcarMexido}
         className={`surgir my-auto h-fit w-full rounded-2xl border border-tinta-100 bg-papel shadow-2xl ${
-          larga ? 'max-w-6xl' : 'max-w-5xl'
+          larga ? 'max-w-6xl' : media ? 'max-w-5xl' : 'max-w-2xl'
         }`}
       >
-        <div className="faixa-titulo flex items-center justify-between gap-3 py-2.5 pl-5 pr-3 sm:pl-6">
+        <div className="faixa-titulo flex items-center justify-between gap-3 py-2 pl-5 pr-2.5">
           <h2 className="titulo-bloco">{titulo}</h2>
           <BotaoFechar onFechar={onFechar} />
         </div>
-        <div className="px-5 py-5 sm:px-6">{children}</div>
+        <div className="px-5 py-4">{children}</div>
       </div>
     </div>,
     document.body,
@@ -506,7 +513,7 @@ function BotaoFechar({ onFechar }: { onFechar: () => void }) {
       onClick={onFechar}
       aria-label="Fechar"
       title="Fechar"
-      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-tinta-200 bg-papel text-tinta-600 transition hover:border-tinta-300 hover:bg-tinta-100 hover:text-tinta-900 active:bg-tinta-100 md:h-10 md:w-10"
+      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-tinta-200 bg-papel text-tinta-600 transition hover:border-tinta-300 hover:bg-tinta-100 hover:text-tinta-900 active:bg-tinta-100 md:h-8 md:w-8 md:rounded-lg"
     >
       <svg
         viewBox="0 0 24 24"

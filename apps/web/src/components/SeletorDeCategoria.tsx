@@ -357,7 +357,7 @@ function ListaDeCategorias({
             value={busca}
             onChange={(e) => onBusca(e.target.value)}
             placeholder="Procurar categoria…"
-            className="campo py-1.5 text-sm"
+            className="campo"
             autoComplete="off"
           />
         </div>

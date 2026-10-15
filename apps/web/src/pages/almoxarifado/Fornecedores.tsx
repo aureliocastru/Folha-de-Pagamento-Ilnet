@@ -333,8 +333,8 @@ function FormularioFornecedor({
         }}
         className="space-y-4"
       >
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="md:col-span-2">
+        <div className="grid max-w-2xl grid-cols-1 gap-3">
+          <div>
             <label className="rotulo" htmlFor="forn-nome">
               Nome *
             </label>
@@ -386,7 +386,7 @@ function FormularioFornecedor({
             <input id="forn-site" {...campo('site')} />
           </div>
 
-          <div className="md:col-span-2">
+          <div>
             <label className="rotulo" htmlFor="forn-obs">
               Observação
             </label>

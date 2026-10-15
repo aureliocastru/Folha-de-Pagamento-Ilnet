@@ -87,7 +87,7 @@ export function CalculadoraDaGaveta({
   const contou = Object.values(contagem).some((q) => Number(q) > 0);
 
   return (
-    <Janela titulo="Contar a gaveta" onFechar={onFechar}>
+    <Janela media titulo="Contar a gaveta" onFechar={onFechar}>
       <div className="grid gap-6 sm:grid-cols-2">
         <Grupo
           titulo="Cédulas"

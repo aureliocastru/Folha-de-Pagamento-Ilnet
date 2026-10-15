@@ -773,7 +773,7 @@ function LancamentoAMao({
 
   return (
     <>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
         <div>
           <label className="rotulo">Guia</label>
           <select
@@ -815,7 +815,7 @@ function LancamentoAMao({
             autoComplete="off"
           />
         </div>
-        <div className="sm:col-span-2">
+        <div>
           <label className="rotulo">Nome do arquivo — para reencontrar depois</label>
           <input
             value={arquivoNome}

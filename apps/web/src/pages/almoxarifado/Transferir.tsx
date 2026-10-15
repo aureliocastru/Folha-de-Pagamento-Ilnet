@@ -361,7 +361,7 @@ function TransferirDoCoordenador() {
           </p>
         )}
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="grid max-w-2xl grid-cols-1 gap-3">
           <div>
             <label className="rotulo" htmlFor="transf-de">
               Sai de
@@ -458,7 +458,7 @@ function TransferirDoCoordenador() {
               ))}
             </div>
 
-            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[1fr_12rem]">
+            <div className="mt-3 grid max-w-2xl grid-cols-1 gap-3">
               <div>
                 <label className="rotulo" htmlFor="transf-obs">
                   Observação (vai para o IXC)
@@ -555,7 +555,7 @@ function TransferirDoCoordenador() {
       )}
 
       {confirmando && (
-        <Janela titulo="Confere antes de gravar no IXC" onFechar={() => setConfirmando(false)}>
+        <Janela media titulo="Confere antes de gravar no IXC" onFechar={() => setConfirmando(false)}>
           <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
             <span className="selo bg-tinta-100 text-tinta-600">{nomeDe}</span>
             <span className="text-tinta-400" aria-hidden>

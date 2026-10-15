@@ -71,7 +71,7 @@ export function MoverTudo({
   const a = andamento.data?.id === transferenciaId ? andamento.data : aberta;
 
   return (
-    <Janela titulo={`Mover tudo de ${origem.descricao}`} onFechar={onFechar}>
+    <Janela media titulo={`Mover tudo de ${origem.descricao}`} onFechar={onFechar}>
       {!transferenciaId && (
         <>
           {conteudo.isLoading && <Carregando texto="Lendo no IXC o que tem nele…" />}
@@ -152,7 +152,7 @@ export function MoverTudo({
           {c && c.deFora.length > 0 && <FicamDeFora itens={c.deFora} />}
 
           {c && total > 0 && (
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <div className="mt-4 grid max-w-2xl grid-cols-1 gap-3">
               <div>
                 <label className="rotulo" htmlFor="mover-tudo-para">
                   Vai para

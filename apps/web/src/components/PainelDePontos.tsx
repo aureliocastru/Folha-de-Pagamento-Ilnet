@@ -294,7 +294,7 @@ function FichaDePontos({
   }
 
   return (
-    <Janela titulo={funcionario.apelido || funcionario.nome} onFechar={onFechar}>
+    <Janela media titulo={funcionario.apelido || funcionario.nome} onFechar={onFechar}>
       <p className="mb-4 text-[13px] text-tinta-500">
         {funcionario.apelido ? `${funcionario.nome} · ` : ''}
         {funcionario.posicao}º lugar em {mesPorExtenso(competencia)} ·{' '}

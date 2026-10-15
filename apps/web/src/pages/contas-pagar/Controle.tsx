@@ -204,7 +204,7 @@ function JanelaDoLembrete({
   return (
     <Janela titulo={lembrete ? lembrete.pessoa : 'Quem te deve'} onFechar={onFechar}>
       <FormularioEmPassos>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="grid max-w-2xl grid-cols-1 gap-3">
           <div data-passo-falta={pessoa.trim().length >= 2 ? undefined : 'Diga quem deve.'}>
             <label className="rotulo" htmlFor="ar-pessoa">
               Quem deve
@@ -224,7 +224,7 @@ function JanelaDoLembrete({
             </label>
             <CampoDinheiro id="ar-valor" valor={valor} onChange={setValor} placeholder="0,00" />
           </div>
-          <div className="sm:col-span-2">
+          <div>
             <label className="rotulo" htmlFor="ar-obs">
               Observação (opcional)
             </label>

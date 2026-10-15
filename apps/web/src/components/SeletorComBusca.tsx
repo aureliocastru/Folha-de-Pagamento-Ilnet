@@ -182,7 +182,7 @@ function Lista({
             }}
             placeholder={procurar}
             aria-label={procurar}
-            className="campo py-1.5 text-sm"
+            className="campo"
             autoComplete="off"
           />
         </div>

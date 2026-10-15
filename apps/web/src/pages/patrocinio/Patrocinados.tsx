@@ -299,7 +299,7 @@ function NovoPatrocinado({
     !salvar.isPending;
 
   return (
-    <Janela titulo="Novo patrocinado" onFechar={onFechar} larga>
+    <Janela titulo="Novo patrocinado" onFechar={onFechar}>
       <div className="p-5 sm:p-6">
         <CamposDoPatrocinado form={form} setForm={setForm} />
 
@@ -330,8 +330,8 @@ function NovoPatrocinado({
           </div>
 
           {jeito === 'novo' ? (
-            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Campo label="Nome de quem recebe" span2>
+            <div className="mt-4 grid max-w-2xl grid-cols-1 gap-3">
+              <Campo label="Nome de quem recebe">
                 <input
                   value={recebedor.nome}
                   onChange={(e) => setRecebedor({ ...recebedor, nome: e.target.value })}
@@ -379,7 +379,7 @@ function NovoPatrocinado({
                   <option value="EM_MAOS">Em mãos (sai do caixa)</option>
                 </select>
               </Campo>
-              <p className="ajuda sm:col-span-2">
+              <p className="ajuda">
                 Campo vazio usa o do patrocinado. O cadastro de diarista nasce já
                 com o fornecedor no IXC.
               </p>

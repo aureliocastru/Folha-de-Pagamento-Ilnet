@@ -477,7 +477,7 @@ export function JanelaDeAntecipacao({
             a diferença é a economia. Nada é lançado no IXC: isto é o registro
             de um pagamento que já aconteceu.
           </p>
-          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="mt-3 grid max-w-2xl grid-cols-1 gap-3">
             <div>
               <label className="rotulo" htmlFor="ant-valor">
                 Valor pago
@@ -787,7 +787,7 @@ export function JanelaDeHistorico({
   );
 
   return (
-    <Janela
+    <Janela media
       titulo={`Parcelas — ${r.ehFinanciamento ? r.observacao : r.fornecedorNome}`}
       onFechar={onFechar}
     >
@@ -1184,9 +1184,8 @@ export function CadastroDoConsorcio({
       onFechar={onFechar}
     >
       <FormularioEmPassos>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
         <div
-          className="sm:col-span-2"
           data-passo-falta={fornecedor ? undefined : 'Escolha o fornecedor no IXC.'}
         >
           <label className="rotulo" htmlFor="co-fornecedor">
@@ -1260,7 +1259,7 @@ export function CadastroDoConsorcio({
           )}
         </div>
 
-        <div className="sm:col-span-2">
+        <div>
           <label className="rotulo" htmlFor="co-obs">
             Descrição (vai na conta do IXC)
           </label>
@@ -1455,7 +1454,7 @@ export function CadastroDoConsorcio({
         </div>
 
         <label
-          className="flex items-center gap-2 text-sm text-tinta-700 sm:col-span-2"
+          className="flex items-center gap-2 text-sm text-tinta-700"
           data-passo="Só em dia útil"
         >
           <input

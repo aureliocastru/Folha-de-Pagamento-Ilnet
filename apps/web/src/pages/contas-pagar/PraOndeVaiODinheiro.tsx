@@ -409,7 +409,7 @@ function ContasDaFatia({
   return (
     <>
       {!vendoFicha && (
-      <Janela titulo={fatia.rotulo} onFechar={onFechar}>
+      <Janela media titulo={fatia.rotulo} onFechar={onFechar}>
         <div className="p-5 sm:p-6">
           <div className="rounded-2xl bg-realce p-5">
             <div className="text-sm text-tinta-500">

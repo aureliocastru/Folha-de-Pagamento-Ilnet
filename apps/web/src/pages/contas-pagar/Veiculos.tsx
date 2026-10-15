@@ -788,7 +788,7 @@ function LancarAbastecimento({
   return (
     <Janela titulo={`Abastecimento — ${veiculo.apelido}`} onFechar={onFechar}>
       <FormularioEmPassos>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
         {!ehGalao && (
           <div>
             <label className="rotulo" htmlFor="abast-km-sistema">
@@ -943,7 +943,7 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
   const d = ficha.data;
 
   return (
-    <Janela titulo={d?.veiculo.apelido ?? 'Veículo'} onFechar={onFechar}>
+    <Janela media titulo={d?.veiculo.apelido ?? 'Veículo'} onFechar={onFechar}>
       {ficha.isLoading ? (
         <Carregando />
       ) : ficha.isError || !d ? (
@@ -1550,10 +1550,10 @@ function FormularioDoVeiculo({
   return (
     <Janela titulo={veiculo ? `Editar — ${veiculo.apelido}` : 'Cadastrar veículo'} onFechar={onFechar}>
       {a.cabecalho}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
         {a.mostrar(0) && (
         <>
-        <div className="sm:col-span-2">
+        <div>
           <label className="rotulo" htmlFor="vei-apelido">
             Como vocês chamam
           </label>
@@ -1684,7 +1684,7 @@ function FormularioDoVeiculo({
          * O galão não tem: ele não anda.
          */}
         {a.mostrar(2) && !ehGalao && (
-          <div className="sm:col-span-2">
+          <div>
             <label className="rotulo" htmlFor="vei-consumo-ideal">
               {ehMaquina
                 ? 'Média esperada (litros por hora)'
@@ -1707,7 +1707,7 @@ function FormularioDoVeiculo({
         )}
 
         {a.mostrar(3) && (
-        <div className="sm:col-span-2">
+        <div>
           <label className="rotulo" htmlFor="vei-responsavel">
             Responsáveis (quem abastece)
           </label>
@@ -1727,7 +1727,7 @@ function FormularioDoVeiculo({
         </div>
         )}
         {a.mostrar(4) && (
-        <div className="sm:col-span-2">
+        <div>
           <label className="rotulo" htmlFor="vei-obs">
             Observação
           </label>

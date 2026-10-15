@@ -135,7 +135,7 @@ export function FechamentoCaixa() {
       />
 
       <Bloco titulo="Que caixa, e de quando até quando" className="surgir mb-5">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="grid max-w-2xl grid-cols-1 gap-3">
           <div>
             <label className="rotulo" htmlFor="caixa">
               Caixa
@@ -741,8 +741,8 @@ function Historico({ caixaId }: { caixaId: number }) {
   return (
     <>
       <Bloco titulo="Procurar um pagamento" className="surgir mb-5">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
-          <div className="sm:col-span-2">
+        <div className="grid max-w-2xl grid-cols-1 gap-3">
+          <div>
             <label className="rotulo" htmlFor="busca-historico">
               Histórico ou observação
             </label>
@@ -1971,7 +1971,7 @@ function DinheiroNaRuaBloco({
         </ul>
       )}
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
         <div>
           <label className="rotulo" htmlFor="pessoa">
             Com quem está
@@ -2347,7 +2347,7 @@ function AcertarConta({
         {TIPOS_DE_ACERTO.find((t) => t.tipo === tipo)?.ajuda}
       </p>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
         <div>
           <label className="rotulo">Valor</label>
           <CampoDinheiro valor={valor} onChange={setValor} />
@@ -2494,8 +2494,8 @@ function AcertarConta({
               </div>
             </>
           ) : (
-            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div className="sm:col-span-2">
+            <div className="mt-3 grid max-w-2xl grid-cols-1 gap-3">
+              <div>
                 <label className="rotulo" htmlFor="fornecedor-acerto">
                   Quem recebeu
                 </label>

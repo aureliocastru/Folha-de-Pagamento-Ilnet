@@ -969,7 +969,7 @@ function EditarPatrocinado({
   });
 
   return (
-    <Janela titulo="Editar patrocinado" onFechar={onFechar} larga>
+    <Janela titulo="Editar patrocinado" onFechar={onFechar}>
       <div className="p-5 sm:p-6">
         <CamposDoPatrocinado form={form} setForm={setForm} />
         {ficha.contratos.some((c) => c.origem === 'LINK' && !c.assinadoEm) && (

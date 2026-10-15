@@ -104,7 +104,7 @@ export function Configuracoes() {
 
       <div className="max-w-3xl space-y-4">
         <Bloco titulo="IDs da integração" className="surgir surgir-1">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="grid max-w-2xl grid-cols-1 gap-3">
             <CampoNum
               label="Conta de Pagamento — banco (id_contas)"
               valor={form.contaPagamentoId}
@@ -130,7 +130,7 @@ export function Configuracoes() {
               valor={form.percentualAdiantamento}
               onChange={(v) => num('percentualAdiantamento', v)}
             />
-            <div className="sm:col-span-2">
+            <div>
               <label className="rotulo">Tipo de pagamento no fn_apagar</label>
               <input
                 value={form.tipoPagamentoPadrao}
@@ -149,7 +149,7 @@ export function Configuracoes() {
             Um recibo que não diz quem entregou o dinheiro não prova nada — e o
             que já foi assinado guarda o nome de então, não muda com isto.
           </p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid max-w-2xl grid-cols-1 gap-3">
             <div>
               <label className="rotulo">Razão social</label>
               <input
@@ -214,7 +214,7 @@ export function Configuracoes() {
               </div>
             )}
           </div>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid max-w-2xl grid-cols-1 gap-3">
             <div>
               <label className="rotulo">Coluna do tipo da chave</label>
               <input
@@ -243,7 +243,7 @@ export function Configuracoes() {
             É o <span className="num">id_conta</span> do planejamento analítico
             — o que separa salário de bônus no relatório do IXC.
           </p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="grid max-w-2xl grid-cols-1 gap-3">
             <CampoNum
               label="Salário"
               valor={form.contaContabilSalario}
@@ -306,7 +306,7 @@ export function Configuracoes() {
               depois de olhar aquele número: quanto foi salário, quanto foi
               adiantamento, quanto foram as férias.
             */}
-            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="mt-4 grid max-w-2xl grid-cols-1 gap-3">
               {(
                 [
                   ['categoriaSalarioId', 'Salário'],
@@ -380,7 +380,7 @@ export function Configuracoes() {
             Fornecedor ativo com “Contribuinte ICMS” = Isento entra na folha.
             Confira o resultado antes de importar.
           </p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="grid max-w-2xl grid-cols-1 gap-3">
             <div>
               <label className="rotulo">Campo do ICMS</label>
               <input
@@ -422,7 +422,7 @@ export function Configuracoes() {
             confira na prévia (<span className="num">/api/sync/diaristas/preview</span>)
             antes de importar.
           </p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="grid max-w-2xl grid-cols-1 gap-3">
             <div>
               <label className="rotulo">Campo do tipo de pessoa</label>
               <input
@@ -531,13 +531,13 @@ function CaixaEmMaos({
         Deixe o código em <span className="num">0</span> para o app procurar pelo
         nome.
       </p>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
         <CampoNum
           label="Código do caixa (0 = pelo nome)"
           valor={form.caixaEmMaosId}
           onChange={(v) => num('caixaEmMaosId', v)}
         />
-        <div className="sm:col-span-2">
+        <div>
           <label className="rotulo">Nome do caixa no IXC</label>
           <input
             value={form.caixaEmMaosNome}
@@ -557,7 +557,7 @@ function CaixaEmMaos({
             autoComplete="off"
           />
         </div>
-        <div className="sm:col-span-2">
+        <div>
           <label className="rotulo">Tabela da movimentação financeira</label>
           <input
             value={form.caixaTabelaMovimento}

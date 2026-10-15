@@ -98,7 +98,7 @@ export function DetalheDaConta({
   const parcial = conta.valor > conta.valorAberto + 0.005;
 
   return (
-    <Janela titulo="Detalhe do débito" onFechar={onFechar}>
+    <Janela media titulo="Detalhe do débito" onFechar={onFechar}>
       <div className="p-5 sm:p-6">
         {/* --- O essencial, do tamanho de quem confere de longe --- */}
         <div className="rounded-2xl bg-realce p-5">

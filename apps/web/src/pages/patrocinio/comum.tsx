@@ -80,8 +80,8 @@ export function CamposDoPatrocinado({
   });
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-      <Campo label="Nome do patrocinado" span2>
+    <div className="grid max-w-2xl grid-cols-1 gap-3">
+      <Campo label="Nome do patrocinado">
         <input {...campo('nome')} placeholder="Ex.: Maria Clara, Futsal Unidos" />
       </Campo>
       <Campo label="O que se patrocina">
@@ -118,7 +118,7 @@ export function CamposDoPatrocinado({
       <Campo label="Fim do patrocínio">
         <CampoDeData valor={form.fim} onChange={(v) => setForm({ ...form, fim: v })} />
       </Campo>
-      <Campo label="Observações" span2>
+      <Campo label="Observações">
         <textarea {...campo('observacoes')} rows={2} />
       </Campo>
     </div>
@@ -127,15 +127,13 @@ export function CamposDoPatrocinado({
 
 export function Campo({
   label,
-  span2,
   children,
 }: {
   label: string;
-  span2?: boolean;
   children: ReactNode;
 }) {
   return (
-    <div className={span2 ? 'sm:col-span-2' : ''}>
+    <div>
       <label className="rotulo">{label}</label>
       {children}
     </div>

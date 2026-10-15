@@ -475,8 +475,8 @@ export function Diaristas() {
           className="surgir mb-6"
         >
           <FormularioEmPassos>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            <Campo label="Nome" span2>
+          <div className="grid max-w-2xl grid-cols-1 gap-3">
+            <Campo label="Nome">
               <input
                 value={form.nome}
                 onChange={(e) => setForm({ ...form, nome: e.target.value })}
@@ -580,7 +580,7 @@ export function Diaristas() {
                 hora.
               </p>
             </Campo>
-            <Campo label="Observações" span2>
+            <Campo label="Observações">
               <input
                 value={form.observacoes}
                 onChange={(e) =>
@@ -1392,7 +1392,7 @@ function FormularioDiaria({
   return (
     <Janela titulo={`Pagar — ${diarista.nome}`} onFechar={onCancelar}>
       <FormularioEmPassos>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
         <Campo label="Data do acerto">
           <CampoDeData
             valor={data}
@@ -1400,7 +1400,7 @@ function FormularioDiaria({
             className="campo"
           />
         </Campo>
-        <Campo label="Como vai pagar" span2>
+        <Campo label="Como vai pagar">
           <select
             value={forma}
             onChange={(e) => setForma(e.target.value as FormaPagamento)}
@@ -1476,8 +1476,8 @@ function FormularioDiaria({
         </Campo>
       </Parte>
 
-      <div className="mt-5 grid grid-cols-1 gap-4 border-t border-tinta-100 pt-5 sm:grid-cols-2 lg:grid-cols-3">
-        <Campo label="Do que se trata — vai para o IXC" span2>
+      <div className="mt-5 grid max-w-2xl grid-cols-1 gap-3 border-t border-tinta-100 pt-5">
+        <Campo label="Do que se trata — vai para o IXC">
           <input
             value={descricao}
             onChange={(e) => setDescricao(e.target.value)}
@@ -1608,15 +1608,13 @@ function Parte({
 
 function Campo({
   label,
-  span2,
   children,
 }: {
   label: string;
-  span2?: boolean;
   children: ReactNode;
 }) {
   return (
-    <div className={span2 ? 'sm:col-span-2' : ''}>
+    <div>
       <label className="rotulo">{label}</label>
       {children}
     </div>

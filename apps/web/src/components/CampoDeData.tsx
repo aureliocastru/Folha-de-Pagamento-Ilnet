@@ -90,7 +90,7 @@ export function CampoDeData({
         autoComplete="off"
         disabled={disabled}
         title={title}
-        className={`${className} num pr-10`}
+        className={`${className} num pr-9`}
       />
       <button
         type="button"
@@ -98,7 +98,7 @@ export function CampoDeData({
         disabled={disabled}
         aria-label="Abrir o calendário"
         aria-expanded={aberto}
-        className="absolute inset-y-0 right-0 flex w-10 items-center justify-center rounded-r-xl text-tinta-400 transition hover:text-tinta-700 disabled:opacity-40"
+        className="absolute inset-y-0 right-0 flex w-9 items-center justify-center rounded-r-lg text-tinta-400 transition hover:text-tinta-700 disabled:opacity-40"
       >
         <IconeCalendario />
       </button>

@@ -133,7 +133,7 @@ const CONTORNO_VERMELHO = 'border-rose-500/70 dark:border-rose-400/70';
 const CONTORNO_CINZA = 'border-tinta-400';
 
 /** Os campos do formulário da compra: todos da mesma altura, letra menor. */
-const CAMPO_DO_FORMULARIO = 'campo h-9 py-0 text-sm';
+const CAMPO_DO_FORMULARIO = 'campo';
 
 /**
  * Cartão de Crédito — a fatura de cada cartão, compra por compra.
@@ -560,7 +560,7 @@ function FaturaDoCartao({
             se paga é o que falta para ela não chegar ao IXC sem como ser
             paga. */}
         {!lancada && gerando && (
-          <div className="mt-4 flex flex-wrap items-end gap-2">
+          <div className="mt-4 grid max-w-2xl grid-cols-1 gap-2">
             <div>
               <label className="rotulo" htmlFor={`venc-${cartao.id}`}>
                 Vencimento
@@ -569,10 +569,10 @@ function FaturaDoCartao({
                 id={`venc-${cartao.id}`}
                 valor={vencimento}
                 onChange={setVencimento}
-                className="campo py-1.5"
+                className="campo"
               />
             </div>
-            <div className="min-w-0 flex-1 basis-[240px]">
+            <div className="min-w-0">
               <label className="rotulo" htmlFor={`cod-${cartao.id}`}>
                 Código de pagamento
               </label>
@@ -581,7 +581,7 @@ function FaturaDoCartao({
                   id={`cod-${cartao.id}`}
                   value={codigo}
                   onChange={(e) => setCodigo(e.target.value)}
-                  className="campo num min-w-0 flex-1 py-1.5 text-xs"
+                  className="campo num min-w-0 flex-1"
                   placeholder="boleto ou PIX"
                   autoComplete="off"
                 />
@@ -608,7 +608,7 @@ function FaturaDoCartao({
                 </p>
               )}
             </div>
-            <div className="flex gap-1.5">
+            <div className="flex justify-end gap-1.5">
               <button
                 onClick={() => setGerando(false)}
                 className="btn btn-neutro"
@@ -939,14 +939,14 @@ function FormularioDaCompra({
       )}
 
       {/*
-        Grade, e não fileira solta: no meio cartão (dois cartões lado a lado)
-        a fileira quebrava em qualquer ponto e cada linha ficava de um
-        tamanho. Aqui a primeira linha é o que se lê (descrição, categoria) e
-        a segunda são os números, em colunas iguais e campos da mesma altura.
+        Um campo por linha, como no resto do sistema: lado a lado, no meio
+        cartão (dois cartões lado a lado), a fileira quebrava em qualquer
+        ponto e cada linha ficava de um tamanho. Só "parcela 2 de 10" divide
+        a linha, porque é um número só.
       */}
-      <div className="grid grid-cols-2 gap-x-2 gap-y-2.5 sm:grid-cols-4">
+      <div className="grid max-w-2xl grid-cols-1 gap-2">
         {!travada && (
-          <div className="col-span-2">
+          <div>
             <label className="rotulo" htmlFor={`desc-${cartaoId}`}>
               Descrição
             </label>
@@ -967,7 +967,7 @@ function FormularioDaCompra({
           </div>
         )}
 
-        <div className="col-span-2 min-w-0" data-seletor-categoria>
+        <div className="min-w-0" data-seletor-categoria>
           <label className="rotulo" htmlFor={`cat-${cartaoId}`}>
             Categoria
           </label>
@@ -991,7 +991,7 @@ function FormularioDaCompra({
               id={`mes-${cartaoId}`}
               valor={valorMes}
               onChange={setValorMes}
-              className={`${CAMPO_DO_FORMULARIO} text-right`}
+              className={CAMPO_DO_FORMULARIO}
             />
           </div>
         )}
@@ -1010,7 +1010,7 @@ function FormularioDaCompra({
                 max={99}
                 value={parcela}
                 onChange={(e) => setParcela(e.target.value)}
-                className={`${CAMPO_DO_FORMULARIO} num min-w-0 flex-1 px-1.5 text-center`}
+                className={`${CAMPO_DO_FORMULARIO} num w-16 px-1.5 text-center`}
                 title="Que parcela vem nesta fatura"
               />
               <span className="text-xs text-tinta-400">de</span>
@@ -1022,7 +1022,7 @@ function FormularioDaCompra({
                 max={99}
                 value={parcelas}
                 onChange={(e) => setParcelas(e.target.value)}
-                className={`${CAMPO_DO_FORMULARIO} num min-w-0 flex-1 px-1.5 text-center`}
+                className={`${CAMPO_DO_FORMULARIO} num w-16 px-1.5 text-center`}
                 aria-label="Vezes"
                 title="Em quantas vezes a compra foi dividida (1 = à vista)"
               />
@@ -1049,7 +1049,7 @@ function FormularioDaCompra({
               id={`valor-${cartaoId}`}
               valor={valor}
               onChange={setValor}
-              className={`${CAMPO_DO_FORMULARIO} text-right`}
+              className={CAMPO_DO_FORMULARIO}
             />
           </div>
         )}
@@ -1291,7 +1291,7 @@ function CadastroDoCartao({
       onFechar={onFechar}
     >
       <FormularioEmPassos>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
         <div>
           <label className="rotulo" htmlFor="cartao-apelido">
             Nome do cartão
@@ -1322,7 +1322,7 @@ function CadastroDoCartao({
         </div>
 
         {/* Quem recebe a fatura: o banco, no cadastro de fornecedores do IXC. */}
-        <div className="sm:col-span-2">
+        <div>
           <label className="rotulo" htmlFor="cartao-fornecedor">
             Banco (fornecedor no IXC)
           </label>

@@ -635,8 +635,8 @@ function FormularioAlmoxarifado({
           </p>
         )}
 
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="sm:col-span-2">
+        <div className="grid max-w-2xl grid-cols-1 gap-3">
+          <div>
             <label className="rotulo" htmlFor="almox-nome">
               Nome do almoxarifado
             </label>

@@ -41,7 +41,7 @@ export function MesesDaContabilidade() {
       {erro && <Aviso tom="erro">{erro}</Aviso>}
 
       <Bloco titulo="Montar um período" className="mb-5">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,12rem)_minmax(0,12rem)_auto] sm:items-end">
+        <div className="grid max-w-xs grid-cols-1 gap-3">
           <div className="min-w-0">
             <label className="rotulo" htmlFor="de">
               De
@@ -56,7 +56,7 @@ export function MesesDaContabilidade() {
           </div>
           <button
             type="button"
-            className="btn btn-primario"
+            className="btn btn-primario justify-self-start"
             disabled={!periodo.de || !periodo.ate || abrir.isPending}
             onClick={() => {
               setErro(null);

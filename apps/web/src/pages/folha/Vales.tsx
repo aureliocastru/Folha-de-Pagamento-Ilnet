@@ -502,7 +502,7 @@ function NovoVale({ onCriado }: { onCriado: () => void }) {
         </BotaoSentido>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
         <Campo label="Funcionário">
           <select
             value={funcionarioId}
@@ -517,7 +517,7 @@ function NovoVale({ onCriado }: { onCriado: () => void }) {
             ))}
           </select>
         </Campo>
-        <Campo label="Descrição" span2>
+        <Campo label="Descrição">
           <input
             value={descricao}
             onChange={(e) => setDescricao(e.target.value)}
@@ -552,7 +552,7 @@ function NovoVale({ onCriado }: { onCriado: () => void }) {
             className="campo"
           />
         </Campo>
-        <Campo label="Observação" span2>
+        <Campo label="Observação">
           <input
             value={observacao}
             onChange={(e) => setObservacao(e.target.value)}
@@ -601,17 +601,15 @@ function NovoVale({ onCriado }: { onCriado: () => void }) {
 
 function Campo({
   label,
-  span2,
   children,
 }: {
-  /** Sem rótulo, o espaço é preservado para alinhar com os vizinhos. */
+  /** Sem rótulo, o campo vem colado no de cima — um por linha, não há vizinho com quem alinhar. */
   label?: string;
-  span2?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <div className={span2 ? 'sm:col-span-2' : ''}>
-      <label className="rotulo">{label ?? ' '}</label>
+    <div>
+      {label && <label className="rotulo">{label}</label>}
       {children}
     </div>
   );

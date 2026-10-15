@@ -169,7 +169,7 @@ function JanelaDaVan({ tecnico, onFechar }: { tecnico: TecnicoNaLista; onFechar:
   const recolhidos = dados?.aparelhos.filter((a) => a.recolhido) ?? [];
 
   return (
-    <Janela titulo={`A van de ${tecnico.nome}`} onFechar={onFechar}>
+    <Janela media titulo={`A van de ${tecnico.nome}`} onFechar={onFechar}>
       {van.isLoading && <Carregando texto="Lendo o almoxarifado no IXC…" />}
       {van.isError && <Aviso tom="erro">{mensagemErro(van.error)}</Aviso>}
       {dados && (

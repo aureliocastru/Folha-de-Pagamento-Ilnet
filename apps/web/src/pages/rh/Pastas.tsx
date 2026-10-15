@@ -313,8 +313,8 @@ export function FormularioDaPasta({
         }
       }}
     >
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className={semCpf ? 'sm:col-span-2' : ''}>
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
+        <div>
           <label className="rotulo" htmlFor="nome-da-pasta">
             {semCpf || renomeando ? 'Nome da pasta' : 'De quem é a pasta'}
           </label>

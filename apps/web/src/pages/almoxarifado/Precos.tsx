@@ -364,7 +364,7 @@ function JanelaDoProduto({
   const p = produto.data;
 
   return (
-    <Janela titulo={p?.nome ?? 'Produto'} onFechar={onFechar}>
+    <Janela media titulo={p?.nome ?? 'Produto'} onFechar={onFechar}>
       {produto.isLoading && <Carregando />}
       {produto.isError && (
         <Vazio titulo="Não deu para abrir o produto">
@@ -573,7 +573,7 @@ function FormularioDePreco({
         </p>
       ) : (
         <>
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid max-w-2xl grid-cols-1 gap-3">
             <div>
               <label className="rotulo" htmlFor="preco-fornecedor">
                 Fornecedor *
@@ -640,7 +640,7 @@ function FormularioDePreco({
               </p>
             </div>
 
-            <div className="md:col-span-2">
+            <div>
               <label className="rotulo" htmlFor="preco-obs">
                 Observação
               </label>
@@ -705,8 +705,8 @@ function FormularioProduto({
         }}
         className="space-y-4"
       >
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="md:col-span-2">
+        <div className="grid max-w-2xl grid-cols-1 gap-3">
+          <div>
             <label className="rotulo" htmlFor="prod-nome">
               Produto *
             </label>
@@ -761,7 +761,7 @@ function FormularioProduto({
             />
           </div>
 
-          <div className="md:col-span-2">
+          <div>
             <label className="rotulo" htmlFor="prod-obs">
               Observação
             </label>

@@ -556,7 +556,7 @@ export function Avulsos({
             vazios; ficavam em branco em quase todo cadastro daqui. Campo que
             ninguém preenche só faz o formulário parecer maior do que é.
           */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid max-w-2xl grid-cols-1 gap-3">
             <Campo label="Tipo de pessoa">
               <select
                 value={form.tipoPessoa}
@@ -569,7 +569,7 @@ export function Avulsos({
                 <option value="J">Jurídica</option>
               </select>
             </Campo>
-            <Campo label={form.tipoPessoa === 'J' ? 'CNPJ' : 'CPF'} span2>
+            <Campo label={form.tipoPessoa === 'J' ? 'CNPJ' : 'CPF'}>
               <div className="flex gap-2">
                 <input
                   value={form.cpfCnpj}
@@ -591,7 +591,7 @@ export function Avulsos({
                 </button>
               </div>
             </Campo>
-            <Campo label="Nome ou razão social" span2>
+            <Campo label="Nome ou razão social">
               <input
                 value={form.nome}
                 onChange={(e) => setForm({ ...form, nome: e.target.value })}
@@ -619,7 +619,7 @@ export function Avulsos({
                 <option value="EM_MAOS">Em mãos (sai do caixa)</option>
               </select>
             </Campo>
-            <Campo label="Chave PIX" span2>
+            <Campo label="Chave PIX">
               <input
                 value={form.chavePix}
                 onChange={(e) => setForm({ ...form, chavePix: e.target.value })}
@@ -644,7 +644,7 @@ export function Avulsos({
                 ))}
               </select>
             </Campo>
-            <Campo label="Categoria dos pagamentos" span2>
+            <Campo label="Categoria dos pagamentos">
               <SeletorDeCategoria
                 categorias={categorias.data}
                 value={form.categoriaId}
@@ -658,7 +658,7 @@ export function Avulsos({
                 trocar na hora.
               </p>
             </Campo>
-            <Campo label="Observações" span2>
+            <Campo label="Observações">
               <input
                 value={form.observacoes}
                 onChange={(e) =>
@@ -1077,8 +1077,8 @@ function FormularioFornecedorIxc({
       titulo={`Editar no IXC — ${fornecedor.nome}`}
       onFechar={onCancelar}
     >
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Campo label="Fantasia (como é conhecido)" span2>
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
+        <Campo label="Fantasia (como é conhecido)">
           <input
             value={fantasia}
             onChange={(e) => setFantasia(e.target.value)}
@@ -1475,7 +1475,7 @@ function FormularioPagamento({
   return (
     <Janela titulo={`Pagar — ${beneficiario.nome}`} onFechar={onCancelar}>
       {passo.cabecalho}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
         {passo.mostrar(0) && (
           <Campo label="Data">
             <CampoDeData valor={data} onChange={setData} className="campo" />
@@ -1629,7 +1629,7 @@ function FormularioPagamento({
 
       {passo.mostrar(7) &&
         (verMais ? (
-          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-4 grid max-w-2xl grid-cols-1 gap-3">
             <Campo label="Conta contábil no IXC">
               <SeletorComBusca
                 value={contaContabil}
@@ -1779,15 +1779,13 @@ interface ContaDePagamentoIxc {
 
 function Campo({
   label,
-  span2,
   children,
 }: {
   label: string;
-  span2?: boolean;
   children: ReactNode;
 }) {
   return (
-    <div className={span2 ? 'sm:col-span-2' : ''}>
+    <div>
       <label className="rotulo">{label}</label>
       {children}
     </div>

@@ -395,7 +395,7 @@ function FormularioDaFerramenta({
         }}
         className="space-y-4"
       >
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid max-w-2xl grid-cols-1 gap-3">
           <div>
             <label className="rotulo" htmlFor="ferr-nome">
               Ferramenta *
@@ -430,7 +430,7 @@ function FormularioDaFerramenta({
             </p>
           </div>
 
-          <div className="md:col-span-2">
+          <div>
             <label className="rotulo" htmlFor="ferr-descricao">
               Observação
             </label>
@@ -445,7 +445,7 @@ function FormularioDaFerramenta({
           </div>
 
           {ferramenta && (
-            <label className="opcao md:col-span-2">
+            <label className="opcao">
               <input
                 type="checkbox"
                 className="marcador"
@@ -544,7 +544,7 @@ function FormularioDeEmprestimo({
           />
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid max-w-2xl grid-cols-1 gap-3">
           <div>
             <label className="rotulo" htmlFor="empr-previsao">
               Fica de voltar quando

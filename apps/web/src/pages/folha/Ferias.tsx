@@ -707,7 +707,7 @@ function JanelaMandarParaFerias({
         O pagamento sai em Gerar Folha → Férias.
       </p>
 
-      <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="mt-5 grid max-w-2xl grid-cols-1 gap-3">
         <div>
           <label className="rotulo">Primeiro dia de férias</label>
           <CampoDeData
@@ -734,7 +734,7 @@ function JanelaMandarParaFerias({
             {fim ? formatData(fim) : '—'}
           </div>
         </div>
-        <div className="sm:col-span-3">
+        <div>
           <label className="rotulo">Observação</label>
           <input
             value={observacao}

@@ -153,7 +153,7 @@ export function AcertarNegativos({ onFechar }: { onFechar: () => void }) {
     !!fornecedor && !!tipoDocumentoId && !!condicaoPagamentoId && marcados.length > 0;
 
   return (
-    <Janela titulo="Acertar saldos negativos" onFechar={onFechar}>
+    <Janela media titulo="Acertar saldos negativos" onFechar={onFechar}>
       {!acertoId && (
         <>
           <p className="mb-3 text-[13px] leading-relaxed text-tinta-500">
@@ -247,7 +247,7 @@ export function AcertarNegativos({ onFechar }: { onFechar: () => void }) {
 
           {itens.length > 0 && (
             <>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid max-w-2xl grid-cols-1 gap-3">
                 <div>
                   <span className="rotulo">Fornecedor</span>
                   <p className="campo bg-tinta-50 text-tinta-700">

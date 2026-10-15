@@ -480,8 +480,8 @@ export function PagarEmMaos({
 
       {!soAprova && (
         <div className="mt-4">
-          <div className="flex flex-wrap gap-4">
-            <div className="max-w-[200px] flex-1">
+          <div className="grid max-w-2xl grid-cols-1 gap-3">
+            <div>
               <label className="rotulo" htmlFor="data-pagamento-lote">
                 Dia em que saiu
               </label>
@@ -493,11 +493,12 @@ export function PagarEmMaos({
               />
             </div>
 
-            {/* Desconto por antecipação: o campo fica ao lado da data porque
-                as duas perguntas são a mesma — em que condições o dinheiro
-                saiu —, e quem paga adiantado responde as duas de uma vez. */}
+            {/* Desconto por antecipação: o campo vem logo embaixo da data
+                porque as duas perguntas são a mesma — em que condições o
+                dinheiro saiu —, e quem paga adiantado responde as duas de
+                uma vez. */}
             {cabeDesconto && (
-              <div className="max-w-[220px] flex-1">
+              <div>
                 <label className="rotulo" htmlFor="valor-pago">
                   Valor pago
                 </label>

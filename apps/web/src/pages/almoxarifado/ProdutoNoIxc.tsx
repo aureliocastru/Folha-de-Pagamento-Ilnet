@@ -117,7 +117,7 @@ export function JanelaDoProduto({
   const positivos = p?.saldos.filter((s) => s.saldo > 0) ?? [];
 
   return (
-    <Janela titulo={p ? p.descricao : 'Produto'} onFechar={onFechar}>
+    <Janela media titulo={p ? p.descricao : 'Produto'} onFechar={onFechar}>
       {produto.isLoading && <Carregando texto="Lendo o produto no IXC…" />}
       {produto.isError && <Aviso tom="erro">{mensagemErro(produto.error)}</Aviso>}
 
@@ -366,8 +366,8 @@ function Cadastro({
 
   return (
     <div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="sm:col-span-2">
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
+        <div>
           <label className="rotulo" htmlFor="produto-nome">
             Nome do produto
           </label>
@@ -522,7 +522,7 @@ function Mover({
 
   return (
     <div>
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
         <div>
           <label className="rotulo" htmlFor="mover-de">
             Sai de
@@ -751,7 +751,7 @@ function DarEntrada({
         pagamento escolhidos aqui, e já sai fechada — não precisa fechar no IXC.
       </p>
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
         <div>
           <label className="rotulo" htmlFor="entrada-almox">
             Entra em
@@ -798,7 +798,7 @@ function DarEntrada({
           />
         </div>
 
-        <div className="sm:col-span-2">
+        <div>
           <label className="rotulo" htmlFor="entrada-fornecedor">
             Fornecedor (do IXC)
           </label>
@@ -897,7 +897,7 @@ function DarEntrada({
           </select>
         </div>
         {fornecedor && (
-          <div className="sm:col-span-2">
+          <div>
             {modelo.isLoading && (
               <p className="ajuda">Lendo no IXC a última compra de {fornecedor.nome}…</p>
             )}
@@ -1070,8 +1070,8 @@ export function NovoProduto({
       <FormularioEmPassos>
       {opcoes.isError && <Aviso tom="erro">{mensagemErro(opcoes.error)}</Aviso>}
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="sm:col-span-2">
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
+        <div>
           <label className="rotulo" htmlFor="novo-nome">
             Nome do produto novo
           </label>

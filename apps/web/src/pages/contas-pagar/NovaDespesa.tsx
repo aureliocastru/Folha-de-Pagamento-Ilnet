@@ -913,7 +913,7 @@ export function NovaDespesa({
 
   /** O título de cada coluna — só no computador: no celular o passo já tem o seu. */
   const tituloDaColuna = (texto: string) =>
-    a.celular ? null : <p className="eyebrow mb-3">{texto}</p>;
+    a.celular ? null : <p className="eyebrow mb-2">{texto}</p>;
 
   /**
    * Os arquivos que sobem com a conta pelo título, cada um com o nome que a
@@ -1033,22 +1033,22 @@ export function NovaDespesa({
 
       {/*
         Duas colunas no computador: a conta à esquerda, o pagamento à
-        direita — tudo numa tela, sem rolar. No celular é um passo por vez,
-        na mesma ordem.
+        direita — tudo numa tela, sem rolar. Dentro de cada uma, um campo por
+        linha. No celular é um passo por vez, na mesma ordem.
       */}
-      <div className="grid grid-cols-1 gap-x-8 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-x-6 lg:grid-cols-2">
         <div>
           {tituloDaColuna('A conta')}
           {/* --- Fornecedor --- */}
           {a.mostrar(0) && (
-          <div className="mb-4">
+          <div className="mb-2">
             <label className="rotulo" htmlFor="fornecedor">
               Fornecedor no IXC
             </label>
             {fornecedor ? (
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-tinta-100 bg-realce px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-tinta-100 bg-realce px-3 py-1.5">
                 <div className="min-w-0">
-                  <div className="font-semibold text-tinta-900">
+                  <div className="text-[13px] font-semibold text-tinta-900">
                     {fornecedor.nome}
                   </div>
                   <div className="num text-xs text-tinta-500">
@@ -1131,7 +1131,7 @@ export function NovaDespesa({
           </div>
           )}
           {a.mostrar(1) && (
-            <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div className="mb-2 grid grid-cols-1 gap-2">
               <div>
                 <label className="rotulo" htmlFor="valor">
                   {parcelado && modoParcela === 'consorcio'
@@ -1186,13 +1186,13 @@ export function NovaDespesa({
             <button
               type="button"
               onClick={abrirDivisao}
-              className="btn btn-p btn-ferramenta -mt-2 mb-4"
+              className="btn btn-p btn-ferramenta mb-2"
             >
               Várias notas, um pagamento
             </button>
           )}
           {a.mostrar(2) && (
-            <div className="mb-4">
+            <div className="mb-2">
               <label className="rotulo" htmlFor="observacao">
                 O que é esta conta
               </label>
@@ -1216,8 +1216,8 @@ export function NovaDespesa({
         <div className="lg:border-l lg:border-tinta-200 lg:pl-8">
           {tituloDaColuna('O pagamento')}
           {a.mostrar(3) && (
-            <div className="mb-4">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="mb-2">
+              <div className="grid grid-cols-1 gap-2">
                 <div>
                   <label className="rotulo" htmlFor="tipo-pagamento">
                     Tipo de pagamento
@@ -1259,9 +1259,36 @@ export function NovaDespesa({
                   </select>
                 </div>
                 <div>
-                  <label className="rotulo" htmlFor="conta-pagamento">
-                    Conta de pagamento
-                  </label>
+                  <div className="flex items-end justify-between gap-2">
+                    <label className="rotulo" htmlFor="conta-pagamento">
+                      Conta de pagamento
+                    </label>
+                    {/*
+                      "Já foi paga" mora colado na conta, e não junto das outras opções:
+                      é esta conta que recebe a baixa. As duas escolhas são uma só — de
+                      onde o dinheiro saiu —, e separá-las fazia marcar a caixa sem olhar
+                      para a conta que ia ser debitada.
+                    */}
+                    {/* Na edição, pagar é o botão "Pagar" da lista — é ele que sabe
+                        baixar uma conta que já existe. */}
+                    {!edicao && (
+                    <label
+                      className="opcao text-[12px]"
+                      title="A conta é criada, aprovada e baixada como paga no IXC de uma vez, e as três datas passam a ser o dia em que o dinheiro saiu"
+                    >
+                      <input
+                        type="checkbox"
+                        className="marcador"
+                        checked={jaPaga}
+                        onChange={(e) => {
+                          setJaPaga(e.target.checked);
+                          if (e.target.checked) datarComoPaga(dataPagamento);
+                        }}
+                      />
+                      Já foi paga
+                    </label>
+                    )}
+                  </div>
                   <select
                     id="conta-pagamento"
                     value={contaPagamento}
@@ -1300,31 +1327,6 @@ export function NovaDespesa({
                     </p>
                   )}
 
-                  {/*
-                    "Já foi paga" mora colado na conta, e não junto das outras opções:
-                    é esta conta que recebe a baixa. As duas escolhas são uma só — de
-                    onde o dinheiro saiu —, e separá-las fazia marcar a caixa sem olhar
-                    para a conta que ia ser debitada.
-                  */}
-                  {/* Na edição, pagar é o botão "Pagar" da lista — é ele que sabe
-                      baixar uma conta que já existe. */}
-                  {!edicao && (
-                  <label
-                    className="opcao mt-2.5"
-                    title="A conta é criada, aprovada e baixada como paga no IXC de uma vez, e as três datas passam a ser o dia em que o dinheiro saiu"
-                  >
-                    <input
-                      type="checkbox"
-                      className="marcador"
-                      checked={jaPaga}
-                      onChange={(e) => {
-                        setJaPaga(e.target.checked);
-                        if (e.target.checked) datarComoPaga(dataPagamento);
-                      }}
-                    />
-                    Já foi paga
-                  </label>
-                  )}
                   {jaPaga && (
                     <div className="mt-2">
                       <label className="rotulo" htmlFor="data-pagamento">
@@ -1346,7 +1348,7 @@ export function NovaDespesa({
                   baixo em toda conta paga por PIX.
                 */}
                 {ehBoleto && (
-                  <div className="sm:col-span-2">
+                  <div>
                     <label className="rotulo" htmlFor="codigo-barras">
                       Linha digitável do boleto
                     </label>
@@ -1393,24 +1395,25 @@ export function NovaDespesa({
                   dentro —, e é por isso que ele fica aqui, na conta, e não no cadastro.
                 */}
                 {ehPix && (
-                  <div className="sm:col-span-2">
+                  <div>
                     <label className="rotulo" htmlFor="chave-pix">
                       Chave PIX desta conta
                     </label>
-                    <div className="flex flex-wrap gap-2">
-                      <input
-                        id="chave-pix"
-                        value={chavePix}
-                        onChange={(e) => {
-                          setChavePix(e.target.value);
-                          if (!e.target.value) setTipoChavePix('');
-                        }}
-                        // `min-w-0`: num flex o input não encolhe abaixo do tamanho
-                        // do placeholder, e era ele que empurrava a janela para o lado.
-                        className="campo min-w-0 flex-1 basis-56"
-                        placeholder="Em branco usa a chave do fornecedor no IXC"
-                        autoComplete="off"
-                      />
+                    <input
+                      id="chave-pix"
+                      value={chavePix}
+                      onChange={(e) => {
+                        setChavePix(e.target.value);
+                        if (!e.target.value) setTipoChavePix('');
+                      }}
+                      className="campo"
+                      placeholder="Em branco usa a chave do fornecedor no IXC"
+                      autoComplete="off"
+                    />
+                    {/* A chave tem a linha dela; o tipo e o leitor de QR vêm
+                        embaixo, e só quando têm o que fazer. */}
+                    {((chavePix && !ehCopiaECola) || leitorDeCodigoSuportado()) && (
+                    <div className="mt-1.5 flex flex-wrap gap-2">
                       {/* O tipo só aparece com chave escrita: vazio, ele era uma
                           linha inteira de campo desabilitado. Copia e cola lido do
                           QR já sabe o que é, e não pergunta. */}
@@ -1433,13 +1436,14 @@ export function NovaDespesa({
                         <button
                           type="button"
                           onClick={() => setLendo('pix')}
-                          className="btn btn-ferramenta shrink-0"
+                          className="btn btn-p btn-ferramenta shrink-0"
                           title="Ler o QR Code do PIX com a câmera"
                         >
                           Ler QR Code
                         </button>
                       )}
                     </div>
+                    )}
                     {ehCopiaECola && (
                       <p className="ajuda text-emerald-700 dark:text-emerald-300">
                         QR lido: código copia e cola, {chavePix.length} caracteres.
@@ -1463,8 +1467,8 @@ export function NovaDespesa({
             </div>
           )}
           {a.mostrar(4) && (
-            <div className="mb-4">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="mb-2">
+              <div className="grid grid-cols-1 gap-2">
                 <div>
                   <label className="rotulo" htmlFor="categoria">
                     A que se refere
@@ -1540,7 +1544,7 @@ export function NovaDespesa({
             </div>
           )}
           {a.mostrar(5) && (
-            <div className="mb-4 flex flex-wrap gap-x-6 gap-y-2">
+            <div className="mb-2 flex flex-wrap gap-x-6 gap-y-2">
               {/* --- Serviço que se repete todo mês --- */}
               {!parcelado && (
                 <div className="min-w-0 flex-1">
@@ -1631,7 +1635,7 @@ export function NovaDespesa({
 
                     {modoParcela === 'consorcio' ? (
                       <>
-                        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                        <div className="grid grid-cols-1 gap-2">
                           <div>
                             <label className="rotulo" htmlFor="total-parcelas">
                               Parcelas no total
@@ -1921,7 +1925,7 @@ export function NovaDespesa({
       )}
 
       {a.mostrarAcao && (
-      <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
+      <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
         {!podeLancar && (
           <span className="mr-auto text-xs text-tinta-400">
             {!fornecedor

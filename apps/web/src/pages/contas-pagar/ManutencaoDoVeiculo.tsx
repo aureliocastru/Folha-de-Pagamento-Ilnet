@@ -150,7 +150,7 @@ export function ManutencaoDoVeiculo({ veiculoId, onFechar }: { veiculoId: string
   }
 
   return (
-    <Janela titulo={`Manutenção — ${d?.veiculo.apelido ?? ''}`} onFechar={onFechar}>
+    <Janela media titulo={`Manutenção — ${d?.veiculo.apelido ?? ''}`} onFechar={onFechar}>
       {dados.isLoading ? (
         <Carregando />
       ) : dados.isError || !d ? (
@@ -444,7 +444,7 @@ function JanelaDaTroca({
   return (
     <Janela titulo={`Troca — ${item.nome}`} onFechar={onFechar}>
       <FormularioEmPassos>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="grid max-w-2xl grid-cols-1 gap-3">
           <div>
             <label className="rotulo" htmlFor="troca-data">
               Quando foi
@@ -466,7 +466,7 @@ function JanelaDaTroca({
             />
             <p className="ajuda">Não sabe o {horas ? 'horímetro' : 'km'}? Deixe em branco: conta só o tempo.</p>
           </div>
-          <div className="sm:col-span-2">
+          <div>
             <label className="rotulo" htmlFor="troca-obs">
               Observação (opcional)
             </label>
@@ -549,8 +549,8 @@ function JanelaDoItem({
   return (
     <Janela titulo={item ? `Editar — ${item.nome}` : 'Novo item de manutenção'} onFechar={onFechar}>
       <FormularioEmPassos>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="sm:col-span-2" data-passo-falta={nome.trim().length >= 2 ? undefined : 'Diga o que é.'}>
+        <div className="grid max-w-2xl grid-cols-1 gap-3">
+          <div data-passo-falta={nome.trim().length >= 2 ? undefined : 'Diga o que é.'}>
             <label className="rotulo" htmlFor="item-nome">
               O que é
             </label>
@@ -597,7 +597,7 @@ function JanelaDoItem({
             />
             <p className="ajuda">O que chegar primeiro vence. Deixe em branco o que não se aplica.</p>
           </div>
-          <div className="sm:col-span-2">
+          <div>
             <label className="rotulo" htmlFor="item-obs">
               Observação (opcional)
             </label>
