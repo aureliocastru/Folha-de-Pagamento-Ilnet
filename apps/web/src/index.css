@@ -941,6 +941,17 @@
   table:not(.tabela-fixa) td[data-papel='acoes'] .btn {
     @apply min-h-[40px];
   }
+  /*
+   * As contas em aberto têm quatro botões em cada cartão, e de 40px eles eram
+   * metade do cartão — "da pra diminuir um pouco" (15/10/2026). Iguais na
+   * largura, alinham de cartão para cartão.
+   */
+  table.tabela-contas td[data-papel='acoes'] > div {
+    @apply grid grid-cols-4 gap-1.5;
+  }
+  table.tabela-contas td[data-papel='acoes'] .btn {
+    @apply min-h-[32px] px-2;
+  }
 
   /*
    * As dicas da tela (`data-celular` no cabeçalho — ver
@@ -949,7 +960,11 @@
    * `sem-rotulo`: o dado se explica sozinho e divide a linha com o vizinho —
    * o primeiro à esquerda, o seguinte na ponta direita.
    * `ao-lado`: sobe para a linha do título, na ponta direita.
+   * `esconder`: some do cartão — o dado do computador que o celular dispensa.
    */
+  table:not(.tabela-fixa) td[data-celular='esconder'] {
+    display: none;
+  }
   table:not(.tabela-fixa) td:is([data-celular='sem-rotulo'], [data-celular='ao-lado'])::before {
     content: none;
   }

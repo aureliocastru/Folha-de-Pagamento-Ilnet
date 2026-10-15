@@ -514,7 +514,7 @@ export function Inicio() {
           </Vazio>
         ) : (
           <div className="overflow-x-auto rolagem-fina">
-            <table className="w-full text-sm">
+            <table className="tabela-contas w-full text-sm">
               <thead>
                 <tr>
                   <th className="th w-10">
@@ -528,10 +528,10 @@ export function Inicio() {
                     />
                   </th>
                   {/* As dicas do cartão no celular (ver `lib/tabela-no-celular`):
-                      o valor sobe para o lado do nome, e o vencimento e o
-                      documento dividem uma linha sem rótulo — tudo aqui é
-                      conta em aberto, o cartão não precisa dizer. */}
-                  <th className="th" data-celular="sem-rotulo">Vencimento</th>
+                      o valor sobe para o lado do nome, com o prazo embaixo
+                      dele; a coluna do vencimento e a do documento somem —
+                      "tem muita informação e acaba complicando" (15/10/2026). */}
+                  <th className="th" data-celular="esconder">Vencimento</th>
                   <th className="th">
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
                       {/* No celular o cabeçalho só aparece por causa do botão, e
@@ -540,7 +540,7 @@ export function Inicio() {
                       {botaoOcultas}
                     </div>
                   </th>
-                  <th className="th" data-celular="sem-rotulo">Documento</th>
+                  <th className="th" data-celular="esconder">Documento</th>
                   <th className="th text-right" data-celular="ao-lado">Em aberto</th>
                   <th className="th text-right">Pagar</th>
                 </tr>
@@ -638,8 +638,10 @@ function Linha({
         }
       }}
       title="Abrir o detalhe deste débito"
-      // No celular o cartão inteiro fica na cor do prazo (ver `index.css`).
-      data-estado={urgencia.estado}
+      // No celular o cartão inteiro fica na cor do prazo (ver `index.css`) —
+      // só a vencida e a de hoje: a que ainda vai vencer fica na cor normal,
+      // como no computador. Verde em todas, nada se destacava.
+      data-estado={urgencia.estado === 'prazo' ? undefined : urgencia.estado}
       className={`linha cursor-pointer focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-500 ${
         marcado ? 'linha-marcada' : ''
       }`}
@@ -679,8 +681,12 @@ function Linha({
                 nota), e é a resposta de "esta é qual delas?" — a pergunta que
                 se faz olhando sete linhas iguais do mesmo financiamento. Sai
                 junto da observação porque é a mesma frase: do que é esta
-                conta. */}
-            {conta.parcela && (
+                conta. Quando a observação já termina em "(3/40)", repetir
+                "parcela 3/40" ao lado é a mesma coisa duas vezes. */}
+            {conta.parcela &&
+              !(conta.observacao ?? '').includes(
+                `${conta.parcela.posicao}/${conta.parcela.total}`,
+              ) && (
               <span className="num ml-1.5 text-tinta-500">
                 parcela {conta.parcela.posicao}/{conta.parcela.total}
               </span>
@@ -710,6 +716,11 @@ function Linha({
             de {formatBRL(conta.valor)}
           </div>
         )}
+        {/* No celular o prazo mora aqui, embaixo do valor: a coluna do
+            vencimento some lá. */}
+        <div className="mt-1 md:hidden">
+          <PrazoNoCelular conta={conta} />
+        </div>
       </td>
 
       {/* O clique aqui não abre a ficha: são ações que mexem no IXC. */}
@@ -724,7 +735,7 @@ function Linha({
           e os três botões caem sempre no mesmo lugar, linha após linha.
         */}
         <div className="flex items-center justify-end gap-1.5">
-          <span className="flex w-5 justify-center">
+          <span className="flex w-5 justify-center max-md:hidden">
             {conta.statusAuditoria === 'A' && (
               <span
                 title="Aprovada na auditoria do IXC"
@@ -744,6 +755,7 @@ function Linha({
           >
             Pagar
           </button>
+          <CopiarMeioDePagamento conta={conta} />
           <button
             onClick={onEditar}
             title="Mudar meio de pagamento, valor, vencimento, categoria…"
@@ -817,6 +829,117 @@ function PrazoDaConta({ conta }: { conta: ContaAberta }) {
     >
       {texto}
     </Selo>
+  );
+}
+
+/**
+ * O prazo no cartão do celular: o selo quando ela pede atenção (venceu, vence
+ * hoje), e só a data quando ainda vai vencer — "em 12 dias" em verde em todas
+ * era informação demais para o que não pede nada.
+ */
+function PrazoNoCelular({ conta }: { conta: ContaAberta }) {
+  const dias = conta.diasParaVencer;
+  if (dias !== null && dias > 0 && conta.vencimento) {
+    return (
+      <span className="num text-xs text-tinta-500">vence {formatData(conta.vencimento)}</span>
+    );
+  }
+  return <PrazoDaConta conta={conta} />;
+}
+
+/** O que se copia para pagar por fora, e o nome que o botão diz depois. */
+interface MeioDePagamento {
+  texto: string;
+  nome: string;
+}
+
+/**
+ * O código de barras, a chave PIX da conta, ou a do cadastro do fornecedor —
+ * nessa ordem, que é a ordem em que o IXC pagaria.
+ */
+async function lerMeioDePagamento(conta: ContaAberta): Promise<MeioDePagamento | null> {
+  const bruto = (
+    await api.get<{ campos: Record<string, unknown> }>(`/contas-abertas/${conta.idFnApagar}/bruto`)
+  ).data;
+  const texto = (v: unknown) => String(v ?? '').trim();
+  const codigo = texto(bruto.campos.codigo_barras).replace(/\D/g, '');
+  if (codigo.length >= 44) return { texto: codigo, nome: 'Boleto copiado' };
+  const chave = texto(bruto.campos.chave_pix);
+  if (chave) {
+    return { texto: chave, nome: 'PIX copiado' };
+  }
+  if (conta.fornecedor.id != null) {
+    const cadastro = (
+      await api.get<{ chavePix: string | null } | null>(`/fornecedores-ixc/${conta.fornecedor.id}`)
+    ).data;
+    const doCadastro = cadastro?.chavePix?.trim();
+    if (doCadastro) return { texto: doCadastro, nome: 'PIX copiado' };
+  }
+  return null;
+}
+
+/**
+ * Copia o meio de pagamento da conta — para pagar por fora, na rua, e dar a
+ * baixa depois.
+ *
+ * O texto só existe depois de ir ao IXC, e o iPhone só deixa copiar no mesmo
+ * toque: um `writeText` depois de esperar a resposta é recusado. O
+ * `ClipboardItem` aceita a promessa do texto e segura o toque enquanto ela
+ * corre; onde ele não existe, a cópia vai depois da leitura.
+ */
+function CopiarMeioDePagamento({ conta }: { conta: ContaAberta }) {
+  const [estado, setEstado] = useState<'parado' | 'lendo' | string>('parado');
+
+  async function copiar() {
+    setEstado('lendo');
+    const leitura = lerMeioDePagamento(conta);
+    let meio: MeioDePagamento | null = null;
+    try {
+      if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
+        const blob = leitura.then((m) => {
+          if (!m) throw new Error('sem meio de pagamento');
+          return new Blob([m.texto], { type: 'text/plain' });
+        });
+        try {
+          await navigator.clipboard.write([new ClipboardItem({ 'text/plain': blob })]);
+          meio = await leitura;
+        } catch {
+          meio = await leitura;
+          if (meio) await navigator.clipboard.writeText(meio.texto);
+        }
+      } else {
+        meio = await leitura;
+        if (meio) await navigator.clipboard.writeText(meio.texto);
+      }
+      setEstado(meio ? meio.nome : 'Sem PIX/boleto');
+    } catch (err) {
+      meio = meio ?? (await leitura.catch(() => null));
+      if (meio) {
+        // A cópia foi recusada: o texto aparece para copiar à mão.
+        window.prompt('Copie o meio de pagamento:', meio.texto);
+        setEstado('parado');
+        return;
+      }
+      setEstado(
+        err instanceof Error && /sem meio/.test(err.message)
+          ? 'Sem PIX/boleto'
+          : 'Falhou',
+      );
+    }
+    window.setTimeout(() => setEstado('parado'), 2500);
+  }
+
+  const parado = estado === 'parado';
+  return (
+    <button
+      type="button"
+      onClick={() => void copiar()}
+      disabled={estado === 'lendo'}
+      title="Copiar a chave PIX ou o código de barras, para pagar por fora"
+      className="btn btn-neutro btn-p leading-tight"
+    >
+      {parado ? 'Copiar' : estado === 'lendo' ? 'Copiando…' : estado}
+    </button>
   );
 }
 
