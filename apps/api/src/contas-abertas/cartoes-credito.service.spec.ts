@@ -190,9 +190,22 @@ describe('observacaoDaFatura', () => {
       { descricao: 'Amazon', parcela: 3, parcelas: 10, valor: 89.9 },
     ]);
     expect(texto).toBe(
-      'Fatura Sicoob Visa final 1234 outubro/2026 - 2 lançamento(s): ' +
-        'Posto 120,00; Amazon 3/10 89,90',
+      [
+        'Fatura Sicoob Visa final 1234 - outubro/2026 - 2 lançamentos',
+        'Posto: 120,00',
+        'Amazon 3/10: 89,90',
+      ].join('\n'),
     );
+  });
+
+  it('a descrição com quebra de linha não parte a lista', () => {
+    const texto = observacaoDaFatura(cartao(), '2026-10', [
+      { descricao: 'Notebook\nDELL ', parcela: 4, parcelas: 10, valor: 448.6 },
+    ]);
+    expect(texto.split('\n')).toEqual([
+      'Fatura Sicoob Visa final 1234 - outubro/2026 - 1 lançamento',
+      'Notebook DELL 4/10: 448,60',
+    ]);
   });
 
   it('não passa do teto do campo, e diz quantas ficaram de fora', () => {
@@ -204,7 +217,7 @@ describe('observacaoDaFatura', () => {
     }));
     const texto = observacaoDaFatura(cartao(), '2026-10', itens);
     expect(texto.length).toBeLessThanOrEqual(500);
-    expect(texto).toMatch(/; e mais \d+$/);
+    expect(texto).toMatch(/\ne mais \d+$/);
   });
 });
 
@@ -237,7 +250,7 @@ describe('CartoesCreditoService.gerarFatura', () => {
     expect((criadas[0].dataVencimento as Date).toISOString().slice(0, 10)).toBe(
       '2026-10-15',
     );
-    expect(criadas[0].observacao).toContain('Kalunga 2/3 33,33');
+    expect(criadas[0].observacao).toContain('\nKalunga 2/3: 33,33');
     expect(vinculos[0]).toEqual({ cartaoCreditoId: 'k1', competencia: '2026-10' });
   });
 
@@ -423,7 +436,7 @@ describe('Assinatura no cartão', () => {
     });
     const r = await service.gerarFatura('k1', '2026-11', {});
     expect(r.total).toBe(230);
-    expect(criadas[0].observacao).toContain('ChatGPT 110,00');
+    expect(criadas[0].observacao).toContain('\nChatGPT: 110,00');
   });
 
   it('aparece nas faturas seguintes, mas não conta como já comprometido', async () => {
@@ -628,7 +641,7 @@ describe('Assinatura no cartão', () => {
     });
     const r = await service.gerarFatura('k1', '2026-11', {});
     expect(r.total).toBe(110.12);
-    expect(criadas[0].observacao).toContain('ChatGPT 110,12');
+    expect(criadas[0].observacao).toContain('\nChatGPT: 110,12');
   });
 
   it('trocar só o nome passa, mesmo com fatura lançada', async () => {

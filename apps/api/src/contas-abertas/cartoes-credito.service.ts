@@ -987,12 +987,17 @@ export function normalizarCompra(dados: DadosDaCompra): {
 }
 
 /**
- * "Fatura Sicoob Visa final 1234 outubro/2026 - 3 lançamentos: Posto 120,00;
- * Amazon 2/10 89,90; …".
+ * A observação da fatura no IXC, uma compra por linha:
+ *
+ *     Fatura Sicoob Visa final 1234 - outubro/2026 - 3 lançamentos
+ *     Posto: 120,00
+ *     Amazon 2/10: 89,90
+ *     …
  *
  * A lista vai na observação porque o título é o que se vê no IXC, e sem ela a
- * fatura paga seria só um número. O que não couber no teto do campo vira "e
- * mais N", em vez de uma compra cortada no meio.
+ * fatura paga seria só um número. Numa linha só, separadas por ";", as compras
+ * viravam um parágrafo em que não se achava nenhuma. O que não couber no teto
+ * do campo vira "e mais N", em vez de uma compra cortada no meio.
  */
 export function observacaoDaFatura(
   cartao: { apelido: string; final: string | null },
@@ -1005,12 +1010,14 @@ export function observacaoDaFatura(
   }>,
 ): string {
   const cabeca =
-    `Fatura ${cartao.apelido}${cartao.final ? ` final ${cartao.final}` : ''} ` +
-    `${mesPorExtenso(competencia)} - ${itens.length} lançamento(s): `;
+    `Fatura ${cartao.apelido}${cartao.final ? ` final ${cartao.final}` : ''} - ` +
+    `${mesPorExtenso(competencia)} - ` +
+    `${itens.length} ${itens.length === 1 ? 'lançamento' : 'lançamentos'}`;
 
-  const partes = itens.map(
+  const linhas = itens.map(
     (i) =>
-      `${i.descricao}${i.parcelas > 1 ? ` ${i.parcela}/${i.parcelas}` : ''} ` +
+      `${i.descricao.replace(/\s+/g, ' ').trim()}` +
+      `${i.parcelas > 1 ? ` ${i.parcela}/${i.parcelas}` : ''}: ` +
       i.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 }),
   );
 
@@ -1019,17 +1026,13 @@ export function observacaoDaFatura(
    * sobrarem — assim a parada nunca deixa o aviso sem lugar.
    */
   let texto = cabeca;
-  for (let k = 0; k < partes.length; k++) {
-    const separador = k === 0 ? '' : '; ';
-    const sobram = partes.length - k - 1;
-    const rabo = sobram > 0 ? `; e mais ${sobram}` : '';
-    if ((texto + separador + partes[k] + rabo).length > TETO_DA_OBSERVACAO) {
-      return `${texto}${separador}e mais ${partes.length - k}`.slice(
-        0,
-        TETO_DA_OBSERVACAO,
-      );
+  for (let k = 0; k < linhas.length; k++) {
+    const sobram = linhas.length - k - 1;
+    const rabo = sobram > 0 ? `\ne mais ${sobram}` : '';
+    if (`${texto}\n${linhas[k]}${rabo}`.length > TETO_DA_OBSERVACAO) {
+      return `${texto}\ne mais ${linhas.length - k}`.slice(0, TETO_DA_OBSERVACAO);
     }
-    texto += separador + partes[k];
+    texto += `\n${linhas[k]}`;
   }
   return texto;
 }
