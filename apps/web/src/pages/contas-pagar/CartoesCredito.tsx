@@ -235,10 +235,18 @@ export function CartoesCredito() {
           <Vazio titulo="Cadastre o primeiro cartão." />
         </Bloco>
       ) : (
-        <div className="space-y-5">
+        /* Lado a lado na tela larga, e só com mais de um cartão: sozinho, ele
+           fica com a largura toda. Cada um tem a sua altura (`items-start`)
+           — o de fatura curta não estica para acompanhar o vizinho. */
+        <div
+          className={`grid grid-cols-1 items-start gap-5 ${
+            ativos.length > 1 ? '2xl:grid-cols-2' : ''
+          }`}
+        >
           {ativos.map((dados) => (
             <FaturaDoCartao
               key={dados.cartao.id}
+              ladoALado={ativos.length > 1}
               dados={dados}
               competencia={competencia}
               onMudarMes={setCompetencia}
@@ -311,6 +319,7 @@ export function CartoesCredito() {
  * tempo todo, eram metade da tela.
  */
 function FaturaDoCartao({
+  ladoALado,
   dados,
   competencia,
   onMudarMes,
@@ -318,6 +327,8 @@ function FaturaDoCartao({
   onAviso,
   onMudou,
 }: {
+  /** Há outro cartão na tela: na tela larga, ele fica com meia largura. */
+  ladoALado: boolean;
   dados: CartaoDoMes;
   competencia: string;
   onMudarMes: (competencia: string) => void;
@@ -415,8 +426,16 @@ function FaturaDoCartao({
 
       {/* Os meses vizinhos são o caminho até eles: um clique no mês. No
           celular quebram em três colunas, e não numa fita que rola para o
-          lado — fita escondida é mês que ninguém vê. */}
-      <div className="grid grid-cols-3 gap-2 border-b border-tinta-100 px-3.5 py-3 rolagem-fina md:flex md:overflow-x-auto md:px-5">
+          lado — fita escondida é mês que ninguém vê. Lado a lado, o cartão
+          fica com metade da largura, e os seis meses voltam a três colunas
+          até a tela ter folga para eles numa linha só. */}
+      <div
+        className={`grid grid-cols-3 gap-2 border-b border-tinta-100 px-3.5 py-3 md:px-5 ${
+          ladoALado
+            ? 'md:grid-cols-6 2xl:grid-cols-3 min-[1800px]:grid-cols-6'
+            : 'rolagem-fina md:flex md:overflow-x-auto'
+        }`}
+      >
         {faturas.map((f) => (
           <ChipDaFatura
             key={f.competencia}
