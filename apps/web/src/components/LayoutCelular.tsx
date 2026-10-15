@@ -3,6 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { useAvisosDoMenu, type AvisoDoMenu } from '../lib/avisos';
 import { itemDoMenuAparece, type ItemMenu, type Modulo } from '../lib/modulos';
+import { travarRolagem } from '../lib/rolagem';
 import { useTema } from '../lib/tema';
 import { IconeGrade, IconeLua, IconeSol } from './icones';
 import { Carregando, PontoDeAviso } from './ui';
@@ -50,14 +51,7 @@ export function LayoutCelular({ modulo }: { modulo: Modulo }) {
 
   // Rolar a lista de contas por trás da gaveta aberta tira do lugar o que se
   // estava lendo. É o mesmo cuidado da `Janela`.
-  useEffect(() => {
-    if (!aberta) return;
-    const anterior = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = anterior;
-    };
-  }, [aberta]);
+  useEffect(() => (aberta ? travarRolagem() : undefined), [aberta]);
 
   function sair() {
     logout();

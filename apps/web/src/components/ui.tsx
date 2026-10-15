@@ -10,6 +10,7 @@ import {
 import { createPortal } from 'react-dom';
 import { useCelular } from '../lib/celular';
 import { formatNumeroBR } from '../lib/format';
+import { travarRolagem } from '../lib/rolagem';
 import { IconeVoltar } from './icones';
 import { usePedacoVisivel } from '../lib/teclado';
 
@@ -380,14 +381,11 @@ export function Janela({
       if (e.key === 'Escape') fecharComCuidado();
     };
     window.addEventListener('keydown', aoTeclar);
-    // Rolar a página atrás da janela tira do lugar o que se está lendo nela.
-    const overflowAnterior = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      window.removeEventListener('keydown', aoTeclar);
-      document.body.style.overflow = overflowAnterior;
-    };
+    return () => window.removeEventListener('keydown', aoTeclar);
   }, [fecharComCuidado]);
+
+  // Rolar a página atrás da janela tira do lugar o que se está lendo nela.
+  useEffect(() => travarRolagem(), []);
 
   const marcarMexido = () => {
     mexido.current = true;
@@ -711,14 +709,11 @@ export function FotoAmpliada({
       if (e.key === '0') setEscala(1);
     };
     window.addEventListener('keydown', aoTeclar);
-    // Rolar a página atrás tira do lugar a lista que se estava conferindo.
-    const overflowAnterior = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      window.removeEventListener('keydown', aoTeclar);
-      document.body.style.overflow = overflowAnterior;
-    };
+    return () => window.removeEventListener('keydown', aoTeclar);
   }, [onFechar, onAnterior, onProxima]);
+
+  // Rolar a página atrás tira do lugar a lista que se estava conferindo.
+  useEffect(() => travarRolagem(), []);
 
   /*
    * Com a foto ampliada, arrastar a move — e o clique que a arrastou não

@@ -7,6 +7,7 @@ import {
   useState,
 } from 'react';
 import type { PointerEvent as ReactPointerEvent, RefObject } from 'react';
+import { travarRolagem } from '../lib/rolagem';
 import { IconeEncolher, IconeExpandir } from './icones';
 
 /**
@@ -208,12 +209,11 @@ export function AssinaturaCanvas({
     };
     window.addEventListener('keydown', aoTeclar, true);
 
-    const overflowAnterior = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    const destravar = travarRolagem();
 
     return () => {
       window.removeEventListener('keydown', aoTeclar, true);
-      document.body.style.overflow = overflowAnterior;
+      destravar();
       if (document.fullscreenElement) {
         void document.exitFullscreen().catch(() => undefined);
       }
