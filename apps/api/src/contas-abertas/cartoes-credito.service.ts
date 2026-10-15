@@ -27,6 +27,7 @@ import {
 import { proximoDiaUtil } from './dias-uteis';
 import {
   CompraCalculavel,
+  lerValoresNoMes,
   parcelasDaCompra,
   somar,
   somarMeses,
@@ -51,6 +52,7 @@ export interface ItemDaFatura {
   /** Que parcela é esta ("3" de "10"). */
   parcela: number;
   parcelas: number;
+  /** O que cai nesta fatura. Na assinatura pode diferir do `valorTotal`. */
   valor: number;
   /** O cadastro da compra, para a tela poder editá-la sem outra leitura. */
   valorTotal: number;
@@ -402,11 +404,12 @@ export class CartoesCreditoService {
    * estava na tela). O ChatGPT que subiu de R$ 110 para R$ 120 em outubro não
    * cobrou R$ 120 em agosto: a linha velha é encerrada em setembro e outra
    * nasce em outubro, e as faturas já lançadas continuam somando o que o
-   * banco cobrou.
+   * banco cobrou. Com `soNesteMes`, o valor é só o daquela fatura — o
+   * YouTube que veio R$ 35,12 em vez de R$ 34,90 por causa do câmbio.
    */
   async atualizarCompra(
     compraId: string,
-    dados: Partial<DadosDaCompra> & { aPartirDe?: string },
+    dados: Partial<DadosDaCompra> & { aPartirDe?: string; soNesteMes?: boolean },
   ): Promise<CompraNoCartao> {
     const atual = await this.buscarCompra(compraId);
 
@@ -445,7 +448,7 @@ export class CartoesCreditoService {
 
   private async atualizarAssinatura(
     atual: CompraNoCartao,
-    dados: Partial<DadosDaCompra> & { aPartirDe?: string },
+    dados: Partial<DadosDaCompra> & { aPartirDe?: string; soNesteMes?: boolean },
   ): Promise<CompraNoCartao> {
     const descricao = (dados.descricao ?? atual.descricao).trim().slice(0, 200);
     if (!descricao) {
@@ -461,26 +464,65 @@ export class CartoesCreditoService {
 
     const categoriaId =
       dados.categoriaId === undefined ? atual.categoriaId : dados.categoriaId;
-    const mudouPreco =
-      Math.round(valor * 100) !== Math.round(Number(atual.valorTotal) * 100);
+    const centavos = Math.round(valor * 100);
+    const mudouPreco = centavos !== Math.round(Number(atual.valorTotal) * 100);
     const aPartirDe = dados.aPartirDe
       ? validarCompetencia(dados.aPartirDe)
       : null;
+    const noMes = lerValoresNoMes(atual.valoresNoMes);
+
+    if (dados.soNesteMes) {
+      return this.valorDeUmMes(atual, {
+        descricao,
+        categoriaId,
+        mes: aPartirDe,
+        centavos: dados.valor === undefined ? null : centavos,
+      });
+    }
+
+    /*
+     * Valor digitado "daqui em diante" vale também para a fatura da tela: o
+     * centavo diferente que ela tinha guardado sai, senão o preço novo
+     * pularia justamente o mês em que foi digitado.
+     */
+    const semEsteMes = (meses: Record<string, number>) => {
+      if (dados.valor === undefined || !aPartirDe || !(aPartirDe in meses)) {
+        return meses;
+      }
+      const resto = { ...meses };
+      delete resto[aPartirDe];
+      return resto;
+    };
 
     if (mudouPreco && aPartirDe && aPartirDe > atual.primeiraFatura) {
-      const velha = { ...atual, descricao, ultimaFatura: somarMeses(aPartirDe, -1) };
+      const deTras = filtrarMeses(noMes, (m) => m < aPartirDe);
+      const daFrente = filtrarMeses(semEsteMes(noMes), (m) => m > aPartirDe);
+      const velha = {
+        ...atual,
+        descricao,
+        ultimaFatura: somarMeses(aPartirDe, -1),
+        valoresNoMes: deTras,
+      };
       const nova = {
         ...atual,
         descricao,
         valorTotal: new Prisma.Decimal(valor),
         primeiraFatura: aPartirDe,
+        valoresNoMes: daFrente,
       };
       await this.conferirFaturasLancadas(atual.cartaoId, [atual], [velha, nova]);
 
       const [, criada] = await this.prisma.$transaction([
         this.prisma.compraNoCartao.update({
           where: { id: atual.id },
-          data: { descricao, categoriaId, ultimaFatura: velha.ultimaFatura },
+          data: {
+            descricao,
+            categoriaId,
+            ultimaFatura: velha.ultimaFatura,
+            ...(Object.keys(noMes).length === 0
+              ? {}
+              : { valoresNoMes: jsonDosMeses(deTras) }),
+          },
         }),
         this.prisma.compraNoCartao.create({
           data: {
@@ -492,6 +534,9 @@ export class CartoesCreditoService {
             primeiraFatura: aPartirDe,
             ultimaFatura: atual.ultimaFatura,
             assinatura: true,
+            ...(Object.keys(daFrente).length === 0
+              ? {}
+              : { valoresNoMes: daFrente }),
             categoriaId,
             criadoPor: atual.criadoPor,
           },
@@ -500,14 +545,69 @@ export class CartoesCreditoService {
       return criada;
     }
 
+    const meses = semEsteMes(noMes);
     await this.conferirFaturasLancadas(
       atual.cartaoId,
       [atual],
-      [{ ...atual, valorTotal: new Prisma.Decimal(valor) }],
+      [{ ...atual, valorTotal: new Prisma.Decimal(valor), valoresNoMes: meses }],
     );
     return this.prisma.compraNoCartao.update({
       where: { id: atual.id },
-      data: { descricao, categoriaId, valorTotal: new Prisma.Decimal(valor) },
+      data: {
+        descricao,
+        categoriaId,
+        valorTotal: new Prisma.Decimal(valor),
+        ...(meses === noMes ? {} : { valoresNoMes: jsonDosMeses(meses) }),
+      },
+    });
+  }
+
+  /**
+   * O valor de uma fatura só: os outros meses continuam no de sempre.
+   *
+   * Digitar o próprio valor de todo mês desfaz o ajuste daquele mês, em vez
+   * de guardar um "diferente" igual ao normal.
+   */
+  private async valorDeUmMes(
+    atual: CompraNoCartao,
+    dados: {
+      descricao: string;
+      categoriaId: string | null;
+      mes: string | null;
+      centavos: number | null;
+    },
+  ): Promise<CompraNoCartao> {
+    const { mes, centavos } = dados;
+    if (!mes) {
+      throw new BadRequestException('Falta a fatura em que vale este valor.');
+    }
+    if (mes < atual.primeiraFatura || (atual.ultimaFatura && mes > atual.ultimaFatura)) {
+      throw new BadRequestException(
+        `A assinatura não cobra na fatura de ${mesPorExtenso(mes)}.`,
+      );
+    }
+
+    const meses = { ...lerValoresNoMes(atual.valoresNoMes) };
+    if (centavos !== null) {
+      if (centavos === Math.round(Number(atual.valorTotal) * 100)) {
+        delete meses[mes];
+      } else {
+        meses[mes] = centavos;
+      }
+    }
+
+    await this.conferirFaturasLancadas(
+      atual.cartaoId,
+      [atual],
+      [{ ...atual, valoresNoMes: meses }],
+    );
+    return this.prisma.compraNoCartao.update({
+      where: { id: atual.id },
+      data: {
+        descricao: dados.descricao,
+        categoriaId: dados.categoriaId,
+        valoresNoMes: jsonDosMeses(meses),
+      },
     });
   }
 
@@ -890,6 +990,21 @@ export function observacaoDaFatura(
     texto += separador + partes[k];
   }
   return texto;
+}
+
+/** Os meses de `valoresNoMes` que passam no filtro. */
+function filtrarMeses(
+  meses: Record<string, number>,
+  fica: (mes: string) => boolean,
+): Record<string, number> {
+  return Object.fromEntries(Object.entries(meses).filter(([mes]) => fica(mes)));
+}
+
+/** Sem mês nenhum, a coluna volta a ser vazia em vez de guardar um "{}". */
+function jsonDosMeses(
+  meses: Record<string, number>,
+): Prisma.InputJsonValue | typeof Prisma.DbNull {
+  return Object.keys(meses).length === 0 ? Prisma.DbNull : meses;
 }
 
 function diaDoMes(dia: number): number {

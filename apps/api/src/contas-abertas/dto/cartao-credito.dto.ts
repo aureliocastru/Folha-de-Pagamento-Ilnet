@@ -123,6 +123,12 @@ export class AtualizarCompraDto {
   @Matches(COMPETENCIA, { message: MENSAGEM_COMPETENCIA })
   aPartirDe?: string;
 
+  /**
+   * Na assinatura: o valor é só o da fatura `aPartirDe` (veio com centavos de
+   * diferença), e os outros meses continuam no de sempre.
+   */
+  @IsOptional() @IsBoolean() soNesteMes?: boolean;
+
   /** Trocar a categoria não mexe em valor: vale até em fatura já lançada. */
   @IsOptional() @IsUUID() categoriaId?: string | null;
 }

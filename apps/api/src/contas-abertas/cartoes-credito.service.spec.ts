@@ -529,6 +529,107 @@ describe('Assinatura no cartão', () => {
     expect(prisma.compraNoCartao.create).not.toHaveBeenCalled();
   });
 
+  it('o mês que veio com centavos de diferença cobra o dele, e só ele', () => {
+    const p = parcelasDaCompra(
+      assinatura({ valoresNoMes: { '2026-10': 11012, lixo: 5 } }),
+      '2026-11',
+    );
+    expect(p.map((x) => x.valor)).toEqual([110, 110, 110.12, 110]);
+  });
+
+  it('valor só neste mês: grava a fatura, sem mexer no de todo mês', async () => {
+    const { service, prisma } = montarServico({ compras: [assinatura()] });
+    await service.atualizarCompra('a1', {
+      valor: 110.12,
+      aPartirDe: '2026-11',
+      soNesteMes: true,
+    });
+    expect(prisma.compraNoCartao.create).not.toHaveBeenCalled();
+    expect(prisma.compraNoCartao.update).toHaveBeenCalledWith({
+      where: { id: 'a1' },
+      data: expect.objectContaining({ valoresNoMes: { '2026-11': 11012 } }),
+    });
+    const data = (prisma.compraNoCartao.update.mock.calls[0] as unknown as [
+      { data: Record<string, unknown> },
+    ])[0].data;
+    expect(data).not.toHaveProperty('valorTotal');
+  });
+
+  it('digitar de novo o valor de todo mês desfaz o ajuste', async () => {
+    const { service, prisma } = montarServico({
+      compras: [assinatura({ valoresNoMes: { '2026-11': 11012, '2026-12': 10990 } })],
+    });
+    await service.atualizarCompra('a1', {
+      valor: 110,
+      aPartirDe: '2026-11',
+      soNesteMes: true,
+    });
+    expect(prisma.compraNoCartao.update).toHaveBeenCalledWith({
+      where: { id: 'a1' },
+      data: expect.objectContaining({ valoresNoMes: { '2026-12': 10990 } }),
+    });
+  });
+
+  it('valor só neste mês numa fatura já lançada é recusado', async () => {
+    const { service, prisma } = montarServico({
+      compras: [assinatura()],
+      contas: lancadaEmOutubro,
+    });
+    await expect(
+      service.atualizarCompra('a1', {
+        valor: 110.12,
+        aPartirDe: '2026-10',
+        soNesteMes: true,
+      }),
+    ).rejects.toThrow(/outubro\/2026 já virou conta a pagar/);
+    expect(prisma.compraNoCartao.update).not.toHaveBeenCalled();
+  });
+
+  it('valor só neste mês fora dos meses da assinatura é recusado', async () => {
+    const { service } = montarServico({
+      compras: [assinatura({ ultimaFatura: '2026-10' })],
+    });
+    await expect(
+      service.atualizarCompra('a1', {
+        valor: 110.12,
+        aPartirDe: '2026-11',
+        soNesteMes: true,
+      }),
+    ).rejects.toThrow(/não cobra na fatura de novembro/);
+  });
+
+  it('preço novo daqui em diante leva os ajustes da frente e larga o do mês', async () => {
+    const { service, prisma } = montarServico({
+      compras: [
+        assinatura({
+          valoresNoMes: { '2026-09': 10950, '2026-11': 11012, '2026-12': 12090 },
+        }),
+      ],
+    });
+    await service.atualizarCompra('a1', { valor: 120, aPartirDe: '2026-11' });
+
+    expect(prisma.compraNoCartao.update).toHaveBeenCalledWith({
+      where: { id: 'a1' },
+      data: expect.objectContaining({
+        ultimaFatura: '2026-10',
+        valoresNoMes: { '2026-09': 10950 },
+      }),
+    });
+    const criada = (prisma.compraNoCartao.create.mock.calls[0] as unknown as [
+      { data: Record<string, unknown> },
+    ])[0].data;
+    expect(criada.valoresNoMes).toEqual({ '2026-12': 12090 });
+  });
+
+  it('a fatura gerada soma o valor do mês', async () => {
+    const { service, criadas } = montarServico({
+      compras: [assinatura({ valoresNoMes: { '2026-11': 11012 } })],
+    });
+    const r = await service.gerarFatura('k1', '2026-11', {});
+    expect(r.total).toBe(110.12);
+    expect(criadas[0].observacao).toContain('ChatGPT 110,12');
+  });
+
   it('trocar só o nome passa, mesmo com fatura lançada', async () => {
     const { service, prisma } = montarServico({
       compras: [assinatura()],

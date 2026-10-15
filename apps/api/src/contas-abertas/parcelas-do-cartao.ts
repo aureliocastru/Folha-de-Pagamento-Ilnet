@@ -24,6 +24,34 @@ export interface CompraCalculavel {
   primeiraFatura: string;
   assinatura?: boolean;
   ultimaFatura?: string | null;
+  /** Na assinatura, o valor de cada fatura que cobrou diferente (centavos). */
+  valoresNoMes?: Prisma.JsonValue | Record<string, number>;
+}
+
+/**
+ * Os meses em que a assinatura cobrou diferente, em centavos.
+ *
+ * Vem de uma coluna JSON: o que não for "AAAA-MM" com um inteiro positivo é
+ * ignorado, em vez de derrubar a fatura inteira por uma chave torta.
+ */
+export function lerValoresNoMes(
+  valores: CompraCalculavel['valoresNoMes'],
+): Record<string, number> {
+  const lidos: Record<string, number> = {};
+  if (!valores || typeof valores !== 'object' || Array.isArray(valores)) {
+    return lidos;
+  }
+  for (const [mes, centavos] of Object.entries(valores)) {
+    if (
+      /^\d{4}-(0[1-9]|1[0-2])$/.test(mes) &&
+      typeof centavos === 'number' &&
+      Number.isInteger(centavos) &&
+      centavos > 0
+    ) {
+      lidos[mes] = centavos;
+    }
+  }
+  return lidos;
 }
 
 /**
@@ -39,7 +67,8 @@ export interface CompraCalculavel {
  *
  * A assinatura não tem fim, e por isso pede um horizonte: `ate` é a última
  * fatura que interessa a quem pergunta. Sem ele (e sem `ultimaFatura`), ela
- * não devolve nada — uma lista infinita não cabe em lugar nenhum.
+ * não devolve nada — uma lista infinita não cabe em lugar nenhum. O mês que
+ * veio com centavos de diferença (`valoresNoMes`) cobra o dele.
  */
 export function parcelasDaCompra(
   compra: CompraCalculavel,
@@ -50,14 +79,15 @@ export function parcelasDaCompra(
       compra.ultimaFatura && (!ate || compra.ultimaFatura < ate)
         ? compra.ultimaFatura
         : ate;
-    const valor = Math.round(Number(compra.valorTotal) * 100) / 100;
+    const centavos = Math.round(Number(compra.valorTotal) * 100);
+    const noMes = lerValoresNoMes(compra.valoresNoMes);
     const lista: ParcelaDaCompra[] = [];
     for (
       let mes = compra.primeiraFatura, numero = 1;
       fim && mes <= fim;
       mes = somarMeses(mes, 1), numero++
     ) {
-      lista.push({ numero, competencia: mes, valor });
+      lista.push({ numero, competencia: mes, valor: (noMes[mes] ?? centavos) / 100 });
     }
     return lista;
   }

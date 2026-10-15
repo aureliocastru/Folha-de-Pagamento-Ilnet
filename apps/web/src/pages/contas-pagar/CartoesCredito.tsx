@@ -123,7 +123,10 @@ interface ConfigDaCasa {
  * pagar.
  *
  * O mês da tela é o do **vencimento** da fatura — é o que o banco imprime no
- * alto dela ("fatura de outubro"), e é o que se procura com o papel na mão.
+ * alto dela ("fatura de outubro"). Quem anda de mês são os meses no alto de
+ * cada cartão: o seletor de mês que ficava acima deles dizia a mesma coisa
+ * duas vezes, e a tela foi enxugada a pedido (15/10/2026, "tem muita
+ * informação").
  */
 export function CartoesCredito() {
   const queryClient = useQueryClient();
@@ -203,56 +206,13 @@ export function CartoesCredito() {
         </Aviso>
       )}
 
-      {/* O mês da fatura. As setas porque o gesto mais comum é andar um mês —
-          conferir a que passou, adiantar a que vem. */}
-      <div className="mb-4 flex flex-wrap items-end gap-3">
-        <div>
-          <label className="rotulo" htmlFor="competencia-cartao">
-            Fatura que vence em
-          </label>
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setCompetencia((c) => somarMeses(c, -1))}
-              className="btn btn-neutro btn-p"
-              aria-label="Mês anterior"
-              title="Fatura do mês anterior"
-            >
-              ‹
-            </button>
-            <input
-              id="competencia-cartao"
-              type="month"
-              value={competencia}
-              onChange={(e) => setCompetencia(e.target.value || mesAtual())}
-              className="campo max-w-[180px]"
-            />
-            <button
-              type="button"
-              onClick={() => setCompetencia((c) => somarMeses(c, 1))}
-              className="btn btn-neutro btn-p"
-              aria-label="Próximo mês"
-              title="Fatura do mês seguinte"
-            >
-              ›
-            </button>
-          </div>
-        </div>
-        <p className="mb-2 text-xs text-tinta-400">
-          O mês em que a fatura vence — é o que vem escrito no alto dela.
-        </p>
-      </div>
-
       {lista.isLoading ? (
         <Bloco semPadding>
           <Carregando texto="Lendo os cartões…" />
         </Bloco>
       ) : cartoes.length === 0 ? (
         <Bloco semPadding>
-          <Vazio titulo="Nenhum cartão cadastrado ainda">
-            Cadastre o cartão com o banco e o dia em que a fatura vence. Depois
-            é só lançar cada compra que vier nela.
-          </Vazio>
+          <Vazio titulo="Cadastre o primeiro cartão." />
         </Bloco>
       ) : (
         <div className="space-y-5">
@@ -285,13 +245,13 @@ export function CartoesCredito() {
                 <button
                   onClick={() => religar.mutate(cartao.id)}
                   disabled={religar.isPending}
-                  className="btn btn-sutil btn-p"
+                  className="btn btn-ok btn-p"
                 >
                   Religar
                 </button>
                 <button
                   onClick={() => setEditando(cartao)}
-                  className="btn btn-sutil btn-p"
+                  className="btn btn-ferramenta btn-p"
                 >
                   Editar
                 </button>
@@ -300,13 +260,6 @@ export function CartoesCredito() {
           </div>
         </div>
       )}
-
-      <p className="ajuda">
-        A conta nasce no IXC já aprovada, com a lista das compras na observação.
-        Depois de lançada, a fatura não muda de valor: uma compra esquecida
-        entra na fatura seguinte — ou o título é excluído em Em aberto e a
-        fatura gerada de novo.
-      </p>
 
       {(cadastrando || editando) && (
         <CadastroDoCartao
@@ -328,8 +281,14 @@ export function CartoesCredito() {
 }
 
 /**
- * Um cartão e a fatura do mês: as faturas vizinhas de relance, as compras
- * desta, o campo para lançar a próxima e o botão que a faz virar conta.
+ * Um cartão e a fatura do mês: os meses vizinhos no alto, uma linha por
+ * compra, o total e o botão que a faz virar conta.
+ *
+ * Cada linha diz só o nome, a parcela, a categoria e o valor — o resto (o
+ * total da compra, até quando vai, o valor de todo mês da assinatura) mora no
+ * Editar, que abre embaixo da própria linha. O formulário de lançar e os
+ * campos de gerar a conta também ficam fechados até alguém pedir: abertos o
+ * tempo todo, eram metade da tela.
  */
 function FaturaDoCartao({
   dados,
@@ -346,63 +305,29 @@ function FaturaDoCartao({
   onAviso: (mensagem: string, erro?: boolean) => void;
   onMudou: () => void;
 }) {
-  const { cartao, itens, total, lancada, faturas, comprometidoDepois } = dados;
-  /** A compra carregada no formulário para corrigir. */
-  const [corrigindo, setCorrigindo] = useState<ItemDaFatura | null>(null);
+  const { cartao, itens, total, lancada, faturas } = dados;
+  /** A compra aberta no Editar, ou "nova" com o formulário de lançar aberto. */
+  const [aberta, setAberta] = useState<string | null>(null);
+  const [gerando, setGerando] = useState(false);
   const [vencimento, setVencimento] = useState('');
   const [codigo, setCodigo] = useState('');
   const [lendo, setLendo] = useState<AlvoDaLeitura | null>(null);
 
   /*
-   * Trocar de mês limpa o que estava digitado para gerar e a correção aberta.
-   * O vencimento de outubro digitado aqui não pode ir parar na fatura de
-   * novembro com um clique distraído.
+   * Trocar de mês fecha o que estava aberto. O vencimento de outubro digitado
+   * aqui não pode ir parar na fatura de novembro com um clique distraído.
    */
   useEffect(() => {
+    setAberta(null);
+    setGerando(false);
     setVencimento('');
     setCodigo('');
-    setCorrigindo(null);
   }, [competencia]);
 
   const categorias = useQuery({
     queryKey: ['categorias-despesa'],
     queryFn: async () =>
       (await api.get<CategoriaDespesa[]>('/categorias-despesa')).data,
-  });
-
-  const remover = useMutation({
-    mutationFn: async (compraId: string) => {
-      await api.delete(`/cartoes-credito/compras/${compraId}`);
-    },
-    onSuccess: onMudou,
-    onError: (err) => onAviso(mensagemErro(err), true),
-  });
-
-  /** A assinatura sai desta fatura e das seguintes; as de trás ficam. */
-  const encerrar = useMutation({
-    mutationFn: async (compraId: string) =>
-      (
-        await api.post<{ apagada: boolean }>(
-          `/cartoes-credito/compras/${compraId}/encerrar`,
-          { aPartirDe: competencia },
-        )
-      ).data,
-    onSuccess: onMudou,
-    onError: (err) => onAviso(mensagemErro(err), true),
-  });
-
-  /*
-   * A categoria troca direto na linha, e até em fatura já lançada: ela não
-   * mexe no valor de nada — só em qual barra do relatório o dinheiro cai.
-   */
-  const recategorizar = useMutation({
-    mutationFn: async (args: { compraId: string; categoriaId: string }) => {
-      await api.patch(`/cartoes-credito/compras/${args.compraId}`, {
-        categoriaId: args.categoriaId || null,
-      });
-    },
-    onSuccess: onMudou,
-    onError: (err) => onAviso(mensagemErro(err), true),
   });
 
   const gerar = useMutation({
@@ -421,9 +346,10 @@ function FaturaDoCartao({
     onSuccess: (r) => {
       onAviso(
         `Fatura de ${mesPorExtenso(competencia)} do ${cartao.apelido} lançada ` +
-          `no IXC: ${formatBRL(r.total)} em ${r.itens} compra(s)` +
+          `no IXC: ${formatBRL(r.total)}` +
           (r.conta.idFnApagarIxc ? ` — título ${r.conta.idFnApagarIxc}.` : '.'),
       );
+      setGerando(false);
       setVencimento('');
       setCodigo('');
       onMudou();
@@ -432,31 +358,44 @@ function FaturaDoCartao({
   });
 
   const paga = !!lancada && (!!lancada.pagoEm || lancada.status === 'PAGO');
-  const passou = competencia < mesAtual();
+
+  function formulario(corrigindo: ItemDaFatura | null) {
+    return (
+      <FormularioDaCompra
+        key={corrigindo?.compraId ?? 'nova'}
+        cartaoId={cartao.id}
+        competencia={competencia}
+        corrigindo={corrigindo}
+        travada={!!lancada}
+        categorias={categorias.data ?? []}
+        carregandoCategorias={categorias.isLoading}
+        onFechar={() => setAberta(null)}
+        onPronto={() => {
+          if (corrigindo) setAberta(null);
+          onMudou();
+        }}
+        onErro={(mensagem) => onAviso(mensagem, true)}
+      />
+    );
+  }
 
   return (
     <section className="card overflow-hidden">
-      {/* Quem é o cartão, numa linha só: é o que distingue dois cartões do
-          mesmo banco quando há mais de um na tela. */}
-      <div className="faixa-titulo flex flex-wrap items-center justify-between gap-2 px-3.5 py-3 md:px-5">
+      <div className="faixa-titulo flex items-center justify-between gap-2 px-3.5 py-3 md:px-5">
         <div className="min-w-0">
-          <h2 className="titulo-bloco">{nomeDoCartao(cartao)}</h2>
+          <h2 className="titulo-bloco truncate">{nomeDoCartao(cartao)}</h2>
           <p className="text-xs text-tinta-400">
-            {cartao.fornecedorNome} · vence todo dia {cartao.diaDeVencimento}
+            vence dia {cartao.diaDeVencimento}
           </p>
         </div>
-        <button onClick={onEditar} className="btn btn-sutil btn-p">
+        <button onClick={onEditar} className="btn btn-sutil btn-p shrink-0">
           Editar cartão
         </button>
       </div>
 
-      {/*
-        As faturas vizinhas, de relance. É a pergunta que se faz antes de pagar
-        qualquer uma — quanto já está comprometido nas próximas? — e o caminho
-        mais curto até elas: um clique no mês.
-      */}
-      {/* No celular os meses quebram em três colunas, e não numa fita que rola
-          para o lado: fita escondida é mês que ninguém vê. */}
+      {/* Os meses vizinhos são o caminho até eles: um clique no mês. No
+          celular quebram em três colunas, e não numa fita que rola para o
+          lado — fita escondida é mês que ninguém vê. */}
       <div className="grid grid-cols-3 gap-2 border-b border-tinta-100 px-3.5 py-3 rolagem-fina md:flex md:overflow-x-auto md:px-5">
         {faturas.map((f) => (
           <ChipDaFatura
@@ -468,219 +407,103 @@ function FaturaDoCartao({
         ))}
       </div>
 
-      <div className="overflow-x-auto rolagem-fina">
-        <table className="w-full min-w-[860px] table-fixed text-sm">
-          <colgroup>
-            <col className="w-[32%]" />
-            <col className="w-[22%]" />
-            <col className="w-[13%]" />
-            <col className="w-[14%]" />
-            <col className="w-[19%]" />
-          </colgroup>
-          <thead>
-            <tr>
-              <th className="th">Compra</th>
-              <th className="th">Categoria</th>
-              <th className="th">Parcela</th>
-              <th className="th text-right">Nesta fatura</th>
-              <th className="th text-right">Ação</th>
-            </tr>
-          </thead>
-          <tbody>
-            {itens.length === 0 && (
-              <tr>
-                <td colSpan={5} className="td text-center text-tinta-400">
-                  Nenhuma compra nesta fatura ainda.
-                </td>
-              </tr>
-            )}
-            {itens.map((i) => (
-              <tr
-                key={i.compraId}
-                className={`linha ${corrigindo?.compraId === i.compraId ? 'bg-brand-500/5' : ''}`}
-              >
-                <td className="td">
-                  <div className="truncate text-tinta-800" title={i.descricao}>
+      <ul className="divide-y divide-tinta-100">
+        {itens.length === 0 && (
+          <li className="px-3.5 py-4 text-sm text-tinta-400 md:px-5">
+            Nenhuma compra nesta fatura.
+          </li>
+        )}
+        {itens.map((i) => {
+          const detalhe = detalheDoItem(i, categorias.data ?? []);
+          const estaAberta = aberta === i.compraId;
+          return (
+            <li key={i.compraId} className={estaAberta ? 'bg-brand-500/5' : ''}>
+              <div className="flex items-center gap-3 px-3.5 py-2.5 md:px-5">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm text-tinta-800" title={i.descricao}>
                     {i.descricao}
-                  </div>
-                  {i.assinatura && (
-                    <div className="num text-[11px] text-tinta-400">
-                      {formatBRL(i.valorTotal)} por mês
-                      {i.ultimaFatura
-                        ? ` · última em ${rotuloDoMes(i.ultimaFatura)}`
-                        : ''}
-                    </div>
+                  </p>
+                  {detalhe && (
+                    <p className="num truncate text-[11px] text-tinta-400">
+                      {detalhe}
+                    </p>
                   )}
-                  {i.parcelas > 1 && (
-                    <div className="num text-[11px] text-tinta-400">
-                      compra de {formatBRL(i.valorTotal)}
-                      {i.parcela < i.parcelas &&
-                        ` · até ${rotuloDoMes(
-                          somarMeses(competencia, i.parcelas - i.parcela),
-                        )}`}
-                    </div>
-                  )}
-                </td>
-                <td className="td">
-                  <SeletorDeCategoria
-                    categorias={categorias.data ?? []}
-                    value={i.categoriaId ?? ''}
-                    onChange={(categoriaId) =>
-                      recategorizar.mutate({ compraId: i.compraId, categoriaId })
-                    }
-                    vazio="Sem categoria"
-                    carregando={categorias.isLoading}
-                    className="campo py-1 text-xs"
-                    title="Com o que se gastou nesta compra — troca até em fatura lançada"
-                  />
-                </td>
-                <td className="td num text-tinta-600">
-                  {i.assinatura ? (
-                    <>
-                      <Selo pequeno tom="info">
-                        assinatura
-                      </Selo>
-                      <div className="mt-0.5 text-[11px] text-tinta-400">
-                        desde {rotuloDoMes(i.primeiraFatura)}
-                      </div>
-                    </>
-                  ) : i.parcelas > 1 ? (
-                    `${i.parcela}/${i.parcelas}`
-                  ) : (
-                    'à vista'
-                  )}
-                </td>
-                <td className="td text-right">
-                  <span
-                    className={`valor ${i.valor < 0 ? 'text-emerald-600 dark:text-emerald-300' : ''}`}
-                  >
-                    {formatBRL(i.valor)}
-                  </span>
-                  {i.valor < 0 && (
-                    <div className="text-[11px] text-emerald-600 dark:text-emerald-300">
-                      estorno
-                    </div>
-                  )}
-                </td>
-                <td className="td text-right">
-                  {lancada ? (
-                    <span className="text-xs text-tinta-400">—</span>
-                  ) : (
-                    <div className="flex justify-end gap-1.5">
-                      <button
-                        onClick={() => setCorrigindo(i)}
-                        className="btn btn-neutro btn-p"
-                      >
-                        Editar
-                      </button>
-                      {i.assinatura ? (
-                        <button
-                          onClick={() => {
-                            if (
-                              confirm(
-                                `Encerrar a assinatura "${i.descricao}"? Ela sai da fatura de ` +
-                                  `${mesPorExtenso(competencia)} e das seguintes; as anteriores ` +
-                                  'ficam como estavam.',
-                              )
-                            ) {
-                              encerrar.mutate(i.compraId);
-                            }
-                          }}
-                          disabled={encerrar.isPending}
-                          className="btn btn-perigo btn-p"
-                          title="Para de cobrar a partir desta fatura"
-                        >
-                          Encerrar
-                        </button>
-                      ) : (
-                      <button
-                        onClick={() => {
-                          if (
-                            confirm(
-                              i.parcelas > 1
-                                ? `Apagar "${i.descricao}"? Sai desta fatura e de todas as outras em que a compra tem parcela.`
-                                : `Apagar "${i.descricao}" da fatura?`,
-                            )
-                          ) {
-                            remover.mutate(i.compraId);
-                          }
-                        }}
-                        disabled={remover.isPending}
-                        className="btn btn-perigo btn-p"
-                      >
-                        Apagar
-                      </button>
-                      )}
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                </div>
+                <span
+                  className={`valor shrink-0 text-sm ${i.valor < 0 ? 'text-emerald-600 dark:text-emerald-300' : ''}`}
+                >
+                  {formatBRL(i.valor)}
+                </span>
+                <button
+                  onClick={() => setAberta(estaAberta ? null : i.compraId)}
+                  aria-expanded={estaAberta}
+                  className="btn btn-ferramenta btn-p shrink-0"
+                >
+                  Editar
+                </button>
+              </div>
+              {estaAberta && formulario(i)}
+            </li>
+          );
+        })}
+      </ul>
 
       {/* Fatura lançada não recebe compra: o título do IXC já tem o valor
-          dela. O formulário some e diz para onde vai a compra esquecida. */}
-      {lancada ? (
-        <p className="border-t border-tinta-100 px-3.5 py-3 text-xs text-tinta-400 md:px-5">
-          Esta fatura já virou conta a pagar. Compra esquecida entra na de{' '}
-          <button
-            type="button"
-            onClick={() => onMudarMes(somarMeses(competencia, 1))}
-            className="font-semibold text-brand-700 hover:underline dark:text-brand-300"
-          >
-            {mesPorExtenso(somarMeses(competencia, 1))}
-          </button>
-          .
-        </p>
-      ) : (
-        <FormularioDaCompra
-          key={corrigindo?.compraId ?? 'nova'}
-          cartaoId={cartao.id}
-          competencia={competencia}
-          corrigindo={corrigindo}
-          categorias={categorias.data ?? []}
-          carregandoCategorias={categorias.isLoading}
-          onCancelar={() => setCorrigindo(null)}
-          onPronto={() => {
-            setCorrigindo(null);
-            onMudou();
-          }}
-          onErro={(mensagem) => onAviso(mensagem, true)}
-        />
-      )}
+          dela. A esquecida entra na fatura seguinte. */}
+      {!lancada &&
+        (aberta === 'nova' ? (
+          formulario(null)
+        ) : (
+          <div className="border-t border-tinta-100 px-3.5 py-2.5 md:px-5">
+            <button
+              onClick={() => setAberta('nova')}
+              className="btn btn-ferramenta btn-p"
+            >
+              + Lançar compra
+            </button>
+          </div>
+        ))}
 
-      {/* O pé da fatura: a soma, e o que ela virou (ou o botão que a faz virar). */}
-      <div className="flex flex-wrap items-end justify-between gap-4 border-t border-tinta-200 bg-tinta-50 px-3.5 py-4 md:px-5">
-        <div>
-          <p className="eyebrow">Total da fatura</p>
-          <p className="num mt-1 font-display text-[22px] font-semibold leading-none text-tinta-900">
-            {formatBRL(total)}
-          </p>
-          {comprometidoDepois > 0 && (
-            <p className="mt-1.5 text-[11px] text-tinta-400">
-              + {formatBRL(comprometidoDepois)} já comprometidos nas faturas
-              seguintes
+      <div className="border-t border-tinta-200 bg-tinta-50 px-3.5 py-4 md:px-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="eyebrow">Total</p>
+            <p className="num mt-1 font-display text-[22px] font-semibold leading-none text-tinta-900">
+              {formatBRL(total)}
             </p>
+          </div>
+
+          {lancada ? (
+            <div className="text-right">
+              <Selo tom={paga ? 'pago' : 'marca'} ponto>
+                {paga ? 'paga' : 'lançada no IXC'}
+              </Selo>
+              <p className="num mt-1.5 text-xs text-tinta-500">
+                {lancada.idFnApagarIxc ? `título ${lancada.idFnApagarIxc} · ` : ''}
+                vence {formatData(lancada.dataVencimento)}
+              </p>
+            </div>
+          ) : (
+            !gerando && (
+              <button
+                onClick={() => {
+                  setVencimento(dados.vencimentoSugerido.slice(0, 10));
+                  setGerando(true);
+                }}
+                disabled={!(total > 0)}
+                className="btn btn-primario"
+              >
+                Gerar conta a pagar
+              </button>
+            )
           )}
         </div>
 
-        {lancada ? (
-          <div className="text-right">
-            <Selo tom={paga ? 'pago' : 'marca'} ponto>
-              {paga ? 'paga' : 'lançada no IXC'}
-            </Selo>
-            <p className="num mt-1.5 text-xs text-tinta-500">
-              {lancada.idFnApagarIxc
-                ? `título ${lancada.idFnApagarIxc}`
-                : 'ainda sem número do IXC'}{' '}
-              · {formatBRL(lancada.valor)} · vence{' '}
-              {formatData(lancada.dataVencimento)}
-            </p>
-          </div>
-        ) : (
-          <div className="flex flex-wrap items-end gap-2">
+        {/* O vencimento já vem no dia do cadastro; o código com que a fatura
+            se paga é o que falta para ela não chegar ao IXC sem como ser
+            paga. */}
+        {!lancada && gerando && (
+          <div className="mt-4 flex flex-wrap items-end gap-2">
             <div>
               <label className="rotulo" htmlFor={`venc-${cartao.id}`}>
                 Vencimento
@@ -691,16 +514,8 @@ function FaturaDoCartao({
                 onChange={setVencimento}
                 className="campo py-1.5"
               />
-              {!vencimento && (
-                <p className="mt-1 text-[11px] text-tinta-400">
-                  em branco: {formatData(dados.vencimentoSugerido)}
-                </p>
-              )}
             </div>
-            {/* O código com que a fatura se paga. Sem ele a conta chega ao IXC
-                sem como ser paga — e a fatura do cartão é das que não podem
-                atrasar. */}
-            <div className="min-w-[240px]">
+            <div className="min-w-0 flex-1 basis-[240px]">
               <label className="rotulo" htmlFor={`cod-${cartao.id}`}>
                 Código de pagamento
               </label>
@@ -710,7 +525,7 @@ function FaturaDoCartao({
                   value={codigo}
                   onChange={(e) => setCodigo(e.target.value)}
                   className="campo num min-w-0 flex-1 py-1.5 text-xs"
-                  placeholder="boleto ou PIX (opcional)"
+                  placeholder="boleto ou PIX"
                   autoComplete="off"
                 />
                 <button
@@ -736,29 +551,24 @@ function FaturaDoCartao({
                 </p>
               )}
             </div>
-            <button
-              onClick={() => gerar.mutate()}
-              disabled={gerar.isPending || !(total > 0)}
-              className="btn btn-primario"
-              title={
-                total > 0
-                  ? 'Cria no IXC uma conta a pagar só, no valor da soma, já aprovada'
-                  : 'Lance as compras da fatura primeiro'
-              }
-            >
-              {gerar.isPending
-                ? 'Lançando no IXC…'
-                : `Gerar conta a pagar — ${formatBRL(total)}`}
-            </button>
+            <div className="flex gap-1.5">
+              <button
+                onClick={() => setGerando(false)}
+                className="btn btn-sutil"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => gerar.mutate()}
+                disabled={gerar.isPending}
+                className="btn btn-primario"
+              >
+                {gerar.isPending ? 'Lançando no IXC…' : 'Lançar no IXC'}
+              </button>
+            </div>
           </div>
         )}
       </div>
-
-      {!lancada && passou && total > 0 && (
-        <p className="border-t border-amber-500/30 bg-amber-500/10 px-3.5 py-2 text-xs text-amber-800 dark:text-amber-200 md:px-5">
-          Esta fatura é de um mês que já passou e ainda não virou conta a pagar.
-        </p>
-      )}
 
       {lendo && (
         <LeitorDeCodigo
@@ -774,7 +584,27 @@ function FaturaDoCartao({
   );
 }
 
-/** Uma fatura na fita de meses: o mês, a soma e em que pé ela está. */
+/**
+ * A linha miúda embaixo do nome: "2/10 · Empréstimos", "mensal ·
+ * Assinaturas". À vista não diz nada — é o normal.
+ */
+function detalheDoItem(
+  item: ItemDaFatura,
+  categorias: CategoriaDespesa[],
+): string {
+  const partes: string[] = [];
+  if (item.assinatura) partes.push('mensal');
+  else if (item.parcelas > 1) partes.push(`${item.parcela}/${item.parcelas}`);
+  const categoria = categorias.find((c) => c.id === item.categoriaId);
+  if (categoria) partes.push(categoria.nome);
+  return partes.join(' · ');
+}
+
+/**
+ * Um mês na fita: o mês, a soma e — só quando foge do normal — em que pé
+ * ela está. "Em aberto" e "vazia" ficavam escritos em todo mês e não diziam
+ * nada que o valor já não dissesse.
+ */
 function ChipDaFatura({
   fatura,
   escolhida,
@@ -790,18 +620,16 @@ function ChipDaFatura({
     ? paga
       ? ['paga', 'text-emerald-600 dark:text-emerald-300']
       : ['lançada', 'text-brand-700 dark:text-brand-300']
-    : total > 0
-      ? competencia < mesAtual()
-        ? ['não lançada', 'text-amber-600 dark:text-amber-300']
-        : ['em aberto', 'text-tinta-400']
-      : ['vazia', 'text-tinta-300'];
+    : total > 0 && competencia < mesAtual()
+      ? ['não lançada', 'text-amber-600 dark:text-amber-300']
+      : [null, ''];
 
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={escolhida}
-      aria-label={`Fatura de ${mesPorExtenso(competencia)}: ${texto}`}
+      aria-label={`Fatura de ${mesPorExtenso(competencia)}${texto ? `: ${texto}` : ''}`}
       className={`min-w-0 shrink-0 rounded-xl border px-3 py-2 text-left transition md:min-w-[104px] ${
         escolhida
           ? 'border-brand-400 bg-brand-500/10 ring-1 ring-brand-300'
@@ -814,7 +642,9 @@ function ChipDaFatura({
       <span className="valor block text-[13px]">
         {lancada ? formatBRL(lancada.valor) : total ? formatBRL(total) : '—'}
       </span>
-      <span className={`block text-[10px] font-semibold ${cor}`}>{texto}</span>
+      {texto && (
+        <span className={`block text-[10px] font-semibold ${cor}`}>{texto}</span>
+      )}
     </button>
   );
 }
@@ -822,44 +652,54 @@ function ChipDaFatura({
 /**
  * O formulário de uma compra — o mesmo para lançar e para corrigir.
  *
- * Fica colado embaixo da lista, e não numa janela: uma fatura tem vinte
- * linhas, e o gesto é digitar uma, Enter, a próxima. O valor pedido é o da
- * parcela, porque é o que a fatura imprime ("03/10 R$ 89,90"); quem tiver o
- * total na mão troca o seletor.
+ * Lançar fica embaixo da lista, e não numa janela: uma fatura tem vinte
+ * linhas, e o gesto é digitar uma, Enter, a próxima. Corrigir abre embaixo da
+ * própria linha, com o Apagar (ou o Encerrar, da assinatura) junto — tirar da
+ * linha os dois botões de cada compra foi metade do enxugamento.
  *
  * "Parcela 3 de 10" diz que a compra já vinha sendo paga: as parcelas 1 e 2
  * ficaram em faturas anteriores, fora daqui, e as de 4 a 10 aparecem sozinhas
  * nas próximas.
  *
- * Assinatura é o outro tipo: o ChatGPT, o domínio, o software — o mesmo valor
- * em toda fatura, sem número de parcelas, até alguém encerrar. Lançada como
- * "12 vezes", ela sumiria no décimo terceiro mês sem ninguém ter cancelado.
+ * Na assinatura corrigida, o valor é **o desta fatura**: o YouTube que veio
+ * R$ 35,12 em vez de R$ 34,90 muda só este mês. "Daqui em diante" é o preço
+ * que subiu de vez — vale desta fatura para a frente, e as de trás ficam.
+ *
+ * Fatura já lançada (`travada`) só troca a categoria: o valor do título do
+ * IXC não muda por baixo dele.
  */
 function FormularioDaCompra({
   cartaoId,
   competencia,
   corrigindo,
+  travada,
   categorias,
   carregandoCategorias,
-  onCancelar,
+  onFechar,
   onPronto,
   onErro,
 }: {
   cartaoId: string;
   competencia: string;
   corrigindo: ItemDaFatura | null;
+  travada: boolean;
   categorias: CategoriaDespesa[];
   carregandoCategorias: boolean;
-  onCancelar: () => void;
+  onFechar: () => void;
   onPronto: () => void;
   onErro: (mensagem: string) => void;
 }) {
   const [assinatura, setAssinatura] = useState(corrigindo?.assinatura ?? false);
   const [descricao, setDescricao] = useState(corrigindo?.descricao ?? '');
-  // Na correção o valor volta como total: é o que está gravado, e o que não
-  // perde centavo ao reabrir uma compra de R$ 100 em três.
+  /*
+   * Na correção da compra o valor volta como total: é o que está gravado, e o
+   * que não perde centavo ao reabrir uma compra de R$ 100 em três. Na da
+   * assinatura, volta o desta fatura — é ele que se veio corrigir.
+   */
   const [valor, setValor] = useState(
-    corrigindo ? String(Math.abs(corrigindo.valorTotal)) : '',
+    corrigindo
+      ? String(Math.abs(corrigindo.assinatura ? corrigindo.valor : corrigindo.valorTotal))
+      : '',
   );
   const [valorDe, setValorDe] = useState<'PARCELA' | 'TOTAL'>(
     corrigindo ? 'TOTAL' : 'PARCELA',
@@ -867,6 +707,7 @@ function FormularioDaCompra({
   const [estorno, setEstorno] = useState(
     corrigindo ? corrigindo.valorTotal < 0 : false,
   );
+  const [daquiEmDiante, setDaquiEmDiante] = useState(false);
   const [parcela, setParcela] = useState(String(corrigindo?.parcela ?? 1));
   const [parcelas, setParcelas] = useState(String(corrigindo?.parcelas ?? 1));
   const [categoriaId, setCategoriaId] = useState(corrigindo?.categoriaId ?? '');
@@ -878,30 +719,30 @@ function FormularioDaCompra({
   const parcelado = n > 1;
 
   const valido =
-    descricao.trim().length > 0 &&
-    v > 0 &&
-    Number.isInteger(n) &&
-    n >= 1 &&
-    n <= 99 &&
-    Number.isInteger(p) &&
-    p >= 1 &&
-    p <= n;
-
-  /** Mudou o preço de uma assinatura: o novo vale desta fatura em diante. */
-  const mudouPreco =
-    !!corrigindo?.assinatura &&
-    Math.round(v * 100) !== Math.round(corrigindo.valorTotal * 100);
+    travada ||
+    (descricao.trim().length > 0 &&
+      v > 0 &&
+      Number.isInteger(n) &&
+      n >= 1 &&
+      n <= 99 &&
+      Number.isInteger(p) &&
+      p >= 1 &&
+      p <= n);
 
   const salvar = useMutation({
     mutationFn: async () => {
       const categoria = categoriaId || null;
-      if (corrigindo?.assinatura) {
-        // O preço novo não reescreve as faturas de trás: vale a partir desta.
+      if (corrigindo && travada) {
+        await api.patch(`/cartoes-credito/compras/${corrigindo.compraId}`, {
+          categoriaId: categoria,
+        });
+      } else if (corrigindo?.assinatura) {
         await api.patch(`/cartoes-credito/compras/${corrigindo.compraId}`, {
           descricao: descricao.trim(),
           valor: v,
           valorDe: 'TOTAL',
           aPartirDe: competencia,
+          soNesteMes: !daquiEmDiante,
           categoriaId: categoria,
         });
       } else if (corrigindo) {
@@ -950,6 +791,21 @@ function FormularioDaCompra({
     onError: (err) => onErro(mensagemErro(err)),
   });
 
+  /** A assinatura sai desta fatura e das seguintes; a compra sai inteira. */
+  const tirar = useMutation({
+    mutationFn: async (item: ItemDaFatura) => {
+      if (item.assinatura) {
+        await api.post(`/cartoes-credito/compras/${item.compraId}/encerrar`, {
+          aPartirDe: competencia,
+        });
+      } else {
+        await api.delete(`/cartoes-credito/compras/${item.compraId}`);
+      }
+    },
+    onSuccess: onPronto,
+    onError: (err) => onErro(mensagemErro(err)),
+  });
+
   function enviar() {
     if (valido && !salvar.isPending) salvar.mutate();
   }
@@ -965,9 +821,7 @@ function FormularioDaCompra({
   return (
     <div
       className={`border-t px-3.5 py-3 md:px-5 ${
-        corrigindo
-          ? 'border-brand-300 bg-brand-500/5'
-          : 'border-tinta-100'
+        corrigindo ? 'border-brand-300/60' : 'border-tinta-100'
       }`}
       onKeyDown={(e) => {
         const alvo = e.target as HTMLElement;
@@ -987,21 +841,18 @@ function FormularioDaCompra({
         }
       }}
     >
-      <div className="mb-2 flex flex-wrap items-center gap-3">
-        <p className="eyebrow">
-          {corrigindo ? `Corrigindo "${corrigindo.descricao}"` : 'Lançar compra'}
-        </p>
-        {/* O tipo não muda na correção: compra e assinatura contam faturas de
-            jeitos diferentes, e trocar uma pela outra é apagar e lançar. */}
+      {/* O tipo não muda na correção: compra e assinatura contam faturas de
+          jeitos diferentes, e trocar uma pela outra é apagar e lançar. */}
+      {!corrigindo && (
         <div
           role="radiogroup"
           aria-label="Tipo de lançamento"
-          className="inline-flex rounded-lg border border-tinta-200 p-0.5 text-xs"
+          className="mb-2 inline-flex rounded-lg border border-tinta-200 p-0.5 text-xs"
         >
           {(
             [
               [false, 'Compra'],
-              [true, 'Assinatura (todo mês)'],
+              [true, 'Assinatura'],
             ] as const
           ).map(([ehAssinatura, rotulo]) => (
             <button
@@ -1009,41 +860,43 @@ function FormularioDaCompra({
               type="button"
               role="radio"
               aria-checked={assinatura === ehAssinatura}
-              disabled={!!corrigindo}
               onClick={() => setAssinatura(ehAssinatura)}
-              className={`rounded-md px-2.5 py-1 font-semibold transition disabled:cursor-not-allowed ${
+              className={`rounded-md px-2.5 py-1 font-semibold transition ${
                 assinatura === ehAssinatura
                   ? 'bg-brand-500/15 text-brand-700 dark:text-brand-300'
-                  : 'text-tinta-500 hover:text-tinta-700 disabled:opacity-50'
+                  : 'text-tinta-500 hover:text-tinta-700'
               }`}
             >
               {rotulo}
             </button>
           ))}
         </div>
-      </div>
+      )}
 
       <div className="flex flex-wrap items-end gap-2">
-        <div className="min-w-[200px] flex-1">
-          <label className="rotulo" htmlFor={`desc-${cartaoId}`}>
-            {assinatura ? 'Assinatura' : 'O que veio na fatura'}
-          </label>
-          <input
-            id={`desc-${cartaoId}`}
-            ref={campoDescricao}
-            value={descricao}
-            onChange={(e) => setDescricao(e.target.value)}
-            className="campo py-1.5"
-            placeholder={
-              assinatura
-                ? 'ChatGPT, domínio, Google Workspace…'
-                : 'Posto Ipiranga, Amazon, anuidade…'
-            }
-            autoComplete="off"
-          />
-        </div>
+        {!travada && (
+          <div className="w-full sm:w-auto sm:min-w-[200px] sm:flex-1">
+            <label className="rotulo" htmlFor={`desc-${cartaoId}`}>
+              Descrição
+            </label>
+            <input
+              id={`desc-${cartaoId}`}
+              ref={campoDescricao}
+              value={descricao}
+              onChange={(e) => setDescricao(e.target.value)}
+              className="campo py-1.5"
+              placeholder={
+                assinatura
+                  ? 'ChatGPT, domínio, Google Workspace…'
+                  : 'Posto Ipiranga, Amazon, anuidade…'
+              }
+              autoComplete="off"
+              autoFocus={!corrigindo}
+            />
+          </div>
+        )}
 
-        <div className="w-[190px]" data-seletor-categoria>
+        <div className="w-full sm:w-[200px]" data-seletor-categoria>
           <label className="rotulo" htmlFor={`cat-${cartaoId}`}>
             Categoria
           </label>
@@ -1058,7 +911,7 @@ function FormularioDaCompra({
           />
         </div>
 
-        {!assinatura && (
+        {!travada && !assinatura && (
           <>
             <div className="w-[88px]">
               <label className="rotulo" htmlFor={`parc-${cartaoId}`}>
@@ -1098,25 +951,31 @@ function FormularioDaCompra({
           </>
         )}
 
-        <div className="w-[140px]">
-          <label className="rotulo" htmlFor={`valor-${cartaoId}`}>
-            {assinatura
-              ? 'Valor por mês'
-              : parcelado
-                ? valorDe === 'PARCELA'
-                  ? 'Valor da parcela'
-                  : 'Valor total'
-                : 'Valor'}
-          </label>
-          <CampoDinheiro
-            id={`valor-${cartaoId}`}
-            valor={valor}
-            onChange={setValor}
-            className="campo py-1.5 text-right"
-          />
-        </div>
+        {!travada && (
+          <div className="w-[140px]">
+            <label className="rotulo" htmlFor={`valor-${cartaoId}`}>
+              {corrigindo?.assinatura
+                ? daquiEmDiante
+                  ? 'Valor por mês'
+                  : `Valor em ${rotuloDoMes(competencia)}`
+                : assinatura
+                  ? 'Valor por mês'
+                  : parcelado
+                    ? valorDe === 'PARCELA'
+                      ? 'Valor da parcela'
+                      : 'Valor total'
+                    : 'Valor'}
+            </label>
+            <CampoDinheiro
+              id={`valor-${cartaoId}`}
+              valor={valor}
+              onChange={setValor}
+              className="campo py-1.5 text-right"
+            />
+          </div>
+        )}
 
-        {parcelado && (
+        {!travada && parcelado && (
           <div>
             <label className="rotulo" htmlFor={`de-${cartaoId}`}>
               O valor é
@@ -1135,7 +994,7 @@ function FormularioDaCompra({
 
         {/* Estorno que se repete todo mês não existe: o crédito entra como
             compra, na fatura em que veio. */}
-        {!assinatura && (
+        {!travada && !assinatura && (
           <label
             className="mb-2 flex items-center gap-1.5 text-xs text-tinta-500"
             title="Crédito na fatura: abate da soma"
@@ -1150,12 +1009,65 @@ function FormularioDaCompra({
           </label>
         )}
 
-        <div className="flex gap-1.5">
-          {corrigindo && (
-            <button onClick={onCancelar} className="btn btn-sutil">
-              Cancelar
+        {!travada && corrigindo?.assinatura && (
+          <label className="mb-2 flex items-center gap-1.5 text-xs text-tinta-500">
+            <input
+              type="checkbox"
+              className="h-3.5 w-3.5 accent-brand-600"
+              checked={daquiEmDiante}
+              onChange={(e) => setDaquiEmDiante(e.target.checked)}
+            />
+            daqui em diante
+          </label>
+        )}
+      </div>
+
+      {/* A conta dita em voz alta: é aqui que se pega a parcela digitada no
+          campo do total, antes de ela virar dez faturas erradas. */}
+      {!travada && parcelado && v > 0 && p >= 1 && p <= n && (
+        <p className="num mt-2 text-[11px] text-tinta-400">
+          {n}× de {formatBRL(valorDaParcela)} = {formatBRL(totalDaCompra)}
+          {p < n
+            ? ` · última em ${rotuloDoMes(somarMeses(competencia, n - p))}`
+            : ' · última parcela'}
+        </p>
+      )}
+      {!travada && parcelado && p > n && (
+        <p className="mt-2 text-[11px] font-semibold text-amber-600">
+          A parcela não pode passar do número de vezes.
+        </p>
+      )}
+      {!travada &&
+        corrigindo?.assinatura &&
+        !daquiEmDiante &&
+        Math.round(corrigindo.valor * 100) !==
+          Math.round(corrigindo.valorTotal * 100) && (
+          <p className="num mt-2 text-[11px] text-tinta-400">
+            Todo mês: {formatBRL(corrigindo.valorTotal)}
+          </p>
+        )}
+
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          {corrigindo && !travada && (
+            <button
+              onClick={() => {
+                const pergunta = corrigindo.assinatura
+                  ? `Encerrar "${corrigindo.descricao}" a partir de ${mesPorExtenso(competencia)}?`
+                  : `Apagar "${corrigindo.descricao}"?`;
+                if (confirm(pergunta)) tirar.mutate(corrigindo);
+              }}
+              disabled={tirar.isPending}
+              className="btn btn-alerta btn-p"
+            >
+              {corrigindo.assinatura ? 'Encerrar' : 'Apagar'}
             </button>
           )}
+        </div>
+        <div className="flex gap-1.5">
+          <button onClick={onFechar} className="btn btn-sutil">
+            {corrigindo ? 'Cancelar' : 'Fechar'}
+          </button>
           <button
             onClick={enviar}
             disabled={!valido || salvar.isPending}
@@ -1165,33 +1077,6 @@ function FormularioDaCompra({
           </button>
         </div>
       </div>
-
-      {assinatura && (
-        <p className="mt-2 text-[11px] text-tinta-400">
-          {corrigindo
-            ? mudouPreco
-              ? `O valor novo vale a partir de ${mesPorExtenso(competencia)}; as faturas anteriores ficam com o de antes.`
-              : 'Para parar de cobrar, use "Encerrar" na linha da assinatura.'
-            : `Entra nesta fatura e em todas as seguintes, até ser encerrada.`}
-        </p>
-      )}
-
-      {/* A conta dita em voz alta: é aqui que se pega a parcela digitada no
-          campo do total, antes de ela virar dez faturas erradas. */}
-      {parcelado && v > 0 && p >= 1 && p <= n && (
-        <p className="num mt-2 text-[11px] text-tinta-400">
-          {n}× de {formatBRL(valorDaParcela)} = {formatBRL(totalDaCompra)}.
-          {p > 1 && ` As parcelas 1 a ${p - 1} ficaram em faturas anteriores.`}
-          {p < n
-            ? ` Parcela ${p} nesta fatura, a última em ${rotuloDoMes(somarMeses(competencia, n - p))}.`
-            : ' Esta é a última parcela.'}
-        </p>
-      )}
-      {parcelado && p > n && (
-        <p className="mt-2 text-[11px] font-semibold text-amber-600">
-          A parcela desta fatura não pode passar do número de vezes.
-        </p>
-      )}
     </div>
   );
 }
