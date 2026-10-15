@@ -11,6 +11,7 @@ import {
   Vazio,
   type Tom,
 } from '../../components/ui';
+import { IconeCheckCirculo } from '../../components/icones';
 import { api, mensagemErro } from '../../lib/api';
 import { combina, semAcento } from '../../lib/busca';
 import { estaClassificado } from '../../lib/categorias';
@@ -716,7 +717,24 @@ function Linha({
         className="td whitespace-nowrap text-right"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex justify-end gap-1.5">
+        {/*
+          O "aprovada" escrito empurrava o Pagar para a esquerda só nas linhas
+          aprovadas, e a coluna de botões ficava torta. Virou um check pequeno
+          num lugar de largura fixa — vazio quando a conta não foi aprovada —,
+          e os três botões caem sempre no mesmo lugar, linha após linha.
+        */}
+        <div className="flex items-center justify-end gap-1.5">
+          <span className="flex w-5 justify-center">
+            {conta.statusAuditoria === 'A' && (
+              <span
+                title="Aprovada na auditoria do IXC"
+                aria-label="Aprovada na auditoria do IXC"
+                role="img"
+              >
+                <IconeCheckCirculo className="h-4 w-4 text-emerald-500 dark:text-emerald-400" />
+              </span>
+            )}
+          </span>
           {/* Um botão só: a conta escolhida na janela é que decide se o IXC
               recebe a aprovação e a baixa, ou só a aprovação (ModoBank). */}
           <button
@@ -726,25 +744,17 @@ function Linha({
           >
             Pagar
           </button>
-          {conta.statusAuditoria === 'A' && (
-            <span
-              className="self-center text-[11px] text-emerald-700 dark:text-emerald-300"
-              title="Já passou pela auditoria do IXC"
-            >
-              aprovada
-            </span>
-          )}
           <button
             onClick={onEditar}
             title="Mudar meio de pagamento, valor, vencimento, categoria…"
-            className="btn btn-sutil btn-p"
+            className="btn btn-ferramenta btn-p border-brand-500/70 dark:border-brand-400/70"
           >
             Editar
           </button>
           <button
             onClick={onExcluir}
             title="Apagar este título no IXC"
-            className="btn btn-perigo btn-p"
+            className="btn btn-alerta btn-p border-rose-500/70 dark:border-rose-400/70"
           >
             Excluir
           </button>
