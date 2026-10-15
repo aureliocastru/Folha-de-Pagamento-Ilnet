@@ -1337,7 +1337,7 @@ function CadastroDoCartao({
             Banco (fornecedor no IXC)
           </label>
           {fornecedor ? (
-            <div className="flex flex-wrap items-center gap-2 rounded-xl bg-tinta-50 px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2 rounded-xl bg-realce px-3 py-2">
               <span className="text-tinta-800">{fornecedor.nome}</span>
               <span className="num text-xs text-tinta-400">
                 código {fornecedor.id}

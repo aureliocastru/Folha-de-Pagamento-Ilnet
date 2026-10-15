@@ -33,6 +33,14 @@
   --cabecalho: 233 234 237;
 
   /*
+   * A faixa do título de um cartão ou de uma janela, e a caixa de resumo que
+   * vai dentro deles (o "Vai sair de", o total do veículo). No claro são os
+   * cinzas que já eram; no escuro cada um tem degrau próprio, ver lá.
+   */
+  --titulo: 233 234 237;
+  --realce: 240 241 243;
+
+  /*
    * A faixa da linha par e o realce do ponteiro, na tabela.
    *
    * `--faixa` é o tom fraco que alterna com o fundo do cartão para separar uma
@@ -141,6 +149,11 @@
   --papel: 43 44 48;
   --barra: 23 24 26;
   --cabecalho: 29 30 33;
+  /* O título sobe acima do cartão, e o resumo fica entre os dois: numa janela
+     o título, o resumo, o nome das colunas e o campo têm cada um o seu tom, e
+     não quatro escuros quase iguais. */
+  --titulo: 64 66 72;
+  --realce: 53 55 60;
 
   /*
    * No escuro a faixa é mais clara que o cartão, não mais escura: abaixo dele
@@ -238,7 +251,7 @@
    * para o botão e para o que está marcado.
    */
   .faixa-titulo {
-    @apply rounded-t-2xl border-b border-tinta-200 bg-cabecalho;
+    @apply rounded-t-2xl border-b border-tinta-200 bg-titulo;
   }
   .card-hover {
     @apply transition duration-200 hover:-translate-y-0.5 hover:shadow-card-hover;
@@ -399,6 +412,8 @@
     --faixa: 247 247 249;
     --linha-hover: 234 235 238;
     --cabecalho: 233 234 237;
+    --titulo: 233 234 237;
+    --realce: 240 241 243;
     @apply rounded-2xl border border-tinta-200 bg-white text-tinta-800 shadow-lg;
   }
   /* O vermelho claro do escuro some no branco: aqui dentro vale o do claro. */

@@ -1170,7 +1170,7 @@ function SenhaDoLogin({
         Entra com <strong className="text-tinta-800">{usuario.email}</strong>.
       </p>
 
-      <div className="rounded-2xl bg-tinta-50 p-4">
+      <div className="rounded-2xl bg-realce p-4">
         <p className="eyebrow mb-2">Senha atual</p>
         {senha ? (
           <div className="flex flex-wrap items-center gap-3">

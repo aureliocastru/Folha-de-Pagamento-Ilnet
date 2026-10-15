@@ -280,7 +280,7 @@ export function ListaDeConsorcios({
             </div>
 
             {!a.quitado && (
-              <div className="mt-3 rounded-xl bg-tinta-50 px-3 py-2 text-xs text-tinta-600">
+              <div className="mt-3 rounded-xl bg-realce px-3 py-2 text-xs text-tinta-600">
                 {a.parcelas.length > 1 ? 'Parcelas ' : 'Parcela '}
                 <strong className="num text-tinta-800">{juntar(a.numeros)}</strong>{' '}
                 {a.parcelas.length > 1 ? 'vencem' : 'vence'}{' '}
@@ -448,7 +448,7 @@ export function JanelaDeAntecipacao({
       </div>
 
       {daVez && !registrando && (
-        <div className="mt-4 rounded-2xl bg-tinta-50 p-4 text-sm text-tinta-600">
+        <div className="mt-4 rounded-2xl bg-realce p-4 text-sm text-tinta-600">
           A parcela <strong className="num text-tinta-900">{daVez.numero}</strong> de{' '}
           {a.total}
           {daVez.vencimento && (
@@ -531,7 +531,7 @@ export function JanelaDeAntecipacao({
             {r.antecipadas.map((x) => (
               <div
                 key={x.id}
-                className="flex flex-wrap items-center gap-2 rounded-xl bg-tinta-50 px-3 py-2 text-xs text-tinta-600"
+                className="flex flex-wrap items-center gap-2 rounded-xl bg-realce px-3 py-2 text-xs text-tinta-600"
               >
                 <span className="num font-semibold text-tinta-800">
                   {x.numero}/{a.total}
@@ -932,7 +932,7 @@ function Numero({
   verde?: boolean;
 }) {
   return (
-    <div className="rounded-xl bg-tinta-50 px-3 py-2">
+    <div className="rounded-xl bg-realce px-3 py-2">
       <p className="text-[11px] uppercase tracking-wider text-tinta-400">{rotulo}</p>
       <p
         className={`valor text-sm font-semibold ${
@@ -1193,7 +1193,7 @@ export function CadastroDoConsorcio({
             Fornecedor no IXC
           </label>
           {fornecedor ? (
-            <div className="flex flex-wrap items-center gap-2 rounded-xl bg-tinta-50 px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2 rounded-xl bg-realce px-3 py-2">
               <span className="min-w-0 text-tinta-800">{fornecedor.nome}</span>
               <span className="num text-xs text-tinta-400">
                 código {fornecedor.id}
@@ -1470,7 +1470,7 @@ export function CadastroDoConsorcio({
 
       {/* O que vai acontecer, antes de acontecer. */}
       {previa && (
-        <div className="mt-4 rounded-2xl bg-tinta-50 p-4 text-sm text-tinta-600" data-passo-acao>
+        <div className="mt-4 rounded-2xl bg-realce p-4 text-sm text-tinta-600" data-passo-acao>
           {previa.quitado ? (
             <>Todas as parcelas já saíram — este consórcio não gera mais nada.</>
           ) : (

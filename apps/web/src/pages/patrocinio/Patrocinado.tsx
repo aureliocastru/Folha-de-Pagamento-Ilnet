@@ -694,7 +694,7 @@ function ColetarContrato({
   return (
     <Janela titulo="Contrato de patrocínio" onFechar={onFechar}>
       <div className="p-5 sm:p-6">
-        <div className="rounded-2xl bg-tinta-50 p-4 text-sm text-tinta-600">
+        <div className="rounded-2xl bg-realce p-4 text-sm text-tinta-600">
           Contrato de <span className="font-semibold text-tinta-800">{ficha.patrocinado.nome}</span>
           {ficha.patrocinado.valorMensal && <> · {formatBRL(ficha.patrocinado.valorMensal)} por mês</>}
         </div>

@@ -87,7 +87,7 @@ export function DetalheDoPagamento({
     <Janela titulo="Detalhe do pagamento" onFechar={onFechar}>
       <div className="p-5 sm:p-6">
         {/* --- O que saiu, do tamanho de quem confere de longe --- */}
-        <div className="rounded-2xl bg-tinta-50 p-5">
+        <div className="rounded-2xl bg-realce p-5">
           <div className="text-sm text-tinta-500">Pago a</div>
           <div className="font-display text-lg font-semibold text-tinta-900">
             {pagamento.fornecedor.nome ||

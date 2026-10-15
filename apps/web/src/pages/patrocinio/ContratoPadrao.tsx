@@ -25,7 +25,7 @@ export function ContratoPadrao() {
         {contrato.isError && <Vazio titulo="Não deu para carregar">{mensagemErro(contrato.error)}</Vazio>}
         {contrato.data && (
           <>
-            <p className="mb-4 rounded-xl bg-tinta-50 px-4 py-3 text-sm text-tinta-600">
+            <p className="mb-4 rounded-xl bg-realce px-4 py-3 text-sm text-tinta-600">
               No link, o contrato abre com o nome, o CPF/CNPJ, o projeto, o apoio mensal e a vigência
               do cadastro do patrocinado, seguidos destas cláusulas. Ele assina no celular, e o
               contrato assinado fica guardado em PDF na ficha dele.

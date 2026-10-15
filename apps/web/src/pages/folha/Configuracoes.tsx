@@ -185,7 +185,7 @@ export function Configuracoes() {
             <span className="num">/api/contas-pagar/diagnostico-pix</span>.
           </p>
 
-          <div className="mb-4 rounded-lg bg-tinta-50 px-3 py-2.5 text-xs leading-relaxed text-tinta-600">
+          <div className="mb-4 rounded-lg bg-realce px-3 py-2.5 text-xs leading-relaxed text-tinta-600">
             <span className="rotulo">Já decorado</span>
             {form.pixCampoTipoChaveAprendido ? (
               <div className="mt-1">

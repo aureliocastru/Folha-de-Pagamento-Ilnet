@@ -238,7 +238,7 @@ export function CampoOs() {
             {dados.os.cliente && <p className="text-[14px] text-tinta-700">{dados.os.cliente}</p>}
             {dados.os.endereco && <p className="text-[13px] text-tinta-500">{dados.os.endereco}</p>}
             {dados.os.mensagem && (
-              <p className="mt-2 whitespace-pre-line rounded-lg bg-tinta-50 px-3 py-2 text-[13px] text-tinta-600">
+              <p className="mt-2 whitespace-pre-line rounded-lg bg-realce px-3 py-2 text-[13px] text-tinta-600">
                 {dados.os.mensagem}
               </p>
             )}

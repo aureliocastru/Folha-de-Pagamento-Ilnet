@@ -333,7 +333,7 @@ export function PagarEmMaos({
       titulo={contas.length === 1 ? 'Pagar' : `Pagar ${contas.length} contas`}
       onFechar={onFechar}
     >
-      <div className="rounded-2xl bg-tinta-50 p-4">
+      <div className="rounded-2xl bg-realce p-4">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <div className="text-sm text-tinta-500">
@@ -682,7 +682,7 @@ export function ExcluirConta({
       <p className="text-sm text-tinta-700">
         Apagar de vez o título nº {conta.idFnApagar} no IXC?
       </p>
-      <div className="mt-3 rounded-2xl bg-tinta-50 p-4">
+      <div className="mt-3 rounded-2xl bg-realce p-4">
         <div className="font-semibold text-tinta-900">
           {conta.fornecedor.nome}
         </div>

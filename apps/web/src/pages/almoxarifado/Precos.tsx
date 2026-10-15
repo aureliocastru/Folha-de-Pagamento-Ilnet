@@ -562,7 +562,7 @@ function FormularioDePreco({
         setMinima('');
         setObservacao('');
       }}
-      className="rounded-xl border border-tinta-200 bg-tinta-50 p-3.5"
+      className="rounded-xl border border-tinta-200 bg-realce p-3.5"
     >
       <h3 className="titulo-bloco mb-3">Lançar preço</h3>
 

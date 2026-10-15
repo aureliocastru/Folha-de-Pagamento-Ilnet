@@ -101,7 +101,7 @@ export function DetalheDaConta({
     <Janela titulo="Detalhe do débito" onFechar={onFechar}>
       <div className="p-5 sm:p-6">
         {/* --- O essencial, do tamanho de quem confere de longe --- */}
-        <div className="rounded-2xl bg-tinta-50 p-5">
+        <div className="rounded-2xl bg-realce p-5">
           <div className="text-sm text-tinta-500">Devido a</div>
           <div className="font-display text-lg font-semibold text-tinta-900">
             {conta.fornecedor.nome || `Fornecedor ${conta.fornecedor.id ?? '?'}`}

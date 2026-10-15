@@ -363,7 +363,7 @@ function ConfigFolhaBloco({
           </p>
         )}
         {carteira && (
-          <p className="rounded-xl border border-tinta-200 bg-tinta-50 px-3.5 py-2.5 text-xs leading-relaxed text-tinta-600">
+          <p className="rounded-xl border border-tinta-200 bg-realce px-3.5 py-2.5 text-xs leading-relaxed text-tinta-600">
             O salário oficial sai pela contabilidade. Preencha{' '}
             <strong>A receber na folha</strong> com o que a empresa paga por
             aqui — é esse valor que serve de base para o saldo salarial, no
@@ -631,7 +631,7 @@ function VariaveisMesBloco({
       </div>
 
       {carteiraAssinada && (
-        <p className="mt-4 rounded-xl border border-tinta-200 bg-tinta-50 px-3.5 py-2.5 text-xs text-tinta-600">
+        <p className="mt-4 rounded-xl border border-tinta-200 bg-realce px-3.5 py-2.5 text-xs text-tinta-600">
           Carteira assinada: as horas extras saem pela contabilidade, então não
           entram no cálculo daqui.
         </p>

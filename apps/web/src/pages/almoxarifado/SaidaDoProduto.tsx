@@ -228,7 +228,7 @@ export function SaidaDoProduto({
           {dados && dados.saidas.length > 0 && (
             <ul className="space-y-2">
               {dados.saidas.map((s) => (
-                <li key={s.id} className="rounded-xl bg-tinta-50 px-3 py-2.5">
+                <li key={s.id} className="rounded-xl bg-realce px-3 py-2.5">
                   <div className="flex items-baseline justify-between gap-3">
                     <span className="min-w-0 font-medium text-tinta-800">{s.destino}</span>
                     <span className="valor shrink-0 text-rose-700 dark:text-rose-300">

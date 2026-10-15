@@ -1046,7 +1046,7 @@ export function NovaDespesa({
               Fornecedor no IXC
             </label>
             {fornecedor ? (
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-tinta-100 bg-tinta-50 px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-tinta-100 bg-realce px-4 py-3">
                 <div className="min-w-0">
                   <div className="font-semibold text-tinta-900">
                     {fornecedor.nome}

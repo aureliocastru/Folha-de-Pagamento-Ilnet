@@ -158,7 +158,7 @@ export function ManutencaoDoVeiculo({ veiculoId, onFechar }: { veiculoId: string
       ) : (
         <>
           {/* O km de agora: é dele que sai tudo o que vem abaixo. */}
-          <div className="mb-4 flex flex-wrap items-end justify-between gap-3 rounded-2xl bg-tinta-50 p-4">
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3 rounded-2xl bg-realce p-4">
             <div>
               <p className="eyebrow">{unidade === 'h' ? 'Horímetro agora' : 'Km agora'}</p>
               {d.medidorAtual != null ? (
@@ -332,7 +332,7 @@ function LinhaDoItem({
       </div>
 
       {historicoAberto && (
-        <ul className="mt-2.5 space-y-1 rounded-xl bg-tinta-50 p-2.5 text-[13px]">
+        <ul className="mt-2.5 space-y-1 rounded-xl bg-realce p-2.5 text-[13px]">
           {i.trocas.map((t, n) => {
             const anterior = i.trocas[n + 1];
             const durou =

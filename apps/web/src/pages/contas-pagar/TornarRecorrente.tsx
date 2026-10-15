@@ -102,7 +102,7 @@ export function TornarRecorrente({
   return (
     <Janela titulo="Repetir todo mês" onFechar={onFechar}>
       <FormularioEmPassos>
-      <div className="rounded-2xl bg-tinta-50 p-4">
+      <div className="rounded-2xl bg-realce p-4">
         <div className="text-sm text-tinta-500">Vai se repetir</div>
         <div className="font-display text-lg font-semibold text-tinta-900">
           {conta.fornecedor.nome}

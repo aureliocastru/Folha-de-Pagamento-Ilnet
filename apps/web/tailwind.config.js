@@ -69,6 +69,10 @@ export default {
         barra: 'rgb(var(--barra) / <alpha-value>)',
         /** O cinza do cabeçalho: faixa do título e nome das colunas. */
         cabecalho: 'rgb(var(--cabecalho) / <alpha-value>)',
+        /** A faixa do título de cartão e janela. */
+        titulo: 'rgb(var(--titulo) / <alpha-value>)',
+        /** A caixa de resumo dentro de um cartão ou janela. */
+        realce: 'rgb(var(--realce) / <alpha-value>)',
       },
       fontFamily: {
         display: ['"Space Grotesk"', 'ui-sans-serif', 'system-ui', 'sans-serif'],

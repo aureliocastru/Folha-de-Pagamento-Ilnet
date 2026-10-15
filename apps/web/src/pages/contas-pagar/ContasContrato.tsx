@@ -1549,7 +1549,7 @@ function CadastroDoEndereco({
             Quem recebe (fornecedor no IXC)
           </label>
           {fornecedor ? (
-            <div className="flex flex-wrap items-center gap-2 rounded-xl bg-tinta-50 px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2 rounded-xl bg-realce px-3 py-2">
               <span className="text-tinta-800">{fornecedor.nome}</span>
               <span className="num text-xs text-tinta-400">
                 código {fornecedor.id}
@@ -2053,7 +2053,7 @@ function ImportarDoHistorico({
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <label className="rotulo">Quem recebe</label>
-              <div className="rounded-xl bg-tinta-50 px-3 py-2 text-sm text-tinta-800">
+              <div className="rounded-xl bg-realce px-3 py-2 text-sm text-tinta-800">
                 {fornecedor.nome}{' '}
                 <span className="num text-xs text-tinta-400">
                   código {fornecedor.id}

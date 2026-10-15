@@ -991,7 +991,7 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
           </div>
 
           <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div className="rounded-2xl bg-tinta-50 p-4">
+            <div className="rounded-2xl bg-realce p-4">
               <p className="eyebrow">Peças e serviços</p>
               <p className="valor mt-1 text-2xl">{formatBRL(d.veiculo.gasto)}</p>
               <p className="mt-0.5 text-xs text-tinta-500">
@@ -1005,7 +1005,7 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
              * acontece quando o combustível entra numa máquina.
              */}
             {d.veiculo.estoque ? (
-              <div className="rounded-2xl bg-tinta-50 p-4">
+              <div className="rounded-2xl bg-realce p-4">
                 <p className="eyebrow">No galão</p>
                 <p className="valor mt-1 text-2xl">{litros(d.veiculo.estoque.litros)}</p>
                 <p className="mt-0.5 text-xs text-tinta-500">
@@ -1024,7 +1024,7 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
                 )}
               </div>
             ) : (
-              <div className="rounded-2xl bg-tinta-50 p-4">
+              <div className="rounded-2xl bg-realce p-4">
                 <p className="eyebrow">Combustível</p>
                 <p className="valor mt-1 text-2xl">{formatBRL(d.combustivel.total)}</p>
                 <p className="mt-0.5 text-xs text-tinta-500">
@@ -1054,7 +1054,7 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
              * ele não anda, e o que sai dele vira consumo de quem o bebeu.
              */}
             {d.veiculo.tipo !== 'GALAO' && (
-              <div className="rounded-2xl bg-tinta-50 p-4 sm:col-span-2">
+              <div className="rounded-2xl bg-realce p-4 sm:col-span-2">
                 <p className="eyebrow">Média de consumo</p>
                 {d.combustivel.consumo.medio != null ? (
                   <>

@@ -154,7 +154,7 @@ export function ColetarAssinatura({
   return (
     <Janela titulo="Coletar assinatura" onFechar={onFechar}>
       <div className="p-5 sm:p-6">
-        <div className="rounded-2xl bg-tinta-50 p-4">
+        <div className="rounded-2xl bg-realce p-4">
           <div className="text-sm text-tinta-500">
             Pagamento em mãos de{' '}
             <span className="font-semibold text-tinta-800">
