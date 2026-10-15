@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useAssistente } from '../../components/Assistente';
 import { FotoDaNota } from '../../components/FotoDaNota';
 import { NotasDaParte, NotasDoTitulo } from '../../components/NotasDoTitulo';
@@ -1186,15 +1186,28 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
             </div>
           )}
 
-          <p className="eyebrow mb-2">Contas lançadas</p>
-          {d.gastos.length === 0 ? (
-            <p className="mb-5 text-sm text-tinta-400">
-              Nenhuma conta ainda. Use "Lançar conta neste veículo", ou marque o veículo
-              no "Lançar conta" da tela Em aberto.
-            </p>
-          ) : (
-            <ul className="lista-dividida mb-5 rounded-xl border border-tinta-200">
-              {d.gastos.map((g) => (
+          {/* Cada lista no seu segmento, fechado: com um ano de contas e
+              abastecimentos, a ficha virava uma rolagem sem fim. Aberto, o
+              segmento traz a lista inteira e a busca dela. */}
+          <Segmento
+            titulo="Contas lançadas"
+            resumo={`${d.gastos.length} conta(s) · ${formatBRL(d.veiculo.gasto)}`}
+            itens={d.gastos}
+            campos={(g) => [
+              g.observacao,
+              g.fornecedor,
+              formatData(g.vencimento),
+              g.categoria?.nome,
+              g.categoria?.grupo?.nome,
+              g.situacao,
+              g.idFnApagarIxc,
+              formatBRL(g.valor),
+            ]}
+            procurar="Procurar pela descrição, fornecedor, data, categoria ou valor"
+            vazio='Nenhuma conta ainda. Use "Lançar conta neste veículo", ou marque o veículo no "Lançar conta" da tela Em aberto.'
+          >
+            {(lista) =>
+              lista.map((g) => (
                 <li key={g.contaId} className="flex items-start justify-between gap-3 px-3 py-2.5">
                   <span className="min-w-0">
                     <span className="block text-sm text-tinta-800">{g.observacao}</span>
@@ -1246,23 +1259,33 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
                     {formatBRL(g.valor)}
                   </span>
                 </li>
-              ))}
-            </ul>
-          )}
+              ))
+            }
+          </Segmento>
 
-          <p className="eyebrow mb-2">Abastecimentos</p>
-          {d.abastecimentos.length === 0 ? (
-            <p className="text-sm text-tinta-400">
-              Nenhum ainda. Use "Lançar abastecimento" aqui em cima
-              {d.veiculo.responsaveis.length > 0
+          <Segmento
+            titulo="Abastecimentos"
+            resumo={`${d.abastecimentos.length} abastecimento(s) · ${formatBRL(d.combustivel.total)}`}
+            itens={d.abastecimentos}
+            campos={(a) => [
+              medida(a),
+              a.valor != null ? formatBRL(a.valor) : 'na conferência',
+              dataEHora(a.data),
+              a.lancadoPor,
+              a.conferidoPor,
+              a.galao?.apelido,
+            ]}
+            procurar="Procurar pela data, km, litros, valor ou quem lançou"
+            vazio={`Nenhum ainda. Use "Lançar abastecimento" aqui em cima${
+              d.veiculo.responsaveis.length > 0
                 ? `, ou ${nomesDosResponsaveis(d.veiculo.responsaveis)} ${
                     d.veiculo.responsaveis.length > 1 ? 'lançam' : 'lança'
                   } pelo celular.`
-                : ' — ou escolha os responsáveis em Editar, e eles lançam pelo celular.'}
-            </p>
-          ) : (
-            <ul className="lista-dividida rounded-xl border border-tinta-200">
-              {d.abastecimentos.map((a) => (
+                : ' — ou escolha os responsáveis em Editar, e eles lançam pelo celular.'
+            }`}
+          >
+            {(lista) =>
+              lista.map((a) => (
                 <li key={a.id} className="flex flex-wrap items-start justify-between gap-3 px-3 py-2.5">
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm text-tinta-800">
@@ -1298,9 +1321,9 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
                     </button>
                   </span>
                 </li>
-              ))}
-            </ul>
-          )}
+              ))
+            }
+          </Segmento>
           {apagarAbastecimento.isError && (
             <Aviso tom="erro">{mensagemErro(apagarAbastecimento.error)}</Aviso>
           )}
@@ -1309,16 +1332,23 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
               escrito — a roçadeira, o sítio. O valor é o do litro que estava
               dentro dele, e não de nota nenhuma. */}
           {d.veiculo.tipo === 'GALAO' && (
-            <>
-              <p className="eyebrow mb-2 mt-5">Saídas do galão</p>
-              {!d.saidas?.length ? (
-                <p className="text-sm text-tinta-400">
-                  Nada saiu dele ainda. A saída se lança pelo portal ou pela Minha área,
-                  em "Tirei do galão".
-                </p>
-              ) : (
-                <ul className="lista-dividida rounded-xl border border-tinta-200">
-                  {d.saidas.map((s) => (
+            <Segmento
+              titulo="Saídas do galão"
+              resumo={`${d.saidas?.length ?? 0} saída(s)`}
+              itens={d.saidas ?? []}
+              campos={(s) => [
+                s.veiculo?.apelido,
+                s.outroDestino,
+                medida(s),
+                s.valor != null ? formatBRL(s.valor) : null,
+                dataEHora(s.data),
+                s.lancadoPor,
+              ]}
+              procurar="Procurar pelo destino, data, litros ou quem lançou"
+              vazio='Nada saiu dele ainda. A saída se lança pelo portal ou pela Minha área, em "Tirei do galão".'
+            >
+              {(lista) =>
+                lista.map((s) => (
                     <li key={s.id} className="flex flex-wrap items-start justify-between gap-3 px-3 py-2.5">
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm text-tinta-800">
@@ -1358,14 +1388,94 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
                         Apagar
                       </button>
                     </li>
-                  ))}
-                </ul>
-              )}
-            </>
+                  ))
+              }
+            </Segmento>
           )}
         </>
       )}
     </Janela>
+  );
+}
+
+/**
+ * Um segmento da ficha: fechado, só o nome, quantos e quanto. Aberto, a lista
+ * inteira, com a busca dentro — é o que acha a conta de março numa Hilux com
+ * um ano de lançamentos.
+ */
+function Segmento<T>({
+  titulo,
+  resumo,
+  itens,
+  campos,
+  procurar,
+  vazio,
+  children,
+}: {
+  titulo: string;
+  resumo: string;
+  itens: T[];
+  /** Onde a busca procura, em cada item. */
+  campos: (item: T) => Array<string | number | null | undefined>;
+  procurar: string;
+  vazio: string;
+  /** As linhas (`<li>`) dos itens que passaram na busca. */
+  children: (lista: T[]) => ReactNode;
+}) {
+  const [aberto, setAberto] = useState(false);
+  const [busca, setBusca] = useState('');
+  const achados = itens.filter((i) => combina(campos(i), busca));
+
+  return (
+    <div className="mb-3 overflow-hidden rounded-xl border border-tinta-200">
+      <button
+        type="button"
+        onClick={() => setAberto((a) => !a)}
+        aria-expanded={aberto}
+        className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-tinta-50"
+      >
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold text-tinta-800">{titulo}</span>
+          <span className="block text-[11px] text-tinta-400">{resumo}</span>
+        </span>
+        <span
+          className={`shrink-0 text-tinta-400 transition-transform ${aberto ? 'rotate-90' : ''}`}
+          aria-hidden
+        >
+          ▸
+        </span>
+      </button>
+      {aberto && (
+        <div className="border-t border-tinta-200">
+          {itens.length === 0 ? (
+            <p className="px-3 py-3 text-sm text-tinta-400">{vazio}</p>
+          ) : (
+            <>
+              {itens.length > 1 && (
+                <div className="px-3 pt-3">
+                  <input
+                    type="search"
+                    className="campo"
+                    value={busca}
+                    onChange={(e) => setBusca(e.target.value)}
+                    placeholder={procurar}
+                    aria-label={`Procurar em ${titulo.toLowerCase()}`}
+                    autoComplete="off"
+                  />
+                </div>
+              )}
+              {achados.length === 0 ? (
+                <p className="px-3 py-3 text-sm text-tinta-400">
+                  Nada com &ldquo;{busca.trim()}&rdquo;.
+                </p>
+              ) : (
+                <ul className="lista-dividida mt-2">{children(achados)}</ul>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
