@@ -398,24 +398,27 @@ export function PagarEmMaos({
           </label>
         )}
 
-        {/* O que vai acontecer, em uma linha, antes de confirmar. */}
-        <p
-          className={`mt-3 text-sm ${
-            soAprova || (algumPeloBanco && !jaSaiu)
-              ? 'text-amber-700 dark:text-amber-300'
-              : 'text-emerald-700 dark:text-emerald-300'
-          }`}
-        >
-          {misturadas
-            ? `Cada título dá baixa na conta que está nele${
-                algumPeloBanco && !jaSaiu
-                  ? ` — os do ${nomeDaConta(contaDoBanco)} só são aprovados, o pagamento deles sai na tela do banco.`
-                  : '.'
-              }`
-            : soAprova
-              ? `Pelo ${escolhida?.nome ?? 'ModoBank'} a conta só é aprovada aqui — o pagamento sai na tela dele, no IXC. Marque acima se ela já foi paga.`
-              : `Aprova e dá baixa no IXC: a conta fica paga, saindo de ${escolhida?.nome ?? 'conta escolhida'}. Não precisa repetir lá.`}
-        </p>
+        {/* O que vai acontecer, em uma linha, antes de confirmar — só quando
+            não é o caso comum (dar baixa na conta escolhida, que já está no
+            seletor): pelo banco só aprova, e nas misturadas cada título vai
+            para a sua conta. */}
+        {(misturadas || soAprova) && (
+          <p
+            className={`mt-3 text-sm ${
+              soAprova || (algumPeloBanco && !jaSaiu)
+                ? 'text-amber-700 dark:text-amber-300'
+                : 'text-emerald-700 dark:text-emerald-300'
+            }`}
+          >
+            {misturadas
+              ? `Cada título dá baixa na conta que está nele${
+                  algumPeloBanco && !jaSaiu
+                    ? ` — os do ${nomeDaConta(contaDoBanco)} só são aprovados.`
+                    : '.'
+                }`
+              : `Só aprova — o pagamento sai pelo ${escolhida?.nome ?? 'ModoBank'}.`}
+          </p>
+        )}
       </div>
 
       {/* A conta do título é onde o pagamento foi combinado. Trocar pode ser o
@@ -430,12 +433,12 @@ export function PagarEmMaos({
         </Aviso>
       )}
 
+      {/* Isto registra um pagamento que já aconteceu, não move dinheiro: dar
+          por paga uma conta que o banco ainda não pagou faz o ModoBank
+          pagá-la depois, por cima, e o dinheiro sai duas vezes. */}
       {(contaDoBancoEscolhida || algumPeloBanco) && jaSaiu && (
         <Aviso tom="atencao">
-          Isto registra um pagamento que já aconteceu — não move dinheiro
-          nenhum. Confira no extrato antes: dar por paga uma conta que o banco
-          ainda não pagou faz o ModoBank pagá-la depois, por cima, e o dinheiro
-          sai duas vezes.
+          Confira no extrato: se o banco ainda não pagou, sai duas vezes.
         </Aviso>
       )}
 
@@ -528,21 +531,11 @@ export function PagarEmMaos({
               por ela que o movimento encontra a linha do extrato. O dia em
               que se registra não serve: quem paga pelo aplicativo do banco e
               lança dias depois concilia pelo dia em que o dinheiro saiu. */}
-          <p className="mt-1.5 text-xs text-tinta-400">
-            Pode ser um dia passado. É esta data que vai para o IXC e é por ela
-            que a conciliação acha a linha do extrato — não vale o dia de hoje
-            se o dinheiro saiu antes.
-          </p>
           {/* O desconto muda o valor do pagamento, não o do título: o título
               continua valendo o cheio, para o IXC vai o que saiu (é o que a
               conciliação procura no extrato) e a diferença entra como
-              economia no painel do mês. A mais, é o título que sobe. */}
-          {cabeDesconto && (
-            <p className="mt-1 text-xs text-tinta-400">
-              Em branco, sai o valor cheio. Preencha quando o banco cobrou
-              outro valor.
-            </p>
-          )}
+              economia no painel do mês. A mais, é o título que sobe. Em
+              branco, sai o valor cheio (o do placeholder). */}
         </div>
       )}
 
