@@ -132,6 +132,9 @@ const CONTORNO_AZUL = 'border-brand-500/70 dark:border-brand-400/70';
 const CONTORNO_VERMELHO = 'border-rose-500/70 dark:border-rose-400/70';
 const CONTORNO_CINZA = 'border-tinta-400';
 
+/** Os campos do formulário da compra: todos da mesma altura, letra menor. */
+const CAMPO_DO_FORMULARIO = 'campo h-9 py-0 text-sm';
+
 /**
  * Cartão de Crédito — a fatura de cada cartão, compra por compra.
  *
@@ -945,9 +948,15 @@ function FormularioDaCompra({
         </div>
       )}
 
-      <div className="flex flex-wrap items-end gap-2">
+      {/*
+        Grade, e não fileira solta: no meio cartão (dois cartões lado a lado)
+        a fileira quebrava em qualquer ponto e cada linha ficava de um
+        tamanho. Aqui a primeira linha é o que se lê (descrição, categoria) e
+        a segunda são os números, em colunas iguais e campos da mesma altura.
+      */}
+      <div className="grid grid-cols-2 gap-x-2 gap-y-2.5 sm:grid-cols-4">
         {!travada && (
-          <div className="w-full sm:w-auto sm:min-w-[200px] sm:flex-1">
+          <div className="col-span-2">
             <label className="rotulo" htmlFor={`desc-${cartaoId}`}>
               Descrição
             </label>
@@ -956,7 +965,7 @@ function FormularioDaCompra({
               ref={campoDescricao}
               value={descricao}
               onChange={(e) => setDescricao(e.target.value)}
-              className="campo py-1.5"
+              className={CAMPO_DO_FORMULARIO}
               placeholder={
                 assinatura
                   ? 'ChatGPT, domínio, Google Workspace…'
@@ -968,7 +977,7 @@ function FormularioDaCompra({
           </div>
         )}
 
-        <div className="w-full sm:w-[200px]" data-seletor-categoria>
+        <div className="col-span-2 min-w-0" data-seletor-categoria>
           <label className="rotulo" htmlFor={`cat-${cartaoId}`}>
             Categoria
           </label>
@@ -979,12 +988,12 @@ function FormularioDaCompra({
             onChange={setCategoriaId}
             vazio="Sem categoria"
             carregando={carregandoCategorias}
-            className="campo py-1.5"
+            className={CAMPO_DO_FORMULARIO}
           />
         </div>
 
         {!travada && parcelaDoMes && (
-          <div className="w-[140px]">
+          <div className="min-w-0">
             <label className="rotulo" htmlFor={`mes-${cartaoId}`}>
               Valor em {rotuloDoMes(competencia)}
             </label>
@@ -992,36 +1001,29 @@ function FormularioDaCompra({
               id={`mes-${cartaoId}`}
               valor={valorMes}
               onChange={setValorMes}
-              className="campo py-1.5 text-right"
+              className={`${CAMPO_DO_FORMULARIO} text-right`}
             />
           </div>
         )}
 
         {!travada && !assinatura && (
-          <>
-            <div className="w-[88px]">
-              <label className="rotulo" htmlFor={`parc-${cartaoId}`}>
-                Parcela
-              </label>
-              <div className="flex items-center gap-1">
-                <input
-                  id={`parc-${cartaoId}`}
-                  type="number"
-                  inputMode="numeric"
-                  min={1}
-                  max={99}
-                  value={parcela}
-                  onChange={(e) => setParcela(e.target.value)}
-                  className="campo num w-10 px-1.5 py-1.5 text-center"
-                  title="Que parcela vem nesta fatura"
-                />
-                <span className="text-xs text-tinta-400">de</span>
-              </div>
-            </div>
-            <div className="w-[64px]">
-              <label className="rotulo" htmlFor={`qtd-${cartaoId}`}>
-                Vezes
-              </label>
+          <div className="min-w-0">
+            <label className="rotulo" htmlFor={`parc-${cartaoId}`}>
+              Parcela
+            </label>
+            <div className="flex items-center gap-1">
+              <input
+                id={`parc-${cartaoId}`}
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={99}
+                value={parcela}
+                onChange={(e) => setParcela(e.target.value)}
+                className={`${CAMPO_DO_FORMULARIO} num min-w-0 flex-1 px-1.5 text-center`}
+                title="Que parcela vem nesta fatura"
+              />
+              <span className="text-xs text-tinta-400">de</span>
               <input
                 id={`qtd-${cartaoId}`}
                 type="number"
@@ -1030,15 +1032,16 @@ function FormularioDaCompra({
                 max={99}
                 value={parcelas}
                 onChange={(e) => setParcelas(e.target.value)}
-                className="campo num px-1.5 py-1.5 text-center"
+                className={`${CAMPO_DO_FORMULARIO} num min-w-0 flex-1 px-1.5 text-center`}
+                aria-label="Vezes"
                 title="Em quantas vezes a compra foi dividida (1 = à vista)"
               />
             </div>
-          </>
+          </div>
         )}
 
         {!travada && (
-          <div className="w-[140px]">
+          <div className="min-w-0">
             <label className="rotulo" htmlFor={`valor-${cartaoId}`}>
               {corrigindo?.assinatura
                 ? daquiEmDiante
@@ -1056,13 +1059,13 @@ function FormularioDaCompra({
               id={`valor-${cartaoId}`}
               valor={valor}
               onChange={setValor}
-              className="campo py-1.5 text-right"
+              className={`${CAMPO_DO_FORMULARIO} text-right`}
             />
           </div>
         )}
 
         {!travada && parcelado && (
-          <div>
+          <div className="min-w-0">
             <label className="rotulo" htmlFor={`de-${cartaoId}`}>
               O valor é
             </label>
@@ -1070,43 +1073,47 @@ function FormularioDaCompra({
               id={`de-${cartaoId}`}
               value={valorDe}
               onChange={(e) => setValorDe(e.target.value as 'PARCELA' | 'TOTAL')}
-              className="campo py-1.5"
+              className={CAMPO_DO_FORMULARIO}
             >
-              <option value="PARCELA">de cada parcela</option>
-              <option value="TOTAL">da compra inteira</option>
+              <option value="PARCELA">da parcela</option>
+              <option value="TOTAL">da compra toda</option>
             </select>
           </div>
         )}
-
-        {/* Estorno que se repete todo mês não existe: o crédito entra como
-            compra, na fatura em que veio. */}
-        {!travada && !assinatura && (
-          <label
-            className="mb-2 flex items-center gap-1.5 text-xs text-tinta-500"
-            title="Crédito na fatura: abate da soma"
-          >
-            <input
-              type="checkbox"
-              className="h-3.5 w-3.5 accent-brand-600"
-              checked={estorno}
-              onChange={(e) => setEstorno(e.target.checked)}
-            />
-            estorno
-          </label>
-        )}
-
-        {!travada && corrigindo?.assinatura && (
-          <label className="mb-2 flex items-center gap-1.5 text-xs text-tinta-500">
-            <input
-              type="checkbox"
-              className="h-3.5 w-3.5 accent-brand-600"
-              checked={daquiEmDiante}
-              onChange={(e) => setDaquiEmDiante(e.target.checked)}
-            />
-            daqui em diante
-          </label>
-        )}
       </div>
+
+      {/* As caixas de marcar ficam na linha de baixo, com a conta: dentro da
+          grade elas ocupavam uma coluna inteira por uma palavra. Estorno que
+          se repete todo mês não existe — o crédito entra como compra. */}
+      {!travada && (!assinatura || corrigindo?.assinatura) && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+          {!assinatura && (
+            <label
+              className="flex items-center gap-1.5 text-xs text-tinta-500"
+              title="Crédito na fatura: abate da soma"
+            >
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 accent-brand-600"
+                checked={estorno}
+                onChange={(e) => setEstorno(e.target.checked)}
+              />
+              estorno
+            </label>
+          )}
+          {corrigindo?.assinatura && (
+            <label className="flex items-center gap-1.5 text-xs text-tinta-500">
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 accent-brand-600"
+                checked={daquiEmDiante}
+                onChange={(e) => setDaquiEmDiante(e.target.checked)}
+              />
+              daqui em diante
+            </label>
+          )}
+        </div>
+      )}
 
       {/* A conta dita em voz alta: é aqui que se pega a parcela digitada no
           campo do total, antes de ela virar dez faturas erradas. */}
