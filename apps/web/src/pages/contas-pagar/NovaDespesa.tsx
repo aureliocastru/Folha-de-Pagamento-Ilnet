@@ -408,17 +408,17 @@ export function NovaDespesa({
    * aquela chave para esta conta; o cadastro do fornecedor é o padrão, não a
    * última palavra.
    *
-   * Na edição, só depois de trocar o fornecedor: a conta sem chave no IXC paga
-   * pela do cadastro de todo jeito, e preenchê-la sozinho viraria uma mudança
-   * que ninguém pediu.
+   * Na edição também: a conta sem chave no IXC paga pela do cadastro, e o
+   * campo vazio com "vai com a de cima" embaixo não dizia qual (15/10/2026).
+   * Mostrar a chave não a manda ao IXC — o salvar só conta a chave como
+   * mudança quando ela é outra (`chaveSoDoCadastro`).
    */
   useEffect(() => {
     if (!pixDoCadastro) return;
-    if (edicao && !trocouFornecedor) return;
     setChavePix((atual) => atual || pixDoCadastro);
     const tipo = bancoDoFornecedor.data?.tipoChavePix?.trim();
     if (tipo) setTipoChavePix((atual) => atual || tipo);
-  }, [pixDoCadastro, bancoDoFornecedor.data?.tipoChavePix, edicao, trocouFornecedor]);
+  }, [pixDoCadastro, bancoDoFornecedor.data?.tipoChavePix]);
 
   /**
    * O dia em que o dinheiro saiu passa a valer como emissão e vencimento.
@@ -614,8 +614,21 @@ export function NovaDespesa({
           : config.data?.contaPagamentoId;
         if (conta) mudancas.contaPagamento = conta;
       }
-      if (depois.chavePix !== antes.chavePix) mudancas.chavePix = depois.chavePix;
-      if (depois.tipoChavePix && depois.tipoChavePix !== antes.tipoChavePix) {
+      /*
+       * A conta sem chave própria mostra a do cadastro no campo, e é por ela
+       * que paga. Ela continuar a mesma não é mudança: mandá-la faria o IXC
+       * reprovar e reaprovar a conta por nada.
+       */
+      const chaveSoDoCadastro =
+        !antes.chavePix && !trocouFornecedor && depois.chavePix === pixDoCadastro;
+      if (!chaveSoDoCadastro && depois.chavePix !== antes.chavePix) {
+        mudancas.chavePix = depois.chavePix;
+      }
+      if (
+        !chaveSoDoCadastro &&
+        depois.tipoChavePix &&
+        depois.tipoChavePix !== antes.tipoChavePix
+      ) {
         mudancas.tipoChavePix = depois.tipoChavePix;
       }
       if (depois.codigoBarras !== digitos(antes.codigoBarras)) {
