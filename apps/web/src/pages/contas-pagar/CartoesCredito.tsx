@@ -112,6 +112,23 @@ interface ConfigDaCasa {
   contaContabilAvulso: number;
 }
 
+/*
+ * A compra aberta no Editar (ou o Lançar compra) vira um cartão solto da
+ * lista: borda azul grossa, véu azul e sombra. Com só um véu de 5%, no tema
+ * escuro não se via qual linha estava sendo mexida (15/10/2026).
+ */
+const CARTAO_ABERTO =
+  'mx-2 my-2 overflow-hidden rounded-xl border-2 border-brand-500 bg-brand-500/10 shadow-lg ring-4 ring-brand-500/15 md:mx-3';
+
+/*
+ * Os botões desta tela com contorno que se vê de longe — a borda de 30% do
+ * `btn-ferramenta`/`btn-alerta` sumia no fundo escuro. Como utilitários, eles
+ * ganham da camada de componentes onde os `btn-*` moram.
+ */
+const CONTORNO_AZUL = 'border-brand-500/70 dark:border-brand-400/70';
+const CONTORNO_VERMELHO = 'border-rose-500/70 dark:border-rose-400/70';
+const CONTORNO_CINZA = 'border-tinta-400';
+
 /**
  * Cartão de Crédito — a fatura de cada cartão, compra por compra.
  *
@@ -407,7 +424,9 @@ function FaturaDoCartao({
         ))}
       </div>
 
-      <ul className="divide-y divide-tinta-100">
+      {/* Sem `divide-y`: o fio dele ganha da borda da linha aberta (o
+          seletor é mais forte), e o cartão destacado perdia o pé. */}
+      <ul>
         {itens.length === 0 && (
           <li className="px-3.5 py-4 text-sm text-tinta-400 md:px-5">
             Nenhuma compra nesta fatura.
@@ -417,10 +436,20 @@ function FaturaDoCartao({
           const detalhe = detalheDoItem(i, categorias.data ?? []);
           const estaAberta = aberta === i.compraId;
           return (
-            <li key={i.compraId} className={estaAberta ? 'bg-brand-500/5' : ''}>
+            <li
+              key={i.compraId}
+              className={
+                estaAberta
+                  ? CARTAO_ABERTO
+                  : 'border-b border-tinta-100 last:border-0'
+              }
+            >
               <div className="flex items-center gap-3 px-3.5 py-2.5 md:px-5">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm text-tinta-800" title={i.descricao}>
+                  <p
+                    className={`truncate text-sm ${estaAberta ? 'font-semibold text-tinta-900' : 'text-tinta-800'}`}
+                    title={i.descricao}
+                  >
                     {i.descricao}
                   </p>
                   {detalhe && (
@@ -434,13 +463,14 @@ function FaturaDoCartao({
                 >
                   {formatBRL(i.valor)}
                 </span>
-                <button
-                  onClick={() => setAberta(estaAberta ? null : i.compraId)}
-                  aria-expanded={estaAberta}
-                  className="btn btn-ferramenta btn-p shrink-0"
-                >
-                  Editar
-                </button>
+                {!estaAberta && (
+                  <button
+                    onClick={() => setAberta(i.compraId)}
+                    className={`btn btn-ferramenta btn-p shrink-0 ${CONTORNO_AZUL}`}
+                  >
+                    Editar
+                  </button>
+                )}
               </div>
               {estaAberta && formulario(i)}
             </li>
@@ -452,12 +482,12 @@ function FaturaDoCartao({
           dela. A esquecida entra na fatura seguinte. */}
       {!lancada &&
         (aberta === 'nova' ? (
-          formulario(null)
+          <div className={CARTAO_ABERTO}>{formulario(null)}</div>
         ) : (
           <div className="border-t border-tinta-100 px-3.5 py-2.5 md:px-5">
             <button
               onClick={() => setAberta('nova')}
-              className="btn btn-ferramenta btn-p"
+              className={`btn btn-ferramenta btn-p ${CONTORNO_AZUL}`}
             >
               + Lançar compra
             </button>
@@ -554,7 +584,7 @@ function FaturaDoCartao({
             <div className="flex gap-1.5">
               <button
                 onClick={() => setGerando(false)}
-                className="btn btn-sutil"
+                className="btn btn-neutro"
               >
                 Cancelar
               </button>
@@ -820,8 +850,8 @@ function FormularioDaCompra({
 
   return (
     <div
-      className={`border-t px-3.5 py-3 md:px-5 ${
-        corrigindo ? 'border-brand-300/60' : 'border-tinta-100'
+      className={`px-3.5 py-3 md:px-5 ${
+        corrigindo ? 'border-t border-brand-500/30' : ''
       }`}
       onKeyDown={(e) => {
         const alvo = e.target as HTMLElement;
@@ -1058,20 +1088,20 @@ function FormularioDaCompra({
                 if (confirm(pergunta)) tirar.mutate(corrigindo);
               }}
               disabled={tirar.isPending}
-              className="btn btn-alerta btn-p"
+              className={`btn btn-alerta ${CONTORNO_VERMELHO}`}
             >
               {corrigindo.assinatura ? 'Encerrar' : 'Apagar'}
             </button>
           )}
         </div>
-        <div className="flex gap-1.5">
-          <button onClick={onFechar} className="btn btn-sutil">
+        <div className="flex gap-2">
+          <button onClick={onFechar} className={`btn btn-neutro ${CONTORNO_CINZA}`}>
             {corrigindo ? 'Cancelar' : 'Fechar'}
           </button>
           <button
             onClick={enviar}
             disabled={!valido || salvar.isPending}
-            className="btn btn-primario"
+            className="btn btn-primario ring-2 ring-brand-400/40"
           >
             {salvar.isPending ? 'Salvando…' : corrigindo ? 'Salvar' : 'Adicionar'}
           </button>
