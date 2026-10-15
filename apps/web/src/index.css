@@ -133,12 +133,14 @@
    * as áreas se confundiam umas com as outras. Agora cada área tem o seu
    * cinza, e o azul fica para o que se clica e o que se marca.
    *
-   * Do mais escuro ao mais claro: barra lateral, página, cartão, faixa da
-   * linha par, campo e cabeçalho.
+   * O que é moldura fica abaixo da página, e o que é conteúdo, acima: barra
+   * lateral, campo e cabeçalho afundam; cartão e linha par sobem. Assim o
+   * nome da coluna e a caixa de busca não disputam com o dado — o que se veio
+   * ler é a parte mais clara da tela.
    */
   --papel: 43 44 48;
   --barra: 23 24 26;
-  --cabecalho: 60 62 67;
+  --cabecalho: 29 30 33;
 
   /*
    * No escuro a faixa é mais clara que o cartão, não mais escura: abaixo dele
@@ -148,12 +150,12 @@
   --linha-hover: 64 66 72;
 
   /*
-   * Mais claro que o cartão **e** que a página — as duas superfícies em que um
-   * campo pode cair. A busca de uma lista, solta fora de cartão, precisa ter
-   * fundo próprio, e não só a borda dizendo que ali dá para escrever.
+   * Mais escuro que o cartão **e** que a página — as duas superfícies em que
+   * um campo pode cair: ele parece um rebaixo onde se escreve, e se separa do
+   * que já está escrito em volta. A borda (`tinta-200`) desenha o contorno.
    */
-  --campo: 55 57 62;
-  --campo-foco: 64 66 72;
+  --campo: 25 26 29;
+  --campo-foco: 31 32 36;
 
   /* Só o violeta muda: os outros quatro passam nos dois fundos. */
   --serie-5: #8b5cf6;
