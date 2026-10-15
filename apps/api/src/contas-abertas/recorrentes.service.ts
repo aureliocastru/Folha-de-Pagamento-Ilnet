@@ -185,8 +185,8 @@ export class RecorrentesService {
       observacao: string;
       proximoVencimento: string;
       diasDeAntecedencia: number;
-      contaContabil: number;
-      contaPagamento: number;
+      contaContabil: number | null;
+      contaPagamento: number | null;
       tipoPagamentoIxc: string;
       categoriaId: string | null;
       ativa: boolean;

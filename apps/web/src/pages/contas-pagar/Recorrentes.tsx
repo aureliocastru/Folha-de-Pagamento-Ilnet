@@ -4,7 +4,6 @@ import {
   Aviso,
   Bloco,
   CabecalhoPagina,
-  CampoDinheiro,
   Carregando,
   Pagina,
   Selo,
@@ -19,7 +18,6 @@ import {
   ListaDeConsorcios,
 } from './Consorcios';
 import { NovaDespesa } from './NovaDespesa';
-import { CampoDeData } from '../../components/CampoDeData';
 
 /** Uma despesa que se repete todo mês, como a API a devolve. */
 export interface Recorrente {
@@ -36,6 +34,9 @@ export interface Recorrente {
   ultimoErro: string | null;
   categoriaId: string | null;
   tipoPagamentoIxc: string | null;
+  /** Vazias seguem o padrão das Configurações. */
+  contaContabil: number | null;
+  contaPagamento: number | null;
   diaDoVencimento: number | null;
   /** Preenchido, é consórcio. */
   totalParcelas: number | null;
@@ -76,9 +77,6 @@ export interface RecorrenteComResumo {
  */
 export function Recorrentes() {
   const queryClient = useQueryClient();
-  const [editando, setEditando] = useState<string | null>(null);
-  const [valor, setValor] = useState('');
-  const [vencimento, setVencimento] = useState('');
   const [aviso, setAviso] = useState<string | null>(null);
   const [erro, setErro] = useState(false);
   const [aba, setAba] = useState<'mensais' | 'consorcios' | 'financiamentos'>(
@@ -120,10 +118,7 @@ export function Recorrentes() {
     mutationFn: async (args: { id: string; dados: Record<string, unknown> }) => {
       await api.patch(`/recorrentes/${args.id}`, args.dados);
     },
-    onSuccess: () => {
-      setEditando(null);
-      invalidar();
-    },
+    onSuccess: () => invalidar(),
     onError: (err) => {
       setErro(true);
       setAviso(mensagemErro(err));
@@ -322,7 +317,7 @@ export function Recorrentes() {
           onPronto={(mensagem) => {
             // Cada cadastro termina na aba em que ele passa a morar.
             const destino =
-              cadastro.base == null && cadastro.modo === 'mensal'
+              cadastro.modo === 'mensal'
                 ? 'mensais'
                 : cadastro.modo === 'financiamento'
                   ? 'financiamentos'
@@ -577,7 +572,6 @@ export function Recorrentes() {
               </thead>
               <tbody>
                 {itens.map(({ recorrente: r, geradas, diasParaGerar }) => {
-                  const emEdicao = editando === r.id;
                   return (
                     <tr
                       key={r.id}
@@ -594,6 +588,12 @@ export function Recorrentes() {
                               desligada
                             </Selo>
                           )}
+                          {/* A conta nasce sem etiqueta: é o que o Editar resolve. */}
+                          {r.ativa && !r.categoriaId && (
+                            <Selo pequeno tom="atencao">
+                              sem categoria
+                            </Selo>
+                          )}
                           {geradas > 0 && (
                             <span className="text-[11px] text-tinta-400">
                               {geradas} conta(s) geradas
@@ -608,29 +608,13 @@ export function Recorrentes() {
                       </td>
 
                       <td className="td text-right">
-                        {emEdicao ? (
-                          <CampoDinheiro
-                            valor={valor}
-                            onChange={setValor}
-                            className="campo py-1 text-right"
-                          />
-                        ) : (
-                          <span className="valor">
-                            {formatBRL(Number(r.valor))}
-                          </span>
-                        )}
+                        <span className="valor">
+                          {formatBRL(Number(r.valor))}
+                        </span>
                       </td>
 
                       <td className="td num whitespace-nowrap text-tinta-600">
-                        {emEdicao ? (
-                          <CampoDeData
-                            valor={vencimento}
-                            onChange={setVencimento}
-                            className="campo py-1"
-                          />
-                        ) : (
-                          formatData(r.proximoVencimento)
-                        )}
+                        {formatData(r.proximoVencimento)}
                       </td>
 
                       <td className="td text-tinta-500">
@@ -669,86 +653,54 @@ export function Recorrentes() {
 
                       <td className="td text-right">
                         <div className="flex flex-wrap justify-end gap-1.5">
-                          {emEdicao ? (
-                            <>
-                              <button
-                                onClick={() =>
-                                  salvar.mutate({
-                                    id: r.id,
-                                    dados: {
-                                      valor: Number(valor),
-                                      proximoVencimento: vencimento,
-                                    },
-                                  })
-                                }
-                                disabled={salvar.isPending}
-                                className="btn btn-primario btn-p"
-                              >
-                                Salvar
-                              </button>
-                              <button
-                                onClick={() => setEditando(null)}
-                                className="btn btn-sutil btn-p"
-                              >
-                                Cancelar
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <button
-                                onClick={() => {
-                                  setEditando(r.id);
-                                  setValor(String(Number(r.valor)));
-                                  setVencimento(
-                                    String(r.proximoVencimento).slice(0, 10),
-                                  );
-                                }}
-                                className="btn btn-neutro btn-p"
-                              >
-                                Editar
-                              </button>
-                              <button
-                                onClick={() =>
-                                  setCadastro({ base: r, modo: 'consorcio' })
-                                }
-                                className="btn btn-sutil btn-p"
-                                title="Tem número de parcelas: passa para Consórcios, numera as contas e para na última"
-                              >
-                                É consórcio
-                              </button>
-                              <button
-                                onClick={() =>
-                                  salvar.mutate({
-                                    id: r.id,
-                                    dados: { ativa: !r.ativa },
-                                  })
-                                }
-                                className="btn btn-sutil btn-p"
-                                title={
-                                  r.ativa
-                                    ? 'Para de gerar; o que já gerou continua lá'
-                                    : 'Volta a gerar todo mês'
-                                }
-                              >
-                                {r.ativa ? 'Desligar' : 'Religar'}
-                              </button>
-                              <button
-                                onClick={() => {
-                                  if (
-                                    confirm(
-                                      `Apagar a repetição de ${r.fornecedorNome}? ` +
-                                        'As contas já geradas continuam no IXC.',
-                                    )
-                                  ) {
-                                    remover.mutate(r.id);
-                                  }
-                                }}
-                                className="btn btn-perigo btn-p"
-                              >
-                                Apagar
-                              </button>
-                            </>
-                          )}
+                          {/* Abre a ficha inteira: o que se marca lá vale
+                              para todas as contas que ainda vão nascer. */}
+                          <button
+                            onClick={() => setCadastro({ base: r, modo: 'mensal' })}
+                            className="btn btn-neutro btn-p"
+                          >
+                            Editar
+                          </button>
+                          <button
+                            onClick={() =>
+                              setCadastro({ base: r, modo: 'consorcio' })
+                            }
+                            className="btn btn-sutil btn-p"
+                            title="Tem número de parcelas: passa para Consórcios, numera as contas e para na última"
+                          >
+                            É consórcio
+                          </button>
+                          <button
+                            onClick={() =>
+                              salvar.mutate({
+                                id: r.id,
+                                dados: { ativa: !r.ativa },
+                              })
+                            }
+                            className="btn btn-sutil btn-p"
+                            title={
+                              r.ativa
+                                ? 'Para de gerar; o que já gerou continua lá'
+                                : 'Volta a gerar todo mês'
+                            }
+                          >
+                            {r.ativa ? 'Desligar' : 'Religar'}
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (
+                                confirm(
+                                  `Apagar a repetição de ${r.fornecedorNome}? ` +
+                                    'As contas já geradas continuam no IXC.',
+                                )
+                              ) {
+                                remover.mutate(r.id);
+                              }
+                            }}
+                            className="btn btn-perigo btn-p"
+                          >
+                            Apagar
+                          </button>
                         </div>
                       </td>
                     </tr>

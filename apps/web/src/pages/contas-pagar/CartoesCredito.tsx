@@ -21,7 +21,7 @@ import { useTermoAdiado } from '../../lib/busca';
 import { formatBRL, formatData } from '../../lib/format';
 import type { CategoriaDespesa } from '../../lib/types';
 import { CampoDeData } from '../../components/CampoDeData';
-import { SeletorComBusca } from '../../components/SeletorComBusca';
+import { CamposDasContasDoIxc } from './ContasDoIxc';
 import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 
 /** Um fornecedor do IXC, como a busca por nome o devolve. */
@@ -95,24 +95,6 @@ interface CartaoDoMes {
 interface RespostaDoMes {
   competencia: string;
   cartoes: CartaoDoMes[];
-}
-
-interface ContaDePagamentoIxc {
-  id: number;
-  nome: string;
-  ativa: boolean;
-  usual: boolean;
-}
-
-interface ContaDoPlano {
-  id: number;
-  nome: string;
-}
-
-/** O que a tela precisa saber da configuração para dizer qual é o padrão. */
-interface ConfigDaCasa {
-  contaPagamentoId: number;
-  contaContabilAvulso: number;
 }
 
 /*
@@ -1218,30 +1200,6 @@ function CadastroDoCartao({
     retry: 0,
   });
 
-  const config = useQuery({
-    queryKey: ['config-financeira'],
-    queryFn: async () =>
-      (await api.get<ConfigDaCasa>('/config-financeira')).data,
-    retry: 0,
-  });
-
-  const contasIxc = useQuery({
-    queryKey: ['contas-pagamento'],
-    queryFn: async () =>
-      (
-        await api.get<ContaDePagamentoIxc[]>(
-          '/contas-abertas/contas-pagamento',
-        )
-      ).data,
-  });
-
-  const plano = useQuery({
-    queryKey: ['plano-de-contas'],
-    queryFn: async () =>
-      (await api.get<ContaDoPlano[]>('/contas-abertas/plano-de-contas')).data,
-    retry: 0,
-  });
-
   const salvar = useMutation({
     mutationFn: async (extra: Record<string, unknown> = {}) => {
       const dados = {
@@ -1422,47 +1380,13 @@ function CadastroDoCartao({
           </p>
         </div>
 
-        <div>
-          <label className="rotulo" htmlFor="cartao-contabil">
-            Conta contábil no IXC
-          </label>
-          <SeletorComBusca
-            id="cartao-contabil"
-            value={contaContabil}
-            onChange={setContaContabil}
-            carregando={plano.isLoading}
-            vazio={nomeDaContaContabilPadrao(config.data, plano.data)}
-            opcoes={(plano.data ?? []).map((p) => ({
-              valor: String(p.id),
-              rotulo: `${p.id} — ${p.nome}`,
-            }))}
-            procurar="Procurar pelo nome ou pelo código…"
-          />
-        </div>
-
-        <div>
-          <label className="rotulo" htmlFor="cartao-conta-pagamento">
-            Conta de pagamento
-          </label>
-          <select
-            id="cartao-conta-pagamento"
-            value={contaPagamento}
-            onChange={(e) => setContaPagamento(e.target.value)}
-            className="campo"
-            disabled={contasIxc.isLoading}
-          >
-            <option value="">
-              {nomeDaContaDePagamentoPadrao(config.data, contasIxc.data)}
-            </option>
-            {(contasIxc.data ?? [])
-              .filter((c) => c.usual || c.ativa)
-              .map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.nome}
-                </option>
-              ))}
-          </select>
-        </div>
+        <CamposDasContasDoIxc
+          prefixo="cartao"
+          contaContabil={contaContabil}
+          onContaContabil={setContaContabil}
+          contaPagamento={contaPagamento}
+          onContaPagamento={setContaPagamento}
+        />
 
         {/* Sem categoria aqui: ela é de cada compra, e não do cartão — na
             mesma fatura vêm a moto, a anuidade e o ChatGPT. */}
@@ -1548,28 +1472,6 @@ function classificarCodigo(codigo: string): string {
     return `boleto de ${digitos.length} dígitos — a conta vai como Boleto`;
   }
   return `não parece boleto (44, 47 ou 48 dígitos — este tem ${digitos.length}) nem PIX copia e cola`;
-}
-
-function nomeDaContaContabilPadrao(
-  config: ConfigDaCasa | undefined,
-  plano: ContaDoPlano[] | undefined,
-): string {
-  if (!config) return 'Padrão das Configurações';
-  const conta = plano?.find((p) => p.id === config.contaContabilAvulso);
-  return conta
-    ? `Padrão — ${conta.id} ${conta.nome}`
-    : `Padrão — conta ${config.contaContabilAvulso}`;
-}
-
-function nomeDaContaDePagamentoPadrao(
-  config: ConfigDaCasa | undefined,
-  contas: ContaDePagamentoIxc[] | undefined,
-): string {
-  if (!config) return 'Padrão das Configurações';
-  const conta = contas?.find((c) => c.id === config.contaPagamentoId);
-  return conta
-    ? `Padrão — ${conta.nome}`
-    : `Padrão — conta ${config.contaPagamentoId}`;
 }
 
 /** "AAAA-MM" do mês corrente. */

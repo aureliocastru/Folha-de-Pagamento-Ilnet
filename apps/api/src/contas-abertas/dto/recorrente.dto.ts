@@ -135,17 +135,19 @@ export class AtualizarRecorrenteDto {
   @Max(45)
   diasDeAntecedencia?: number;
 
+  /** `null` volta ao padrão das Configurações. */
   @IsOptional()
-  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @Transform(({ value }) => (value === '' ? null : value == null ? value : Number(value)))
   @IsInt()
   @Min(1)
-  contaContabil?: number;
+  contaContabil?: number | null;
 
+  /** `null` volta ao padrão das Configurações. */
   @IsOptional()
-  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @Transform(({ value }) => (value === '' ? null : value == null ? value : Number(value)))
   @IsInt()
   @Min(1)
-  contaPagamento?: number;
+  contaPagamento?: number | null;
 
   @IsOptional() @IsString() @MaxLength(40) tipoPagamentoIxc?: string;
 

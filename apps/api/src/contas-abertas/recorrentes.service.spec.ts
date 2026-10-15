@@ -1,3 +1,6 @@
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
+import { AtualizarRecorrenteDto } from './dto/recorrente.dto';
 import { mesSeguinte, RecorrentesService } from './recorrentes.service';
 
 /**
@@ -786,5 +789,71 @@ describe('RecorrentesService.historico', () => {
       where: { id: 'c-nova' },
       data: { recorrenteId: 'r1' },
     });
+  });
+});
+
+/**
+ * O Editar da mensal: o que se marca lá — tipo de pagamento, conta de
+ * pagamento, conta contábil, categoria — vale para todas as contas que ainda
+ * vão nascer. E "Padrão" volta a seguir as Configurações, em vez de ficar
+ * preso ao que estava escolhido.
+ */
+describe('RecorrentesService — os padrões da mensal', () => {
+  beforeAll(() => {
+    jest.useFakeTimers().setSystemTime(HOJE);
+  });
+  afterAll(() => {
+    jest.useRealTimers();
+  });
+
+  it('o que se edita é o que a próxima conta leva', async () => {
+    const { service, prisma } = montarServico();
+
+    await service.atualizar('r1', {
+      tipoPagamentoIxc: 'Pix',
+      contaPagamento: 18,
+      contaContabil: 324,
+      categoriaId: 'cat-contabilidade',
+    });
+
+    expect(prisma.despesaRecorrente.update.mock.calls[0][0].data).toMatchObject({
+      tipoPagamentoIxc: 'Pix',
+      contaPagamento: 18,
+      contaContabil: 324,
+      categoriaId: 'cat-contabilidade',
+    });
+
+    const editada = recorrente({
+      tipoPagamentoIxc: 'Pix',
+      contaPagamento: 18,
+      contaContabil: 324,
+      categoriaId: 'cat-contabilidade',
+    });
+    const gerar = montarServico({ lista: [editada] });
+    await gerar.service.gerarPendentes('u1');
+    expect(gerar.contasPagar.criarDespesa).toHaveBeenCalledWith(
+      expect.objectContaining({ tipoPagamentoIxc: 'Pix', contaPagamento: 18, contaContabil: 324 }),
+      'u1',
+    );
+    expect(gerar.categorias.classificar).toHaveBeenCalledWith(7777, 'cat-contabilidade', 'u1');
+  });
+
+  it('"Padrão" apaga a conta escolhida, e o que não veio fica como estava', async () => {
+    const { service, prisma } = montarServico({
+      registro: recorrente({ contaPagamento: 15, contaContabil: 324 }),
+    });
+
+    await service.atualizar('r1', { contaPagamento: null });
+
+    const data = prisma.despesaRecorrente.update.mock.calls[0][0].data;
+    expect(data.contaPagamento).toBeNull();
+    expect('contaContabil' in data).toBe(false);
+  });
+
+  it('a tela manda o vazio do "Padrão" e ele chega como null', async () => {
+    const dto = plainToInstance(AtualizarRecorrenteDto, { contaPagamento: '', contaContabil: '324' });
+    expect(await validate(dto)).toHaveLength(0);
+    expect(dto.contaPagamento).toBeNull();
+    expect(dto.contaContabil).toBe(324);
   });
 });

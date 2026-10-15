@@ -22,6 +22,7 @@ import { useTermoAdiado } from '../../lib/busca';
 import { formatBRL, formatData } from '../../lib/format';
 import type { CategoriaDespesa, StatusContaPagar } from '../../lib/types';
 import { CampoDeData } from '../../components/CampoDeData';
+import { CamposDasContasDoIxc } from './ContasDoIxc';
 import type {
   ParcelaAntecipada,
   Recorrente,
@@ -947,8 +948,8 @@ function Numero({
 }
 
 /**
- * Cadastro do consórcio e do financiamento — novo, editado, ou uma mensal que
- * vira parcelado.
+ * Cadastro do consórcio, do financiamento e da mensal — novo, editado, ou uma
+ * mensal que vira parcelado.
  *
  * A pergunta que decide tudo é "quantas já saíram": dela sai o número da
  * próxima parcela e quando ele acaba. As que já estão lançadas no IXC, mesmo
@@ -979,9 +980,13 @@ export function CadastroDoConsorcio({
   onFechar: () => void;
   onPronto: (mensagem: string) => void;
 }) {
-  /** A mensal é sempre cadastro novo: converter uma que existe é o caminho oposto. */
-  const mensal = !base && modo === 'mensal';
-  const convertendo = !!base && base.totalParcelas == null;
+  /**
+   * A mensal aberta no Editar: o que se marca nela vale para todas as contas
+   * que ainda vão nascer. Uma mensal aberta como consórcio é a conversão.
+   */
+  const editandoMensal = !!base && base.totalParcelas == null && modo === 'mensal';
+  const mensal = (!base && modo === 'mensal') || editandoMensal;
+  const convertendo = !!base && base.totalParcelas == null && !editandoMensal;
   const editando = !!base && !convertendo;
   const financiamento = base ? base.ehFinanciamento : modo === 'financiamento';
   const oQueE = mensal ? 'recorrente' : financiamento ? 'financiamento' : 'consórcio';
@@ -1012,6 +1017,12 @@ export function CadastroDoConsorcio({
 
   const [categoriaId, setCategoriaId] = useState(base?.categoriaId ?? '');
   const [tipoPagamento, setTipoPagamento] = useState(base?.tipoPagamentoIxc ?? 'Boleto');
+  const [contaContabil, setContaContabil] = useState(
+    base?.contaContabil ? String(base.contaContabil) : '',
+  );
+  const [contaPagamento, setContaPagamento] = useState(
+    base?.contaPagamento ? String(base.contaPagamento) : '',
+  );
   const [soDiasUteis, setSoDiasUteis] = useState(base?.apenasDiasUteis ?? true);
 
   const fornecedores = useQuery({
@@ -1047,7 +1058,8 @@ export function CadastroDoConsorcio({
    * disto: duas mensais, uma para cada parcela do mês. Ficando, cada mês teria
    * as parcelas do consórcio e mais as delas.
    */
-  const irmas = fornecedor
+  // Na mensal que já existe, as irmãs já foram vistas quando ela entrou.
+  const irmas = fornecedor && !editandoMensal
     ? todas
         .map((i) => i.recorrente)
         .filter(
@@ -1127,6 +1139,9 @@ export function CadastroDoConsorcio({
             }),
         categoriaId: categoriaId || null,
         tipoPagamentoIxc: tipoPagamento.trim() || undefined,
+        // Na edição, o vazio é "Padrão": volta a seguir as Configurações.
+        contaContabil: contaContabil ? Number(contaContabil) : base ? null : undefined,
+        contaPagamento: contaPagamento ? Number(contaPagamento) : base ? null : undefined,
         apenasDiasUteis: soDiasUteis,
       };
       if (base) {
@@ -1149,7 +1164,9 @@ export function CadastroDoConsorcio({
     },
     onSuccess: (apagadas) =>
       onPronto(
-        (mensal
+        (editandoMensal
+          ? `${nomeDoCadastro} atualizada. As próximas contas saem assim.`
+          : mensal
           ? `${nomeDoCadastro} cadastrada. A conta de cada mês nasce no IXC 5 dias antes de vencer.`
           : editando
           ? `${financiamento ? 'Financiamento' : 'Consórcio'} de ${nomeDoCadastro} atualizado.`
@@ -1183,7 +1200,7 @@ export function CadastroDoConsorcio({
       }
       onFechar={onFechar}
     >
-      <FormularioEmPassos>
+      <FormularioEmPassos ativo={!editando}>
       <div className="grid max-w-2xl grid-cols-1 gap-3">
         <div
           data-passo-falta={fornecedor ? undefined : 'Escolha o fornecedor no IXC.'}
@@ -1438,6 +1455,14 @@ export function CadastroDoConsorcio({
             ))}
           </select>
         </div>
+
+        <CamposDasContasDoIxc
+          prefixo="co"
+          contaContabil={contaContabil}
+          onContaContabil={setContaContabil}
+          contaPagamento={contaPagamento}
+          onContaPagamento={setContaPagamento}
+        />
 
         <div>
           <label className="rotulo" htmlFor="co-categoria">

@@ -29,9 +29,16 @@ import { useCelular } from '../lib/celular';
  * - **`data-passo-falta="…"`** num passo segura o "Continuar" e diz o porquê.
  *   Campo com `required` vazio também segura.
  */
-export function FormularioEmPassos({ children }: { children: ReactNode }) {
+export function FormularioEmPassos({
+  children,
+  ativo = true,
+}: {
+  children: ReactNode;
+  /** Falso na edição: mudar um campo do que já existe não pede assistente. */
+  ativo?: boolean;
+}) {
   const celular = useCelular();
-  if (!celular) return <>{children}</>;
+  if (!celular || !ativo) return <>{children}</>;
   return <EmPassos>{children}</EmPassos>;
 }
 
