@@ -404,8 +404,10 @@ function FaturaDoCartao({
         categorias={categorias.data ?? []}
         carregandoCategorias={categorias.isLoading}
         onFechar={() => setAberta(null)}
+        // Lançou ou salvou, fecha: o formulário aberto depois de "Adicionar"
+        // parecia que a compra não tinha entrado (pedido de 15/10/2026).
         onPronto={() => {
-          if (corrigindo) setAberta(null);
+          setAberta(null);
           onMudou();
         }}
         onErro={(mensagem) => onAviso(mensagem, true)}
@@ -707,8 +709,8 @@ function ChipDaFatura({
 /**
  * O formulário de uma compra — o mesmo para lançar e para corrigir.
  *
- * Lançar fica embaixo da lista, e não numa janela: uma fatura tem vinte
- * linhas, e o gesto é digitar uma, Enter, a próxima. Corrigir abre embaixo da
+ * Lançar fica embaixo da lista, e não numa janela; salvou, fecha, e a compra
+ * aparece na lista logo acima. Corrigir abre embaixo da
  * própria linha, com o Apagar (ou o Encerrar, da assinatura) junto — tirar da
  * linha os dois botões de cada compra foi metade do enxugamento.
  *
@@ -850,19 +852,7 @@ function FormularioDaCompra({
         });
       }
     },
-    onSuccess: () => {
-      if (!corrigindo) {
-        // O tipo e a categoria ficam: quem lança três assinaturas seguidas,
-        // ou cinco compras da mesma obra, não escolhe de novo a cada linha.
-        setDescricao('');
-        setValor('');
-        setEstorno(false);
-        setParcela('1');
-        setParcelas('1');
-        campoDescricao.current?.focus();
-      }
-      onPronto();
-    },
+    onSuccess: onPronto,
     onError: (err) => onErro(mensagemErro(err)),
   });
 
