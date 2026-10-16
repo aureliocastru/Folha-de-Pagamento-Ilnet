@@ -314,6 +314,9 @@ function useCampoNoMeio(area: React.RefObject<HTMLElement | null>) {
   }, [area]);
 }
 
+/** As janelas abertas, da de baixo para a de cima. */
+const janelasAbertas: object[] = [];
+
 /**
  * Janela por cima da tela, para o que precisa de resposta agora — pagar alguém,
  * por exemplo. Um bloco no rodapé da página resolveria o mesmo, mas nasce fora
@@ -376,13 +379,27 @@ export function Janela({
     onFechar();
   }, [onFechar]);
 
+  /*
+   * O Esc é só da janela de cima. Com uma aberta por cima da outra (o Editar
+   * do fornecedor sobre o "Lançar conta"), ele fechava as duas — e a de baixo
+   * ainda perguntava se era para jogar fora a conta digitada.
+   */
+  const fechar = useRef(fecharComCuidado);
   useEffect(() => {
+    fechar.current = fecharComCuidado;
+  }, [fecharComCuidado]);
+  useEffect(() => {
+    const eu = {};
+    janelasAbertas.push(eu);
     const aoTeclar = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') fecharComCuidado();
+      if (e.key === 'Escape' && janelasAbertas.at(-1) === eu) fechar.current();
     };
     window.addEventListener('keydown', aoTeclar);
-    return () => window.removeEventListener('keydown', aoTeclar);
-  }, [fecharComCuidado]);
+    return () => {
+      window.removeEventListener('keydown', aoTeclar);
+      janelasAbertas.splice(janelasAbertas.indexOf(eu), 1);
+    };
+  }, []);
 
   // Rolar a página atrás da janela tira do lugar o que se está lendo nela.
   useEffect(() => travarRolagem(), []);

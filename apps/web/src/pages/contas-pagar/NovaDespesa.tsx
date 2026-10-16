@@ -19,6 +19,8 @@ import { useTermoAdiado } from '../../lib/busca';
 import { formatBRL, numeroDigitado, soFracao } from '../../lib/format';
 import { prepararArquivo } from '../../lib/foto';
 import { CampoDeData } from '../../components/CampoDeData';
+import { EditarFornecedor } from '../../components/EditarFornecedor';
+import { IconeLapis } from '../../components/icones';
 import {
   TIPOS_CHAVE_PIX,
   type CategoriaDespesa,
@@ -325,6 +327,8 @@ export function NovaDespesa({
   const [divisao, setDivisao] = useState<NotaDaConta[]>([]);
   /** A tela das notas está aberta, no lugar do formulário. */
   const [dividindo, setDividindo] = useState(false);
+  /** O Editar do fornecedor aberto por cima, pelo lápis do cartão dele. */
+  const [editandoFornecedor, setEditandoFornecedor] = useState(false);
   const dividida = divisao.length > 0;
   const somaDasNotas = somarNotas(divisao);
   const [avisoDaNota, setAvisoDaNota] = useState<string | null>(null);
@@ -1114,6 +1118,15 @@ export function NovaDespesa({
     >
       {a.cabecalho}
 
+      {editandoFornecedor && fornecedor && (
+        <EditarFornecedor
+          fornecedor={fornecedor}
+          modulo="contas-pagar"
+          onFechar={() => setEditandoFornecedor(false)}
+          onSalvo={() => setEditandoFornecedor(false)}
+        />
+      )}
+
       {/*
         Duas colunas no computador: a conta à esquerda, o pagamento à
         direita — tudo numa tela, sem rolar. Dentro de cada uma, um campo por
@@ -1163,20 +1176,33 @@ export function NovaDespesa({
                     {fornecedor.cpfCnpj ? ` · ${fornecedor.cpfCnpj}` : ''}
                   </div>
                 </div>
-                <button
-                  onClick={() => {
-                    setFornecedor(null);
-                    setTermo('');
-                    // A chave sai junto com o fornecedor. Sem isto, trocar de
-                    // credor deixaria a chave do anterior no campo — e a conta iria
-                    // para o IXC pagando a pessoa errada.
-                    setChavePix('');
-                    setTipoChavePix('');
-                  }}
-                  className="btn btn-sutil btn-p"
-                >
-                  Trocar
-                </button>
+                <div className="flex items-center gap-1">
+                  {/* O lápis abre o cadastro dele por cima, sem largar a conta
+                      que está sendo digitada. */}
+                  <button
+                    type="button"
+                    onClick={() => setEditandoFornecedor(true)}
+                    className="btn btn-sutil btn-p"
+                    title="Editar o cadastro do fornecedor"
+                    aria-label="Editar o cadastro do fornecedor"
+                  >
+                    <IconeLapis className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    onClick={() => {
+                      setFornecedor(null);
+                      setTermo('');
+                      // A chave sai junto com o fornecedor. Sem isto, trocar de
+                      // credor deixaria a chave do anterior no campo — e a conta iria
+                      // para o IXC pagando a pessoa errada.
+                      setChavePix('');
+                      setTipoChavePix('');
+                    }}
+                    className="btn btn-sutil btn-p"
+                  >
+                    Trocar
+                  </button>
+                </div>
               </div>
             ) : (
               <>
