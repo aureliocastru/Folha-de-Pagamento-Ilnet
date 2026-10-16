@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { SeletorComBusca } from '../../components/SeletorComBusca';
 import {
   Bloco,
   CabecalhoPagina,
@@ -12,25 +11,31 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { mesAtual } from '../../lib/folha';
 import { formatBRL, formatData } from '../../lib/format';
 import type {
-  FormaPagamento,
+  PagamentosDoPatrocinio,
   Patrocinado,
   PatrocinadoNaLista,
-  RecebedorPossivel,
+  ResumoDosPagamentos,
 } from '../../lib/types';
 import {
   CADASTRO_VAZIO,
   Campo,
   CamposDoPatrocinado,
+  EscolherFornecedor,
   SeloDoContrato,
   corpoDoCadastro,
   type Cadastro,
+  type FornecedorEscolhido,
 } from './comum';
 
 /**
  * Quem a ILNET patrocina: a lista, com o que já se mandou a cada um e onde
  * está o contrato. A ficha de cada um abre por cima da linha.
+ *
+ * O que já se mandou é lido do IXC e chega depois da lista: é a mesma leitura
+ * da aba Pagamentos (e o mesmo cache), e a lista não espera por ela.
  */
 export function Patrocinados() {
   const navigate = useNavigate();
@@ -48,9 +53,19 @@ export function Patrocinados() {
     },
   });
 
+  const mes = mesAtual();
+  const pagamentos = useQuery({
+    queryKey: ['patrocinio-pagamentos', mes],
+    queryFn: async () =>
+      (await api.get<PagamentosDoPatrocinio>('/patrocinios/pagamentos', { params: { mes } })).data,
+  });
+  const doIxcDe = new Map<string, { resumo: ResumoDosPagamentos; erro: string | null }>(
+    (pagamentos.data?.linhas ?? []).map((l) => [l.patrocinado.id, l]),
+  );
+
   const itens = lista.data ?? [];
   const ativos = itens.filter((i) => i.patrocinado.ativo);
-  const totalMandado = ativos.reduce((s, i) => s + i.totalPago, 0);
+  const totalMandado = (pagamentos.data?.linhas ?? []).reduce((s, l) => s + l.resumo.totalPago, 0);
   const semContrato = ativos.filter((i) => i.contrato !== 'ASSINADO').length;
 
   return (
@@ -67,7 +82,10 @@ export function Patrocinados() {
 
       <div className="surgir mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Numero rotulo="Patrocinados ativos" valor={String(ativos.length)} />
-        <Numero rotulo="Já mandado aos ativos" valor={formatBRL(totalMandado)} />
+        <Numero
+          rotulo="Já mandado aos ativos"
+          valor={pagamentos.isLoading ? '…' : pagamentos.isError ? '—' : formatBRL(totalMandado)}
+        />
         <Numero
           rotulo="Sem contrato assinado"
           valor={String(semContrato)}
@@ -79,7 +97,7 @@ export function Patrocinados() {
         <input
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
-          placeholder="Procurar por nome, projeto, responsável ou CPF"
+          placeholder="Procurar por nome, projeto, responsável, CPF ou fornecedor"
           className="campo max-w-md flex-1"
         />
         <label className="flex items-center gap-2 text-sm text-tinta-600">
@@ -124,14 +142,16 @@ export function Patrocinados() {
                 <tr>
                   <td colSpan={6}>
                     <Vazio titulo={busca ? 'Ninguém com esse nome' : 'Nenhum patrocinado ainda'}>
-                      Cadastre o atleta, o time ou o projeto que a ILNET apoia. O
-                      pagamento sai pela aba Diaristas, e o contrato vai por link.
+                      Cadastre o atleta, o time ou o projeto que a ILNET apoia, ligado ao
+                      fornecedor dele no IXC. O pagamento sai pela aba Pagamentos, e o
+                      contrato vai por link.
                     </Vazio>
                   </td>
                 </tr>
               )}
               {itens.map((i) => {
                 const p = i.patrocinado;
+                const doIxc = doIxcDe.get(p.id);
                 return (
                   <tr
                     key={p.id}
@@ -146,9 +166,9 @@ export function Patrocinados() {
                             encerrado
                           </Selo>
                         )}
-                        {!i.recebedor && (
-                          <Selo tom="erro" pequeno titulo="Não está ligado a nenhum cadastro de diarista">
-                            sem por onde receber
+                        {!p.idFornecedorIxc && (
+                          <Selo tom="erro" pequeno titulo="Não está ligado a nenhum fornecedor do IXC">
+                            sem fornecedor
                           </Selo>
                         )}
                       </div>
@@ -170,16 +190,28 @@ export function Patrocinados() {
                       )}
                     </td>
                     <td className="td text-right">
-                      <span className="valor">{formatBRL(i.totalPago)}</span>
-                      <div className="num text-xs text-tinta-400">{i.quantidadePagos} pagamento(s)</div>
-                      {i.totalAguardando > 0 && (
-                        <div className="num text-xs text-amber-600" title="Lançado no IXC, ainda não pago pelo banco">
-                          + {formatBRL(i.totalAguardando)} a caminho
-                        </div>
+                      {doIxc?.erro ? (
+                        <span className="text-xs text-rose-600" title={doIxc.erro}>
+                          não deu para ler
+                        </span>
+                      ) : doIxc ? (
+                        <>
+                          <span className="valor">{formatBRL(doIxc.resumo.totalPago)}</span>
+                          <div className="num text-xs text-tinta-400">
+                            {doIxc.resumo.quantidadePagos} pagamento(s)
+                          </div>
+                          {doIxc.resumo.totalEmAberto > 0 && (
+                            <div className="num text-xs text-amber-600" title="Lançado no IXC, ainda não pago">
+                              + {formatBRL(doIxc.resumo.totalEmAberto)} em aberto
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-tinta-300">{pagamentos.isLoading && p.ativo ? '…' : '—'}</span>
                       )}
                     </td>
                     <td className="td num text-tinta-500">
-                      {i.ultimoPagamento ? formatData(i.ultimoPagamento) : '—'}
+                      {doIxc?.resumo.ultimoPagamento ? formatData(doIxc.resumo.ultimoPagamento) : '—'}
                     </td>
                   </tr>
                 );
@@ -192,19 +224,10 @@ export function Patrocinados() {
       {novo && (
         <NovoPatrocinado
           onFechar={() => setNovo(false)}
-          onCriado={(p, avisoIxc) => {
+          onCriado={(p) => {
             setNovo(false);
             // O aviso vai junto para a ficha, que é onde a pessoa cai.
-            navigate(p.id, {
-              state: {
-                aviso: avisoIxc
-                  ? {
-                      texto: `${p.nome} cadastrado. O IXC não aceitou o fornecedor de quem recebe (${avisoIxc}) — o primeiro pagamento tenta de novo sozinho.`,
-                      ruim: true,
-                    }
-                  : { texto: `${p.nome} cadastrado.`, ruim: false },
-              },
-            });
+            navigate(p.id, { state: { aviso: { texto: `${p.nome} cadastrado.`, ruim: false } } });
           }}
         />
       )}
@@ -221,82 +244,53 @@ function Numero({ rotulo, valor, alerta = false }: { rotulo: string; valor: stri
   );
 }
 
-const RECEBEDOR_VAZIO = {
-  nome: '',
-  cpfCnpj: '',
-  telefone: '',
-  chavePix: '',
-  formaPagamento: 'IXC' as FormaPagamento,
-};
-
 /**
- * O cadastro novo, com por onde ele recebe.
+ * O cadastro novo, com o fornecedor por onde ele recebe.
  *
- * Quem recebe é um cadastro de diarista: o atleta que já recebia como diarista
- * é escolhido na lista; o resto nasce aqui, com o fornecedor no IXC, e passa a
- * aparecer na aba Diaristas pronto para pagar.
+ * O patrocinado já é fornecedor no IXC: é lá que se escolhe, e é para ele que
+ * sai a conta a pagar de cada mês. Escolhido o fornecedor, o nome e o CPF que
+ * ainda estiverem em branco vêm dele.
  */
 function NovoPatrocinado({
   onFechar,
   onCriado,
 }: {
   onFechar: () => void;
-  onCriado: (p: Patrocinado, avisoIxc: string | null) => void;
+  onCriado: (p: Patrocinado) => void;
 }) {
   const qc = useQueryClient();
   const [form, setForm] = useState<Cadastro>(CADASTRO_VAZIO);
-  const [jeito, setJeito] = useState<'novo' | 'existente'>('novo');
-  const [recebedor, setRecebedor] = useState(RECEBEDOR_VAZIO);
-  const [diaristaId, setDiaristaId] = useState('');
+  const [fornecedor, setFornecedor] = useState<FornecedorEscolhido | null>(null);
   const [erro, setErro] = useState<string | null>(null);
-
-  const recebedores = useQuery({
-    queryKey: ['patrocinio-recebedores'],
-    queryFn: async () => (await api.get<RecebedorPossivel[]>('/patrocinios/recebedores')).data,
-    enabled: jeito === 'existente',
-  });
 
   const salvar = useMutation({
     mutationFn: async () => {
       const corpo = {
         ...corpoDoCadastro(form),
-        ...(jeito === 'existente'
-          ? { diaristaId }
-          : {
-              // Vazio = os dados do próprio cadastro: quem recebe costuma ser o
-              // responsável, ou o patrocinado mesmo.
-              recebedor: {
-                nome: recebedor.nome.trim() || form.responsavel.trim() || form.nome.trim(),
-                cpfCnpj: recebedor.cpfCnpj.trim() || form.cpfCnpj.trim() || undefined,
-                telefone: recebedor.telefone.trim() || form.telefone.trim() || undefined,
-                chavePix: recebedor.chavePix.trim() || undefined,
-                formaPagamento: recebedor.formaPagamento,
-              },
-            }),
+        idFornecedorIxc: fornecedor!.idFornecedor,
+        fornecedorNome: fornecedor!.nome,
       };
-      return (
-        await api.post<{ patrocinado: Patrocinado; avisoIxc: string | null }>('/patrocinios', corpo)
-      ).data;
+      return (await api.post<{ patrocinado: Patrocinado }>('/patrocinios', corpo)).data;
     },
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: ['patrocinados'] });
-      void qc.invalidateQueries({ queryKey: ['diaristas'] });
-      onCriado(r.patrocinado, r.avisoIxc);
+      void qc.invalidateQueries({ queryKey: ['patrocinio-pagamentos'] });
+      onCriado(r.patrocinado);
     },
     onError: (e) => setErro(mensagemErro(e)),
   });
 
-  const opcoes = (recebedores.data ?? []).map((d) => ({
-    valor: d.id,
-    rotulo:
-      `${d.nome}${d.nomeFantasia ? ` (${d.nomeFantasia})` : ''}` +
-      (d.patrocinado ? ` — já recebe por ${d.patrocinado.nome}` : ''),
-  }));
-  const escolhido = recebedores.data?.find((d) => d.id === diaristaId);
-  const podeSalvar =
-    form.nome.trim().length >= 2 &&
-    (jeito === 'novo' || (!!diaristaId && !escolhido?.patrocinado)) &&
-    !salvar.isPending;
+  function escolher(f: FornecedorEscolhido | null) {
+    setFornecedor(f);
+    if (!f) return;
+    setForm({
+      ...form,
+      nome: form.nome.trim() ? form.nome : f.nome,
+      cpfCnpj: form.cpfCnpj.trim() ? form.cpfCnpj : (f.cpfCnpj ?? ''),
+    });
+  }
+
+  const podeSalvar = form.nome.trim().length >= 2 && !!fornecedor && !salvar.isPending;
 
   return (
     <Janela titulo="Novo patrocinado" onFechar={onFechar}>
@@ -305,105 +299,17 @@ function NovoPatrocinado({
 
         <section className="mt-6 rounded-xl border border-tinta-100 p-4">
           <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-tinta-500">
-            Por onde ele recebe
+            Fornecedor no IXC
           </h3>
           <p className="ajuda mt-1">
-            O patrocínio é pago pela aba Diaristas da folha — pelo IXC ou em mãos,
-            com recibo. Quem recebe precisa de um cadastro lá.
+            O patrocinado recebe como o fornecedor que ele já é no IXC: o pagamento de cada mês é
+            uma conta a pagar para ele, lançada pela aba Pagamentos.
           </p>
-
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => setJeito('novo')}
-              className={`btn btn-p ${jeito === 'novo' ? 'btn-primario' : 'btn-neutro'}`}
-            >
-              Cadastrar quem recebe
-            </button>
-            <button
-              type="button"
-              onClick={() => setJeito('existente')}
-              className={`btn btn-p ${jeito === 'existente' ? 'btn-primario' : 'btn-neutro'}`}
-            >
-              Já é diarista
-            </button>
+          <div className="mt-3 max-w-2xl">
+            <Campo label="Fornecedor">
+              <EscolherFornecedor valor={fornecedor} onChange={escolher} />
+            </Campo>
           </div>
-
-          {jeito === 'novo' ? (
-            <div className="mt-4 grid max-w-2xl grid-cols-1 gap-3">
-              <Campo label="Nome de quem recebe">
-                <input
-                  value={recebedor.nome}
-                  onChange={(e) => setRecebedor({ ...recebedor, nome: e.target.value })}
-                  className="campo"
-                  placeholder={form.responsavel || form.nome || 'Vazio = o responsável, ou o patrocinado'}
-                  autoComplete="off"
-                />
-              </Campo>
-              <Campo label="CPF de quem recebe">
-                <input
-                  value={recebedor.cpfCnpj}
-                  onChange={(e) => setRecebedor({ ...recebedor, cpfCnpj: e.target.value })}
-                  className="campo"
-                  placeholder={form.cpfCnpj || ''}
-                  autoComplete="off"
-                />
-              </Campo>
-              <Campo label="Telefone">
-                <input
-                  value={recebedor.telefone}
-                  onChange={(e) => setRecebedor({ ...recebedor, telefone: e.target.value })}
-                  className="campo"
-                  placeholder={form.telefone || ''}
-                  autoComplete="off"
-                />
-              </Campo>
-              <Campo label="Chave PIX">
-                <input
-                  value={recebedor.chavePix}
-                  onChange={(e) => setRecebedor({ ...recebedor, chavePix: e.target.value })}
-                  className="campo"
-                  placeholder="Para pagar pelo IXC"
-                  autoComplete="off"
-                />
-              </Campo>
-              <Campo label="Como costuma receber">
-                <select
-                  value={recebedor.formaPagamento}
-                  onChange={(e) =>
-                    setRecebedor({ ...recebedor, formaPagamento: e.target.value as FormaPagamento })
-                  }
-                  className="campo"
-                >
-                  <option value="IXC">Pelo IXC (conta a pagar)</option>
-                  <option value="EM_MAOS">Em mãos (sai do caixa)</option>
-                </select>
-              </Campo>
-              <p className="ajuda">
-                Campo vazio usa o do patrocinado. O cadastro de diarista nasce já
-                com o fornecedor no IXC.
-              </p>
-            </div>
-          ) : (
-            <div className="mt-4">
-              <Campo label="Diarista">
-                <SeletorComBusca
-                  opcoes={opcoes}
-                  value={diaristaId}
-                  onChange={setDiaristaId}
-                  vazio="Escolha quem recebe"
-                  carregando={recebedores.isLoading}
-                  procurar="Procurar diarista…"
-                />
-              </Campo>
-              {escolhido?.patrocinado && (
-                <p className="mt-2 text-sm text-amber-700">
-                  {escolhido.nome} já recebe pelo patrocínio de {escolhido.patrocinado.nome}. Cada
-                  cadastro de diarista paga um patrocinado só.
-                </p>
-              )}
-            </div>
-          )}
         </section>
 
         {erro && <p className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{erro}</p>}

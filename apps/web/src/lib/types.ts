@@ -662,8 +662,6 @@ export interface Diarista {
   idFornecedorIxc: number | null;
   /** Veio da importação de fornecedores "Estrangeiro", não do cadastro à mão */
   importadoDoIxc: boolean;
-  /** O patrocinado que recebe por este cadastro (só na listagem) */
-  patrocinado?: { id: string; nome: string; valorMensal: string | null } | null;
 }
 
 export interface DiaristaComResumo {
@@ -2738,8 +2736,8 @@ export interface AReceber {
 }
 
 // ---------------------------------------------------------------------------
-// Patrocínio — quem a ILNET patrocina. O dinheiro sai pela aba Diaristas; aqui
-// se lê o que já saiu, e se guardam o contrato e os arquivos.
+// Patrocínio — quem a ILNET patrocina. Cada patrocinado é um fornecedor do IXC:
+// paga-se por conta a pagar, e o que já saiu é lido dos títulos dele lá.
 // ---------------------------------------------------------------------------
 export interface Patrocinado {
   id: string;
@@ -2757,23 +2755,25 @@ export interface Patrocinado {
   fim: string | null;
   observacoes: string | null;
   ativo: boolean;
-  diaristaId: string | null;
+  /** O fornecedor do IXC por onde ele recebe */
+  idFornecedorIxc: number | null;
+  fornecedorNome: string | null;
   createdAt: string;
 }
 
 export type SituacaoDoContrato = 'ASSINADO' | 'AGUARDANDO' | 'VENCIDO' | 'SEM_CONTRATO';
-export type SituacaoDoPagamento = 'PAGO' | 'AGUARDANDO' | 'NAO_SAIU';
+export type SituacaoDoPagamento = 'PAGO' | 'EM_ABERTO';
 
 export interface ResumoDosPagamentos {
   totalPago: number;
   quantidadePagos: number;
-  totalAguardando: number;
+  /** Lançado no IXC e ainda não pago */
+  totalEmAberto: number;
   ultimoPagamento: string | null;
 }
 
-export interface PatrocinadoNaLista extends ResumoDosPagamentos {
+export interface PatrocinadoNaLista {
   patrocinado: Patrocinado;
-  recebedor: { id: string; nome: string; ativo: boolean } | null;
   contrato: SituacaoDoContrato;
   arquivos: number;
 }
@@ -2805,40 +2805,59 @@ export interface ArquivoDoPatrocinado {
   createdAt: string;
 }
 
+/** Um título do fornecedor no IXC, visto como pagamento ao patrocinado. */
 export interface PagamentoAoPatrocinado {
-  id: string;
-  data: string;
-  valor: string;
-  descricao: string;
-  forma: FormaPagamento;
+  idFnApagar: number;
   situacao: SituacaoDoPagamento;
-  reciboAssinado: boolean;
+  /** Pago: o que saiu. Em aberto: o que falta pagar. */
+  valor: number;
+  vencimento: string | null;
+  pagoEm: string | null;
+  descricao: string | null;
+  documento: string | null;
 }
 
 export interface FichaDoPatrocinado {
   patrocinado: Patrocinado;
-  recebedor: {
-    id: string;
-    nome: string;
-    cpfCnpj: string | null;
-    chavePix: string | null;
-    formaPagamento: FormaPagamento;
-    ativo: boolean;
-  } | null;
   contrato: SituacaoDoContrato;
   contratos: ContratoDePatrocinio[];
   arquivos: ArquivoDoPatrocinado[];
   pagamentos: PagamentoAoPatrocinado[];
   resumo: ResumoDosPagamentos;
+  /** O IXC não deixou ler os pagamentos: o motivo */
+  avisoPagamentos: string | null;
 }
 
-/** Um diarista que pode receber por um patrocinado. */
-export interface RecebedorPossivel {
-  id: string;
+/** Um fornecedor do IXC achado na busca, e de quem ele já é. */
+export interface FornecedorParaPatrocinio {
+  idFornecedor: number;
   nome: string;
   nomeFantasia: string | null;
   cpfCnpj: string | null;
   patrocinado: { id: string; nome: string } | null;
+}
+
+export type SituacaoDoMes = 'PAGO' | 'EM_ABERTO' | 'PARCIAL' | 'FALTA' | 'SEM_PAGAMENTO';
+
+/** Um patrocinado ativo no mês escolhido. */
+export interface LinhaDosPagamentos {
+  patrocinado: Pick<
+    Patrocinado,
+    'id' | 'nome' | 'projeto' | 'valorMensal' | 'inicio' | 'fim' | 'idFornecedorIxc' | 'fornecedorNome'
+  >;
+  mes: { pago: number; emAberto: number; pagamentos: PagamentoAoPatrocinado[] };
+  situacao: SituacaoDoMes;
+  /** De sempre, não só do mês */
+  resumo: ResumoDosPagamentos;
+  /** O IXC não deixou ler os títulos deste fornecedor */
+  erro: string | null;
+}
+
+export interface PagamentosDoPatrocinio {
+  /** "AAAA-MM" */
+  mes: string;
+  linhas: LinhaDosPagamentos[];
+  totais: { combinado: number; pago: number; emAberto: number; faltam: number };
 }
 
 export type BlocoDoContrato =

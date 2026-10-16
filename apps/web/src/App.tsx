@@ -92,6 +92,7 @@ const MesesDaContabilidade = telaSobDemanda(() => import('./pages/contabilidade/
 const Patrocinados = telaSobDemanda(() => import('./pages/patrocinio/Patrocinados').then((m) => m.Patrocinados));
 const PatrocinadoAberto = telaSobDemanda(() => import('./pages/patrocinio/Patrocinado').then((m) => m.PatrocinadoAberto));
 const ContratoPadrao = telaSobDemanda(() => import('./pages/patrocinio/ContratoPadrao').then((m) => m.ContratoPadrao));
+const PagamentosDoPatrocinio = telaSobDemanda(() => import('./pages/patrocinio/Pagamentos').then((m) => m.Pagamentos));
 
 function Protegida({ children }: { children: ReactNode }) {
   const { usuario, carregando } = useAuth();
@@ -154,7 +155,7 @@ const TELAS_DO_MODULO: Record<string, Array<{ preCarregar: () => void }>> = {
   campo: [CampoMinhasOs, MinhaConta],
   pontuacao: [Pontuar, Motivos, Coordenadores, MinhaConta],
   contabilidade: [MesesDaContabilidade, MesDaContabilidade, AjustesDaContabilidade, MinhaConta],
-  patrocinio: [Patrocinados, PatrocinadoAberto, ContratoPadrao, MinhaConta],
+  patrocinio: [Patrocinados, PatrocinadoAberto, ContratoPadrao, PagamentosDoPatrocinio, MinhaConta],
 };
 
 function usePreCarregarOModulo() {
@@ -424,9 +425,9 @@ export default function App() {
         <Route path=":id" element={<CampoApr />} />
       </Route>
 
-      {/* Patrocinadores — quem a ILNET patrocina. O pagamento sai pela aba
-          Diaristas da folha; aqui ficam o contato, o que já se mandou, o
-          contrato e os arquivos. */}
+      {/* Patrocinadores — quem a ILNET patrocina: o contato, o contrato, os
+          arquivos e os pagamentos. Cada patrocinado é um fornecedor do IXC, e
+          pagar é lançar a conta a pagar dele. */}
       <Route
         path="/patrocinio"
         element={
@@ -439,6 +440,7 @@ export default function App() {
         <Route path="patrocinados" element={<Patrocinados />} />
         <Route path="patrocinados/:id" element={<PatrocinadoAberto />} />
         <Route path="contrato" element={<ContratoPadrao />} />
+        <Route path="pagamentos" element={<PagamentosDoPatrocinio />} />
         <Route path="minha-conta" element={<MinhaConta />} />
       </Route>
 

@@ -1,8 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { CampoDeData } from '../../components/CampoDeData';
-import { SeletorComBusca } from '../../components/SeletorComBusca';
 import {
   Aviso,
   Bloco,
@@ -15,17 +14,17 @@ import {
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { abrirArquivo } from '../../lib/arquivo';
+import { mesAtual } from '../../lib/folha';
 import { formatBRL, formatData } from '../../lib/format';
 import { lerComoDataUrl } from '../../lib/foto';
-import { FORMA_PAGAMENTO_LABEL } from '../../lib/status';
 import type {
   ArquivoDoPatrocinado,
   ContratoDePatrocinio,
   FichaDoPatrocinado,
-  RecebedorPossivel,
 } from '../../lib/types';
 import {
   CamposDoPatrocinado,
+  EscolherFornecedor,
   SeloDoContrato,
   SeloDoPagamento,
   cadastroDe,
@@ -33,7 +32,9 @@ import {
   emMegabytes,
   textoDaVigencia,
   type Cadastro,
+  type FornecedorEscolhido,
 } from './comum';
+import { PagarPatrocinado, usePodePagar } from './Pagar';
 
 /** O teto da API por arquivo (`LIMITE_DO_ARQUIVO`): recusar aqui poupa o envio. */
 const LIMITE_BYTES = 15 * 1024 * 1024;
@@ -42,7 +43,7 @@ type Aba = 'dados' | 'pagamentos' | 'contrato' | 'arquivos';
 
 /**
  * A ficha de um patrocinado: quem é e como falar com ele, o que já se mandou
- * (lido da aba Diaristas), o contrato e os arquivos.
+ * (lido dos títulos do fornecedor dele no IXC), o contrato e os arquivos.
  */
 export function PatrocinadoAberto() {
   const { id = '' } = useParams();
@@ -51,7 +52,9 @@ export function PatrocinadoAberto() {
   const qc = useQueryClient();
   const [aba, setAba] = useState<Aba>('dados');
   const [editando, setEditando] = useState(false);
-  const [trocandoRecebedor, setTrocandoRecebedor] = useState(false);
+  const [trocandoFornecedor, setTrocandoFornecedor] = useState(false);
+  const [pagando, setPagando] = useState(false);
+  const podePagar = usePodePagar();
   const [aviso, setAviso] = useState<{ texto: string; ruim: boolean } | null>(
     () => (location.state as { aviso?: { texto: string; ruim: boolean } } | null)?.aviso ?? null,
   );
@@ -111,10 +114,10 @@ export function PatrocinadoAberto() {
         voltar={() => navigate('..', { relative: 'path' })}
         acoes={
           <>
-            {f.recebedor?.ativo && p.ativo && (
-              <Link to={`/folha/diaristas?pagar=${f.recebedor.id}`} className="btn btn-pagar">
-                Pagar pela aba Diaristas
-              </Link>
+            {p.idFornecedorIxc && p.ativo && podePagar && (
+              <button onClick={() => setPagando(true)} className="btn btn-pagar">
+                Pagar
+              </button>
             )}
             <button onClick={() => setEditando(true)} className="btn btn-neutro">
               Editar
@@ -146,25 +149,26 @@ export function PatrocinadoAberto() {
 
       {aviso && <Aviso tom={aviso.ruim ? 'atencao' : 'marca'}>{aviso.texto}</Aviso>}
       {!p.ativo && <Aviso tom="neutro">Patrocínio encerrado. O histórico continua aqui.</Aviso>}
-      {!f.recebedor && (
+      {!p.idFornecedorIxc && (
         <Aviso
           tom="erro"
           acao={
-            <button onClick={() => setTrocandoRecebedor(true)} className="btn btn-p btn-neutro">
-              Ligar a um diarista
+            <button onClick={() => setTrocandoFornecedor(true)} className="btn btn-p btn-neutro">
+              Ligar a um fornecedor
             </button>
           }
         >
-          Este patrocinado não está ligado a nenhum cadastro de diarista — não há por onde pagá-lo.
+          Este patrocinado não está ligado a nenhum fornecedor do IXC — não há por onde pagá-lo.
         </Aviso>
       )}
+      {f.avisoPagamentos && <Aviso tom="atencao">{f.avisoPagamentos}</Aviso>}
 
       <div className="surgir mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Numero rotulo="Já mandado" valor={formatBRL(f.resumo.totalPago)} nota={`${f.resumo.quantidadePagos} pagamento(s)`} />
         <Numero
-          rotulo="A caminho"
-          valor={formatBRL(f.resumo.totalAguardando)}
-          nota="Lançado, esperando o banco"
+          rotulo="Em aberto"
+          valor={formatBRL(f.resumo.totalEmAberto)}
+          nota="Lançado no IXC, esperando ser pago"
         />
         <Numero
           rotulo="Último pagamento"
@@ -193,8 +197,10 @@ export function PatrocinadoAberto() {
         </BotaoDeAba>
       </div>
 
-      {aba === 'dados' && <AbaDados ficha={f} onTrocarRecebedor={() => setTrocandoRecebedor(true)} />}
-      {aba === 'pagamentos' && <AbaPagamentos ficha={f} />}
+      {aba === 'dados' && <AbaDados ficha={f} onTrocarFornecedor={() => setTrocandoFornecedor(true)} />}
+      {aba === 'pagamentos' && (
+        <AbaPagamentos ficha={f} onPagar={podePagar && p.ativo ? () => setPagando(true) : undefined} />
+      )}
       {aba === 'contrato' && <AbaContrato ficha={f} onMudou={recarregar} />}
       {aba === 'arquivos' && <AbaArquivos ficha={f} onMudou={recarregar} />}
 
@@ -209,15 +215,23 @@ export function PatrocinadoAberto() {
           }}
         />
       )}
-      {trocandoRecebedor && (
-        <TrocarRecebedor
+      {trocandoFornecedor && (
+        <TrocarFornecedor
           ficha={f}
-          onFechar={() => setTrocandoRecebedor(false)}
+          onFechar={() => setTrocandoFornecedor(false)}
           onSalvo={() => {
-            setTrocandoRecebedor(false);
-            setAviso({ texto: 'Agora ele recebe pelo diarista escolhido.', ruim: false });
+            setTrocandoFornecedor(false);
+            setAviso({ texto: 'Agora ele recebe pelo fornecedor escolhido.', ruim: false });
             recarregar();
+            void qc.invalidateQueries({ queryKey: ['patrocinio-pagamentos'] });
           }}
+        />
+      )}
+      {pagando && (
+        <PagarPatrocinado
+          patrocinado={p}
+          valor={faltaNoMes(f)}
+          onFechar={() => setPagando(false)}
         />
       )}
     </Pagina>
@@ -262,9 +276,24 @@ function Numero({ rotulo, valor, nota }: { rotulo: string; valor: string; nota?:
 // Dados e contato
 // ---------------------------------------------------------------------------
 
-function AbaDados({ ficha, onTrocarRecebedor }: { ficha: FichaDoPatrocinado; onTrocarRecebedor: () => void }) {
+/**
+ * O que falta mandar no mês de hoje: o combinado menos o que já saiu ou está
+ * lançado. Já coberto, sugere o combinado inteiro — quem paga de novo no mesmo
+ * mês costuma estar adiantando o próximo.
+ */
+function faltaNoMes(ficha: FichaDoPatrocinado): number | null {
+  const combinado = Number(ficha.patrocinado.valorMensal ?? 0);
+  if (combinado <= 0) return null;
+  const mes = mesAtual();
+  const lancado = ficha.pagamentos
+    .filter((pg) => (pg.vencimento ?? pg.pagoEm)?.slice(0, 7) === mes)
+    .reduce((t, pg) => t + pg.valor, 0);
+  const falta = Math.round((combinado - lancado) * 100) / 100;
+  return falta > 0 ? falta : combinado;
+}
+
+function AbaDados({ ficha, onTrocarFornecedor }: { ficha: FichaDoPatrocinado; onTrocarFornecedor: () => void }) {
   const p = ficha.patrocinado;
-  const r = ficha.recebedor;
   const whatsapp = linkDoWhatsapp(p.telefone);
   const vigencia = textoDaVigencia(p.inicio, p.fim);
 
@@ -322,27 +351,25 @@ function AbaDados({ ficha, onTrocarRecebedor }: { ficha: FichaDoPatrocinado; onT
       </Bloco>
 
       <Bloco
-        titulo="Quem recebe o dinheiro"
+        titulo="Fornecedor no IXC"
         className="lg:col-span-2"
         acao={
-          <button onClick={onTrocarRecebedor} className="btn btn-p btn-sutil">
-            {r ? 'Trocar' : 'Ligar a um diarista'}
+          <button onClick={onTrocarFornecedor} className="btn btn-p btn-sutil">
+            {p.idFornecedorIxc ? 'Trocar' : 'Ligar a um fornecedor'}
           </button>
         }
       >
-        {r ? (
+        {p.idFornecedorIxc ? (
           <dl className="grid grid-cols-1 gap-2.5 text-sm sm:grid-cols-2">
-            <Linha rotulo="Diarista" valor={<>{r.nome}{!r.ativo && <> <Selo tom="neutro" pequeno>desativado</Selo></>}</>} />
-            <Linha rotulo="CPF" valor={r.cpfCnpj} />
-            <Linha rotulo="Chave PIX" valor={r.chavePix} />
-            <Linha rotulo="Costuma receber" valor={FORMA_PAGAMENTO_LABEL[r.formaPagamento]} />
+            <Linha rotulo="Fornecedor" valor={p.fornecedorNome} />
+            <Linha rotulo="Código no IXC" valor={<span className="num">{p.idFornecedorIxc}</span>} />
           </dl>
         ) : (
-          <p className="text-sm text-tinta-500">Nenhum cadastro de diarista ligado.</p>
+          <p className="text-sm text-tinta-500">Nenhum fornecedor ligado.</p>
         )}
         <p className="ajuda mt-3">
-          O pagamento sai pela aba Diaristas da folha. Para mudar o PIX ou a forma de pagar, edite o
-          cadastro de diarista lá.
+          O pagamento é uma conta a pagar para este fornecedor, lançada pela aba Pagamentos. A chave
+          PIX e os dados do banco são os do cadastro dele no IXC.
         </p>
       </Bloco>
     </div>
@@ -367,20 +394,21 @@ function linkDoWhatsapp(telefone: string | null, texto?: string): string | null 
 }
 
 // ---------------------------------------------------------------------------
-// Pagamentos — lidos das diárias do cadastro ligado
+// Pagamentos — os títulos do fornecedor no IXC
 // ---------------------------------------------------------------------------
 
-function AbaPagamentos({ ficha }: { ficha: FichaDoPatrocinado }) {
-  const r = ficha.recebedor;
+function AbaPagamentos({ ficha, onPagar }: { ficha: FichaDoPatrocinado; onPagar?: () => void }) {
+  const p = ficha.patrocinado;
   return (
     <Bloco
       titulo="O que já se mandou"
       semPadding
       acao={
-        r?.ativo && (
-          <Link to={`/folha/diaristas?pagar=${r.id}`} className="btn btn-p btn-pagar">
+        p.idFornecedorIxc &&
+        onPagar && (
+          <button onClick={onPagar} className="btn btn-p btn-pagar">
             Novo pagamento
-          </Link>
+          </button>
         )
       }
     >
@@ -388,9 +416,9 @@ function AbaPagamentos({ ficha }: { ficha: FichaDoPatrocinado }) {
         <table className="w-full text-sm">
           <thead>
             <tr>
-              <th className="th">Data</th>
+              <th className="th">Vencimento</th>
+              <th className="th">Pago em</th>
               <th className="th">Descrição</th>
-              <th className="th">Forma</th>
               <th className="th">Situação</th>
               <th className="th text-right">Valor</th>
             </tr>
@@ -400,32 +428,26 @@ function AbaPagamentos({ ficha }: { ficha: FichaDoPatrocinado }) {
               <tr>
                 <td colSpan={5}>
                   <Vazio titulo="Nenhum pagamento ainda">
-                    {r
-                      ? `Os pagamentos feitos a ${r.nome} pela aba Diaristas aparecem aqui sozinhos.`
-                      : 'Ligue o patrocinado a um cadastro de diarista para poder pagá-lo.'}
+                    {p.idFornecedorIxc
+                      ? `As contas a pagar de ${p.fornecedorNome ?? p.nome} no IXC aparecem aqui sozinhas — as lançadas daqui e as lançadas direto lá.`
+                      : 'Ligue o patrocinado ao fornecedor dele no IXC para poder pagá-lo.'}
                   </Vazio>
                 </td>
               </tr>
             )}
-            {ficha.pagamentos.map((d) => (
-              <tr key={d.id} className="linha">
-                <td className="td num text-tinta-600">{formatData(d.data)}</td>
-                <td className="td text-tinta-800">{d.descricao}</td>
-                <td className="td text-tinta-500">
-                  {FORMA_PAGAMENTO_LABEL[d.forma]}
-                  {d.forma === 'EM_MAOS' && (
-                    <div className="text-xs text-tinta-400">
-                      {d.reciboAssinado ? 'recibo assinado' : 'recibo por assinar'}
-                    </div>
-                  )}
+            {ficha.pagamentos.map((pg) => (
+              <tr key={pg.idFnApagar} className="linha">
+                <td className="td num text-tinta-600">{pg.vencimento ? formatData(pg.vencimento) : '—'}</td>
+                <td className="td num text-tinta-600">{pg.pagoEm ? formatData(pg.pagoEm) : '—'}</td>
+                <td className="td text-tinta-800">
+                  {pg.descricao || '—'}
+                  <div className="num text-xs text-tinta-400">título nº {pg.idFnApagar}</div>
                 </td>
                 <td className="td">
-                  <SeloDoPagamento situacao={d.situacao} />
+                  <SeloDoPagamento situacao={pg.situacao} />
                 </td>
                 <td className="td text-right">
-                  <span className={`valor ${d.situacao === 'NAO_SAIU' ? 'text-tinta-300 line-through' : ''}`}>
-                    {formatBRL(d.valor)}
-                  </span>
+                  <span className="valor">{formatBRL(pg.valor)}</span>
                 </td>
               </tr>
             ))}
@@ -996,7 +1018,7 @@ function EditarPatrocinado({
   );
 }
 
-function TrocarRecebedor({
+function TrocarFornecedor({
   ficha,
   onFechar,
   onSalvo,
@@ -1005,43 +1027,34 @@ function TrocarRecebedor({
   onFechar: () => void;
   onSalvo: () => void;
 }) {
-  const [diaristaId, setDiaristaId] = useState(ficha.recebedor?.id ?? '');
+  const p = ficha.patrocinado;
+  const [fornecedor, setFornecedor] = useState<FornecedorEscolhido | null>(null);
   const [erro, setErro] = useState<string | null>(null);
 
-  const recebedores = useQuery({
-    queryKey: ['patrocinio-recebedores'],
-    queryFn: async () => (await api.get<RecebedorPossivel[]>('/patrocinios/recebedores')).data,
-  });
-
   const salvar = useMutation({
-    mutationFn: async () => (await api.patch(`/patrocinios/${ficha.patrocinado.id}`, { diaristaId })).data,
+    mutationFn: async () =>
+      (
+        await api.patch(`/patrocinios/${p.id}`, {
+          idFornecedorIxc: fornecedor!.idFornecedor,
+          fornecedorNome: fornecedor!.nome,
+        })
+      ).data,
     onSuccess: onSalvo,
     onError: (e) => setErro(mensagemErro(e)),
   });
 
-  const opcoes = (recebedores.data ?? []).map((d) => ({
-    valor: d.id,
-    rotulo:
-      `${d.nome}${d.nomeFantasia ? ` (${d.nomeFantasia})` : ''}` +
-      (d.patrocinado && d.patrocinado.id !== ficha.patrocinado.id ? ` — já recebe por ${d.patrocinado.nome}` : ''),
-  }));
-
   return (
-    <Janela titulo="Quem recebe o dinheiro" onFechar={onFechar}>
+    <Janela titulo="Fornecedor no IXC" onFechar={onFechar}>
       <div className="p-5 sm:p-6">
         <p className="text-sm text-tinta-600">
-          Escolha o cadastro de diarista por onde este patrocinado recebe. Para cadastrar alguém novo,
-          use a aba Diaristas da folha.
+          {p.idFornecedorIxc
+            ? `Hoje ${p.nome} recebe por ${p.fornecedorNome ?? `fornecedor nº ${p.idFornecedorIxc}`}. `
+            : ''}
+          Escolha o fornecedor do IXC por onde este patrocinado recebe. O que já se mandou passa a ser
+          lido dos títulos dele.
         </p>
         <div className="mt-4">
-          <SeletorComBusca
-            opcoes={opcoes}
-            value={diaristaId}
-            onChange={setDiaristaId}
-            vazio="Escolha quem recebe"
-            carregando={recebedores.isLoading}
-            procurar="Procurar diarista…"
-          />
+          <EscolherFornecedor valor={fornecedor} onChange={setFornecedor} patrocinadoId={p.id} />
         </div>
         {erro && <p className="mt-4 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">{erro}</p>}
         <div className="mt-6 flex justify-end gap-2">
@@ -1050,7 +1063,7 @@ function TrocarRecebedor({
           </button>
           <button
             onClick={() => salvar.mutate()}
-            disabled={!diaristaId || diaristaId === ficha.recebedor?.id || salvar.isPending}
+            disabled={!fornecedor || fornecedor.idFornecedor === p.idFornecedorIxc || salvar.isPending}
             className="btn btn-primario"
           >
             {salvar.isPending ? 'Salvando…' : 'Salvar'}

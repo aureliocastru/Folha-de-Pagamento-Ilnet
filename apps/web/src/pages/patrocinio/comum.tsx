@@ -1,10 +1,15 @@
-import type { ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useState, type ReactNode } from 'react';
 import { CampoDeData } from '../../components/CampoDeData';
-import { CampoDinheiro, Selo, type Tom } from '../../components/ui';
+import { CampoDinheiro, Carregando, Selo, type Tom } from '../../components/ui';
+import { api, mensagemErro } from '../../lib/api';
+import { useTermoAdiado } from '../../lib/busca';
 import type {
   BlocoDoContrato,
+  FornecedorParaPatrocinio,
   Patrocinado,
   SituacaoDoContrato,
+  SituacaoDoMes,
   SituacaoDoPagamento,
 } from '../../lib/types';
 
@@ -158,8 +163,7 @@ export function SeloDoContrato({ situacao }: { situacao: SituacaoDoContrato }) {
 
 const PAGAMENTO: Record<SituacaoDoPagamento, { texto: string; tom: Tom }> = {
   PAGO: { texto: 'pago', tom: 'pago' },
-  AGUARDANDO: { texto: 'a caminho', tom: 'atencao' },
-  NAO_SAIU: { texto: 'não saiu', tom: 'erro' },
+  EM_ABERTO: { texto: 'em aberto', tom: 'atencao' },
 };
 
 export function SeloDoPagamento({ situacao }: { situacao: SituacaoDoPagamento }) {
@@ -169,6 +173,148 @@ export function SeloDoPagamento({ situacao }: { situacao: SituacaoDoPagamento })
       {s.texto}
     </Selo>
   );
+}
+
+const MES: Record<SituacaoDoMes, { texto: string; tom: Tom; titulo: string }> = {
+  PAGO: { texto: 'pago', tom: 'pago', titulo: 'Saiu o combinado do mês' },
+  EM_ABERTO: { texto: 'em aberto', tom: 'atencao', titulo: 'Lançado no IXC, esperando ser pago' },
+  PARCIAL: { texto: 'falta uma parte', tom: 'atencao', titulo: 'Saiu ou foi lançada só uma parte do combinado' },
+  FALTA: { texto: 'falta pagar', tom: 'erro', titulo: 'Nada lançado no mês' },
+  SEM_PAGAMENTO: { texto: 'nada no mês', tom: 'neutro', titulo: 'Sem valor combinado e sem pagamento no mês' },
+};
+
+export function SeloDoMes({ situacao }: { situacao: SituacaoDoMes }) {
+  const s = MES[situacao];
+  return (
+    <Selo tom={s.tom} pequeno titulo={s.titulo}>
+      {s.texto}
+    </Selo>
+  );
+}
+
+/** O fornecedor escolhido na busca — o que a API precisa para ligar. */
+export interface FornecedorEscolhido {
+  idFornecedor: number;
+  nome: string;
+  cpfCnpj?: string | null;
+}
+
+/**
+ * Achar no IXC o fornecedor por onde o patrocinado recebe.
+ *
+ * Só os que já existem lá: o patrocinado já é fornecedor, e cadastrar outro
+ * daqui encheria a base de duplicados. O que já paga outro patrocinado aparece,
+ * mas não se escolhe — cada fornecedor paga um só.
+ */
+export function EscolherFornecedor({
+  valor,
+  onChange,
+  patrocinadoId,
+}: {
+  valor: FornecedorEscolhido | null;
+  onChange: (f: FornecedorEscolhido | null) => void;
+  /** O próprio patrocinado, na troca: o fornecedor dele não é "de outro". */
+  patrocinadoId?: string;
+}) {
+  const [termo, setTermo] = useState('');
+  // Cada tecla aqui seria uma consulta ao IXC: a busca sai quando se para de digitar.
+  const busca = useTermoAdiado(termo);
+
+  const achados = useQuery({
+    queryKey: ['patrocinio-fornecedores', busca],
+    queryFn: async () =>
+      (await api.get<FornecedorParaPatrocinio[]>('/patrocinios/fornecedores', { params: { busca } })).data,
+    enabled: busca.length >= 2 && !valor,
+  });
+
+  if (valor) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-tinta-100 bg-realce px-3 py-1.5">
+        <div className="min-w-0">
+          <div className="text-[13px] font-semibold text-tinta-900">{valor.nome}</div>
+          <div className="num text-xs text-tinta-500">
+            nº {valor.idFornecedor}
+            {valor.cpfCnpj ? ` · ${valor.cpfCnpj}` : ''}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            onChange(null);
+            setTermo('');
+          }}
+          className="btn btn-sutil btn-p"
+        >
+          Trocar
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <input
+        value={termo}
+        onChange={(e) => setTermo(e.target.value)}
+        placeholder="Nome, nome fantasia ou CPF/CNPJ"
+        className="campo"
+        autoComplete="off"
+      />
+      {achados.isFetching && <Carregando texto="Procurando no IXC…" />}
+      {achados.error && (
+        <p className="mt-2 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
+          {mensagemErro(achados.error)}
+        </p>
+      )}
+      {achados.data && achados.data.length === 0 && (
+        <p className="mt-2 text-sm text-tinta-500">
+          Nenhum fornecedor ativo com esse nome no IXC. Se ele ainda não existe, cadastre-o lá
+          primeiro.
+        </p>
+      )}
+      {!!achados.data?.length && (
+        <div className="mt-2 max-h-56 overflow-y-auto rolagem-fina rounded-xl border border-tinta-100">
+          {achados.data.map((f) => {
+            const deOutro = f.patrocinado && f.patrocinado.id !== patrocinadoId ? f.patrocinado : null;
+            return (
+              <button
+                key={f.idFornecedor}
+                type="button"
+                disabled={!!deOutro}
+                onClick={() => onChange({ idFornecedor: f.idFornecedor, nome: f.nome, cpfCnpj: f.cpfCnpj })}
+                className="item-dividido flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left hover:bg-tinta-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <span className="min-w-0">
+                  <span className="block truncate text-sm text-tinta-800">{f.nome}</span>
+                  {deOutro ? (
+                    <span className="block truncate text-xs text-amber-700">
+                      já recebe pelo patrocínio de {deOutro.nome}
+                    </span>
+                  ) : (
+                    f.nomeFantasia &&
+                    f.nomeFantasia !== f.nome && (
+                      <span className="block truncate text-xs text-tinta-400">{f.nomeFantasia}</span>
+                    )
+                  )}
+                </span>
+                <span className="num shrink-0 text-xs text-tinta-400">{f.cpfCnpj ?? `nº ${f.idFornecedor}`}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** "2026-10" → "outubro de 2026". */
+export function mesPorExtenso(mes: string): string {
+  const [ano, m] = mes.split('-').map(Number);
+  return new Date(Date.UTC(ano, m - 1, 1)).toLocaleDateString('pt-BR', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
 }
 
 /** O texto do contrato, como o papel o mostra: seções, itens e parágrafos. */

@@ -394,9 +394,9 @@ const contabilidade: Modulo = {
  * Patrocinadores — quem a ILNET patrocina.
  *
  * O atleta, o time, o grupo de dança: o contato, o que já se mandou e quando,
- * o contrato que eles assinam e os arquivos de cada um. O dinheiro não sai
- * daqui: o patrocinado recebe pela aba Diaristas da folha, e a ficha lê de lá
- * o que já foi pago.
+ * o contrato que eles assinam e os arquivos de cada um. Cada patrocinado é o
+ * fornecedor que ele já é no IXC: a aba Pagamentos lança a conta a pagar do mês
+ * para ele, e o que já foi pago é lido dos títulos dele lá.
  */
 const patrocinio: Modulo = {
   id: 'patrocinio',
@@ -413,6 +413,7 @@ const patrocinio: Modulo = {
     { to: 'patrocinados', label: 'Patrocinados', icone: IconeMegafone },
     // O texto que vai no link, para ler antes de mandar.
     { to: 'contrato', label: 'Contrato padrão', icone: IconeDocumento },
+    { to: 'pagamentos', label: 'Pagamentos', icone: IconeMoeda },
   ],
 };
 

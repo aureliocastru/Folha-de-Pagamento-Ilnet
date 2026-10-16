@@ -69,8 +69,9 @@ const MODULO_DA_ROTA: Array<[string, ModuloId[]]> = [
   // colaborador, e quem decide é a marca "Ordens de serviço" da Minha área.
   ['os', ['os']],
 
-  // Quem a ILNET patrocina. O pagamento sai pela aba Diaristas, que é da
-  // folha: quem abre só o patrocínio vê o que já se mandou, e não paga.
+  // Quem a ILNET patrocina. O pagamento é uma conta a pagar lançada pela tela
+  // do Contas a Pagar: quem abre só o patrocínio vê o que já se mandou (lido
+  // do IXC por aqui), e não paga.
   ['patrocinios', ['patrocinio']],
 
   ['contas-abertas', ['contas-pagar']],

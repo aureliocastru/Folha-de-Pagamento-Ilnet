@@ -1,19 +1,16 @@
-import { Transform, Type } from 'class-transformer';
+import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsEmail,
-  IsEnum,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
-  IsUUID,
   Matches,
   MaxLength,
   Min,
   MinLength,
-  ValidateNested,
 } from 'class-validator';
-import { FormaPagamento } from '@prisma/client';
 
 /** Data de calendário, sem hora e sem fuso: "AAAA-MM-DD". */
 const DIA = /^\d{4}-\d{2}-\d{2}$/;
@@ -57,27 +54,13 @@ export class DadosDoPatrocinadoDto {
   @IsOptional() @Transform(vazioViraNulo) @IsString() @MaxLength(2000) observacoes?: string | null;
 }
 
-/**
- * Quem recebe o dinheiro, quando ainda não tem cadastro na aba Diaristas.
- *
- * É ele que vai para o IXC como fornecedor: no time de futsal, quem recebe é o
- * técnico, com o CPF e o PIX dele — e não o nome do time.
- */
-export class NovoRecebedorDto {
-  @IsString({ message: 'Diga o nome de quem recebe.' })
-  @MinLength(2, { message: 'O nome de quem recebe ficou curto demais.' })
-  @MaxLength(160)
-  nome!: string;
-
-  @IsOptional() @IsString() @MaxLength(30) cpfCnpj?: string;
-  @IsOptional() @IsString() @MaxLength(40) telefone?: string;
-  @IsOptional() @IsString() @MaxLength(140) chavePix?: string;
-  @IsOptional() @IsEnum(FormaPagamento) formaPagamento?: FormaPagamento;
-}
+/** O fornecedor do IXC por onde ele recebe, escolhido na busca. */
+const idDoFornecedor = ({ value }: { value: unknown }) =>
+  value === '' || value == null ? undefined : Number(value);
 
 /**
- * O cadastro novo. Por onde ele recebe é obrigatório, de um dos dois jeitos: um
- * diarista que já existe, ou os dados de quem recebe para criar um.
+ * O cadastro novo. Por onde ele recebe é obrigatório: o fornecedor que ele já
+ * é no IXC. Um patrocinado sem isso é alguém que não dá para pagar.
  */
 export class CriarPatrocinadoDto extends DadosDoPatrocinadoDto {
   @IsString({ message: 'Diga como o patrocinado se chama.' })
@@ -85,12 +68,16 @@ export class CriarPatrocinadoDto extends DadosDoPatrocinadoDto {
   @MaxLength(160)
   nome!: string;
 
-  @IsOptional() @IsUUID('4', { message: 'Escolha o diarista.' }) diaristaId?: string;
+  @Transform(idDoFornecedor)
+  @IsInt({ message: 'Escolha o fornecedor no IXC.' })
+  @Min(1, { message: 'Escolha o fornecedor no IXC.' })
+  idFornecedorIxc!: number;
 
-  @IsOptional()
-  @ValidateNested()
-  @Type(() => NovoRecebedorDto)
-  recebedor?: NovoRecebedorDto;
+  /** Como o fornecedor se chama no IXC, guardado para a tela. */
+  @IsString({ message: 'Escolha o fornecedor no IXC.' })
+  @MinLength(1)
+  @MaxLength(200)
+  fornecedorNome!: string;
 }
 
 export class AtualizarPatrocinadoDto extends DadosDoPatrocinadoDto {
@@ -102,11 +89,14 @@ export class AtualizarPatrocinadoDto extends DadosDoPatrocinadoDto {
 
   @IsOptional() @IsBoolean() ativo?: boolean;
 
-  /**
-   * Trocar (ou religar) o cadastro por onde ele recebe. Só um diarista que
-   * já existe: para criar outro, o caminho é a aba Diaristas.
-   */
-  @IsOptional() @IsUUID('4', { message: 'Escolha o diarista.' }) diaristaId?: string;
+  /** Trocar (ou ligar) o fornecedor por onde ele recebe. Vem com o nome. */
+  @IsOptional()
+  @Transform(idDoFornecedor)
+  @IsInt({ message: 'Escolha o fornecedor no IXC.' })
+  @Min(1, { message: 'Escolha o fornecedor no IXC.' })
+  idFornecedorIxc?: number;
+
+  @IsOptional() @IsString() @MaxLength(200) fornecedorNome?: string;
 }
 
 /** Um arquivo chegando: como ele se chama na lista, e o arquivo em si. */

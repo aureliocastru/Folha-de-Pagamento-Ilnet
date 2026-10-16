@@ -6,7 +6,9 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { conferirArquivo, emMegabytes, lerDataUrl } from '../arquivos/data-url';
-import { DiaristasService } from '../diaristas/diaristas.service';
+import { FornecedorService } from '../financeiro/fornecedor.service';
+import { IxcClient } from '../ixc/ixc.client';
+import { parseIxcId } from '../ixc/ixc.parse';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   AtualizarPatrocinadoDto,
@@ -15,9 +17,13 @@ import {
   GuardarArquivoDto,
 } from './dto/patrocinio.dto';
 import {
+  ordenarPagamentos,
+  pagamentoDoTitulo,
+  pagamentosDoMes,
   resumirPagamentos,
   situacaoDoContrato,
-  situacaoDoPagamento,
+  situacaoDoMes,
+  type PagamentoAoPatrocinado,
 } from './patrocinio.calc';
 
 /**
@@ -51,6 +57,17 @@ const TIPOS_DO_ARQUIVO = new Set([
  */
 export const LIMITE_DO_ARQUIVO = 15 * 1024 * 1024;
 
+/**
+ * Quantos títulos de um fornecedor se leem do IXC. Patrocinado recebe uma vez
+ * por mês: seiscentos são cinquenta anos de patrocínio. Lidos do vencimento
+ * mais recente para trás, que é o que a tela olha.
+ */
+const TITULOS_POR_PAGINA = 300;
+const PAGINAS_POR_FORNECEDOR = 2;
+
+/** Quantos fornecedores se leem ao mesmo tempo. O IXC é de produção, não é fila. */
+const LEITURAS_EM_PARALELO = 4;
+
 /** Tudo do arquivo menos o conteúdo — o que as listas mostram. */
 const ARQUIVO_SEM_CONTEUDO = {
   id: true,
@@ -82,20 +99,15 @@ export const CONTRATO_NA_LISTA = {
   createdAt: true,
 } satisfies Prisma.ContratoDePatrocinioSelect;
 
-/** A diária vista como pagamento ao patrocinado. */
-const PAGAMENTO = {
-  id: true,
-  data: true,
-  valor: true,
-  descricao: true,
-  forma: true,
-  contaPagar: { select: { status: true } },
-  assinatura: { select: { assinadoEm: true } },
-} satisfies Prisma.DiariaSelect;
-
 /**
- * Os patrocinados: o cadastro, a ficha com o que já se mandou, e os arquivos.
- * Os contratos têm serviço próprio (`ContratosDePatrocinioService`).
+ * Os patrocinados: o cadastro, a ficha com o que já se mandou, os pagamentos
+ * do mês e os arquivos. Os contratos têm serviço próprio
+ * (`ContratosDePatrocinioService`).
+ *
+ * O dinheiro não passa por aqui. Cada patrocinado é o fornecedor que ele já é
+ * no IXC; pagar é lançar uma conta a pagar para esse fornecedor (pela tela do
+ * Contas a Pagar), e o que já se mandou é lido dos títulos dele no IXC — os
+ * lançados daqui e os lançados direto lá.
  */
 @Injectable()
 export class PatrocinioService {
@@ -103,14 +115,19 @@ export class PatrocinioService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly diaristas: DiaristasService,
+    private readonly ixc: IxcClient,
+    private readonly fornecedores: FornecedorService,
   ) {}
 
   // -------------------------------------------------------------------------
   // Cadastro
   // -------------------------------------------------------------------------
 
-  /** A lista, com o que se precisa ver sem abrir a ficha. */
+  /**
+   * A lista, com o que se precisa ver sem abrir a ficha. O que já se mandou
+   * não vem aqui: é leitura do IXC, e vem pela rota dos pagamentos, para a
+   * lista não esperar por ela.
+   */
   async listar(busca?: string, todos = false) {
     const where: Prisma.PatrocinadoWhereInput = {};
     if (!todos) where.ativo = true;
@@ -121,6 +138,7 @@ export class PatrocinioService {
         { projeto: { contains: termo, mode: 'insensitive' } },
         { responsavel: { contains: termo, mode: 'insensitive' } },
         { cpfCnpj: { contains: termo, mode: 'insensitive' } },
+        { fornecedorNome: { contains: termo, mode: 'insensitive' } },
       ];
     }
 
@@ -130,148 +148,98 @@ export class PatrocinioService {
       include: {
         contratos: { select: { origem: true, assinadoEm: true, expiraEm: true } },
         _count: { select: { arquivos: true } },
-        diarista: {
-          select: {
-            id: true,
-            nome: true,
-            ativo: true,
-            diarias: {
-              select: {
-                valor: true,
-                data: true,
-                forma: true,
-                contaPagar: { select: { status: true } },
-              },
-            },
-          },
-        },
       },
     });
 
     const agora = new Date();
-    return patrocinados.map(({ contratos, diarista, _count, ...p }) => ({
+    return patrocinados.map(({ contratos, _count, ...p }) => ({
       patrocinado: p,
-      recebedor: diarista ? { id: diarista.id, nome: diarista.nome, ativo: diarista.ativo } : null,
       contrato: situacaoDoContrato(contratos, agora),
       arquivos: _count.arquivos,
-      ...resumirPagamentos(diarista?.diarias ?? []),
     }));
   }
 
   /**
-   * A ficha inteira: cadastro, quem recebe, o que já se mandou (lido das
-   * diárias), os contratos e os arquivos.
+   * A ficha inteira: cadastro, o que já se mandou (lido do IXC), os contratos
+   * e os arquivos.
+   *
+   * O IXC fora do ar não fecha a ficha: o contato, o contrato e os arquivos
+   * são daqui, e os pagamentos voltam com o motivo de não terem vindo.
    */
   async ficha(id: string) {
     const p = await this.prisma.patrocinado.findUnique({
       where: { id },
       include: {
-        diarista: {
-          select: {
-            id: true,
-            nome: true,
-            cpfCnpj: true,
-            chavePix: true,
-            formaPagamento: true,
-            ativo: true,
-          },
-        },
         contratos: { select: CONTRATO_NA_LISTA, orderBy: { createdAt: 'desc' } },
         arquivos: { select: ARQUIVO_SEM_CONTEUDO, orderBy: { createdAt: 'desc' } },
       },
     });
     if (!p) throw new NotFoundException('Patrocinado não encontrado.');
 
-    const diarias = p.diaristaId
-      ? await this.prisma.diaria.findMany({
-          where: { diaristaId: p.diaristaId },
-          orderBy: [{ data: 'desc' }, { createdAt: 'desc' }],
-          select: PAGAMENTO,
-        })
-      : [];
+    let pagamentos: PagamentoAoPatrocinado[] = [];
+    let avisoPagamentos: string | null = null;
+    if (p.idFornecedorIxc) {
+      try {
+        pagamentos = await this.pagamentosDoFornecedor(p.idFornecedorIxc);
+      } catch (err) {
+        avisoPagamentos = motivo(err);
+      }
+    }
 
-    const { diarista, contratos, arquivos, ...patrocinado } = p;
+    const { contratos, arquivos, ...patrocinado } = p;
     return {
       patrocinado,
-      recebedor: diarista,
       contrato: situacaoDoContrato(contratos),
       contratos,
       arquivos,
-      pagamentos: diarias.map(({ contaPagar, assinatura, ...d }) => ({
-        ...d,
-        situacao: situacaoDoPagamento({ ...d, contaPagar }),
-        reciboAssinado: !!assinatura?.assinadoEm,
-      })),
-      resumo: resumirPagamentos(diarias),
+      pagamentos,
+      resumo: resumirPagamentos(pagamentos),
+      avisoPagamentos,
     };
   }
 
-  /**
-   * Cadastra o patrocinado e já o deixa pronto para receber.
-   *
-   * Por onde ele recebe é obrigatório: um diarista que já existe (o atleta que
-   * já recebia como diarista antes de virar patrocinado) ou os dados de quem
-   * recebe, e aí o cadastro de diarista nasce aqui — com o fornecedor no IXC,
-   * pelo mesmo caminho da aba Diaristas. Um patrocinado sem isso é alguém que
-   * não dá para pagar.
-   *
-   * O IXC não segura o cadastro: se ele recusar o fornecedor, o patrocinado e
-   * o diarista ficam cadastrados do mesmo jeito, e o motivo sobe para a tela —
-   * o primeiro pagamento tenta de novo sozinho.
-   */
+  /** Cadastra o patrocinado já ligado ao fornecedor por onde ele recebe. */
   async criar(dto: CriarPatrocinadoDto, usuarioId?: string) {
-    let diaristaId = dto.diaristaId;
-    let avisoIxc: string | null = null;
+    await this.exigirFornecedorLivre(dto.idFornecedorIxc);
 
-    if (diaristaId) {
-      await this.exigirRecebedorLivre(diaristaId);
-    } else {
-      if (!dto.recebedor) {
-        throw new BadRequestException(
-          'Diga por onde o patrocinado recebe: escolha um diarista que já existe ' +
-            'ou preencha os dados de quem recebe.',
-        );
-      }
-      const r = dto.recebedor;
-      const criado = await this.diaristas.criar({
-        nome: r.nome.trim(),
-        cpfCnpj: r.cpfCnpj?.trim() || undefined,
-        telefone: r.telefone?.trim() || undefined,
-        chavePix: r.chavePix?.trim() || undefined,
-        formaPagamento: r.formaPagamento,
-        observacoes: `Recebe o patrocínio de ${dto.nome.trim()}.`,
-      });
-      diaristaId = criado.diarista.id;
-      avisoIxc = criado.ixc.erro;
-    }
-
-    const patrocinado = await this.comRecebedorUnico(() =>
+    const patrocinado = await this.comFornecedorUnico(() =>
       this.prisma.patrocinado.create({
         data: {
           ...dadosDoCadastro(dto),
           nome: dto.nome.trim(),
-          diaristaId,
+          idFornecedorIxc: dto.idFornecedorIxc,
+          fornecedorNome: dto.fornecedorNome.trim(),
           criadoPor: usuarioId ?? null,
         },
       }),
     );
 
-    this.logger.log(`Patrocinado ${patrocinado.id} cadastrado (recebe pelo diarista ${diaristaId}).`);
-    return { patrocinado, avisoIxc };
+    this.logger.log(
+      `Patrocinado ${patrocinado.id} cadastrado (recebe pelo fornecedor ${dto.idFornecedorIxc}).`,
+    );
+    return { patrocinado };
   }
 
   async atualizar(id: string, dto: AtualizarPatrocinadoDto) {
     await this.exigir(id);
-    if (dto.diaristaId) await this.exigirRecebedorLivre(dto.diaristaId, id);
+    const trocaFornecedor = dto.idFornecedorIxc !== undefined;
+    if (trocaFornecedor) {
+      if (!dto.fornecedorNome?.trim()) {
+        throw new BadRequestException('Diga o nome do fornecedor escolhido.');
+      }
+      await this.exigirFornecedorLivre(dto.idFornecedorIxc!, id);
+    }
 
-    return this.comRecebedorUnico(() =>
+    return this.comFornecedorUnico(() =>
       this.prisma.patrocinado.update({
         where: { id },
         data: {
           ...dadosDoCadastro(dto),
           ...(dto.nome === undefined ? {} : { nome: dto.nome.trim() }),
           ...(dto.ativo === undefined ? {} : { ativo: dto.ativo }),
-          ...(dto.diaristaId === undefined ? {} : { diaristaId: dto.diaristaId }),
+          ...(trocaFornecedor
+            ? { idFornecedorIxc: dto.idFornecedorIxc, fornecedorNome: dto.fornecedorNome!.trim() }
+            : {}),
         },
       }),
     );
@@ -282,8 +250,8 @@ export class PatrocinioService {
    * arquivo guardado é desativado, não apagado: o papel assinado é a memória
    * do que se combinou, e ela não some porque o patrocínio acabou.
    *
-   * O diarista ligado fica: ele pode ter recebido, e o histórico de pagamento
-   * é da aba Diaristas.
+   * Os títulos do fornecedor ficam no IXC: apagar o patrocinado não mexe no
+   * dinheiro que já saiu.
    */
   async remover(id: string): Promise<void> {
     const p = await this.prisma.patrocinado.findUnique({
@@ -301,37 +269,137 @@ export class PatrocinioService {
   }
 
   /**
-   * Os cadastros de diarista que podem receber por um patrocinado: os ativos,
-   * dizendo de quem cada um já é. Fica aqui, e não na rota da aba Diaristas,
-   * porque quem cuida dos patrocínios pode não abrir a folha.
+   * Os fornecedores do IXC que casam com o que foi digitado, dizendo de quem
+   * cada um já é. Fica aqui, e não só na rota do Contas a Pagar, porque quem
+   * cuida dos patrocínios pode não abrir o Contas a Pagar.
    */
-  async recebedores(busca?: string) {
-    const termo = busca?.trim();
-    const diaristas = await this.prisma.diarista.findMany({
-      where: {
-        ativo: true,
-        ...(termo
-          ? {
-              OR: [
-                { nome: { contains: termo, mode: 'insensitive' } },
-                { nomeFantasia: { contains: termo, mode: 'insensitive' } },
-                { cpfCnpj: { contains: termo, mode: 'insensitive' } },
-              ],
-            }
-          : {}),
-      },
+  async fornecedoresParaLigar(busca?: string) {
+    const achados = await this.fornecedores.buscarNoIxcPorNome(busca ?? '');
+    if (achados.length === 0) return [];
+
+    const ligados = await this.prisma.patrocinado.findMany({
+      where: { idFornecedorIxc: { in: achados.map((f) => f.idFornecedor) } },
+      select: { id: true, nome: true, idFornecedorIxc: true },
+    });
+    const dono = new Map(ligados.map((p) => [p.idFornecedorIxc, { id: p.id, nome: p.nome }]));
+
+    return achados.map((f) => ({
+      idFornecedor: f.idFornecedor,
+      nome: f.nome,
+      nomeFantasia: f.nomeFantasia,
+      cpfCnpj: f.cpfCnpj,
+      patrocinado: dono.get(f.idFornecedor) ?? null,
+    }));
+  }
+
+  // -------------------------------------------------------------------------
+  // Pagamentos
+  // -------------------------------------------------------------------------
+
+  /**
+   * O mês de cada patrocinado ativo: quanto se combinou, quanto já saiu e
+   * quanto está lançado esperando, e o que falta.
+   *
+   * Um fornecedor que o IXC não deixou ler fica com o motivo na linha dele, e
+   * os outros respondem do mesmo jeito.
+   */
+  async pagamentosDoMes(mes: string) {
+    const ativos = await this.prisma.patrocinado.findMany({
+      where: { ativo: true },
       orderBy: { nome: 'asc' },
-      // A tela escolhe numa lista com busca própria: cabe a casa inteira.
-      take: 500,
       select: {
         id: true,
         nome: true,
-        nomeFantasia: true,
-        cpfCnpj: true,
-        patrocinado: { select: { id: true, nome: true } },
+        projeto: true,
+        valorMensal: true,
+        inicio: true,
+        fim: true,
+        idFornecedorIxc: true,
+        fornecedorNome: true,
       },
     });
-    return diaristas;
+
+    const lidos = new Map<number, PagamentoAoPatrocinado[] | Error>();
+    const fornecedores = [
+      ...new Set(ativos.map((p) => p.idFornecedorIxc).filter((id): id is number => id !== null)),
+    ];
+    for (let i = 0; i < fornecedores.length; i += LEITURAS_EM_PARALELO) {
+      const lote = fornecedores.slice(i, i + LEITURAS_EM_PARALELO);
+      await Promise.all(
+        lote.map(async (id) => {
+          try {
+            lidos.set(id, await this.pagamentosDoFornecedor(id));
+          } catch (err) {
+            lidos.set(id, err instanceof Error ? err : new Error(String(err)));
+          }
+        }),
+      );
+    }
+
+    const linhas = ativos.map((p) => {
+      const lido = p.idFornecedorIxc ? lidos.get(p.idFornecedorIxc) : undefined;
+      const pagamentos = Array.isArray(lido) ? lido : [];
+      const doMes = pagamentosDoMes(pagamentos, mes);
+      const valorMensal = p.valorMensal ? Number(p.valorMensal) : null;
+      return {
+        patrocinado: p,
+        mes: doMes,
+        situacao: situacaoDoMes(valorMensal, doMes),
+        resumo: resumirPagamentos(pagamentos),
+        erro: lido instanceof Error ? motivo(lido) : null,
+      };
+    });
+
+    const soma = (f: (l: (typeof linhas)[number]) => number) =>
+      Math.round(linhas.reduce((t, l) => t + f(l), 0) * 100) / 100;
+    return {
+      mes,
+      linhas,
+      totais: {
+        combinado: soma((l) => Number(l.patrocinado.valorMensal ?? 0)),
+        pago: soma((l) => l.mes.pago),
+        emAberto: soma((l) => l.mes.emAberto),
+        faltam: linhas.filter((l) => l.situacao === 'FALTA' || l.situacao === 'PARCIAL').length,
+      },
+    };
+  }
+
+  /**
+   * Os títulos de um fornecedor no IXC, como pagamentos — pagos e em aberto,
+   * do mais recente para o mais antigo.
+   */
+  private async pagamentosDoFornecedor(idFornecedor: number): Promise<PagamentoAoPatrocinado[]> {
+    const brutos = await this.ixc.listAll<Record<string, unknown>>(
+      'fn_apagar',
+      {
+        qtype: 'fn_apagar.id_fornecedor',
+        query: String(idFornecedor),
+        oper: '=',
+        sortname: 'fn_apagar.data_vencimento',
+        sortorder: 'desc',
+      },
+      { pageSize: TITULOS_POR_PAGINA, maxPages: PAGINAS_POR_FORNECEDOR },
+    );
+
+    const pagamentos = brutos
+      .map((raw) => pagamentoDoTitulo(raw, idFornecedor))
+      .filter((p): p is PagamentoAoPatrocinado => p !== null);
+
+    // Base que ignore o filtro devolve os títulos de todo mundo, e conferir o
+    // fornecedor de novo (em `pagamentoDoTitulo`) os descarta. Se não sobrou
+    // nenhum porque todos eram de outros, isso é aviso, e não "nunca recebeu".
+    const deOutros = brutos.filter(
+      (raw) => parseIxcId(raw.id_fornecedor ?? raw.fornecedor_id) !== idFornecedor,
+    ).length;
+    if (brutos.length > 0 && deOutros === brutos.length) {
+      this.logger.warn(`O filtro por fornecedor ${idFornecedor} não pegou no fn_apagar.`);
+      throw new Error(
+        'o IXC devolveu títulos de outros fornecedores ao filtrar por este, e por ' +
+          'isso os pagamentos não puderam ser lidos',
+      );
+    }
+
+    return ordenarPagamentos(pagamentos);
   }
 
   // -------------------------------------------------------------------------
@@ -390,32 +458,31 @@ export class PatrocinioService {
   }
 
   /**
-   * O diarista existe, e não paga outro patrocinado. A coluna é única, e o
-   * banco recusaria de qualquer jeito — aqui a recusa vem com o nome de quem já
-   * está ligado, que é o que a pessoa precisa para decidir.
+   * O fornecedor não paga outro patrocinado. A coluna é única, e o banco
+   * recusaria de qualquer jeito — aqui a recusa vem com o nome de quem já está
+   * ligado, que é o que a pessoa precisa para decidir.
    */
-  private async exigirRecebedorLivre(diaristaId: string, patrocinadoId?: string) {
-    const d = await this.prisma.diarista.findUnique({
-      where: { id: diaristaId },
-      select: { id: true, nome: true, patrocinado: { select: { id: true, nome: true } } },
+  private async exigirFornecedorLivre(idFornecedorIxc: number, patrocinadoId?: string) {
+    const dono = await this.prisma.patrocinado.findUnique({
+      where: { idFornecedorIxc },
+      select: { id: true, nome: true },
     });
-    if (!d) throw new NotFoundException('Diarista não encontrado.');
-    if (d.patrocinado && d.patrocinado.id !== patrocinadoId) {
+    if (dono && dono.id !== patrocinadoId) {
       throw new BadRequestException(
-        `${d.nome} já recebe pelo patrocínio de ${d.patrocinado.nome}. Cada ` +
-          'cadastro de diarista paga um patrocinado só.',
+        `Este fornecedor já recebe pelo patrocínio de ${dono.nome}. Cada ` +
+          'fornecedor paga um patrocinado só.',
       );
     }
   }
 
-  /** Duas telas ligando o mesmo diarista ao mesmo tempo: o banco desempata. */
-  private async comRecebedorUnico<T>(gravar: () => Promise<T>): Promise<T> {
+  /** Duas telas ligando o mesmo fornecedor ao mesmo tempo: o banco desempata. */
+  private async comFornecedorUnico<T>(gravar: () => Promise<T>): Promise<T> {
     try {
       return await gravar();
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
         throw new BadRequestException(
-          'Este diarista acabou de ser ligado a outro patrocinado. Escolha outro.',
+          'Este fornecedor acabou de ser ligado a outro patrocinado. Escolha outro.',
         );
       }
       throw err;
@@ -456,4 +523,10 @@ function diaOuNulo(dia: string | null): Date | null {
 /** "Fotos do torneio.jpg" → "Fotos do torneio". */
 function semExtensao(nome: string): string {
   return nome.replace(/\.[^.]{1,5}$/, '') || nome;
+}
+
+/** A falha do IXC como frase para a tela. */
+function motivo(err: unknown): string {
+  const texto = err instanceof Error ? err.message : String(err);
+  return `Não deu para ler os pagamentos no IXC: ${texto}`;
 }

@@ -1,9 +1,11 @@
+import { OrigemDoContrato } from '@prisma/client';
 import {
-  FormaPagamento,
-  OrigemDoContrato,
-  Prisma,
-  StatusContaPagar,
-} from '@prisma/client';
+  mapContaAberta,
+  motivoDeNaoEstarAberto,
+  primeiroTexto,
+} from '../contas-abertas/contas-abertas.mapper';
+import { mapPagamento } from '../contas-abertas/historico-pagamentos.mapper';
+import { parseIxcDecimal, parseIxcId } from '../ixc/ixc.parse';
 
 /**
  * Onde está o contrato deste patrocinado, numa palavra.
@@ -41,72 +43,200 @@ export function situacaoDoContrato(
 }
 
 /**
- * Onde está um pagamento ao patrocinado, lido da diária.
+ * Onde está um pagamento ao patrocinado, lido do título no IXC.
  *
- * A mesma régua da aba Diaristas (`diariaPaga`): pago é o que o IXC deu por
- * pago, ou a diária em mãos antiga que nunca teve conta a pagar. Contar como
- * mandado o que ainda espera aprovação faria a ficha dizer que o patrocinado
- * recebeu um dinheiro que não chegou.
+ * - `PAGO`: o título foi baixado — o dinheiro saiu;
+ * - `EM_ABERTO`: o título existe e ainda espera ser pago.
+ *
+ * Título cancelado, ou que nunca foi liberado, não entra: não é dinheiro que
+ * saiu nem que vai sair.
  */
-export type SituacaoDoPagamento = 'PAGO' | 'AGUARDANDO' | 'NAO_SAIU';
+export type SituacaoDoPagamento = 'PAGO' | 'EM_ABERTO';
 
-export interface PagamentoResumido {
-  valor: Prisma.Decimal | number;
-  data: Date;
-  forma: FormaPagamento;
-  contaPagar: { status: StatusContaPagar } | null;
+export interface PagamentoAoPatrocinado {
+  idFnApagar: number;
+  situacao: SituacaoDoPagamento;
+  /** Pago: o que saiu do caixa. Em aberto: o que ainda falta pagar. */
+  valor: number;
+  vencimento: Date | null;
+  /** O dia em que o dinheiro saiu. Null no em aberto, ou quando o IXC não diz. */
+  pagoEm: Date | null;
+  /** A observação do título — "Patrocínio Maria Clara - outubro de 2026". */
+  descricao: string | null;
+  documento: string | null;
 }
 
-const NAO_SAIU: ReadonlySet<StatusContaPagar> = new Set([
-  StatusContaPagar.ERRO,
-  StatusContaPagar.REPROVADO,
-  StatusContaPagar.CANCELADO,
-]);
+/**
+ * Um título do `fn_apagar` como pagamento ao patrocinado, ou null quando ele
+ * não conta: de outro fornecedor (base que ignora o filtro da consulta),
+ * cancelado ou nunca liberado.
+ *
+ * As réguas são as mesmas das telas do Contas a Pagar — o "Já pago"
+ * (`mapPagamento`) e as contas em aberto (`motivoDeNaoEstarAberto`) —, para a
+ * ficha do patrocinado nunca dizer que um título está pago quando a lista de
+ * contas diz que ele está devendo.
+ */
+export function pagamentoDoTitulo(
+  raw: Record<string, unknown>,
+  idFornecedor: number,
+): PagamentoAoPatrocinado | null {
+  const idFnApagar = parseIxcId(raw.id);
+  if (idFnApagar === null) return null;
+  if (parseIxcId(raw.id_fornecedor ?? raw.fornecedor_id) !== idFornecedor) return null;
 
-export function situacaoDoPagamento(d: PagamentoResumido): SituacaoDoPagamento {
-  if (!d.contaPagar) {
-    // Pelo IXC e sem conta a pagar é a diária que travou no meio do caminho —
-    // a conta não chegou a nascer, e o dinheiro não saiu.
-    return d.forma === FormaPagamento.EM_MAOS ? 'PAGO' : 'NAO_SAIU';
+  const descricao = primeiroTexto(raw, ['obs', 'observacao', 'historico']);
+
+  const pago = mapPagamento(raw);
+  if (pago) {
+    return {
+      idFnApagar,
+      situacao: 'PAGO',
+      valor: pago.valorPago,
+      vencimento: pago.vencimento,
+      pagoEm: pago.pagoEm,
+      descricao,
+      documento: pago.documento,
+    };
   }
-  if (d.contaPagar.status === StatusContaPagar.PAGO) return 'PAGO';
-  if (NAO_SAIU.has(d.contaPagar.status)) return 'NAO_SAIU';
-  return 'AGUARDANDO';
+
+  const fora = motivoDeNaoEstarAberto(raw);
+  const titulo = mapContaAberta(raw);
+  if (!titulo) return null;
+
+  if (!fora) {
+    return {
+      idFnApagar,
+      situacao: 'EM_ABERTO',
+      valor: titulo.valorAberto > 0 ? titulo.valorAberto : titulo.valor,
+      vencimento: titulo.vencimento,
+      pagoEm: null,
+      descricao,
+      documento: titulo.documento,
+    };
+  }
+
+  // Quitado sem o dia da baixa: saiu, só não se sabe quando.
+  if (fora.motivo === 'pago' || fora.motivo === 'quitado') {
+    return {
+      idFnApagar,
+      situacao: 'PAGO',
+      valor: parseIxcDecimal(raw.valor ?? raw.valor_documento),
+      vencimento: titulo.vencimento,
+      pagoEm: null,
+      descricao,
+      documento: titulo.documento,
+    };
+  }
+  return null;
+}
+
+/** O dia que a linha do tempo usa: o do pagamento, e na falta dele o vencimento. */
+export function diaDoPagamento(p: PagamentoAoPatrocinado): Date | null {
+  return p.pagoEm ?? p.vencimento;
+}
+
+/** Do mais recente para o mais antigo; sem data nenhuma vai para o fim. */
+export function ordenarPagamentos(pagamentos: PagamentoAoPatrocinado[]): PagamentoAoPatrocinado[] {
+  return [...pagamentos].sort((a, b) => {
+    const da = diaDoPagamento(a)?.getTime() ?? -Infinity;
+    const db = diaDoPagamento(b)?.getTime() ?? -Infinity;
+    return db - da;
+  });
 }
 
 export interface ResumoDosPagamentos {
   /** Só o que saiu de verdade. */
   totalPago: number;
   quantidadePagos: number;
-  /** Lançado e ainda a caminho do banco. */
-  totalAguardando: number;
+  /** Lançado no IXC e ainda não pago. */
+  totalEmAberto: number;
   /** O dia do último pagamento que saiu. */
   ultimoPagamento: Date | null;
 }
 
-export function resumirPagamentos(pagamentos: PagamentoResumido[]): ResumoDosPagamentos {
+export function resumirPagamentos(pagamentos: PagamentoAoPatrocinado[]): ResumoDosPagamentos {
   let totalPago = 0;
   let quantidadePagos = 0;
-  let totalAguardando = 0;
+  let totalEmAberto = 0;
   let ultimoPagamento: Date | null = null;
 
   for (const p of pagamentos) {
-    const situacao = situacaoDoPagamento(p);
-    if (situacao === 'PAGO') {
-      totalPago += Number(p.valor);
+    if (p.situacao === 'PAGO') {
+      totalPago += p.valor;
       quantidadePagos += 1;
-      if (!ultimoPagamento || p.data > ultimoPagamento) ultimoPagamento = p.data;
-    } else if (situacao === 'AGUARDANDO') {
-      totalAguardando += Number(p.valor);
+      const dia = diaDoPagamento(p);
+      if (dia && (!ultimoPagamento || dia > ultimoPagamento)) ultimoPagamento = dia;
+    } else {
+      totalEmAberto += p.valor;
     }
   }
 
   return {
     // Soma de dinheiro em ponto flutuante: arredonda no centavo, ou R$ 0,1 +
     // R$ 0,2 aparece como 0,30000000000000004 na tela.
-    totalPago: Math.round(totalPago * 100) / 100,
+    totalPago: centavos(totalPago),
     quantidadePagos,
-    totalAguardando: Math.round(totalAguardando * 100) / 100,
+    totalEmAberto: centavos(totalEmAberto),
     ultimoPagamento,
   };
+}
+
+/**
+ * De que mês ("AAAA-MM") é um pagamento: o do vencimento do título.
+ *
+ * O vencimento, e não o dia em que saiu, porque a pergunta é "o patrocínio de
+ * outubro já foi?" — e o de outubro pago no dia 2 de novembro continua sendo o
+ * de outubro. Sem vencimento, vale o dia do pagamento.
+ */
+export function mesDoPagamento(p: PagamentoAoPatrocinado): string | null {
+  const dia = p.vencimento ?? p.pagoEm;
+  return dia ? dia.toISOString().slice(0, 7) : null;
+}
+
+export interface PagamentosDoMes {
+  pago: number;
+  emAberto: number;
+  pagamentos: PagamentoAoPatrocinado[];
+}
+
+export function pagamentosDoMes(
+  pagamentos: PagamentoAoPatrocinado[],
+  mes: string,
+): PagamentosDoMes {
+  const doMes = pagamentos.filter((p) => mesDoPagamento(p) === mes);
+  const soma = (s: SituacaoDoPagamento) =>
+    centavos(doMes.filter((p) => p.situacao === s).reduce((t, p) => t + p.valor, 0));
+  return { pago: soma('PAGO'), emAberto: soma('EM_ABERTO'), pagamentos: doMes };
+}
+
+/**
+ * Como está o mês de um patrocinado, numa palavra:
+ *
+ * - `PAGO`: saiu o combinado (ou, sem valor combinado, saiu alguma coisa);
+ * - `EM_ABERTO`: o combinado está lançado no IXC, esperando ser pago;
+ * - `PARCIAL`: saiu ou foi lançada uma parte, e falta o resto;
+ * - `FALTA`: nada lançado no mês, e há valor combinado;
+ * - `SEM_PAGAMENTO`: nada no mês, e também não há valor combinado para cobrar.
+ */
+export type SituacaoDoMes = 'PAGO' | 'EM_ABERTO' | 'PARCIAL' | 'FALTA' | 'SEM_PAGAMENTO';
+
+export function situacaoDoMes(
+  valorMensal: number | null,
+  mes: Pick<PagamentosDoMes, 'pago' | 'emAberto'>,
+): SituacaoDoMes {
+  // Meio centavo de folga: a soma de várias parcelas não precisa errar por um fio.
+  const folga = 0.005;
+  if (!valorMensal || valorMensal <= 0) {
+    if (mes.pago > 0) return 'PAGO';
+    if (mes.emAberto > 0) return 'EM_ABERTO';
+    return 'SEM_PAGAMENTO';
+  }
+  if (mes.pago >= valorMensal - folga) return 'PAGO';
+  if (mes.pago + mes.emAberto >= valorMensal - folga) return 'EM_ABERTO';
+  if (mes.pago > 0 || mes.emAberto > 0) return 'PARCIAL';
+  return 'FALTA';
+}
+
+function centavos(n: number): number {
+  return Math.round(n * 100) / 100;
 }

@@ -61,7 +61,7 @@ function servir(
  * O módulo de patrocínio, de dentro (com login).
  *
  * A guarda de módulos o reconhece pelo prefixo `patrocinios` — ver
- * `MODULO_DA_ROTA`. As rotas de nome fixo vêm antes de `:id`, ou "recebedores"
+ * `MODULO_DA_ROTA`. As rotas de nome fixo vêm antes de `:id`, ou "pagamentos"
  * seria lido como o id de um patrocinado.
  */
 @Controller('patrocinios')
@@ -82,10 +82,21 @@ export class PatrocinioController {
     return { texto: CONTRATO_PADRAO, blocos: blocosDoContrato(CONTRATO_PADRAO) };
   }
 
-  /** Os diaristas que podem receber por um patrocinado. */
-  @Get('recebedores')
-  recebedores(@Query('busca') busca?: string) {
-    return this.service.recebedores(busca);
+  /** Os fornecedores do IXC que casam com a busca, e de quem cada um já é. */
+  @Get('fornecedores')
+  fornecedores(@Query('busca') busca?: string) {
+    return this.service.fornecedoresParaLigar(busca);
+  }
+
+  /**
+   * O mês de cada patrocinado ativo, lido dos títulos do fornecedor no IXC.
+   * Sem `mes` (ou com um que não é "AAAA-MM"), o mês de hoje.
+   */
+  @Get('pagamentos')
+  pagamentos(@Query('mes') mes?: string) {
+    return this.service.pagamentosDoMes(
+      /^\d{4}-(0[1-9]|1[0-2])$/.test(mes ?? '') ? mes! : mesDeHoje(),
+    );
   }
 
   // --- Arquivos e contratos, pelo id deles ---
@@ -220,4 +231,13 @@ function semAcento(texto: string): string {
     .replace(/\p{M}/gu, '')
     .replace(/[^\x20-\x7e]/g, '_')
     .replace(/"/g, "'");
+}
+
+/** "2026-10", no fuso da casa: na virada do mês, às 22h do dia 31, ainda é o 31. */
+function mesDeHoje(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+  }).format(new Date());
 }

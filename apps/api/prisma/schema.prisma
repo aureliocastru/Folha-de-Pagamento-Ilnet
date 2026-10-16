@@ -808,10 +808,6 @@ model Diarista {
   diarias     Diaria[]
   contasPagar ContaPagar[]
 
-  /// O patrocinado que recebe por este cadastro, quando é o caso. Ver o
-  /// modelo `Patrocinado`.
-  patrocinado Patrocinado?
-
   @@index([ativo])
   @@index([nome])
   @@index([nomeFantasia])
@@ -3736,7 +3732,7 @@ model Patrocinado {
 
   // --- O combinado ---
   /// Quanto se combinou mandar por mês. Só referência: o que saiu de verdade
-  /// são as diárias pagas ao cadastro ligado.
+  /// são os títulos do fornecedor ligado, lidos do IXC.
   valorMensal Decimal?  @map("valor_mensal") @db.Decimal(14, 2)
   inicio      DateTime? @db.Date
   fim         DateTime? @db.Date
@@ -3744,14 +3740,17 @@ model Patrocinado {
   observacoes String?
   ativo       Boolean @default(true)
 
-  /// Por onde ele recebe. Único: um cadastro de diarista paga um patrocinado
-  /// só, ou a soma do que se mandou a cada um deixaria de fazer sentido.
+  /// Por onde ele recebe: o fornecedor que ele já é no IXC. O pagamento é uma
+  /// conta a pagar para esse fornecedor, e o que já se mandou é lido dos
+  /// títulos dele lá — inclusive os lançados direto no IXC.
   ///
-  /// `SetNull` porque apagar o diarista não pode levar o histórico de
-  /// contratos e arquivos junto. O que sobra é um patrocinado sem por onde
-  /// receber, que a tela mostra e pede para ligar de novo.
-  diarista   Diarista? @relation(fields: [diaristaId], references: [id], onDelete: SetNull)
-  diaristaId String?   @unique @map("diarista_id")
+  /// Único: um fornecedor paga um patrocinado só, ou a soma do que se mandou a
+  /// cada um contaria o dinheiro do outro. Vazio = sem por onde pagar, que a
+  /// tela mostra e pede para ligar.
+  idFornecedorIxc Int?    @unique @map("id_fornecedor_ixc")
+  /// O nome do fornecedor quando foi ligado, para a tela não ir ao IXC só para
+  /// escrevê-lo.
+  fornecedorNome  String? @map("fornecedor_nome")
 
   contratos ContratoDePatrocinio[]
   arquivos  ArquivoDoPatrocinado[]

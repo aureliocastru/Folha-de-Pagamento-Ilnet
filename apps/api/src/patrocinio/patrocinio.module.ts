@@ -1,16 +1,15 @@
 import { Module } from '@nestjs/common';
-import { DiaristasModule } from '../diaristas/diaristas.module';
 import { FinanceiroModule } from '../financeiro/financeiro.module';
+import { IxcModule } from '../ixc/ixc.module';
 import { ContratosDePatrocinioService } from './contratos.service';
 import { AssinarContratoController, PatrocinioController } from './patrocinio.controller';
 import { PatrocinioService } from './patrocinio.service';
 
 @Module({
-  // `DiaristasModule` porque o patrocinado recebe por um cadastro de diarista,
-  // e o cadastro novo nasce pelo mesmo caminho da aba Diaristas (com o
-  // fornecedor no IXC). `FinanceiroModule` dá o nome e o CNPJ da empresa que
-  // vão no cabeçalho do contrato.
-  imports: [DiaristasModule, FinanceiroModule],
+  // `IxcModule` porque o que já se mandou ao patrocinado é lido dos títulos do
+  // fornecedor dele no IXC. `FinanceiroModule` dá a busca de fornecedores e o
+  // nome e o CNPJ da empresa que vão no cabeçalho do contrato.
+  imports: [IxcModule, FinanceiroModule],
   controllers: [PatrocinioController, AssinarContratoController],
   providers: [PatrocinioService, ContratosDePatrocinioService],
 })
