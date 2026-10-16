@@ -63,6 +63,12 @@
   --linha-hover: 234 235 238;
 
   /*
+   * A sombra de cada linha de tabela, no computador — ver "As linhas soltas"
+   * mais abaixo. No celular a linha já é cartão e não leva esta sombra.
+   */
+  --sombra-linha: 0 0 #0000;
+
+  /*
    * O fundo do campo de digitar, e o dele em foco.
    *
    * Tem cor própria, e não a do cartão ou a da página, porque ele precisa se
@@ -578,7 +584,9 @@
   .linha.linha-marcada,
   .linha.linha-marcada:hover {
     @apply bg-brand-500/10 dark:bg-brand-400/[0.14];
-    box-shadow: inset 3px 0 0 theme('colors.brand.500');
+    box-shadow:
+      inset 3px 0 0 theme('colors.brand.500'),
+      var(--sombra-linha);
   }
 
   /*
@@ -813,6 +821,43 @@
   .overflow-x-auto table {
     width: max-content;
     min-width: 100%;
+  }
+}
+
+/*
+ * --- As linhas soltas ---
+ *
+ * No computador, cada linha da tabela é uma faixa solta, com sombra e um vão
+ * da cor da página entre ela e a próxima. Coladas por um fio, as linhas eram
+ * todas iguais e juntas, e o olho não achava onde uma acabava — "tá tudo muito
+ * igual, muito junto" (16/10/2026). Nos dois temas.
+ *
+ * O vão é o `border-spacing`, que também poria um vão em cima do cabeçalho;
+ * dentro da moldura que rola (`.overflow-x-auto`, quase todas) a margem
+ * negativa o esconde atrás da borda dela.
+ *
+ * No celular a tabela já vira lista de cartões — ver o bloco anterior.
+ */
+@media (min-width: 768px) {
+  :root {
+    --sombra-linha: 0 1px 2px rgb(10 16 32 / 0.08), 0 3px 8px -3px rgb(10 16 32 / 0.22);
+  }
+  .dark {
+    --sombra-linha: 0 1px 2px rgb(0 0 0 / 0.5), 0 4px 10px -3px rgb(0 0 0 / 0.75);
+  }
+  table:has(> tbody > tr.linha) {
+    border-collapse: separate;
+    border-spacing: 0 6px;
+    background-color: rgb(var(--fundo));
+  }
+  .overflow-x-auto > table:has(> tbody > tr.linha) {
+    margin-top: -6px;
+  }
+  /* `:where` zera o peso: a faixa da linha par, o ponteiro, a linha marcada e
+     a cor que uma tela pôs na linha continuam ganhando desta. */
+  :where(tbody > tr.linha) {
+    background-color: rgb(var(--papel));
+    box-shadow: var(--sombra-linha);
   }
 }
 
@@ -1073,7 +1118,9 @@
   padding-bottom: 0.75rem;
 }
 [data-modulo='almoxarifado'] tbody > tr.linha:hover {
-  box-shadow: inset 3px 0 0 theme('colors.brand.500');
+  box-shadow:
+    inset 3px 0 0 theme('colors.brand.500'),
+    var(--sombra-linha);
 }
 @media (max-width: 767px) {
   [data-modulo='almoxarifado'] table:not(.tabela-fixa) > tbody {
