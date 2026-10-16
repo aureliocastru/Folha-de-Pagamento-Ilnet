@@ -18,6 +18,7 @@ import { DespesasService } from './despesas.service';
 import { HistoricoPagamentosController } from './historico-pagamentos.controller';
 import { HistoricoPagamentosService } from './historico-pagamentos.service';
 import { PagamentosService } from './pagamentos.service';
+import { NotasFiscaisService } from './notas-fiscais.service';
 import { ParcelasService } from './parcelas.service';
 import { RecorrentesPollerService } from './recorrentes-poller.service';
 import { RecorrentesController } from './recorrentes.controller';
@@ -70,6 +71,8 @@ import { ManutencaoService } from './manutencao.service';
     // Que títulos são parcelas da mesma compra. O IXC não guarda esse vínculo:
     // aqui ele é inferido, e a tela diz que é inferência.
     ParcelasService,
+    // O número da nota fiscal de cada título, que o IXC desta base não guarda.
+    NotasFiscaisService,
     RecorrentesService,
     RecorrentesPollerService,
     // Parecida com a recorrente, e diferente no que importa: aqui o valor não

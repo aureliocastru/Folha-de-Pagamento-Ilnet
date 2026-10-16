@@ -261,6 +261,11 @@ export function NovaDespesa({
   );
   const [valor, setValor] = useState(o ? String(o.valor) : (inicial?.valor ?? ''));
   const [emissao, setEmissao] = useState(o?.emissao ?? hoje);
+  /**
+   * O número da nota fiscal, que vai para a Contabilidade. Numa compra
+   * parcelada ele vale para todas as parcelas: a nota é uma só.
+   */
+  const [numeroNf, setNumeroNf] = useState('');
   const [vencimento, setVencimento] = useState(
     o?.vencimento ?? inicial?.vencimento ?? hoje,
   );
@@ -447,6 +452,23 @@ export function NovaDespesa({
     retry: 0,
   });
 
+  /** Na edição, o número da nota que o título já tem. */
+  const notaFiscal = useQuery({
+    queryKey: ['nota-fiscal', edicao?.conta.idFnApagar],
+    queryFn: async () =>
+      (
+        await api.get<{ numero: string | null }>(
+          `/contas-abertas/${edicao!.conta.idFnApagar}/nota-fiscal`,
+        )
+      ).data,
+    enabled: !!edicao,
+    retry: 0,
+  });
+  const numeroNfAntes = notaFiscal.data?.numero ?? '';
+  useEffect(() => {
+    if (numeroNfAntes) setNumeroNf((atual) => atual || numeroNfAntes);
+  }, [numeroNfAntes]);
+
   /**
    * Qual categoria veio do fornecedor, e não da mão de alguém. Trocar de
    * fornecedor troca essa (ou a tira, se o novo não tem padrão); a escolhida à
@@ -540,6 +562,7 @@ export function NovaDespesa({
           // lembrar de voltar — e é assim que o mesmo dinheiro sai duas vezes.
           jaPaga: jaPaga || undefined,
           dataPagamento: jaPaga ? dataPagamento : undefined,
+          numeroNotaFiscal: numeroNf.trim() || undefined,
           parcelas: parcelado
             ? parcelas.map((p, i) => ({
                 valor: Number(p.valor),
@@ -689,6 +712,13 @@ export function NovaDespesa({
         await api.put(`/contas-abertas/${id}/categoria`, {
           categoriaId: depois.categoriaId || null,
         });
+      }
+      // A API leva o número às outras parcelas da mesma compra.
+      if (numeroNf.trim() !== numeroNfAntes.trim()) {
+        await api.put(`/contas-abertas/${id}/nota-fiscal`, {
+          numero: numeroNf.trim() || null,
+        });
+        void queryClient.invalidateQueries({ queryKey: ['nota-fiscal'] });
       }
       setOriginal(depois);
       if (recorrente && !repeticaoCriada) {
@@ -1314,6 +1344,22 @@ export function NovaDespesa({
                   onChange={setEmissao}
                   className="campo"
                 />
+              </div>
+              <div>
+                <label className="rotulo" htmlFor="numero-nf">
+                  Nº da nota fiscal
+                </label>
+                <input
+                  id="numero-nf"
+                  value={numeroNf}
+                  onChange={(e) => setNumeroNf(e.target.value)}
+                  className="campo num"
+                  maxLength={60}
+                  autoComplete="off"
+                />
+                {numeroNf.trim() && (parcelado || edicao?.conta.parcela) && (
+                  <p className="ajuda">Vale para todas as parcelas desta compra.</p>
+                )}
               </div>
             </div>
           )}

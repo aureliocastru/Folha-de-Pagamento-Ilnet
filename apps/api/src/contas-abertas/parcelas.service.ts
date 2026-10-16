@@ -65,6 +65,11 @@ export interface TituloParaAgrupar {
    * que dispensa deduzir — e o que corrige a dedução quando ela errou.
    */
   marcacao?: MarcacaoDeParcela | null;
+  /**
+   * A observação sem a marca "(3/6)", em minúsculas: o que diz de qual compra
+   * a parcela é. Só serve a `irmasNaCompra`.
+   */
+  compra?: string;
 }
 
 /**
@@ -125,6 +130,25 @@ export class ParcelasService {
     }
 
     return { titulos: agruparParcelas(titulos), avisos };
+  }
+
+  /**
+   * As outras parcelas da mesma compra que um título — para o que se escreve
+   * numa valer para todas, como o número da nota fiscal. Vazio quando ele não
+   * é parcela marcada de nada (ver `irmasNaCompra`).
+   */
+  async irmasDe(idFnApagar: number): Promise<number[]> {
+    const res = await this.ixc.list<Record<string, unknown>>('fn_apagar', {
+      qtype: 'fn_apagar.id',
+      query: String(idFnApagar),
+      oper: '=',
+      rp: 1,
+    });
+    const raw = res.registros.find((r) => parseIxcId(r.id) === idFnApagar);
+    const idFornecedor = raw ? parseIxcId(raw.id_fornecedor ?? raw.fornecedor_id) : null;
+    if (idFornecedor === null) return [];
+    const titulos = await this.lerDoFornecedor(idFornecedor, []);
+    return irmasNaCompra(titulos, idFnApagar);
   }
 
   /**
@@ -209,6 +233,10 @@ export class ParcelasService {
         ]),
         paga: fora !== null,
         marcacao: marcacaoDeParcela(raw),
+        compra: String(raw.obs ?? raw.observacao ?? '')
+          .replace(/\(\d{1,4}\s*\/\s*\d{1,4}\)/g, '')
+          .trim()
+          .toLowerCase(),
       });
     }
 
@@ -386,4 +414,44 @@ function porVencimento(a: TituloParaAgrupar, b: TituloParaAgrupar): number {
   if (a.vencimento) return -1;
   if (b.vencimento) return 1;
   return a.idFnApagar - b.idFnApagar;
+}
+
+/**
+ * As outras parcelas da mesma compra que um título, para copiar a elas o que
+ * se escreveu nele (o número da nota fiscal).
+ *
+ * Mais estrito que a contagem da tela, porque aqui um erro grava dado errado
+ * em outra conta, e não só mostra um "2 de 3" torto:
+ *
+ * - **só parcela marcada.** "(3/6)" na observação — é como esta casa lança a
+ *   compra parcelada — ou "29/36" no número da nota. A dedução por mesmo
+ *   fornecedor e mesmo valor fica de fora: ela junta o aluguel e a internet
+ *   de todo mês, e cada mês tem a sua nota;
+ * - marcada na observação, **a mesma descrição**: duas compras em seis vezes
+ *   da mesma loja são duas compras;
+ * - **posição repetida** denuncia duas compras juntas, e aí não se copia nada.
+ */
+export function irmasNaCompra(
+  titulos: TituloParaAgrupar[],
+  idFnApagar: number,
+): number[] {
+  const alvo = titulos.find((t) => t.idFnApagar === idFnApagar);
+  const marca = alvo?.marcacao;
+  if (!alvo || !marca) return [];
+
+  const irmas = titulos.filter(
+    (t) =>
+      t.idFnApagar !== alvo.idFnApagar &&
+      t.idFornecedor === alvo.idFornecedor &&
+      t.marcacao?.fonte === marca.fonte &&
+      t.marcacao.total === marca.total &&
+      (marca.fonte !== 'observacao' || t.compra === alvo.compra),
+  );
+
+  const posicoes = new Set([marca.posicao]);
+  for (const t of irmas) {
+    if (posicoes.has(t.marcacao!.posicao)) return [];
+    posicoes.add(t.marcacao!.posicao);
+  }
+  return irmas.map((t) => t.idFnApagar);
 }

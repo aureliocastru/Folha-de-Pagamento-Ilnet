@@ -93,7 +93,7 @@ export class PacoteZipService {
         item === 8 ? saidas.pagamentos : this.pacotes.recorte(saidas.pagamentos, item === 13 ? 'lucros' : item === 14 ? 'link' : 'doacoes', cfg);
       const [comprovantes, notas] = await Promise.all([
         this.pacotes.comprovantes(pacoteId, saidas),
-        this.pacotes.notasAnotadas(pacoteId),
+        this.pacotes.notasAnotadas(pacoteId, saidas),
       ]);
       // Recorte vazio não vira planilha: a pasta diz "não teve", e uma
       // planilha só com o cabeçalho faria pensar que faltou alguma coisa.

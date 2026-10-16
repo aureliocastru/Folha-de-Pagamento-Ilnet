@@ -849,10 +849,13 @@ export class PacoteContabilService {
   }
 
   /**
-   * O que se anotou da nota de cada título na lista dos pagamentos: o número,
-   * ou "sem nota". Mora na linha `nota:<título>` do item 8.
+   * O que se sabe da nota de cada título: o número, ou "sem nota".
+   *
+   * Primeiro o anotado na lista dos pagamentos deste mês (linha `nota:<título>`
+   * do item 8); sem anotação, o número escrito na própria conta, ao lançar ou
+   * editar (`NotaFiscalDoTitulo`).
    */
-  async notasAnotadas(pacoteId: string): Promise<Map<number, MarcaDaNota>> {
+  async notasAnotadas(pacoteId: string, saidas?: DadosDasSaidas): Promise<Map<number, MarcaDaNota>> {
     const linhas = await this.prisma.itemDoPacote.findMany({
       where: { pacoteId, item: 8, chave: { startsWith: 'nota:' } },
       select: { chave: true, naoTeve: true, observacao: true },
@@ -862,6 +865,14 @@ export class PacoteContabilService {
       const id = Number(l.chave.slice('nota:'.length));
       if (!Number.isInteger(id) || (!l.naoTeve && !l.observacao)) continue;
       mapa.set(id, { numero: l.observacao, semNota: l.naoTeve });
+    }
+    const semAnotacao = (saidas?.pagamentos ?? []).map((p) => p.idFnApagar).filter((id) => !mapa.has(id));
+    if (semAnotacao.length > 0) {
+      const daConta = await this.prisma.notaFiscalDoTitulo.findMany({
+        where: { idFnApagar: { in: semAnotacao } },
+        select: { idFnApagar: true, numero: true },
+      });
+      for (const n of daConta) mapa.set(n.idFnApagar, { numero: n.numero, semNota: false });
     }
     return mapa;
   }
@@ -879,7 +890,10 @@ export class PacoteContabilService {
     pacoteId: string,
     saidas: DadosDasSaidas,
   ): Promise<Map<number, IdentificacaoDoLancamento>> {
-    const [comprovantes, notas] = await Promise.all([this.comprovantes(pacoteId, saidas), this.notasAnotadas(pacoteId)]);
+    const [comprovantes, notas] = await Promise.all([
+      this.comprovantes(pacoteId, saidas),
+      this.notasAnotadas(pacoteId, saidas),
+    ]);
     const porLancamento = new Map<number, Pagamento[]>();
     for (const p of saidas.pagamentos) {
       if (p.idMovimento === null) continue;
@@ -913,7 +927,10 @@ export class PacoteContabilService {
       item === 8
         ? saidas.pagamentos
         : this.recorte(saidas.pagamentos, item === 13 ? 'lucros' : item === 14 ? 'link' : 'doacoes', cfg);
-    const [comprovantes, notas] = await Promise.all([this.comprovantes(pacoteId, saidas), this.notasAnotadas(pacoteId)]);
+    const [comprovantes, notas] = await Promise.all([
+      this.comprovantes(pacoteId, saidas),
+      this.notasAnotadas(pacoteId, saidas),
+    ]);
     return {
       lidoEm: saidas.lidoEm,
       pagamentos: [...lista]

@@ -388,6 +388,12 @@ export class CriarDespesaDto {
   @IsOptional() @IsBoolean() jaPaga?: boolean;
 
   /**
+   * O número da nota fiscal. Vai para todas as parcelas lançadas: a compra é
+   * uma só, e a nota também.
+   */
+  @IsOptional() @IsString() @MaxLength(60) numeroNotaFiscal?: string;
+
+  /**
    * Dia em que o dinheiro saiu (AAAA-MM-DD). Só vale com `jaPaga`; vazio cai no
    * vencimento, e na falta dele em hoje.
    *
@@ -405,6 +411,11 @@ export class CriarDespesaDto {
  * quanto do print colado da área de transferência — e o segundo não tem nome
  * nenhum, por isso o nome é opcional aqui.
  */
+/** O número da nota fiscal de um título. Vazio apaga. */
+export class NumeroNotaFiscalDto {
+  @IsOptional() @IsString() @MaxLength(60) numero?: string | null;
+}
+
 export class AnexarNotaDto {
   @IsString({ message: 'Escolha ou cole a nota.' })
   @Matches(/^data:[-\w.+]+\/[-\w.+]+;base64,/, {

@@ -1271,6 +1271,27 @@ enum StatusContaPagar {
   ERRO // falha ao enviar/processar no IXC
 }
 
+/// O número da nota fiscal de um título do IXC.
+///
+/// O IXC tem um "Número da nota", mas nesta base ele guarda a parcela
+/// ("16/48") — e a contabilidade pede o número da nota de cada pagamento
+/// (14/10/2026). Mora aqui, por título: escrito na conta (lançar ou editar) e
+/// lido pelo módulo Contabilidade, que o põe ao lado de cada pagamento.
+model NotaFiscalDoTitulo {
+  idFnApagar Int    @id @map("id_fn_apagar")
+  numero     String
+
+  /// O título em que ele foi escrito, quando veio de uma parcela irmã da
+  /// mesma compra. Null = escrito neste mesmo título.
+  copiadoDe Int? @map("copiado_de")
+
+  atualizadoPor String?  @map("atualizado_por")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("notas_fiscais_dos_titulos")
+}
+
 model ContaPagar {
   id String @id @default(uuid())
 

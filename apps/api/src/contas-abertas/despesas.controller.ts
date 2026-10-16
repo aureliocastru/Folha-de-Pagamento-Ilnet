@@ -8,6 +8,7 @@ import {
   ParseIntPipe,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   Res,
@@ -21,10 +22,12 @@ import {
   CriarDespesaDto,
   EditarTituloDto,
   ExcluirLoteDto,
+  NumeroNotaFiscalDto,
   PagarLoteDto,
   PagarTituloDto,
 } from './dto/despesa.dto';
 import { HistoricoPagamentosService } from './historico-pagamentos.service';
+import { NotasFiscaisService } from './notas-fiscais.service';
 import { PagamentosService } from './pagamentos.service';
 
 function usuarioId(req: Request): string | undefined {
@@ -44,7 +47,25 @@ export class DespesasController {
     private readonly pagamentos: PagamentosService,
     // Pagar por aqui torna velha a leitura guardada do "Já pago".
     private readonly historico: HistoricoPagamentosService,
+    private readonly notasFiscais: NotasFiscaisService,
   ) {}
+
+  /** O número da nota fiscal do título — a Contabilidade o lê daqui. */
+  @Get('contas-abertas/:idFnApagar/nota-fiscal')
+  notaFiscal(@Param('idFnApagar', ParseIntPipe) idFnApagar: number) {
+    return this.notasFiscais.doTitulo(idFnApagar);
+  }
+
+  /** Escreve o número, e o leva às outras parcelas da mesma compra. */
+  @Put('contas-abertas/:idFnApagar/nota-fiscal')
+  @HttpCode(200)
+  definirNotaFiscal(
+    @Param('idFnApagar', ParseIntPipe) idFnApagar: number,
+    @Body() dto: NumeroNotaFiscalDto,
+    @Req() req: Request,
+  ) {
+    return this.notasFiscais.definir(idFnApagar, dto.numero, usuarioNome(req));
+  }
 
   /**
    * Paga um título que já está no IXC. Pelo banco, aprova e deixa pronto; em
@@ -223,6 +244,14 @@ export class DespesasController {
     // é assinada: quem conferir o extrato de lá precisa saber quem a fez.
     const r = await this.service.lancar(dto, usuarioId(req), usuarioNome(req));
     if (dto.jaPaga) this.historico.esquecerLeituras();
+    // A conta já existe no IXC: o número da nota que não gravar não a desfaz.
+    await this.notasFiscais
+      .noLancamento(
+        r.contas.map((c) => c.idFnApagarIxc),
+        dto.numeroNotaFiscal,
+        usuarioNome(req),
+      )
+      .catch(() => undefined);
     return r;
   }
 }
