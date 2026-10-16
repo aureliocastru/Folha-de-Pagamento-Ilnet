@@ -157,13 +157,13 @@
   --barra: 23 24 26;
 
   /*
-   * A página é um azul bem escuro, e não o grafite do `tinta-50`: cinza atrás
+   * A página é quase preta, bem abaixo do grafite do `tinta-50`: cinza atrás
    * de cartão cinza deixava a tela inteira num tom só, e o que se veio ler não
-   * se destacava (16/10/2026). O azul fica só no fundo — o cartão, o campo e o
-   * realce dentro deles seguem no grafite, que agora se separa da página pela
-   * cor e não só pelo degrau de claro.
+   * se destacava (16/10/2026). Só o fundo desce — o cartão, o campo e o realce
+   * dentro deles seguem no grafite. Um azul bem escuro foi tentado antes e
+   * "não combinou" com o resto, que é todo cinza neutro.
    */
-  --fundo: 13 24 43;
+  --fundo: 14 15 17;
   --cabecalho: 29 30 33;
   /* O título sobe acima do cartão, e o resumo fica entre os dois: numa janela
      o título, o resumo, o nome das colunas e o campo têm cada um o seu tom, e

@@ -36,7 +36,7 @@ function pintar(tema: Tema): boolean {
   // A barra do navegador no celular acompanha o fundo da página.
   document
     .querySelector('meta[name="theme-color"]')
-    ?.setAttribute('content', escuro ? '#0D182B' : '#1E1F23');
+    ?.setAttribute('content', escuro ? '#0E0F11' : '#1E1F23');
   return escuro;
 }
 
