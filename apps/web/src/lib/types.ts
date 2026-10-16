@@ -546,6 +546,9 @@ export interface FornecedorParaPagar {
   beneficiarioId: string | null;
   quantidadePagamentos: number;
   ultimoPagamento: string | null;
+  /** A categoria que o "Lançar conta" já abre marcada para ele. */
+  categoriaId: string | null;
+  categoriaNome: string | null;
 }
 
 export interface PaginaFornecedoresParaPagar {

@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { AvulsosService } from './avulsos.service';
 
 /**
@@ -10,7 +10,9 @@ import { AvulsosService } from './avulsos.service';
  *  - o que o IXC já sabe — nome, documento, chave PIX — vem junto, senão quem
  *    paga teria de redigitar o que já existe;
  *  - a lista diz quem já recebeu por aqui, que é o que separa o cadastro novo
- *    do conhecido.
+ *    do conhecido;
+ *  - a categoria padrão do fornecedor é lida sem criar cadastro, e gravada no
+ *    cadastro daqui (criado na hora, se faltar).
  */
 
 const DO_IXC = {
@@ -38,6 +40,8 @@ function montarServico(
     doIxc?: unknown;
     pagina?: { itens: unknown[]; total: number; page: number; porPagina: number };
     conhecidos?: unknown[];
+    /** Categorias que existem, pelo id. */
+    categorias?: string[];
   } = {},
 ) {
   const prisma = {
@@ -48,6 +52,12 @@ function montarServico(
         id: 'novo-1',
         ...data,
       })),
+      update: jest.fn().mockResolvedValue({}),
+    },
+    categoriaDespesa: {
+      findUnique: jest.fn(async ({ where }: { where: { id: string } }) =>
+        (opts.categorias ?? []).includes(where.id) ? { id: where.id } : null,
+      ),
     },
   };
 
@@ -145,6 +155,8 @@ describe('AvulsosService.listarFornecedoresDoIxc', () => {
         {
           id: 'b-1',
           idFornecedorIxc: 88,
+          categoriaId: 'cat-combustivel',
+          categoria: { nome: 'Combustível' },
           pagamentos: [
             { data: new Date('2026-07-01') },
             { data: new Date('2026-08-10') },
@@ -161,12 +173,16 @@ describe('AvulsosService.listarFornecedoresDoIxc', () => {
       beneficiarioId: 'b-1',
       quantidadePagamentos: 2,
       ultimoPagamento: new Date('2026-08-10'),
+      categoriaId: 'cat-combustivel',
+      categoriaNome: 'Combustível',
     });
     expect(r.itens[1]).toMatchObject({
       idFornecedor: 90,
       beneficiarioId: null,
       quantidadePagamentos: 0,
       ultimoPagamento: null,
+      categoriaId: null,
+      categoriaNome: null,
     });
   });
 
@@ -177,5 +193,73 @@ describe('AvulsosService.listarFornecedoresDoIxc', () => {
 
     expect(r.itens).toEqual([]);
     expect(prisma.beneficiarioAvulso.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('AvulsosService — categoria padrão do fornecedor', () => {
+  it('lê a do cadastro daqui', async () => {
+    const { service } = montarServico({
+      existente: { categoriaId: 'cat-combustivel' },
+    });
+
+    expect(await service.categoriaPadraoDoFornecedor(88)).toEqual({
+      categoriaId: 'cat-combustivel',
+    });
+  });
+
+  it('fornecedor sem cadastro daqui não tem padrão, e ler não cria cadastro', async () => {
+    const { service, prisma } = montarServico();
+
+    expect(await service.categoriaPadraoDoFornecedor(88)).toEqual({
+      categoriaId: null,
+    });
+    expect(prisma.beneficiarioAvulso.create).not.toHaveBeenCalled();
+  });
+
+  it('grava no cadastro que já existe', async () => {
+    const { service, prisma } = montarServico({
+      existente: { id: 'b-1' },
+      categorias: ['cat-combustivel'],
+    });
+
+    await service.definirCategoriaPadraoDoFornecedor(88, 'cat-combustivel');
+
+    expect(prisma.beneficiarioAvulso.update).toHaveBeenCalledWith({
+      where: { id: 'b-1' },
+      data: { categoriaId: 'cat-combustivel' },
+    });
+    expect(prisma.beneficiarioAvulso.create).not.toHaveBeenCalled();
+  });
+
+  it('fornecedor que nunca passou por aqui ganha o cadastro na hora', async () => {
+    const { service, prisma } = montarServico({ categorias: ['cat-combustivel'] });
+
+    await service.definirCategoriaPadraoDoFornecedor(88, 'cat-combustivel');
+
+    expect(prisma.beneficiarioAvulso.create).toHaveBeenCalled();
+    expect(prisma.beneficiarioAvulso.update).toHaveBeenCalledWith({
+      where: { id: 'novo-1' },
+      data: { categoriaId: 'cat-combustivel' },
+    });
+  });
+
+  it('vazio limpa o padrão', async () => {
+    const { service, prisma } = montarServico({ existente: { id: 'b-1' } });
+
+    await service.definirCategoriaPadraoDoFornecedor(88, null);
+
+    expect(prisma.beneficiarioAvulso.update).toHaveBeenCalledWith({
+      where: { id: 'b-1' },
+      data: { categoriaId: null },
+    });
+  });
+
+  it('categoria que não existe mais é recusada antes de mexer no cadastro', async () => {
+    const { service, prisma } = montarServico({ existente: { id: 'b-1' } });
+
+    await expect(
+      service.definirCategoriaPadraoDoFornecedor(88, 'cat-apagada'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.beneficiarioAvulso.update).not.toHaveBeenCalled();
   });
 });

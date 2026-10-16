@@ -62,6 +62,12 @@ export interface FornecedorParaPagar extends FornecedorNoIxc {
   beneficiarioId: string | null;
   quantidadePagamentos: number;
   ultimoPagamento: Date | null;
+  /**
+   * A categoria em que as contas dele costumam entrar — a que o "Lançar conta"
+   * já abre marcada. Null = sem padrão.
+   */
+  categoriaId: string | null;
+  categoriaNome: string | null;
 }
 
 export interface PaginaFornecedoresParaPagar {
@@ -214,6 +220,8 @@ export class AvulsosService {
           select: {
             id: true,
             idFornecedorIxc: true,
+            categoriaId: true,
+            categoria: { select: { nome: true } },
             pagamentos: { select: { data: true } },
           },
         })
@@ -236,6 +244,8 @@ export class AvulsosService {
               (maior, p) => (!maior || p.data > maior ? p.data : maior),
               null,
             ) ?? null,
+          categoriaId: daqui?.categoriaId ?? null,
+          categoriaNome: daqui?.categoria?.nome ?? null,
         };
       }),
     };
@@ -307,6 +317,59 @@ export class AvulsosService {
         origem,
       },
     });
+  }
+
+  /**
+   * A categoria padrão de um fornecedor do IXC: a que o "Lançar conta" já abre
+   * marcada quando ele é escolhido (o posto abre em Combustível).
+   *
+   * Fornecedor que nunca passou por aqui não tem cadastro daqui, e então não
+   * tem padrão — ler não cria cadastro.
+   */
+  async categoriaPadraoDoFornecedor(
+    idFornecedorIxc: number,
+  ): Promise<{ categoriaId: string | null }> {
+    const daqui = await this.prisma.beneficiarioAvulso.findFirst({
+      where: { idFornecedorIxc },
+      select: { categoriaId: true },
+    });
+    return { categoriaId: daqui?.categoriaId ?? null };
+  }
+
+  /**
+   * Marca a categoria padrão de um fornecedor do IXC, pela tela de
+   * Fornecedores. Vazio limpa.
+   *
+   * O padrão mora no cadastro daqui — o mesmo que o pagamento avulso já lê e
+   * regrava —, criado na hora se o fornecedor ainda não tiver um.
+   */
+  async definirCategoriaPadraoDoFornecedor(
+    idFornecedorIxc: number,
+    categoriaId: string | null,
+    origem: OrigemLancamento = OrigemLancamento.CONTAS_PAGAR,
+  ): Promise<{ categoriaId: string | null }> {
+    if (categoriaId) {
+      const categoria = await this.prisma.categoriaDespesa.findUnique({
+        where: { id: categoriaId },
+        select: { id: true },
+      });
+      if (!categoria) {
+        throw new BadRequestException(
+          'A categoria escolhida não existe mais — recarregue a tela e escolha ' +
+            'outra.',
+        );
+      }
+    }
+
+    const beneficiario = await this.garantirBeneficiarioDoIxc(
+      idFornecedorIxc,
+      origem,
+    );
+    await this.prisma.beneficiarioAvulso.update({
+      where: { id: beneficiario.id },
+      data: { categoriaId },
+    });
+    return { categoriaId };
   }
 
   /**

@@ -424,6 +424,39 @@ export function NovaDespesa({
   }, [pixDoCadastro, bancoDoFornecedor.data?.tipoChavePix]);
 
   /**
+   * A categoria padrão do fornecedor, marcada na tela de Fornecedores: o posto
+   * abre em Combustível. Na edição não: a conta já tem a dela.
+   */
+  const categoriaDoFornecedor = useQuery({
+    queryKey: ['categoria-do-fornecedor', fornecedor?.idFornecedor],
+    queryFn: async () =>
+      (
+        await api.get<{ categoriaId: string | null }>(
+          `/avulsos/fornecedores-ixc/${fornecedor!.idFornecedor}/categoria`,
+        )
+      ).data,
+    enabled: !!fornecedor && !edicao,
+    retry: 0,
+  });
+
+  /**
+   * Qual categoria veio do fornecedor, e não da mão de alguém. Trocar de
+   * fornecedor troca essa (ou a tira, se o novo não tem padrão); a escolhida à
+   * mão, ou a que veio pronta de uma parcela antecipada, não se mexe.
+   */
+  const categoriaQueVeioDoFornecedor = useRef<string | null>(null);
+  const padraoDoFornecedor = categoriaDoFornecedor.data;
+  useEffect(() => {
+    if (!padraoDoFornecedor) return;
+    if (categoriaId && categoriaId !== categoriaQueVeioDoFornecedor.current) return;
+    categoriaQueVeioDoFornecedor.current = padraoDoFornecedor.categoriaId;
+    setCategoriaId(padraoDoFornecedor.categoriaId ?? '');
+    // Só quando o padrão de um fornecedor chega: escolher a categoria à mão
+    // não pode disparar isto de novo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [padraoDoFornecedor]);
+
+  /**
    * O dia em que o dinheiro saiu passa a valer como emissão e vencimento.
    *
    * Uma conta paga antes de existir no IXC é registro retroativo: ela não tem

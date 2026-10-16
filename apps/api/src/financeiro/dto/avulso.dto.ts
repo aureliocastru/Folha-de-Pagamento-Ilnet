@@ -214,6 +214,18 @@ export class QueryFornecedorIxcDto {
 }
 
 /** O que a tela pode mudar no cadastro de fornecedor do próprio IXC. */
+/** A categoria padrão de um fornecedor do IXC. */
+export class CategoriaPadraoDoFornecedorDto {
+  /** Vazio limpa o padrão. */
+  @IsOptional()
+  @Transform(({ value }) => (value === '' || value == null ? null : value))
+  @IsUUID()
+  categoriaId?: string | null;
+
+  /** De qual tela veio — decide a lista do cadastro, se ele nascer agora. */
+  @IsOptional() @IsString() modulo?: string;
+}
+
 export class EditarFornecedorIxcDto {
   /**
    * Como a pessoa é conhecida ("Deda pedreiro"). Texto vazio limpa o apelido,

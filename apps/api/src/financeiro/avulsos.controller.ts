@@ -5,8 +5,10 @@ import {
   Get,
   HttpCode,
   Param,
+  ParseIntPipe,
   Patch,
   Post,
+  Put,
   Query,
   Req,
 } from '@nestjs/common';
@@ -14,6 +16,7 @@ import { OrigemLancamento } from '@prisma/client';
 import type { Request } from 'express';
 import { AvulsosService } from './avulsos.service';
 import {
+  CategoriaPadraoDoFornecedorDto,
   CriarBeneficiarioDto,
   EditarFornecedorIxcDto,
   PagarAvulsoDto,
@@ -89,6 +92,25 @@ export class AvulsosController {
     @Body() dto: EditarFornecedorIxcDto,
   ) {
     return this.service.editarFornecedorDoIxc(Number(id), dto);
+  }
+
+  /** A categoria padrão do fornecedor: a que o "Lançar conta" abre marcada. */
+  @Get('fornecedores-ixc/:id/categoria')
+  categoriaPadraoDoFornecedor(@Param('id', ParseIntPipe) id: number) {
+    return this.service.categoriaPadraoDoFornecedor(id);
+  }
+
+  @Put('fornecedores-ixc/:id/categoria')
+  @HttpCode(200)
+  definirCategoriaPadraoDoFornecedor(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: CategoriaPadraoDoFornecedorDto,
+  ) {
+    return this.service.definirCategoriaPadraoDoFornecedor(
+      id,
+      dto.categoriaId ?? null,
+      origemDoModulo(dto.modulo),
+    );
   }
 
   /** O cadastro daqui para um fornecedor do IXC — cria na primeira vez. */

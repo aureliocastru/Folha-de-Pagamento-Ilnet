@@ -233,26 +233,48 @@ export function Avulsos({
   });
 
   /**
-   * Grava o nome fantasia no cadastro do IXC. É o apelido pelo qual a pessoa é
-   * conhecida — e é por ele que a busca desta tela passa a encontrá-la, aqui e
-   * lá.
+   * Grava o que mudou no Editar do fornecedor: o nome fantasia vai para o
+   * cadastro do IXC — é o apelido pelo qual a pessoa é conhecida, e é por ele
+   * que a busca passa a encontrá-la, aqui e lá —; a categoria padrão fica aqui,
+   * porque o IXC não tem onde guardá-la.
    */
   const salvarFornecedorIxc = useMutation({
-    mutationFn: async (dados: { idFornecedor: number; nomeFantasia: string }) =>
-      (
-        await api.patch<FornecedorParaPagar>(
-          `/avulsos/fornecedores-ixc/${dados.idFornecedor}`,
-          { nomeFantasia: dados.nomeFantasia },
-        )
-      ).data,
-    onSuccess: (f) => {
+    mutationFn: async (
+      dados: { fornecedor: FornecedorParaPagar } & EdicaoDoFornecedor,
+    ) => {
+      const id = dados.fornecedor.idFornecedor;
+      if (dados.nomeFantasia !== undefined) {
+        await api.patch(`/avulsos/fornecedores-ixc/${id}`, {
+          nomeFantasia: dados.nomeFantasia,
+        });
+      }
+      if (dados.categoriaId !== undefined) {
+        await api.put(`/avulsos/fornecedores-ixc/${id}/categoria`, {
+          categoriaId: dados.categoriaId,
+          modulo,
+        });
+      }
+      return dados;
+    },
+    onSuccess: (d) => {
       void qc.invalidateQueries({ queryKey: ['fornecedores-ixc-avulsos'] });
+      void qc.invalidateQueries({ queryKey: ['avulsos'] });
+      void qc.invalidateQueries({ queryKey: ['categoria-do-fornecedor'] });
       setEditandoFornecedor(null);
-      avisar(
-        f.nomeFantasia
-          ? `${f.nome} agora é "${f.nomeFantasia}" no IXC.`
-          : `Apelido de ${f.nome} apagado no IXC.`,
-      );
+      const fantasia = d.nomeFantasia?.trim();
+      const partes = [
+        d.nomeFantasia === undefined
+          ? null
+          : fantasia
+            ? `agora é "${fantasia}" no IXC`
+            : 'ficou sem apelido no IXC',
+        d.categoriaId === undefined
+          ? null
+          : d.categoriaNome
+            ? `abre em ${d.categoriaNome} ao lançar conta`
+            : 'ficou sem categoria padrão',
+      ].filter(Boolean);
+      avisar(`${d.fornecedor.nome} ${partes.join(' e ')}.`);
     },
     onError: (err) => avisar(mensagemErro(err), true),
   });
@@ -736,6 +758,7 @@ export function Avulsos({
                 <tr>
                   <th className="th">Fornecedor no IXC</th>
                   <th className="th">CPF / CNPJ</th>
+                  <th className="th">Categoria padrão</th>
                   <th className="th">Por aqui</th>
                   <th className="th text-right">Ação</th>
                 </tr>
@@ -743,14 +766,14 @@ export function Avulsos({
               <tbody>
                 {fornecedoresIxc.isLoading && (
                   <tr>
-                    <td colSpan={4}>
+                    <td colSpan={5}>
                       <Carregando texto="Lendo o cadastro do IXC…" />
                     </td>
                   </tr>
                 )}
                 {fornecedoresIxc.error && (
                   <tr>
-                    <td colSpan={4}>
+                    <td colSpan={5}>
                       <Vazio titulo="Não deu para ler o IXC">
                         {mensagemErro(fornecedoresIxc.error)}
                       </Vazio>
@@ -759,7 +782,7 @@ export function Avulsos({
                 )}
                 {fornecedoresIxc.data?.itens.length === 0 && (
                   <tr>
-                    <td colSpan={4}>
+                    <td colSpan={5}>
                       <Vazio titulo="Ninguém com esse nome no IXC">
                         A busca procura pela razão social e pelo nome fantasia
                         do cadastro de fornecedores.
@@ -786,6 +809,25 @@ export function Avulsos({
                     </td>
                     <td className="td num text-tinta-500">
                       {f.cpfCnpj ?? '—'}
+                    </td>
+                    {/* A que o "Lançar conta" já abre marcada para ele. Clicar
+                        abre o Editar, onde ela se troca. */}
+                    <td className="td">
+                      <button
+                        onClick={() => setEditandoFornecedor(f)}
+                        className="text-left"
+                        title="Trocar a categoria padrão"
+                      >
+                        {f.categoriaNome ? (
+                          <Selo tom="marca" pequeno>
+                            {f.categoriaNome}
+                          </Selo>
+                        ) : (
+                          <span className="text-xs text-tinta-400 hover:text-brand-600">
+                            sem categoria
+                          </span>
+                        )}
+                      </button>
                     </td>
                     <td className="td text-tinta-500">
                       {f.beneficiarioId ? (
@@ -1035,12 +1077,14 @@ export function Avulsos({
       {editandoFornecedor && (
         <FormularioFornecedorIxc
           fornecedor={editandoFornecedor}
+          categorias={categorias.data}
+          carregandoCategorias={categorias.isLoading}
           ocupado={salvarFornecedorIxc.isPending}
           onCancelar={() => setEditandoFornecedor(null)}
-          onConfirmar={(nomeFantasia) =>
+          onConfirmar={(edicao) =>
             salvarFornecedorIxc.mutate({
-              idFornecedor: editandoFornecedor.idFornecedor,
-              nomeFantasia,
+              fornecedor: editandoFornecedor,
+              ...edicao,
             })
           }
         />
@@ -1049,35 +1093,72 @@ export function Avulsos({
   );
 }
 
+/** O que mudou no Editar do fornecedor; o que não mudou não vai. */
+interface EdicaoDoFornecedor {
+  nomeFantasia?: string;
+  categoriaId?: string | null;
+  categoriaNome?: string | null;
+}
+
 /**
- * Edita o cadastro do fornecedor no próprio IXC.
+ * Edita o fornecedor: o nome fantasia, no próprio IXC, e a categoria padrão,
+ * aqui.
  *
- * Só o nome fantasia se escreve daqui — o resto está à vista para conferir que
- * é esta a pessoa antes de mexer no cadastro dela. Razão social, documento e
- * contato são o que identifica o fornecedor dentro do IXC e mudam a vida de
- * quem emite nota contra ele; o apelido, não: ele existe justamente para quem
- * procura a pessoa pelo nome de que se lembra.
+ * Do cadastro do IXC só o nome fantasia se escreve daqui — o resto está à vista
+ * para conferir que é esta a pessoa antes de mexer no cadastro dela. Razão
+ * social, documento e contato são o que identifica o fornecedor dentro do IXC
+ * e mudam a vida de quem emite nota contra ele; o apelido, não: ele existe
+ * justamente para quem procura a pessoa pelo nome de que se lembra.
  */
 function FormularioFornecedorIxc({
   fornecedor,
+  categorias,
+  carregandoCategorias,
   ocupado,
   onCancelar,
   onConfirmar,
 }: {
   fornecedor: FornecedorParaPagar;
+  categorias: CategoriaDespesa[] | undefined;
+  carregandoCategorias: boolean;
   ocupado: boolean;
   onCancelar: () => void;
-  onConfirmar: (nomeFantasia: string) => void;
+  onConfirmar: (edicao: EdicaoDoFornecedor) => void;
 }) {
   const [fantasia, setFantasia] = useState(fornecedor.nomeFantasia ?? '');
-  const mudou = fantasia.trim() !== (fornecedor.nomeFantasia ?? '').trim();
+  const [categoriaId, setCategoriaId] = useState(fornecedor.categoriaId ?? '');
+  const mudouFantasia =
+    fantasia.trim() !== (fornecedor.nomeFantasia ?? '').trim();
+  const mudouCategoria = categoriaId !== (fornecedor.categoriaId ?? '');
+
+  function salvar() {
+    onConfirmar({
+      ...(mudouFantasia ? { nomeFantasia: fantasia } : {}),
+      ...(mudouCategoria
+        ? {
+            categoriaId: categoriaId || null,
+            categoriaNome:
+              categorias?.find((c) => c.id === categoriaId)?.nome ?? null,
+          }
+        : {}),
+    });
+  }
 
   return (
-    <Janela
-      titulo={`Editar no IXC — ${fornecedor.nome}`}
-      onFechar={onCancelar}
-    >
+    <Janela titulo={`Editar — ${fornecedor.nome}`} onFechar={onCancelar}>
       <div className="grid max-w-2xl grid-cols-1 gap-3">
+        <Campo label="Categoria padrão">
+          <SeletorDeCategoria
+            categorias={categorias}
+            value={categoriaId}
+            vazio="Sem categoria padrão"
+            carregando={carregandoCategorias}
+            onChange={setCategoriaId}
+          />
+          <p className="ajuda">
+            Já vem marcada ao lançar conta deste fornecedor.
+          </p>
+        </Campo>
         <Campo label="Fantasia (como é conhecido)">
           <input
             value={fantasia}
@@ -1110,11 +1191,11 @@ function FormularioFornecedorIxc({
 
       <div className="mt-5 flex flex-wrap gap-3 border-t border-tinta-100 pt-4">
         <button
-          onClick={() => onConfirmar(fantasia)}
-          disabled={!mudou || ocupado}
+          onClick={salvar}
+          disabled={(!mudouFantasia && !mudouCategoria) || ocupado}
           className="btn btn-primario"
         >
-          {ocupado ? 'Salvando no IXC…' : 'Salvar no IXC'}
+          {ocupado ? 'Salvando…' : 'Salvar'}
         </button>
         <button onClick={onCancelar} className="btn btn-neutro">
           Cancelar
