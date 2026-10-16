@@ -50,6 +50,9 @@ export function Layout({ modulo }: { modulo: Modulo }) {
  * moram os números — ficar sendo a única coisa clara e disputada da tela. Os
  * itens vêm do módulo: a casca é a mesma para todos.
  *
+ * Enxuta de propósito: ícone de 16px, texto de 13px, item baixo. Era tudo um
+ * número maior, e a barra disputava atenção com a tela (16/10/2026).
+ *
  * Ela continua escura no tema escuro, e por isso usa branco com transparência
  * em vez da escala `tinta`: essa escala vira do avesso lá, e o que aqui é
  * texto legível sobre fundo escuro viraria escuro sobre escuro.
@@ -71,8 +74,8 @@ function LayoutComputador({ modulo }: { modulo: Modulo }) {
 
   return (
     <div className="flex min-h-screen bg-fundo">
-      <aside className="sticky top-0 flex h-screen w-[248px] shrink-0 flex-col bg-barra">
-        <div className="px-6 pb-6 pt-7">
+      <aside className="sticky top-0 flex h-screen w-[232px] shrink-0 flex-col border-r border-white/[0.06] bg-barra">
+        <div className="px-5 pb-5 pt-6">
           {/* A logo tem fundo transparente e vive bem sobre a tinta escura —
               o azul dela é claro o bastante para se ler aqui. */}
           <img
@@ -80,22 +83,22 @@ function LayoutComputador({ modulo }: { modulo: Modulo }) {
             alt="ilnet"
             width={120}
             height={74}
-            className="h-auto w-[104px]"
+            className="h-auto w-[84px]"
           />
-          <div className="mt-2.5 text-[10px] font-medium uppercase tracking-[0.18em] text-white/45">
+          <div className="mt-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/40">
             {modulo.nome}
           </div>
         </div>
 
         <NavLink
           to="/modulos"
-          className="mx-3 mb-3 flex items-center gap-2.5 rounded-xl border border-white/10 px-3 py-2 text-[12px] font-medium text-white/70 transition hover:border-white/20 hover:bg-white/5 hover:text-white"
+          className="mx-3 mb-4 flex items-center gap-2 rounded-lg bg-white/[0.04] px-2.5 py-1.5 text-[12px] font-medium text-white/60 ring-1 ring-inset ring-white/[0.07] transition hover:bg-white/[0.08] hover:text-white"
         >
-          <IconeGrade className="text-white/40" />
+          <IconeGrade className="h-3.5 w-3.5 text-white/40" />
           Trocar de módulo
         </NavLink>
 
-        <nav className="flex-1 space-y-0.5 overflow-y-auto px-3">
+        <nav className="flex-1 space-y-px overflow-y-auto px-3">
           {modulo.menu
             .filter((item) => itemDoMenuAparece(item, usuario))
             .map((item) => (
@@ -103,26 +106,26 @@ function LayoutComputador({ modulo }: { modulo: Modulo }) {
                 key={item.to}
                 to={item.to}
                 className={({ isActive }) =>
-                  `group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition duration-150 ${
+                  `group relative flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-medium leading-5 transition-colors duration-150 ${
                     isActive
-                      ? 'bg-white/[0.07] text-white'
-                      : 'text-white/70 hover:bg-white/[0.04] hover:text-white'
+                      ? 'bg-white/[0.08] text-white'
+                      : 'text-white/60 hover:bg-white/[0.04] hover:text-white/90'
                   }`
                 }
               >
                 {({ isActive }) => (
                   <>
                     <span
-                      className={`absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-400 transition-all duration-200 ${
+                      className={`absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-400 transition-all duration-200 ${
                         isActive ? 'opacity-100' : 'scale-y-0 opacity-0'
                       }`}
                     />
                     <item.icone
-                      className={
+                      className={`h-4 w-4 shrink-0 ${
                         isActive
                           ? 'text-brand-400'
-                          : 'text-white/40 group-hover:text-white/70'
-                      }
+                          : 'text-white/35 group-hover:text-white/60'
+                      }`}
                     />
                     {item.label}
                     {avisos[item.to] && (
@@ -134,31 +137,30 @@ function LayoutComputador({ modulo }: { modulo: Modulo }) {
             ))}
         </nav>
 
-        <div className="m-3 rounded-xl bg-white/[0.04] p-3.5">
+        <div className="mt-2 border-t border-white/[0.06] p-3">
           {/* O caminho é o deste módulo, e não o da folha: quem não abre a
               folha caía num módulo trancado ao clicar no próprio nome. */}
           <NavLink
             to={`${modulo.base}/minha-conta`}
-            className="flex items-center gap-2.5 rounded-lg transition hover:opacity-80"
+            className="-mx-1 flex items-center gap-2.5 rounded-lg px-1 py-1 transition hover:bg-white/[0.04]"
             title="Minha conta"
           >
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-500/20 font-display text-xs font-semibold text-brand-300">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand-500/20 font-display text-[10px] font-semibold text-brand-300">
               {(usuario?.nome ?? '?').slice(0, 2).toUpperCase()}
             </span>
             <div className="min-w-0 leading-tight">
-              <div className="truncate text-[13px] font-medium text-white">
+              <div className="truncate text-[12.5px] font-medium text-white">
                 {usuario?.nome}
               </div>
-              <div className="truncate text-[11px] text-white/45">
+              <div className="truncate text-[11px] text-white/40">
                 {usuario?.email}
               </div>
             </div>
           </NavLink>
-          <p className="mt-2 text-[10px] text-white/35">Versão de {__VERSAO__}</p>
-          <div className="mt-3 flex gap-2">
+          <div className="mt-2.5 flex gap-1.5">
             <button
               onClick={sair}
-              className="flex-1 rounded-lg border border-white/10 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-white/70 transition hover:border-white/20 hover:bg-white/5 hover:text-white"
+              className="flex-1 rounded-md py-1 text-[11px] font-semibold uppercase tracking-wider text-white/60 ring-1 ring-inset ring-white/10 transition hover:bg-white/5 hover:text-white"
             >
               Sair
             </button>
@@ -172,14 +174,19 @@ function LayoutComputador({ modulo }: { modulo: Modulo }) {
                   ? 'Voltar para o tema claro'
                   : 'Trocar para o tema escuro'
               }
-              className="rounded-lg border border-white/10 px-2.5 text-white/70 transition hover:border-white/20 hover:bg-white/5 hover:text-white"
+              className="rounded-md px-2 text-white/60 ring-1 ring-inset ring-white/10 transition hover:bg-white/5 hover:text-white"
             >
-              {escuro ? <IconeSol /> : <IconeLua />}
+              {escuro ? (
+                <IconeSol className="h-3.5 w-3.5" />
+              ) : (
+                <IconeLua className="h-3.5 w-3.5" />
+              )}
               <span className="sr-only">
                 {escuro ? 'Tema claro' : 'Tema escuro'}
               </span>
             </button>
           </div>
+          <p className="mt-2 text-[10px] text-white/30">Versão de {__VERSAO__}</p>
         </div>
       </aside>
 

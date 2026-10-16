@@ -804,7 +804,7 @@
  * lado.
  *
  * Só no tablet (768–1023px): entre essas larguras a barra lateral fica aberta
- * e leva 248px do conteúdo, mas ainda há largura para rolar uma tabela. No
+ * e leva 232px do conteúdo, mas ainda há largura para rolar uma tabela. No
  * celular a tabela deixa de ser tabela — ver o bloco seguinte.
  *
  * O alvo é `.overflow-x-auto`, e não a moldura `.rolagem-fina` que costuma vir

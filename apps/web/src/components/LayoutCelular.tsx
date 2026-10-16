@@ -228,7 +228,9 @@ function GavetaDoModulo({
                       isActive ? 'opacity-100' : 'opacity-0'
                     }`}
                   />
-                  <item.icone className={isActive ? 'text-brand-400' : 'text-white/40'} />
+                  <item.icone
+                    className={`h-4 w-4 shrink-0 ${isActive ? 'text-brand-400' : 'text-white/40'}`}
+                  />
                   {item.label}
                   {avisos[item.to] && (
                     <PontoDeAviso {...avisos[item.to]} className="ml-auto" />
