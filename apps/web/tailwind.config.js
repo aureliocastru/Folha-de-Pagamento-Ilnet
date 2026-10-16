@@ -55,6 +55,8 @@ export default {
         papel: 'rgb(var(--papel) / <alpha-value>)',
         /** O fundo da página, atrás dos cartões. */
         fundo: 'rgb(var(--fundo) / <alpha-value>)',
+        /** A divisória entre uma linha e outra, nas tabelas e nas listas. */
+        fio: 'rgb(var(--fio) / <alpha-value>)',
         /**
          * O fundo do campo de digitar. Tem cor própria porque precisa se
          * distinguir do cartão e da página ao mesmo tempo — usar a de uma

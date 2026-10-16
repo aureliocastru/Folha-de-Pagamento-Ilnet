@@ -50,17 +50,22 @@
   /*
    * A faixa da linha par e o realce do ponteiro, na tabela.
    *
-   * `--faixa` é o tom fraco que alterna com o fundo do cartão para separar uma
-   * conta da outra por área, e não só pelo fio de cima. Ele é de propósito quase
-   * imperceptível sozinho: o que se lê não é a cor, é a alternância. Um tom mais
-   * forte transformaria uma lista de 500 títulos numa grade listrada.
+   * `--faixa` é o tom que alterna com o fundo do cartão para separar uma conta
+   * da outra por área, e não só pelo fio de cima. Era quase imperceptível (seis,
+   * oito pontos do cartão), e as linhas pareciam todas da mesma cor; agora a
+   * diferença é a do IXC, onde uma linha é clara e a outra escura de verdade
+   * (16/10/2026).
    *
    * `--linha-hover` precisa ficar acima dos dois — do cartão e da faixa —, ou o
-   * ponteiro sobre uma linha par não daria retorno nenhum. Era `tinta-50/70`,
-   * que sobre o branco dá quase exatamente a cor da faixa nova.
+   * ponteiro sobre uma linha par não daria retorno nenhum.
+   *
+   * `--fio` é a divisória entre uma linha e outra, nas tabelas e nas listas.
+   * Mais marcado que a borda de campo (`tinta-200`): ao lado do IXC, cujo fio
+   * fica uns 45 pontos acima da linha, o nosso parecia "muito fraquinho".
    */
-  --faixa: 247 247 249;
-  --linha-hover: 234 235 238;
+  --faixa: 241 242 245;
+  --linha-hover: 229 231 236;
+  --fio: 176 180 188;
 
   /*
    * O fundo do campo de digitar, e o dele em foco.
@@ -173,10 +178,12 @@
 
   /*
    * No escuro a faixa é mais clara que o cartão, não mais escura: abaixo dele
-   * ela cairia no fundo da página e a linha par pareceria um buraco.
+   * ela cairia no fundo da página e a linha par pareceria um buraco. São treze
+   * pontos de diferença, como as duas cores de linha do IXC.
    */
-  --faixa: 49 50 54;
-  --linha-hover: 64 66 72;
+  --faixa: 56 58 63;
+  --linha-hover: 70 72 78;
+  --fio: 94 97 104;
 
   /*
    * Mais escuro que o cartão **e** que a página — as duas superfícies em que
@@ -431,8 +438,9 @@
     --papel: 255 255 255;
     --campo: 255 255 255;
     --campo-foco: 255 255 255;
-    --faixa: 247 247 249;
-    --linha-hover: 234 235 238;
+    --faixa: 241 242 245;
+    --linha-hover: 229 231 236;
+    --fio: 176 180 188;
     --cabecalho: 233 234 237;
     --titulo: 233 234 237;
     --realce: 240 241 243;
@@ -481,20 +489,14 @@
     @apply px-3 py-2 align-middle text-tinta-700;
   }
   /*
-   * O fio que separa uma linha da outra é `tinta-200`, e não `tinta-100`, por
-   * um motivo medido: no tema escuro `tinta-100` é rgb(28,39,61) e o cartão
-   * embaixo dele é rgb(23,33,54) — cinco pontos de diferença. A linha estava
-   * lá, pintada quase na cor do fundo, e numa tabela de linhas altas (cada
-   * item com nome, observação e selos) não dava para dizer onde um item
-   * acabava e o outro começava.
-   *
-   * `tinta-200` é o mesmo tom das bordas de campo e de botão, que se lêem nos
-   * dois temas — é a espessura de contraste que uma divisória precisa ter.
-   * `tinta-100` continua servindo ao que ele faz bem: contorno de caixa e
-   * fundo de superfície discreta.
+   * O fio que separa uma linha da outra é `--fio`, e não `tinta-100` nem
+   * `tinta-200`, por um motivo medido: o `tinta-100` ficava a cinco pontos do
+   * cartão, e o `tinta-200` — o tom da borda de campo — ainda se perdia ao lado
+   * do IXC. Numa tabela de linhas altas (cada item com nome, observação e
+   * selos), o fio é o que diz onde um item acaba e o outro começa.
    */
   .linha {
-    @apply border-t border-tinta-200 transition-colors;
+    @apply border-t border-fio transition-colors;
   }
   /*
    * Faixa alternada, como na tela do IXC: uma conta em cima do fundo do cartão,
@@ -548,7 +550,7 @@
    * isto a correção valeria só para metade das telas.
    */
   .lista-dividida {
-    @apply divide-y divide-tinta-200;
+    @apply divide-y divide-fio;
   }
   /*
    * A lista em que cada item é um cartão solto, e não uma linha entre fios: o
@@ -565,7 +567,7 @@
     border-left: 4px solid theme('colors.brand.500');
   }
   .item-dividido {
-    @apply border-b border-tinta-200 last:border-0;
+    @apply border-b border-fio last:border-0;
   }
   /*
    * Linha marcada: um véu da cor da marca e uma faixa na borda esquerda.
@@ -881,7 +883,7 @@
   }
   table:not(.tabela-fixa) > tbody > tr + tr,
   table:not(.tabela-fixa) > tfoot > tr {
-    border-top: 1px solid rgb(var(--tinta-200));
+    border-top: 1px solid rgb(var(--fio));
   }
 
   /* Uma linha por dado: o nome da coluna à esquerda, o valor à direita. */
