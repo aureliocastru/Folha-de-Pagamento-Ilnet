@@ -1,7 +1,8 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { api, mensagemErro, mensagemErroDeArquivo } from '../lib/api';
 import type { NotaDoTitulo } from '../lib/types';
+import { CampoDaNota, subirNotas, type ArquivoDaNota as NotaEscolhida } from './CampoDaNota';
 import { FotoAmpliada } from './ui';
 
 /** O arquivo já lido do IXC, guardado para não pedir duas vezes. */
@@ -48,6 +49,85 @@ export function NotasDoTitulo({
   }
   if (guardadas.data?.length) return <NotasGuardadas notas={guardadas.data} />;
   return <NotasNoIxc idFnApagar={idFnApagar} filtro={filtro} />;
+}
+
+/**
+ * Anexa nota a um título que já existe: a nota fiscal que chega depois do
+ * pagamento. Sobe ao título no IXC, que é de onde o item 8 da Contabilidade
+ * ("nota, recibo ou comprovante de cada pagamento") a lê.
+ *
+ * Escolher ou colar não manda nada: a nota aparece aqui, para conferir, e só
+ * sobe no "Enviar". Um print colado sem querer não vai parar no IXC.
+ */
+export function AnexarNotaAoTitulo({
+  idFnApagar,
+  descricao,
+}: {
+  idFnApagar: number;
+  /** O que a aba de arquivos do IXC mostra no lugar do nome. */
+  descricao: string;
+}) {
+  const qc = useQueryClient();
+  const [notas, setNotas] = useState<NotaEscolhida[]>([]);
+  const [resultado, setResultado] = useState<{ ok: boolean; texto: string } | null>(
+    null,
+  );
+
+  const enviar = useMutation({
+    mutationFn: () =>
+      subirNotas(
+        idFnApagar,
+        notas.map((n) => ({ ...n, descricao })),
+      ),
+    onSuccess: ({ falhas, motivo }) => {
+      void qc.invalidateQueries({ queryKey: ['notas-do-titulo', idFnApagar] });
+      void qc.invalidateQueries({ queryKey: ['notas-guardadas', 'titulo', idFnApagar] });
+      const subiram = notas.length - falhas.length;
+      // Fica na tela só o que não subiu, para tentar de novo.
+      setNotas(falhas);
+      setResultado(
+        falhas.length === 0
+          ? { ok: true, texto: subiram === 1 ? 'Nota anexada.' : `${subiram} notas anexadas.` }
+          : { ok: false, texto: `Não subiu: ${motivo}` },
+      );
+    },
+  });
+
+  return (
+    <div className="mt-3">
+      <CampoDaNota
+        notas={notas}
+        onMudar={(novas) => {
+          setNotas(novas);
+          setResultado(null);
+        }}
+        rotulo=""
+      />
+      {notas.length > 0 && (
+        <button
+          type="button"
+          onClick={() => enviar.mutate()}
+          disabled={enviar.isPending}
+          className="btn btn-primario btn-p mt-2"
+        >
+          {enviar.isPending
+            ? 'Enviando…'
+            : notas.length === 1
+              ? 'Enviar a nota'
+              : `Enviar as ${notas.length} notas`}
+        </button>
+      )}
+      {resultado && (
+        <p
+          className={`mt-1 text-sm ${
+            resultado.ok ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600'
+          }`}
+        >
+          {resultado.texto}
+        </p>
+      )}
+    </div>
+  );
 }
 
 /** As notas guardadas de uma das notas de uma conta — a do veículo, na ficha dele. */

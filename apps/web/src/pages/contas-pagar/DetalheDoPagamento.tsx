@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
-import { NotasDoTitulo } from '../../components/NotasDoTitulo';
+import { AnexarNotaAoTitulo, NotasDoTitulo } from '../../components/NotasDoTitulo';
 import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
 import { CategoriasDeDentro } from '../../components/SeloDaCategoria';
 import { estaClassificado } from '../../lib/categorias';
@@ -282,6 +282,12 @@ export function DetalheDoPagamento({
         )}
 
         <NotasDoTitulo idFnApagar={pagamento.idFnApagar} />
+        {/* A nota fiscal que chega depois de pago vai para o título no IXC —
+            e de lá para a Contabilidade. */}
+        <AnexarNotaAoTitulo
+          idFnApagar={pagamento.idFnApagar}
+          descricao={pagamento.observacao?.trim().slice(0, 80) || 'Nota fiscal'}
+        />
 
         {pagamento.origem && (
           <div className="mt-4 rounded-xl bg-tinta-100 px-4 py-3 text-sm text-tinta-700">
