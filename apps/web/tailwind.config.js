@@ -53,6 +53,8 @@ export default {
          * tela.
          */
         papel: 'rgb(var(--papel) / <alpha-value>)',
+        /** O fundo da página, atrás dos cartões. */
+        fundo: 'rgb(var(--fundo) / <alpha-value>)',
         /**
          * O fundo do campo de digitar. Tem cor própria porque precisa se
          * distinguir do cartão e da página ao mesmo tempo — usar a de uma

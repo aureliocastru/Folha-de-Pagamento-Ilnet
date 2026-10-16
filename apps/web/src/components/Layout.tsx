@@ -70,7 +70,7 @@ function LayoutComputador({ modulo }: { modulo: Modulo }) {
   }
 
   return (
-    <div className="flex min-h-screen bg-tinta-50">
+    <div className="flex min-h-screen bg-fundo">
       <aside className="sticky top-0 flex h-screen w-[248px] shrink-0 flex-col bg-barra">
         <div className="px-6 pb-6 pt-7">
           {/* A logo tem fundo transparente e vive bem sobre a tinta escura —

@@ -52,7 +52,7 @@ export function Login() {
   return (
     // `100dvh` e não `100vh`: no celular a barra do navegador entra e sai, e
     // com `vh` o botão Entrar nasce empurrado para fora da tela.
-    <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-tinta-50 px-6 py-12">
+    <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-fundo px-6 py-12">
       <form onSubmit={onSubmit} className="surgir w-full max-w-[360px]">
         {/* O `-mr` cancela o espaço que a última letra ganha do `tracking`:
             sem ele o nome fica meio caractere à esquerda do fio. */}

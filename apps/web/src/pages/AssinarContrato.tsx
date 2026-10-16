@@ -261,7 +261,7 @@ function Linha({ rotulo, valor }: { rotulo: string; valor: string }) {
 /** A casca da tela: sem menu nem módulo, como a do recibo. */
 function Moldura({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-tinta-50 px-4 py-6 sm:py-8">
+    <div className="min-h-screen bg-fundo px-4 py-6 sm:py-8">
       <div className="mx-auto w-full max-w-2xl landscape:max-w-4xl">
         <div className="mb-5 flex justify-center">
           <img

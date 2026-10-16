@@ -77,7 +77,7 @@ export function CabecalhoDeFora({ voltarParaModulos = false }: { voltarParaModul
 /** Uma tela de fora dos módulos: o cabeçalho escuro, e o conteúdo no fundo claro. */
 export function TelaDeFora({ children }: { children: ReactNode }) {
   return (
-    <div className="min-h-screen bg-tinta-50">
+    <div className="min-h-screen bg-fundo">
       <CabecalhoDeFora voltarParaModulos />
       {children}
     </div>

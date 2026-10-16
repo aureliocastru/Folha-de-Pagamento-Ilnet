@@ -291,7 +291,7 @@ function Linha({ rotulo, valor }: { rotulo: string; valor: string }) {
  */
 function Moldura({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-tinta-50 px-4 py-6 sm:py-8">
+    <div className="min-h-screen bg-fundo px-4 py-6 sm:py-8">
       {/* Deitado, o cartão se alarga: é assim que sobra espaço para a mão
           correr o nome inteiro sem espremer as letras no fim da linha. */}
       <div className="mx-auto w-full max-w-lg landscape:max-w-4xl">

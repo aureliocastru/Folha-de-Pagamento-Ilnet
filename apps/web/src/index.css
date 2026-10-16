@@ -26,6 +26,13 @@
   --barra: 30 31 35;
 
   /*
+   * O fundo da página, atrás dos cartões. No claro é o mesmo cinza do
+   * `tinta-50`; tem variável própria porque no escuro ele sai da escala — ver
+   * lá.
+   */
+  --fundo: 240 241 243;
+
+  /*
    * O cabeçalho: a faixa do título de um cartão e a linha dos nomes das
    * colunas. Um cinza próprio, um degrau abaixo do branco do cartão, como no
    * IXC — é ele que diz onde um bloco começa, e não um véu azul.
@@ -148,6 +155,15 @@
    */
   --papel: 43 44 48;
   --barra: 23 24 26;
+
+  /*
+   * A página é um azul bem escuro, e não o grafite do `tinta-50`: cinza atrás
+   * de cartão cinza deixava a tela inteira num tom só, e o que se veio ler não
+   * se destacava (16/10/2026). O azul fica só no fundo — o cartão, o campo e o
+   * realce dentro deles seguem no grafite, que agora se separa da página pela
+   * cor e não só pelo degrau de claro.
+   */
+  --fundo: 13 24 43;
   --cabecalho: 29 30 33;
   /* O título sobe acima do cartão, e o resumo fica entre os dois: numa janela
      o título, o resumo, o nome das colunas e o campo têm cada um o seu tom, e
@@ -192,7 +208,7 @@
   }
 
   body {
-    @apply bg-tinta-50 font-sans text-tinta-800 antialiased;
+    @apply bg-fundo font-sans text-tinta-800 antialiased;
     /*
      * A folga do entalhe, para o aparelho deitado.
      *
@@ -228,7 +244,7 @@
 
   /* O anel se destaca contra o fundo da página, seja ele claro ou escuro. */
   :focus-visible {
-    @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-tinta-50;
+    @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-fundo;
   }
 }
 
@@ -949,7 +965,7 @@
    * o lápis de editar pequeno no canto.
    */
   table.tabela-contas > tbody {
-    @apply flex flex-col gap-2.5 bg-tinta-50 p-2.5;
+    @apply flex flex-col gap-2.5 bg-fundo p-2.5;
   }
   table.tabela-contas > tbody > tr {
     @apply rounded-xl border border-tinta-200 bg-papel px-3.5 py-3 shadow-sm;

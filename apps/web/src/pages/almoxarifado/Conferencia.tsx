@@ -328,7 +328,7 @@ function ListaDoAlmoxarifado({ almoxId }: { almoxId: number }) {
         cartão. No celular fica logo abaixo do cabeçalho, que tem 53px.
       */}
       {dados && (
-        <div className="sticky top-[53px] z-10 -mx-3 mb-4 border-b border-tinta-200 bg-tinta-50/95 px-3 py-2 backdrop-blur sm:-mx-6 sm:px-6 md:top-0 lg:-mx-7 lg:px-7">
+        <div className="sticky top-[53px] z-10 -mx-3 mb-4 border-b border-tinta-200 bg-fundo/95 px-3 py-2 backdrop-blur sm:-mx-6 sm:px-6 md:top-0 lg:-mx-7 lg:px-7">
           <div className="flex gap-2">
             <input
               id="conf-busca"

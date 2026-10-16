@@ -59,7 +59,7 @@ export function Campo() {
   }
 
   return (
-    <div className="min-h-screen bg-tinta-50">
+    <div className="min-h-screen bg-fundo">
       <header className="sticky top-0 z-20 border-b border-tinta-200 bg-papel/95 backdrop-blur">
         {/* pr-14: o bloco de notas fica na quina da tela, e numa janela
             estreita ele cairia em cima do "Sair". */}

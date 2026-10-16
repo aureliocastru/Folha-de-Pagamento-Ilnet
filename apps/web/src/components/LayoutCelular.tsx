@@ -59,7 +59,7 @@ export function LayoutCelular({ modulo }: { modulo: Modulo }) {
   }
 
   return (
-    <div className="flex min-h-screen flex-col bg-tinta-50">
+    <div className="flex min-h-screen flex-col bg-fundo">
       {/* pr-12: o bloco de notas fica grudado nesta quina, e sem a folga ele
           cairia em cima do nome do módulo. */}
       <header className="sticky top-0 z-20 border-b border-tinta-200 bg-papel/95 pl-3 pr-12 backdrop-blur">

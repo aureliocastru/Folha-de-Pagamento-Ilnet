@@ -98,7 +98,7 @@ function Protegida({ children }: { children: ReactNode }) {
   const { usuario, carregando } = useAuth();
   if (carregando) {
     return (
-      <div className="flex h-screen items-center justify-center bg-tinta-50 text-tinta-500">
+      <div className="flex h-screen items-center justify-center bg-fundo text-tinta-500">
         Carregando…
       </div>
     );
@@ -166,7 +166,7 @@ function usePreCarregarOModulo() {
 /** Enquanto o pedaço da tela chega — só na primeira vez que ela é aberta. */
 function TelaChegando() {
   return (
-    <div className="flex h-screen items-center justify-center bg-tinta-50 text-tinta-500">
+    <div className="flex h-screen items-center justify-center bg-fundo text-tinta-500">
       Carregando…
     </div>
   );
