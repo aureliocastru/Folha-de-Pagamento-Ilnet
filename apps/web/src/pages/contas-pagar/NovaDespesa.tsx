@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import {
   LeitorDeCodigo,
   leitorDeCodigoSuportado,
@@ -930,9 +930,40 @@ export function NovaDespesa({
   { comecarNaRevisao: !!edicao },
   );
 
-  /** O título de cada coluna — só no computador: no celular o passo já tem o seu. */
-  const tituloDaColuna = (texto: string) =>
-    a.celular ? null : <p className="eyebrow mb-2">{texto}</p>;
+  /**
+   * O título de cada coluna — só no computador: no celular o passo já tem o seu.
+   * A faixa tem altura fixa nas duas colunas, para elas começarem na mesma
+   * linha com ou sem o que vai ao lado do título.
+   */
+  const tituloDaColuna = (texto: string, aoLado?: ReactNode) =>
+    a.celular ? null : (
+      <div className="mb-1.5 flex h-7 items-center justify-between gap-3">
+        <p className="eyebrow">{texto}</p>
+        {aoLado}
+      </div>
+    );
+
+  /*
+   * "Já foi paga". Na edição não existe: pagar é o botão "Pagar" da lista — é
+   * ele que sabe baixar uma conta que já existe.
+   */
+  const caixaJaPaga = (
+    <label
+      className="opcao text-[12px]"
+      title="A conta é criada, aprovada e baixada como paga no IXC de uma vez, e as três datas passam a ser o dia em que o dinheiro saiu"
+    >
+      <input
+        type="checkbox"
+        className="marcador"
+        checked={jaPaga}
+        onChange={(e) => {
+          setJaPaga(e.target.checked);
+          if (e.target.checked) datarComoPaga(dataPagamento);
+        }}
+      />
+      Já foi paga
+    </label>
+  );
 
   /**
    * Os arquivos que sobem com a conta pelo título, cada um com o nome que a
@@ -1057,7 +1088,31 @@ export function NovaDespesa({
       */}
       <div className="grid grid-cols-1 gap-x-6 lg:grid-cols-2">
         <div>
-          {tituloDaColuna('A conta')}
+          {/*
+            No computador, "Já foi paga" fica no alto, ao lado do título, e
+            marcado abre ali mesmo o dia em que o dinheiro saiu — é a primeira
+            decisão sobre a conta, e as datas de baixo seguem esse dia. No
+            celular ele continua no passo do pagamento.
+          */}
+          {tituloDaColuna(
+            'A conta',
+            !edicao && (
+              <div className="flex items-center gap-2">
+                {caixaJaPaga}
+                {jaPaga && (
+                  <div className="w-[8.5rem]">
+                    <CampoDeData
+                      id="data-pagamento"
+                      valor={dataPagamento}
+                      onChange={datarComoPaga}
+                      className="campo h-7 min-h-0 py-0"
+                      title="Dia em que o dinheiro saiu — vale também como emissão e vencimento"
+                    />
+                  </div>
+                )}
+              </div>
+            ),
+          )}
           {/* --- Fornecedor --- */}
           {a.mostrar(0) && (
           <div className="mb-2">
@@ -1282,31 +1337,9 @@ export function NovaDespesa({
                     <label className="rotulo" htmlFor="conta-pagamento">
                       Conta de pagamento
                     </label>
-                    {/*
-                      "Já foi paga" mora colado na conta, e não junto das outras opções:
-                      é esta conta que recebe a baixa. As duas escolhas são uma só — de
-                      onde o dinheiro saiu —, e separá-las fazia marcar a caixa sem olhar
-                      para a conta que ia ser debitada.
-                    */}
-                    {/* Na edição, pagar é o botão "Pagar" da lista — é ele que sabe
-                        baixar uma conta que já existe. */}
-                    {!edicao && (
-                    <label
-                      className="opcao text-[12px]"
-                      title="A conta é criada, aprovada e baixada como paga no IXC de uma vez, e as três datas passam a ser o dia em que o dinheiro saiu"
-                    >
-                      <input
-                        type="checkbox"
-                        className="marcador"
-                        checked={jaPaga}
-                        onChange={(e) => {
-                          setJaPaga(e.target.checked);
-                          if (e.target.checked) datarComoPaga(dataPagamento);
-                        }}
-                      />
-                      Já foi paga
-                    </label>
-                    )}
+                    {/* No celular, colado na conta que recebe a baixa; no
+                        computador ele mora no alto da tela. */}
+                    {!edicao && a.celular && caixaJaPaga}
                   </div>
                   <select
                     id="conta-pagamento"
@@ -1346,7 +1379,7 @@ export function NovaDespesa({
                     </p>
                   )}
 
-                  {jaPaga && (
+                  {jaPaga && a.celular && (
                     <div className="mt-2">
                       <label className="rotulo" htmlFor="data-pagamento">
                         Dia em que saiu
