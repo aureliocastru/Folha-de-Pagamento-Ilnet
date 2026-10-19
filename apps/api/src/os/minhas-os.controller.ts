@@ -14,7 +14,7 @@ import {
 import { UserRole } from '@prisma/client';
 import type { Request } from 'express';
 import { Roles } from '../auth/roles.decorator';
-import { AnotarItemDto } from './dto/os.dto';
+import { AnotarItemDto, AnotarRetiradasDto } from './dto/os.dto';
 import { OsService, type Login } from './os.service';
 
 /**
@@ -65,6 +65,17 @@ export class MinhasOsController {
     @Body() dto: AnotarItemDto,
   ) {
     return this.os.anotar(logado(req), osId, dto);
+  }
+
+  /** Vários aparelhos retirados de uma vez, todos na mesma condição. */
+  @Post(':osId/retiradas')
+  @HttpCode(201)
+  anotarRetiradas(
+    @Req() req: Request,
+    @Param('osId', ParseIntPipe) osId: number,
+    @Body() dto: AnotarRetiradasDto,
+  ) {
+    return this.os.anotarRetiradas(logado(req), osId, dto);
   }
 
   @Delete(':osId/itens/:itemId')

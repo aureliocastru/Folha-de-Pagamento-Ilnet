@@ -1,4 +1,5 @@
 import {
+  finalizadaHoje,
   lerComodato,
   lerOs,
   montarBaixaDeComodato,
@@ -125,6 +126,24 @@ describe('osRecusaMaterial', () => {
 
   it('finalizada sem data recusa', () => {
     expect(osRecusaMaterial({ ...base, fechamento: null })).toMatch(/não diz quando/);
+  });
+});
+
+describe('finalizadaHoje', () => {
+  const base = lerOs({ id: '1', status: 'F', data_fechamento: '2026-09-22 17:00:00' })!;
+
+  it('finalizada hoje aparece — às 23h30 daqui também, com o servidor em UTC já no dia seguinte', () => {
+    expect(finalizadaHoje(base, new Date('2026-09-22T23:30:00-03:00'))).toBe(true);
+  });
+
+  it('a de ontem não aparece', () => {
+    expect(finalizadaHoje(base, new Date('2026-09-23T08:00:00-03:00'))).toBe(false);
+    expect(finalizadaHoje({ ...base, fechamento: '2026-09-21 23:59:59' }, new Date('2026-09-22T22:00:00-03:00'))).toBe(false);
+  });
+
+  it('aberta ou sem data de fechamento não é finalizada hoje', () => {
+    expect(finalizadaHoje({ ...base, status: 'EX' }, new Date('2026-09-22T18:00:00-03:00'))).toBe(false);
+    expect(finalizadaHoje({ ...base, fechamento: null }, new Date('2026-09-22T18:00:00-03:00'))).toBe(false);
   });
 });
 

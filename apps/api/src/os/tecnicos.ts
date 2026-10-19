@@ -128,7 +128,7 @@ export function resolverAlmoxDoTecnico(dados: {
     ok: false,
     motivo:
       candidatos.length === 0
-        ? 'Ele não tem almoxarifado ligado no IXC. Crie o da van na aba Almoxarifados.'
+        ? 'Ele não tem almoxarifado ligado no IXC. Crie o dele na aba Almoxarifados.'
         : `Ele tem ${candidatos.length} almoxarifados no IXC e nenhum é o padrão. Marque o ` +
           'padrão na aba Almoxarifados, ou fixe o almoxarifado aqui.',
     candidatos,

@@ -206,7 +206,7 @@ export class RecolhidosService {
               ? 'a peça não foi achada no IXC'
               : `no IXC a peça está ${situacao.nome}` +
                   (onde !== almoxId ? ` no almoxarifado #${onde}` : '') +
-                  ', e não na van. Se ela já está na base no IXC, receba "sem transferir"',
+                  ', e não no almoxarifado do técnico. Se ela já está na base no IXC, receba "sem transferir"',
           );
           continue;
         }
@@ -226,7 +226,7 @@ export class RecolhidosService {
         const quantidade = Number(i.quantidade);
         const saldo = saldos.get(i.produtoId ?? 0) ?? 0;
         if (saldo < quantidade - 1e-9) {
-          recusar(i, `a van tem ${saldo} desse produto no IXC, e não ${quantidade}`);
+          recusar(i, `o almoxarifado do técnico tem ${saldo} desse produto no IXC, e não ${quantidade}`);
           continue;
         }
         const produtoId = i.produtoId ?? 0;

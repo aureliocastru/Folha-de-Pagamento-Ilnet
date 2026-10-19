@@ -145,7 +145,7 @@ export function Tecnicos() {
                   onClick={() => setAberto(t)}
                   className="btn btn-neutro btn-p"
                 >
-                  Ver a van
+                  Ver o almoxarifado
                 </button>
               </li>
             ))}
@@ -169,7 +169,7 @@ function JanelaDaVan({ tecnico, onFechar }: { tecnico: TecnicoNaLista; onFechar:
   const recolhidos = dados?.aparelhos.filter((a) => a.recolhido) ?? [];
 
   return (
-    <Janela media titulo={`A van de ${tecnico.nome}`} onFechar={onFechar}>
+    <Janela media titulo={`O almoxarifado de ${tecnico.nome}`} onFechar={onFechar}>
       {van.isLoading && <Carregando texto="Lendo o almoxarifado no IXC…" />}
       {van.isError && <Aviso tom="erro">{mensagemErro(van.error)}</Aviso>}
       {dados && (
@@ -181,7 +181,7 @@ function JanelaDaVan({ tecnico, onFechar }: { tecnico: TecnicoNaLista; onFechar:
 
           {negativos.length > 0 && (
             <Aviso tom="erro">
-              {negativos.length} material(is) negativo(s): foi lançado mais do que a van tinha no IXC.
+              {negativos.length} material(is) negativo(s): foi lançado mais do que o almoxarifado tinha no IXC.
               Falta uma transferência para cá, ou algo foi lançado no almoxarifado errado.
             </Aviso>
           )}
@@ -209,7 +209,7 @@ function JanelaDaVan({ tecnico, onFechar }: { tecnico: TecnicoNaLista; onFechar:
             )}
             {recolhidos.length > 0 && (
               <p className="mt-2 text-[12px] text-tinta-500">
-                Os recolhidos estão na van no IXC mas ainda não passaram pela base — receba-os na aba
+                Os recolhidos estão no almoxarifado dele no IXC mas ainda não passaram pela base — receba-os na aba
                 Recolhidos.
               </p>
             )}

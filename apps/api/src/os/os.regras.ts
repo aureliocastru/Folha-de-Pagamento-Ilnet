@@ -193,7 +193,7 @@ export function motivoParaNaoGastar(dados: {
       `Você tem ${formatar(Math.max(0, livre))}${unidade} de "${material.descricao}" no seu ` +
       'almoxarifado no IXC' +
       (dados.pendentes > 0 ? ` (já tirando ${formatar(dados.pendentes)} anotados e não enviados)` : '') +
-      `, e não ${formatar(quantidade)}. Se tem na van, falta a transferência para o seu.`
+      `, e não ${formatar(quantidade)}. Se o material está com você, falta a transferência para ele.`
     );
   }
 

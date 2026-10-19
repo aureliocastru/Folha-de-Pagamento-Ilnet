@@ -64,6 +64,23 @@ export class AnotarItemDto {
   observacao?: string;
 }
 
+/** Vários aparelhos retirados de uma vez, todos na mesma condição. */
+export class AnotarRetiradasDto {
+  /** As linhas de comodato do contrato que foram retiradas. */
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(20)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  comodatoIds!: number[];
+
+  @IsOptional() @IsIn(['FUNCIONANDO', 'DEFEITO', 'NAO_TESTADO'])
+  condicao?: 'FUNCIONANDO' | 'DEFEITO' | 'NAO_TESTADO';
+
+  @IsOptional() @Transform(texto) @IsString() @MaxLength(500)
+  observacao?: string;
+}
+
 /** A base diz o que viu no IXC sobre um item que ficou em conferência. */
 export class ConferidoDto {
   @IsBoolean()

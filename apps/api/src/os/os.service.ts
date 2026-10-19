@@ -333,8 +333,13 @@ export class OsService {
     switch (pedido.tipo) {
       case 'INSTALADO':
         return this.anotarInstalacao(login, tecnico, os, pedido);
-      case 'RETIRADO':
-        return this.anotarRetirada(login, tecnico, os, pedido);
+      case 'RETIRADO': {
+        const [item] = await this.anotarRetirada(login, tecnico, os, {
+          ...pedido,
+          comodatoIds: [Number(pedido.comodatoId)],
+        });
+        return item;
+      }
       case 'MATERIAL':
         return this.anotarMaterial(login, tecnico, os, pedido);
       case 'DIVERGENCIA':
@@ -342,6 +347,21 @@ export class OsService {
       default:
         throw new BadRequestException('Tipo de item desconhecido.');
     }
+  }
+
+  /**
+   * Vários aparelhos retirados de uma vez — a ONU e o roteador do cancelamento.
+   * Todos voltam na mesma condição; o que voltou diferente se anota à parte.
+   */
+  async anotarRetiradas(
+    login: Login,
+    osId: number,
+    pedido: { comodatoIds: number[]; condicao?: CondicaoDoRetirado; observacao?: string },
+  ): Promise<ItemNaTela[]> {
+    const { tecnico, os } = await this.contexto(login, osId);
+    const recusa = osRecusaMaterial(os);
+    if (recusa) throw new BadRequestException(recusa);
+    return this.anotarRetirada(login, tecnico, os, pedido);
   }
 
   /** Tira um item que ainda não foi ao IXC (ou que o IXC recusou). */
@@ -527,36 +547,58 @@ export class OsService {
     return item;
   }
 
+  /**
+   * Uma ou mais linhas de comodato, na mesma condição. Confere todas antes de
+   * anotar a primeira: um aparelho recusado não deixa a retirada pela metade.
+   */
   private async anotarRetirada(
     login: Login,
     tecnico: TecnicoDaOs,
     os: OsDoIxc,
-    pedido: PedidoDeItem,
-  ): Promise<ItemNaTela> {
-    const comodatoId = Number(pedido.comodatoId);
-    if (!(comodatoId > 0)) throw new BadRequestException('Escolha o aparelho que foi retirado.');
-    if (!pedido.condicao) {
+    pedido: { comodatoIds: number[]; condicao?: CondicaoDoRetirado; observacao?: string },
+  ): Promise<ItemNaTela[]> {
+    const ids = [...new Set(pedido.comodatoIds.map(Number))];
+    if (ids.length === 0 || ids.some((id) => !(id > 0))) {
+      throw new BadRequestException('Escolha o aparelho que foi retirado.');
+    }
+    const condicao = pedido.condicao;
+    if (!condicao) {
       throw new BadRequestException('Diga como o aparelho voltou: funcionando, com defeito ou sem testar.');
     }
-    const comodatos = await this.doIxc.comodatosDoContrato(os.contratoId);
-    const comodato = comodatos.find((c) => c.comodatoId === comodatoId);
-    const motivo = motivoParaNaoRetirar(comodato, await this.anotadosDosComodatos([comodatoId]));
-    if (motivo || !comodato) throw new BadRequestException(motivo ?? 'Comodato não achado.');
-    const nomes = await this.nomesDosProdutos([comodato.produtoId]);
-
-    return this.novoItem(login, tecnico, os, {
-      tipo: 'RETIRADO',
-      produtoId: comodato.produtoId,
-      descricao: nomes.get(comodato.produtoId) ?? comodato.descricao ?? `Produto ${comodato.produtoId}`,
-      quantidade: new Prisma.Decimal(comodato.quantidade),
-      patrimonioId: comodato.patrimonioId,
-      numeroPatrimonial: comodato.numeroPatrimonial,
-      mac: comodato.mac,
-      numeroSerie: comodato.numeroSerie,
-      comodatoIxcId: comodato.comodatoId,
-      condicao: pedido.condicao,
-      observacao: texto(pedido.observacao),
+    const [comodatos, anotados] = await Promise.all([
+      this.doIxc.comodatosDoContrato(os.contratoId),
+      this.anotadosDosComodatos(ids),
+    ]);
+    const escolhidos = ids.map((id) => {
+      const comodato = comodatos.find((c) => c.comodatoId === id);
+      const motivo = motivoParaNaoRetirar(comodato, anotados);
+      if (motivo || !comodato) {
+        const qual = ids.length > 1 ? `${identificacao(comodato, id)}: ` : '';
+        throw new BadRequestException(qual + (motivo ?? 'Comodato não achado.'));
+      }
+      return comodato;
     });
+    const nomes = await this.nomesDosProdutos(escolhidos.map((c) => c.produtoId));
+
+    const itens: ItemNaTela[] = [];
+    for (const comodato of escolhidos) {
+      itens.push(
+        await this.novoItem(login, tecnico, os, {
+          tipo: 'RETIRADO',
+          produtoId: comodato.produtoId,
+          descricao: nomes.get(comodato.produtoId) ?? comodato.descricao ?? `Produto ${comodato.produtoId}`,
+          quantidade: new Prisma.Decimal(comodato.quantidade),
+          patrimonioId: comodato.patrimonioId,
+          numeroPatrimonial: comodato.numeroPatrimonial,
+          mac: comodato.mac,
+          numeroSerie: comodato.numeroSerie,
+          comodatoIxcId: comodato.comodatoId,
+          condicao,
+          observacao: texto(pedido.observacao),
+        }),
+      );
+    }
+    return itens;
   }
 
   /**
@@ -1324,6 +1366,12 @@ function arredondar(n: number): number {
 function texto(v: unknown): string | null {
   const t = String(v ?? '').trim();
   return t ? t.slice(0, 500) : null;
+}
+
+/** Qual dos aparelhos, quando um de vários é recusado. */
+function identificacao(c: ComodatoDoContrato | undefined, comodatoId: number): string {
+  const codigo = c?.mac ?? c?.numeroSerie ?? c?.numeroPatrimonial;
+  return codigo ? `Aparelho ${codigo}` : `Comodato ${comodatoId}`;
 }
 
 /** Junta observações sem repetir e sem "null" no meio. */

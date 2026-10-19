@@ -351,6 +351,31 @@ describe('OsService — anotar', () => {
     expect(ok).toMatchObject({ tipo: 'RETIRADO', comodatoIxcId: 59195, patrimonioId: 5, condicao: 'DEFEITO' });
   });
 
+  it('vários retirados de uma vez: um recusado não deixa a retirada pela metade', async () => {
+    const { service, banco, mundo } = montar();
+    mundo.comodatosAtivos.set(59196, 6);
+
+    await expect(
+      service.anotarRetiradas(login, OS.id, { comodatoIds: [59195, 1], condicao: 'FUNCIONANDO' }),
+    ).rejects.toThrow(/Comodato 1: .*não está em comodato no contrato/);
+    expect(banco.itens).toHaveLength(0);
+
+    const itens = await service.anotarRetiradas(login, OS.id, {
+      comodatoIds: [59195, 59196, 59195],
+      condicao: 'NAO_TESTADO',
+      observacao: 'cancelamento',
+    });
+    expect(itens).toHaveLength(2);
+    expect(itens).toEqual([
+      expect.objectContaining({ comodatoIxcId: 59195, patrimonioId: 5, condicao: 'NAO_TESTADO', observacao: 'cancelamento' }),
+      expect.objectContaining({ comodatoIxcId: 59196, patrimonioId: 6, condicao: 'NAO_TESTADO', observacao: 'cancelamento' }),
+    ]);
+
+    await expect(
+      service.anotarRetiradas(login, OS.id, { comodatoIds: [59196], condicao: 'FUNCIONANDO' }),
+    ).rejects.toThrow(/já está anotada na OS 3788/);
+  });
+
   it('instalar confere a peça bipada contra a van do técnico', async () => {
     const { service, transferencias, banco } = montar();
     banco.materiais.push({ id: 'a1', produtoId: 34, descricao: 'ONU', unidade: 'UN', ativo: true, aparelho: true, maximoPorOs: null });

@@ -23,7 +23,7 @@
  */
 
 import { BadRequestException } from '@nestjs/common';
-import { qtdeParaIxc } from '../almoxarifado/produtos-ixc';
+import { hojeParaIxc, qtdeParaIxc } from '../almoxarifado/produtos-ixc';
 import { numeroDoIxc } from '../almoxarifado/estoque.mapper';
 
 /** A situação da OS no IXC, em palavras. */
@@ -135,6 +135,19 @@ export function osRecusaMaterial(os: OsDoIxc, agora = new Date()): string | null
     );
   }
   return null;
+}
+
+/** "AAAA-MM-DD" de hoje, no fuso daqui — o servidor roda em UTC. */
+export function hojeNaData(agora = new Date()): string {
+  return hojeParaIxc(agora).split('/').reverse().join('-');
+}
+
+/**
+ * A OS foi finalizada hoje? É só essa finalizada que aparece na lista do
+ * técnico: a de ontem já saiu do dia dele.
+ */
+export function finalizadaHoje(os: OsDoIxc, agora = new Date()): boolean {
+  return os.status === 'F' && !!os.fechamento?.startsWith(hojeNaData(agora));
 }
 
 /** Uma linha de comodato do contrato (`cliente_contrato_comodato`). */

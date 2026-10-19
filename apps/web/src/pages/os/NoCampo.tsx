@@ -53,8 +53,9 @@ export function CampoMinhasOs() {
     retry: 0,
   });
   const os = lista.data?.os ?? [];
-  const abertas = os.filter((o) => !o.recusa);
-  const fechadas = os.filter((o) => o.recusa);
+  // Das finalizadas, a API só manda as de hoje.
+  const abertas = os.filter((o) => o.status !== 'F');
+  const fechadas = os.filter((o) => o.status === 'F');
 
   return (
     <div className="space-y-5">
@@ -103,8 +104,8 @@ export function CampoMinhasOs() {
 
       {fechadas.length > 0 && (
         <section>
-          <h2 className="eyebrow mb-2">Finalizadas há mais tempo</h2>
-          <div className="space-y-2 opacity-70">
+          <h2 className="eyebrow mb-2">Finalizadas hoje</h2>
+          <div className="space-y-2">
             {fechadas.map((o) => (
               <CartaoDaOs key={o.id} os={o} onAbrir={() => navigate(`/campo/os/${o.id}`)} />
             ))}
@@ -147,6 +148,9 @@ function CartaoDaOs({ os, onAbrir }: { os: OsNaLista; onAbrir: () => void }) {
 
 type QualJanela = null | 'retirar' | 'fora' | 'instalar' | 'material';
 
+/** Os aparelhos retirados de uma vez, todos na mesma condição. */
+type PedidoDeRetirada = { comodatoIds: number[]; condicao: CondicaoDoRetirado; observacao: string };
+
 /** Uma OS: o que foi anotado, os três botões, e o "Enviar ao IXC". */
 export function CampoOs() {
   const { osId } = useParams<{ osId: string }>();
@@ -171,14 +175,22 @@ export function CampoOs() {
     void qc.invalidateQueries({ queryKey: CHAVE_LISTA });
   }
 
+  function anotado() {
+    setJanela(null);
+    setResultado(null);
+    recarregar();
+  }
+
   const anotar = useMutation({
     mutationFn: async (pedido: Record<string, unknown>) =>
       (await api.post<ItemDeOs>(`/minhas-os/${id}/itens`, pedido)).data,
-    onSuccess: () => {
-      setJanela(null);
-      setResultado(null);
-      recarregar();
-    },
+    onSuccess: anotado,
+  });
+
+  const anotarRetiradas = useMutation({
+    mutationFn: async (pedido: PedidoDeRetirada) =>
+      (await api.post<ItemDeOs[]>(`/minhas-os/${id}/retiradas`, pedido)).data,
+    onSuccess: anotado,
   });
 
   const tirar = useMutation({
@@ -199,6 +211,7 @@ export function CampoOs() {
 
   function abrir(qual: QualJanela) {
     anotar.reset();
+    anotarRetiradas.reset();
     setJanela(qual);
   }
 
@@ -217,7 +230,7 @@ export function CampoOs() {
         ‹ Minhas OS
       </Link>
 
-      {aberta.isLoading && <Carregando texto="Lendo a OS, o comodato e a sua van no IXC…" />}
+      {aberta.isLoading && <Carregando texto="Lendo a OS, o comodato e o seu almoxarifado no IXC…" />}
       {aberta.isError && <Aviso tom="erro">{mensagemErro(aberta.error)}</Aviso>}
 
       {dados && (
@@ -320,9 +333,9 @@ export function CampoOs() {
           {janela === 'retirar' && (
             <JanelaRetirar
               comodatos={dados.paraRetirar}
-              salvando={anotar.isPending}
-              erro={anotar.error ? mensagemErro(anotar.error) : null}
-              onAnotar={(pedido) => anotar.mutate({ tipo: 'RETIRADO', ...pedido })}
+              salvando={anotarRetiradas.isPending}
+              erro={anotarRetiradas.error ? mensagemErro(anotarRetiradas.error) : null}
+              onAnotar={(pedido) => anotarRetiradas.mutate(pedido)}
               onForaDaLista={() => abrir('fora')}
               onFechar={() => setJanela(null)}
             />
@@ -458,15 +471,17 @@ function LinhaDoItem({
 // ---------------------------------------------------------------------------
 
 function EscolhaDaCondicao({
+  pergunta = 'Como o aparelho voltou?',
   valor,
   onMudar,
 }: {
+  pergunta?: string;
   valor: CondicaoDoRetirado | null;
   onMudar: (c: CondicaoDoRetirado) => void;
 }) {
   return (
     <div>
-      <p className="rotulo mb-1.5">Como o aparelho voltou?</p>
+      <p className="rotulo mb-1.5">{pergunta}</p>
       <div className="grid grid-cols-3 gap-2">
         {(Object.keys(CONDICAO_LABEL) as CondicaoDoRetirado[]).map((c) => (
           <button
@@ -508,7 +523,11 @@ function RodapeDaJanela({
   );
 }
 
-/** O aparelho que saiu do cliente: escolhido entre os que o IXC tem em comodato no contrato. */
+/**
+ * Os aparelhos que saíram do cliente, escolhidos entre os que o IXC tem em
+ * comodato no contrato. Vários de uma vez — a ONU e o roteador —, todos na
+ * mesma condição; o que voltou diferente se anota numa segunda vez.
+ */
 function JanelaRetirar({
   comodatos,
   salvando,
@@ -520,19 +539,28 @@ function JanelaRetirar({
   comodatos: ComodatoParaRetirar[];
   salvando: boolean;
   erro: string | null;
-  onAnotar: (p: { comodatoId: number; condicao: CondicaoDoRetirado; observacao: string }) => void;
+  onAnotar: (p: PedidoDeRetirada) => void;
   onForaDaLista: () => void;
   onFechar: () => void;
 }) {
-  const [escolhido, setEscolhido] = useState<number | null>(null);
+  const [escolhidos, setEscolhidos] = useState<number[]>([]);
   const [condicao, setCondicao] = useState<CondicaoDoRetirado | null>(null);
   const [observacao, setObservacao] = useState('');
+  const livres = comodatos.filter((c) => !c.motivo).map((c) => c.comodatoId);
+  const todos = livres.length > 0 && livres.every((id) => escolhidos.includes(id));
+  const varios = escolhidos.length > 1;
+
+  function marcar(comodatoId: number, marcado: boolean) {
+    setEscolhidos((atual) =>
+      marcado ? [...atual.filter((id) => id !== comodatoId), comodatoId] : atual.filter((id) => id !== comodatoId),
+    );
+  }
 
   return (
-    <Janela titulo="Retirei um aparelho" onFechar={onFechar}>
+    <Janela titulo="Retirei do cliente" onFechar={onFechar}>
       <p className="mb-3 text-[13px] text-tinta-500">
-        O que o IXC tem emprestado neste contrato. O aparelho volta para a sua van no IXC, e fica
-        com você até a base receber.
+        O que o IXC tem emprestado neste contrato — marque tudo o que você trouxe. Volta para o seu
+        almoxarifado no IXC, e fica com você até a base receber.
       </p>
 
       {comodatos.length === 0 ? (
@@ -541,28 +569,47 @@ function JanelaRetirar({
         </p>
       ) : (
         <div className="space-y-2">
+          {livres.length > 1 && (
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setEscolhidos(todos ? [] : livres)}
+                className="text-[13px] font-medium text-brand-700 hover:underline dark:text-brand-300"
+              >
+                {todos ? 'Desmarcar todos' : 'Marcar todos'}
+              </button>
+            </div>
+          )}
           {comodatos.map((c) => {
             const bloqueado = !!c.motivo;
-            const marcado = escolhido === c.comodatoId;
+            const marcado = escolhidos.includes(c.comodatoId);
             return (
-              <button
+              <label
                 key={c.comodatoId}
-                type="button"
-                disabled={bloqueado}
-                onClick={() => setEscolhido(c.comodatoId)}
-                className={`w-full rounded-xl border px-3.5 py-3 text-left transition ${
+                className={`flex w-full items-start gap-3 rounded-xl border px-3.5 py-3 transition ${
                   marcado
                     ? 'border-brand-400 bg-brand-50 dark:bg-brand-500/10'
                     : 'border-tinta-200 hover:border-tinta-300'
-                } ${bloqueado ? 'opacity-60' : ''}`}
+                } ${bloqueado ? 'opacity-60' : 'cursor-pointer'}`}
               >
-                <p className="text-[14px] font-medium text-tinta-900">{c.produto}</p>
-                <p className="text-[12px] text-tinta-500">
-                  {identificacaoDaPeca(c) || `comodato ${c.comodatoId}`}
-                  {c.desde ? ` · desde ${c.desde.split('-').reverse().join('/')}` : ''}
-                </p>
-                {c.motivo && <p className="mt-1 text-[12px] text-amber-700 dark:text-amber-300">{c.motivo}</p>}
-              </button>
+                <input
+                  type="checkbox"
+                  checked={marcado}
+                  disabled={bloqueado}
+                  onChange={(e) => marcar(c.comodatoId, e.target.checked)}
+                  className="mt-0.5 h-5 w-5 shrink-0"
+                />
+                <span className="min-w-0">
+                  <span className="block text-[14px] font-medium text-tinta-900">{c.produto}</span>
+                  <span className="block text-[12px] text-tinta-500">
+                    {identificacaoDaPeca(c) || `comodato ${c.comodatoId}`}
+                    {c.desde ? ` · desde ${c.desde.split('-').reverse().join('/')}` : ''}
+                  </span>
+                  {c.motivo && (
+                    <span className="mt-1 block text-[12px] text-amber-700 dark:text-amber-300">{c.motivo}</span>
+                  )}
+                </span>
+              </label>
             );
           })}
         </div>
@@ -577,7 +624,16 @@ function JanelaRetirar({
       </button>
 
       <div className="mt-4 space-y-3">
-        <EscolhaDaCondicao valor={condicao} onMudar={setCondicao} />
+        <EscolhaDaCondicao
+          pergunta={varios ? 'Como os aparelhos voltaram?' : undefined}
+          valor={condicao}
+          onMudar={setCondicao}
+        />
+        {varios && (
+          <p className="-mt-1 text-[12px] text-tinta-500">
+            Vale para todos os marcados. Se um voltou diferente, desmarque e anote ele depois.
+          </p>
+        )}
         <div>
           <label className="rotulo" htmlFor="os-ret-obs">
             Observação {condicao === 'DEFEITO' ? '(qual o defeito?)' : '(opcional)'}
@@ -595,13 +651,15 @@ function JanelaRetirar({
       <RodapeDaJanela erro={erro}>
         <button
           type="button"
-          disabled={!escolhido || !condicao || salvando}
-          onClick={() =>
-            escolhido && condicao && onAnotar({ comodatoId: escolhido, condicao, observacao })
-          }
+          disabled={escolhidos.length === 0 || !condicao || salvando}
+          onClick={() => condicao && onAnotar({ comodatoIds: escolhidos, condicao, observacao })}
           className="btn btn-primario flex-1 justify-center"
         >
-          {salvando ? 'Anotando…' : 'Anotar retirada'}
+          {salvando
+            ? 'Anotando…'
+            : varios
+              ? `Anotar ${escolhidos.length} retiradas`
+              : 'Anotar retirada'}
         </button>
         <button type="button" onClick={onFechar} className="btn btn-sutil">
           Cancelar
@@ -865,7 +923,7 @@ function JanelaInstalar({
 
         {!achado && aparelhos.length > 0 && (
           <div>
-            <p className="rotulo mb-1.5">Ou toque num aparelho da sua van</p>
+            <p className="rotulo mb-1.5">Ou toque num aparelho do seu almoxarifado</p>
             <div className="max-h-72 space-y-1.5 overflow-y-auto">
               {aparelhos.map((a) => {
                 const codigoDele = a.mac ?? a.numeroSerie ?? a.numeroPatrimonial;
@@ -991,7 +1049,7 @@ function JanelaMaterial({
             <div>
               <p className="text-[15px] font-semibold text-tinta-900">{escolhido.descricao}</p>
               <p className="text-[12px] text-tinta-500">
-                Na sua van: {quantidadeComUnidade(Math.max(0, escolhido.livre), escolhido.unidade)}
+                No seu almoxarifado: {quantidadeComUnidade(Math.max(0, escolhido.livre), escolhido.unidade)}
                 {escolhido.maximoPorOs !== null &&
                   ` · normal até ${quantidadeComUnidade(escolhido.maximoPorOs, escolhido.unidade)} por OS`}
                 {escolhido.jaNestaOs > 0 &&
@@ -1022,8 +1080,8 @@ function JanelaMaterial({
 
           {semSaldo && (
             <p className="text-[13px] text-rose-600 dark:text-rose-300">
-              Sua van no IXC não tem isso tudo. Se o material está com você, falta a transferência
-              para o seu almoxarifado.
+              Seu almoxarifado no IXC não tem isso tudo. Se o material está com você, falta a
+              transferência para ele no IXC.
             </p>
           )}
 

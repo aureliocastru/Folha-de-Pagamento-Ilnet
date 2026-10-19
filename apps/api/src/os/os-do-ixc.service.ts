@@ -1,14 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { numeroDoIxc } from '../almoxarifado/estoque.mapper';
 import { identidadeDaPeca } from '../almoxarifado/mover-tudo';
-import { hojeParaIxc } from '../almoxarifado/produtos-ixc';
 import { ProdutosService } from '../almoxarifado/produtos.service';
 import { IxcClient } from '../ixc/ixc.client';
 import {
-  DIAS_DEPOIS_DE_FINALIZADA,
+  finalizadaHoje,
+  hojeNaData,
   lerComodato,
   lerOs,
-  osRecusaMaterial,
   produtoParaOs,
   type ComodatoDoContrato,
   type OsDoIxc,
@@ -51,9 +50,9 @@ export class OsDoIxcService {
   ) {}
 
   /**
-   * As OS do técnico: as que não estão finalizadas, e as finalizadas nos
-   * últimos dias — o técnico que lança o material depois de o atendimento
-   * finalizar a OS ainda tem onde lançar (ver `DIAS_DEPOIS_DE_FINALIZADA`).
+   * As OS do técnico: as que não estão finalizadas, e as finalizadas hoje — o
+   * técnico que lança o material depois de o atendimento finalizar a OS ainda
+   * tem onde lançar. A de ontem já saiu do dia dele, e da lista.
    */
   async doTecnico(tecnicoIxcId: number, agora = new Date()): Promise<OsDoIxc[]> {
     const doTecnico = {
@@ -67,12 +66,10 @@ export class OsDoIxcService {
      * A data vai "AAAA-MM-DD", e não "DD/MM/AAAA" como nos exemplos da
      * documentação: com o formato de lá o IXC não reclama, mas também não
      * filtra — devolveu 7.392 OS finalizadas de um técnico em vez das 17 dos
-     * últimos dias (visto na base em 24/09/2026).
+     * últimos dias (visto na base em 24/09/2026). Vai "depois do último
+     * segundo de ontem", com o `>` que já se viu funcionar.
      */
-    const desde = hojeParaIxc(new Date(agora.getTime() - DIAS_DEPOIS_DE_FINALIZADA * 86_400_000))
-      .split('/')
-      .reverse()
-      .join('-');
+    const ontem = hojeNaData(new Date(agora.getTime() - 86_400_000));
     const [abertas, finalizadas] = await Promise.all([
       this.ixc.listAll<Record<string, unknown>>(
         'su_oss_chamado',
@@ -85,7 +82,7 @@ export class OsDoIxcService {
           rp: 50,
           gridParam: [
             { TB: 'su_oss_chamado.status', OP: '=', P: 'F' },
-            { TB: 'su_oss_chamado.data_fechamento', OP: '>', P: `${desde} 00:00:00` },
+            { TB: 'su_oss_chamado.data_fechamento', OP: '>', P: `${ontem} 23:59:59` },
           ],
         })
         .then((r) => r.registros)
@@ -101,8 +98,8 @@ export class OsDoIxcService {
       const os = lerOs(linha);
       // O filtro vai ao IXC, e a conferência fica aqui também: OS de outro
       // técnico na lista deste é o engano que não pode acontecer — e a
-      // finalizada há mais tempo não tem o que fazer aqui.
-      if (os && os.tecnicoId === tecnicoIxcId && (os.status !== 'F' || !osRecusaMaterial(os, agora))) {
+      // finalizada de outro dia não tem o que fazer aqui.
+      if (os && os.tecnicoId === tecnicoIxcId && (os.status !== 'F' || finalizadaHoje(os, agora))) {
         porId.set(os.id, os);
       }
     }
