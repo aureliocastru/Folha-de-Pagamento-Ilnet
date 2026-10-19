@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { TipoLancamento } from '@prisma/client';
 import { IxcClient } from '../ixc/ixc.client';
 import {
@@ -9,6 +9,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CategoriasService } from './categorias.service';
 import { descontoDoTitulo } from './historico-pagamentos.mapper';
+import { PagamentosNoBancoService } from './pagamentos-no-banco.service';
 import {
   explicarFiltro,
   mapContaAberta,
@@ -236,6 +237,8 @@ export class ContasAbertasService {
     private readonly ixc: IxcClient,
     private readonly prisma: PrismaService,
     private readonly categorias: CategoriasService,
+    // O que foi mandado direto ao ModoBank e ainda está em aberto no IXC.
+    @Optional() private readonly noBanco?: PagamentosNoBancoService,
   ) {}
 
   async listar(): Promise<ContasAbertasResposta> {
@@ -290,6 +293,7 @@ export class ContasAbertasService {
     await this.aplicarClassificacoes(contas);
     await this.marcarOrigemNaFolha(contas);
     await this.marcarOcultas(contas);
+    await this.marcarNoBanco(contas);
 
     return {
       contas: ordenarPorUrgencia(contas),
@@ -729,6 +733,27 @@ export class ContasAbertasService {
     const conjunto = new Set(ocultas.map((o) => o.idFnApagar));
     for (const conta of contas) {
       if (conjunto.has(conta.idFnApagar)) conta.oculta = true;
+    }
+  }
+
+  /**
+   * O pagamento mandado ao ModoBank de cada título que ainda está aberto: é o
+   * que a lista mostra no lugar de um título igual aos outros, para ninguém
+   * pagar de novo o que o banco já está pagando. Falhar aqui não derruba a
+   * lista — é enfeite sobre ela.
+   */
+  private async marcarNoBanco(contas: ContaAberta[]): Promise<void> {
+    if (!this.noBanco || contas.length === 0) return;
+    try {
+      const mapa = await this.noBanco.naLista(contas.map((c) => c.idFnApagar));
+      for (const conta of contas) {
+        const p = mapa.get(conta.idFnApagar);
+        if (p) conta.noBanco = p;
+      }
+    } catch (err) {
+      this.logger.warn(
+        `Pagamentos no banco não lidos: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 

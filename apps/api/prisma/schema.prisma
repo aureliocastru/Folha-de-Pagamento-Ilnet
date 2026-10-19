@@ -1292,6 +1292,72 @@ model NotaFiscalDoTitulo {
   @@map("notas_fiscais_dos_titulos")
 }
 
+/// Como mandar o dinheiro: pela linha digitável ou pela chave Pix do título.
+enum FormaNoBanco {
+  BOLETO
+  PIX
+}
+
+/// Onde está um pagamento que este app mandou direto ao ModoBank.
+enum SituacaoNoBanco {
+  /// Gravado aqui e mandado; o banco ainda não respondeu (ou a resposta se
+  /// perdeu no caminho — o acompanhamento pergunta a ele pela chave).
+  ENVIANDO
+  /// O banco aceitou e está processando.
+  NO_BANCO
+  /// O banco só paga depois que alguém aprovar lá.
+  AGUARDANDO_APROVACAO
+  /// O dinheiro saiu.
+  PAGO
+  /// Não saiu: o banco recusou, cancelou ou devolveu.
+  RECUSADO
+}
+
+/// Um pagamento mandado direto ao ModoBank pela API, de um título do IXC.
+///
+/// Até 19/10/2026 o ModoBank só pagava pela tela dele no IXC: o app aprovava o
+/// título e alguém ainda clicava em "pagar com ModoBank" lá. Agora o app manda
+/// o boleto ou o Pix ao banco, e quando o banco diz que pagou, dá a baixa no
+/// IXC na conta do ModoBank. Esta linha é o que liga as duas pontas — e é o
+/// que impede mandar o mesmo título duas vezes.
+model PagamentoNoBanco {
+  id         String       @id @default(cuid())
+  idFnApagar Int          @map("id_fn_apagar")
+  forma      FormaNoBanco
+
+  /// A linha digitável do boleto, ou a chave Pix.
+  destino    String
+  /// Quem recebe, segundo o banco — o beneficiário do boleto, o dono da chave.
+  favorecido String?
+
+  /// O que foi pedido ao banco. No boleto é o valor atualizado que ele mesmo
+  /// calculou, com juros e multa.
+  valor Decimal @db.Decimal(14, 2)
+
+  /// Mandada no cabeçalho `x-idempotency-key`: repetir a chamada com ela não
+  /// paga de novo, e é por ela que se pergunta ao banco quando a resposta some.
+  chave String @unique
+
+  /// O id do pagamento do boleto, ou o endToEndId do Pix.
+  idNoBanco       String?         @map("id_no_banco")
+  situacao        SituacaoNoBanco @default(ENVIANDO)
+  /// O status como o banco escreve (LIQUIDATED, WAITING_APPROVAL…).
+  statusDoBanco   String?         @map("status_do_banco")
+  /// Por que não saiu, ou por que a baixa no IXC não pegou.
+  erro            String?
+  /// Quando a baixa no IXC saiu. Null com `situacao` PAGO = falta baixar.
+  baixadoEm       DateTime?       @map("baixado_em")
+  pagoEm          DateTime?       @map("pago_em")
+
+  criadoPor String?  @map("criado_por")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([idFnApagar])
+  @@index([situacao])
+  @@map("pagamentos_no_banco")
+}
+
 model ContaPagar {
   id String @id @default(uuid())
 

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Injectable,
   Logger,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigFinanceiraService } from '../financeiro/config-financeira.service';
@@ -29,6 +30,7 @@ import {
   mapPagamento,
   motivoDeNaoSerPagamento,
 } from './historico-pagamentos.mapper';
+import { PagamentosNoBancoService } from './pagamentos-no-banco.service';
 
 /** Por onde o dinheiro sai. */
 export type FormaDePagar = 'BANCO' | 'EM_MAOS';
@@ -80,6 +82,15 @@ export interface ResultadoDoPagamento {
    * o caso do ModoBank, que paga pela tela dele no IXC.
    */
   aguardandoBanco: boolean;
+  /**
+   * Mandado direto à API do ModoBank: onde o pagamento está e para quem foi.
+   * Ausente quando o título só foi aprovado (ou baixado em outra conta).
+   */
+  noBanco?: {
+    situacao: string;
+    forma: 'BOLETO' | 'PIX';
+    favorecido: string | null;
+  };
   /** O que não impediu o pagamento, mas quem clicou precisa saber. */
   avisos: string[];
 }
@@ -134,6 +145,9 @@ export class PagamentosService {
     private readonly prisma: PrismaService,
     // Quem sabe o que cai junto quando uma conta a pagar some daqui.
     private readonly contasPagar: ContasPagarService,
+    // Pagar pelo ModoBank direto na API dele. Opcional: sem ele (e nos testes
+    // antigos) a conta do ModoBank só é aprovada, como sempre foi.
+    @Optional() private readonly noBanco?: PagamentosNoBancoService,
   ) {}
 
   async pagar(
@@ -184,6 +198,13 @@ export class PagamentosService {
        * certo e não sobe de novo.
        */
       valorPago?: number;
+      /**
+       * Pela conta do ModoBank, mandar o boleto ou o Pix direto à API do
+       * banco, em vez de só aprovar e esperar alguém clicar em "pagar com
+       * ModoBank" na tela do IXC. A baixa sai depois, quando o banco disser
+       * que pagou (`PagamentosNoBancoPoller`).
+       */
+      enviarAoBanco?: boolean;
       /** @deprecated A conta escolhida é quem manda; fica por compatibilidade. */
       forma?: FormaDePagar;
     },
@@ -230,6 +251,61 @@ export class PagamentosService {
       throw new BadRequestException(
         `O título ${idFnApagar} foi reprovado na auditoria do IXC. Resolva por ` +
           'lá antes de pagar.',
+      );
+    }
+
+    const cfg = await this.config.obter();
+    const contaPagamentoId =
+      opcoes.contaPagamento ??
+      parseIxcId(raw.id_contas) ??
+      cfg.contaPagamentoId;
+
+    /*
+     * Pelo ModoBank, direto na API do banco. Vem antes de tudo que mexe no
+     * IXC: aqui o título não é editado, nem aprovado, nem baixado — só sai o
+     * pedido ao banco. A aprovação e a baixa vêm juntas, quando o banco disser
+     * que o dinheiro saiu.
+     *
+     * Aprovar só depois é de propósito: a tela "pagar com ModoBank" do IXC
+     * lista os títulos aprovados, e um título aprovado enquanto o banco ainda
+     * processa é um título que alguém pode pagar uma segunda vez por lá.
+     */
+    if (opcoes.enviarAoBanco && contaPagamentoId === cfg.contaPagamentoId && !opcoes.jaSaiu) {
+      if (this.noBanco?.ativo) {
+        const desconto = Math.round(Math.max(0, opcoes.desconto ?? 0) * 100) / 100;
+        if (desconto >= valor) {
+          throw new BadRequestException(
+            `O desconto (${moeda(desconto)}) não pode alcançar o valor do título ` +
+              `${idFnApagar} (${moeda(valor)}).`,
+          );
+        }
+        const { pagamento, avisos: doBanco } = await this.noBanco.enviar(idFnApagar, raw, {
+          valorDoTitulo: valor,
+          desconto,
+          usuario: usuarioNome,
+        });
+        const enviado = Number(pagamento.valor);
+        return {
+          idFnApagar,
+          aprovada: lerStatusAuditoria(raw) === 'A',
+          paga: false,
+          valor,
+          valorPago: enviado,
+          desconto: Math.max(0, Math.round((valor - enviado) * 100) / 100),
+          acrescimo: Math.max(0, Math.round((enviado - valor) * 100) / 100),
+          contaPagamento: contaPagamentoId,
+          aguardandoBanco: true,
+          noBanco: {
+            situacao: pagamento.situacao,
+            forma: pagamento.forma,
+            favorecido: pagamento.favorecido,
+          },
+          avisos: [...avisos, ...doBanco],
+        };
+      }
+      avisos.push(
+        'O pagamento direto pelo ModoBank não está ligado no servidor: a conta ' +
+          'foi só aprovada, e sai pela tela do banco no IXC.',
       );
     }
 
@@ -363,11 +439,6 @@ export class PagamentosService {
     }
 
     // --- 2. De onde o dinheiro sai, que é o que decide se há baixa ---
-    const cfg = await this.config.obter();
-    const contaPagamentoId =
-      opcoes.contaPagamento ??
-      parseIxcId(raw.id_contas) ??
-      cfg.contaPagamentoId;
     const filialId = parseIxcId(raw.filial_id) ?? cfg.filialId;
 
     /*
@@ -597,6 +668,8 @@ export class PagamentosService {
        * uma conta, pelo mesmo motivo do desconto.
        */
       valorPago?: number;
+      /** Os do ModoBank vão direto à API do banco. Ver `pagar`. */
+      enviarAoBanco?: boolean;
       forma?: FormaDePagar;
     },
     usuarioNome?: string,

@@ -1,0 +1,477 @@
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import axios, { type AxiosInstance, type AxiosResponse } from 'axios';
+import { Agent } from 'node:https';
+import type { AppConfig } from '../config/configuration';
+
+export type ConfigModobank = AppConfig['modobank'];
+
+/** O status de um pagamento, como o banco escreve. */
+export type StatusDoBanco =
+  | 'CANCELED'
+  | 'PROCESSING'
+  | 'LIQUIDATED'
+  | 'ON_QUEUE'
+  | 'WAITING_APPROVAL'
+  | 'WAITING_CONFIRMATION'
+  | 'REFUNDED'
+  | 'PARTIALLY_REFUNDED';
+
+/** Um boleto consultado no banco, antes de pagar. */
+export interface BoletoNoBanco {
+  linhaDigitavel: string;
+  favorecido: string | null;
+  documentoDoFavorecido: string | null;
+  vencimento: Date | null;
+  /** O que o banco cobraria hoje: o valor com juros, multa e desconto. */
+  valor: number;
+  valorOriginal: number | null;
+  /** Boleto de valor aberto (fatura de cartão): o banco não paga pela API. */
+  valorLivre: boolean;
+}
+
+/** O dono de uma chave Pix, segundo o diretório do Banco Central. */
+export interface DonoDaChave {
+  nome: string | null;
+  documento: string | null;
+  banco: string | null;
+  /**
+   * O id da consulta. Vai junto no pagamento: é o que liga os dois e faz a
+   * consulta não contar duas vezes no limite de consultas de chave do banco.
+   */
+  endToEndId: string | null;
+}
+
+/** A resposta de um pagamento mandado: por onde acompanhá-lo. */
+export interface PagamentoAceito {
+  idNoBanco: string | null;
+  status: StatusDoBanco | null;
+}
+
+/** Onde um pagamento está agora. */
+export interface SituacaoDoPagamento {
+  status: StatusDoBanco | null;
+  /** O código do motivo, quando o Pix não saiu (AM04 = sem saldo…). */
+  codigoDoErro: string | null;
+  /** O id que o banco deu: só a consulta pela chave o traz. */
+  idNoBanco: string | null;
+  liquidadoEm: Date | null;
+}
+
+/** Recusa do banco, com o que ele disse. O status HTTP decide o que fazer. */
+export class RecusaDoBanco extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * A API do ModoBank — a plataforma ONZ, na instância do banco.
+ *
+ * Toda chamada leva o certificado da credencial (mTLS) e um token OAuth2 que
+ * dura alguns minutos. O certificado é o que o banco confere primeiro: com ele
+ * errado a resposta é `onz-0001`, antes de qualquer senha.
+ *
+ * Só sabe falar com o banco. O que pagar, e o que fazer com a resposta, é do
+ * `PagamentosNoBancoService`.
+ */
+@Injectable()
+export class ModobankClient {
+  private readonly logger = new Logger(ModobankClient.name);
+  private http: AxiosInstance | null = null;
+  private token: { valor: string; ate: number } | null = null;
+
+  constructor(private readonly cfg: ConfigModobank) {}
+
+  /** As quatro peças da credencial estão no ambiente. */
+  get configurado(): boolean {
+    return !!(this.cfg.clientId && this.cfg.clientSecret && this.cfg.certificado);
+  }
+
+  get fluxo(): ConfigModobank['fluxo'] {
+    return this.cfg.fluxo;
+  }
+
+  /** O saldo disponível na conta. */
+  async saldo(): Promise<number | null> {
+    const r = await this.pedir<{ data?: Array<{ balanceAmount?: { available?: number } }> }>(
+      'get',
+      '/accounts/balances',
+    );
+    const disponivel = r.data?.[0]?.balanceAmount?.available;
+    return typeof disponivel === 'number' ? disponivel : null;
+  }
+
+  /** Lê o boleto no banco sem pagar: quem recebe e quanto ele cobra hoje. */
+  async consultarBoleto(codigo: string): Promise<BoletoNoBanco> {
+    const r = await this.pedir<Record<string, unknown>>('post', '/billets/info', {
+      billetCode: codigo.replace(/\D/g, ''),
+    });
+    const numero = (v: unknown) => (typeof v === 'number' ? v : Number(v ?? NaN));
+    const total = numero(r.totalUpdated);
+    const original = numero(r.originalValue);
+    return {
+      linhaDigitavel: String(r.digitableCode ?? '').replace(/\D/g, '') || codigo.replace(/\D/g, ''),
+      favorecido: texto(r.recipient),
+      documentoDoFavorecido: texto(r.documentRecipient),
+      vencimento: data(r.payDueDate ?? r.dueDateRegister),
+      valor: Number.isFinite(total) ? total : Number.isFinite(original) ? original : 0,
+      valorOriginal: Number.isFinite(original) ? original : null,
+      valorLivre: r.allowChangeValue === true,
+    };
+  }
+
+  async pagarBoleto(p: {
+    linhaDigitavel: string;
+    valor: number;
+    descricao: string;
+    chave: string;
+  }): Promise<PagamentoAceito> {
+    const r = await this.pedir<Record<string, unknown>>(
+      'post',
+      '/billets/payments',
+      {
+        digitableCode: p.linhaDigitavel,
+        description: p.descricao,
+        paymentFlow: this.cfg.fluxo,
+        payment: { currency: 'BRL', amount: centavos(p.valor) },
+      },
+      { 'x-idempotency-key': p.chave },
+    );
+    return { idNoBanco: texto(r.id), status: status(r.status) };
+  }
+
+  /**
+   * Quem é o dono da chave — o nome que aparece antes de confirmar. Null = a
+   * chave não existe no Pix.
+   */
+  async donoDaChave(chave: string): Promise<DonoDaChave | null> {
+    let r: Record<string, unknown>;
+    try {
+      r = await this.pedir<Record<string, unknown>>(
+        'get',
+        `/pix/keys/${encodeURIComponent(chave)}`,
+      );
+    } catch (err) {
+      if (err instanceof RecusaDoBanco && err.status === 404) return null;
+      throw err;
+    }
+    const d = (r.data ?? r) as Record<string, unknown>;
+    return {
+      nome: texto(d.name ?? d.tradeName),
+      documento: texto(d.document),
+      banco: texto(d.ispb_reduced_name),
+      endToEndId: texto(d.endToEndId),
+    };
+  }
+
+  /** Lê um Pix copia e cola: quem recebe e quanto ele pede. */
+  async lerCopiaECola(
+    codigo: string,
+    chave: string,
+  ): Promise<{ favorecido: string | null; valor: number | null }> {
+    const r = await this.pedir<Record<string, unknown>>(
+      'post',
+      '/pix/payments/qrc/info',
+      { qrCode: codigo.trim() },
+      { 'x-idempotency-key': chave },
+    );
+    const d = (r.data ?? r) as Record<string, unknown>;
+    const valor = Number(d.transactionAmount ?? NaN);
+    return {
+      favorecido: texto(d.merchantName),
+      valor: Number.isFinite(valor) && valor > 0 ? valor : null,
+    };
+  }
+
+  async pagarPix(p: {
+    /** A chave Pix, ou o código copia e cola. */
+    destino: string;
+    copiaECola: boolean;
+    valor: number;
+    descricao: string;
+    chave: string;
+    /** O da consulta da chave feita antes (`donoDaChave`). */
+    endToEndIdDaConsulta?: string | null;
+  }): Promise<PagamentoAceito> {
+    const r = await this.pedir<Record<string, unknown>>(
+      'post',
+      p.copiaECola ? '/pix/payments/qrc' : '/pix/payments/dict',
+      {
+        ...(p.copiaECola
+          ? { qrCode: p.destino }
+          : {
+              pixKey: p.destino,
+              ...(p.endToEndIdDaConsulta ? { endToEndId: p.endToEndIdDaConsulta } : {}),
+            }),
+        description: p.descricao,
+        paymentFlow: this.cfg.fluxo,
+        payment: { currency: 'BRL', amount: centavos(p.valor) },
+      },
+      { 'x-idempotency-key': p.chave },
+    );
+    // O Pix responde com o endToEndId: é por ele que se acompanha.
+    return { idNoBanco: texto(r.endToEndId ?? r.id), status: status(r.status) };
+  }
+
+  async situacaoDoBoleto(id: string): Promise<SituacaoDoPagamento> {
+    const r = await this.pedir<{ data?: Record<string, unknown> }>(
+      'get',
+      `/billets/${encodeURIComponent(id)}`,
+    );
+    const d = r.data ?? {};
+    const info = (d.billetInfo ?? {}) as Record<string, unknown>;
+    return {
+      status: status(d.status),
+      codigoDoErro: null,
+      idNoBanco: texto(d.id),
+      liquidadoEm: data(info.settleDate),
+    };
+  }
+
+  async situacaoDoPix(endToEndId: string): Promise<SituacaoDoPagamento> {
+    const r = await this.pedir<{ data?: Record<string, unknown> }>(
+      'get',
+      `/pix/payments/${encodeURIComponent(endToEndId)}`,
+    );
+    return lerSituacaoDoPix(r.data ?? {});
+  }
+
+  /**
+   * O Pix pela chave de idempotência — para quando a resposta do pagamento se
+   * perdeu e não se sabe se ele chegou ao banco. Null = não chegou.
+   */
+  async pixPelaChave(chave: string): Promise<SituacaoDoPagamento | null> {
+    try {
+      const r = await this.pedir<{ data?: Record<string, unknown> }>(
+        'get',
+        `/pix/payments/idempotencyKey/${encodeURIComponent(chave)}`,
+      );
+      return lerSituacaoDoPix(r.data ?? {});
+    } catch (err) {
+      if (err instanceof RecusaDoBanco && err.status === 404) return null;
+      throw err;
+    }
+  }
+
+  /** O boleto pago pela chave de idempotência, procurado na lista do banco. */
+  async boletoPelaChave(chave: string): Promise<SituacaoDoPagamento | null> {
+    // A lista vem do mais novo para o mais velho, e a chave procurada é de
+    // minutos atrás: a primeira página basta.
+    const r = await this.pedir<{ data?: Array<Record<string, unknown>> }>('get', '/billets');
+    const achado = (r.data ?? []).find((b) => b.idempotencyKey === chave);
+    if (!achado) return null;
+    return {
+      status: status(achado.status),
+      codigoDoErro: null,
+      idNoBanco: texto(achado.id),
+      liquidadoEm: null,
+    };
+  }
+
+  /** O comprovante em PDF. */
+  async comprovante(forma: 'BOLETO' | 'PIX', idNoBanco: string): Promise<Buffer> {
+    const caminho =
+      forma === 'BOLETO'
+        ? `/billets/payments/receipt/${encodeURIComponent(idNoBanco)}`
+        : `/pix/payments/receipt/${encodeURIComponent(idNoBanco)}`;
+    const r = await this.pedir<{ data?: { pdf?: string } }>('get', caminho);
+    if (!r.data?.pdf) {
+      throw new ServiceUnavailableException('O banco não devolveu o comprovante.');
+    }
+    return Buffer.from(r.data.pdf, 'base64');
+  }
+
+  /**
+   * Uma chamada autenticada. O 401 limpa o token e tenta mais uma vez: ele
+   * pode ter vencido entre a leitura do relógio e a chegada ao banco.
+   */
+  private async pedir<T>(
+    metodo: 'get' | 'post',
+    caminho: string,
+    corpo?: unknown,
+    cabecalhos?: Record<string, string>,
+  ): Promise<T> {
+    for (let tentativa = 1; ; tentativa++) {
+      const token = await this.tokenValido();
+      const r = await this.enviar(() =>
+        this.cliente().request({
+          method: metodo,
+          url: caminho,
+          data: corpo,
+          headers: { Authorization: `Bearer ${token}`, ...cabecalhos },
+        }),
+      );
+      if (r.status === 401 && tentativa === 1) {
+        this.token = null;
+        continue;
+      }
+      if (r.status >= 400) {
+        throw new RecusaDoBanco(`ModoBank: ${mensagemDoBanco(r)}`, r.status);
+      }
+      return r.data as T;
+    }
+  }
+
+  private async tokenValido(): Promise<string> {
+    if (this.token && this.token.ate > Date.now()) return this.token.valor;
+    if (!this.configurado) {
+      throw new ServiceUnavailableException(
+        'A API do ModoBank não está configurada no servidor (MODOBANK_CLIENT_ID, ' +
+          'MODOBANK_CLIENT_SECRET e MODOBANK_CERTIFICADO).',
+      );
+    }
+    const r = await this.enviar(() =>
+      this.cliente().post(
+        '/oauth/token',
+        new URLSearchParams({
+          grant_type: 'client_credentials',
+          client_id: this.cfg.clientId,
+          client_secret: this.cfg.clientSecret,
+        }).toString(),
+        { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+      ),
+    );
+    if (r.status >= 400) {
+      throw new RecusaDoBanco(
+        `ModoBank recusou a credencial: ${mensagemDoBanco(r)}`,
+        r.status,
+      );
+    }
+    const lido = lerToken(r.data, Date.now());
+    if (!lido) {
+      throw new ServiceUnavailableException('O ModoBank respondeu sem token.');
+    }
+    this.token = lido;
+    return lido.valor;
+  }
+
+  /** Erro de rede ou de certificado vira uma frase que diz qual dos dois foi. */
+  private async enviar(chamada: () => Promise<AxiosResponse>): Promise<AxiosResponse> {
+    try {
+      return await chamada();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Falha ao falar com o ModoBank: ${msg}`);
+      throw new ServiceUnavailableException(explicarFalhaDeRede(msg));
+    }
+  }
+
+  private cliente(): AxiosInstance {
+    if (this.http) return this.http;
+    this.http = axios.create({
+      baseURL: this.cfg.url,
+      timeout: this.cfg.timeoutMs,
+      httpsAgent: new Agent({
+        ...certificado(this.cfg.certificado, this.cfg.senhaDoCertificado),
+        keepAlive: true,
+        /*
+         * Só IPv4: a credencial libera um IP, o 170.0.124.7. Se o servidor
+         * saísse por IPv6, o banco veria outro endereço e recusaria.
+         */
+        family: 4,
+      }),
+      headers: { 'Content-Type': 'application/json' },
+      // Todo status volta para cá: quem lê a recusa é `pedir`.
+      validateStatus: () => true,
+    });
+    return this.http;
+  }
+}
+
+/**
+ * O certificado como o Node o aceita.
+ *
+ * Na variável vai o .pfx em base64 — é binário, e variável de ambiente só
+ * guarda texto. Também serve PEM (certificado e chave no mesmo texto), que é o
+ * jeito de contornar um .pfx em formato antigo que o OpenSSL 3 não abre.
+ */
+export function certificado(
+  conteudo: string,
+  senha: string,
+): { pfx: Buffer; passphrase?: string } | { cert: string; key: string; passphrase?: string } {
+  const passphrase = senha || undefined;
+  // PEM só serve com a chave junto; sem ela, o cabeçalho é o do certutil.
+  if (conteudo.includes('PRIVATE KEY-----')) {
+    return { cert: conteudo, key: conteudo, passphrase };
+  }
+  // O `certutil -encode` do Windows põe cabeçalho e quebra linhas: sai tudo.
+  const base64 = conteudo
+    .replace(/-----[^-]+-----/g, '')
+    .replace(/\s+/g, '');
+  return { pfx: Buffer.from(base64, 'base64'), passphrase };
+}
+
+/**
+ * O token da resposta, com a hora em que deixa de valer — um minuto antes da
+ * do banco, para não chegar vencido.
+ *
+ * A especificação traz `accessToken`/`expiresAt` e o portal fala em
+ * `access_token`/`expires_in`: aceita os dois. `expiresAt` grande é instante
+ * (segundos desde 1970); pequeno, duração.
+ */
+export function lerToken(
+  corpo: unknown,
+  agora: number,
+): { valor: string; ate: number } | null {
+  const c = (corpo ?? {}) as Record<string, unknown>;
+  const valor = texto(c.access_token ?? c.accessToken);
+  if (!valor) return null;
+  const n = Number(c.expires_in ?? c.expiresIn ?? c.expiresAt ?? 300);
+  const segundos = !Number.isFinite(n) || n <= 0 ? 300 : n > 1e9 ? n - agora / 1000 : n;
+  return { valor, ate: agora + Math.max(0, segundos - 60) * 1000 };
+}
+
+export function lerSituacaoDoPix(d: Record<string, unknown>): SituacaoDoPagamento {
+  return {
+    status: status(d.status),
+    codigoDoErro: texto(d.errorCode),
+    idNoBanco: texto(d.endToEndId),
+    liquidadoEm: data(d.settleDate ?? d.eventDate),
+  };
+}
+
+/** O que o banco disse, no formato RFC 7807 que ele usa (`detail`, `title`). */
+export function mensagemDoBanco(r: Pick<AxiosResponse, 'status' | 'data'>): string {
+  const d = (r.data ?? {}) as Record<string, unknown>;
+  const partes = [texto(d.detail), texto(d.title), texto(d.message)].filter(Boolean);
+  const tipo = texto(d.type);
+  const codigo = tipo && /onz-\d+/i.test(tipo) ? tipo.match(/onz-\d+/i)![0] : null;
+  const frase = partes[0] ?? `HTTP ${r.status}`;
+  return codigo && !frase.includes(codigo) ? `${frase} (${codigo})` : frase;
+}
+
+export function explicarFalhaDeRede(msg: string): string {
+  if (/mac verify|bad decrypt|pkcs12|unsupported|asn1|wrong tag|no start line/i.test(msg)) {
+    return (
+      'O certificado do ModoBank não abriu: a senha não confere com o arquivo, ' +
+      `ou o arquivo veio cortado ao colar no servidor (${msg}).`
+    );
+  }
+  if (/timeout/i.test(msg)) return `O ModoBank não respondeu a tempo (${msg}).`;
+  return `Não deu para falar com o ModoBank (${msg}).`;
+}
+
+function status(v: unknown): StatusDoBanco | null {
+  const s = texto(v)?.toUpperCase();
+  return (s as StatusDoBanco | undefined) ?? null;
+}
+
+function texto(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  return s || null;
+}
+
+function data(v: unknown): Date | null {
+  const s = texto(v);
+  if (!s) return null;
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function centavos(v: number): number {
+  return Math.round(v * 100) / 100;
+}

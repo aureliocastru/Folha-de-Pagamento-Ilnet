@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { FinanceiroModule } from '../financeiro/financeiro.module';
 import { IxcModule } from '../ixc/ixc.module';
+import { ModobankModule } from '../modobank/modobank.module';
 import { UsuariosModule } from '../usuarios/usuarios.module';
 import { AbastecimentoPortalController } from './abastecimento-portal.controller';
 import { AbastecimentosService } from './abastecimentos.service';
@@ -18,6 +19,8 @@ import { DespesasService } from './despesas.service';
 import { HistoricoPagamentosController } from './historico-pagamentos.controller';
 import { HistoricoPagamentosService } from './historico-pagamentos.service';
 import { PagamentosService } from './pagamentos.service';
+import { PagamentosNoBancoPoller } from './pagamentos-no-banco.poller';
+import { PagamentosNoBancoService } from './pagamentos-no-banco.service';
 import { NotasFiscaisService } from './notas-fiscais.service';
 import { ParcelasService } from './parcelas.service';
 import { RecorrentesPollerService } from './recorrentes-poller.service';
@@ -34,7 +37,9 @@ import { ManutencaoService } from './manutencao.service';
   //
   // Os usuários, porque o veículo também fica no nome de um login — e a
   // frota precisa saber que login já é um funcionário, para não repeti-lo.
-  imports: [IxcModule, FinanceiroModule, UsuariosModule],
+  //
+  // O ModoBank, para pagar boleto e Pix direto na API do banco.
+  imports: [IxcModule, FinanceiroModule, UsuariosModule, ModobankModule],
   controllers: [
     ContasAbertasController,
     CategoriasController,
@@ -64,6 +69,10 @@ import { ManutencaoService } from './manutencao.service';
     // `HistoricoPagamentosService` só *lê* o que já foi pago. Nomes parecidos,
     // lados opostos: um escreve no IXC, o outro nunca.
     PagamentosService,
+    // O que foi mandado direto ao ModoBank, e quem pergunta a ele se pagou
+    // (e então dá a baixa pelo `PagamentosService`).
+    PagamentosNoBancoService,
+    PagamentosNoBancoPoller,
     HistoricoPagamentosService,
     // A linha de baixa do IXC, que é quem sabe em que dia o dinheiro saiu — o
     // título só sabe em que dia a baixa foi registrada.

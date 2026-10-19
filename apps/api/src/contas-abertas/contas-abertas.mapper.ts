@@ -13,6 +13,7 @@
 
 import { parseIxcDate, parseIxcDecimal, parseIxcId } from '../ixc/ixc.parse';
 import { lerStatusAuditoria, type StatusAuditoriaIxc } from '../ixc/ixc.financeiro';
+import type { NoBancoNaLista } from './pagamentos-no-banco.service';
 
 /** "29 de 36" escrito num título — a numeração que veio pronta do IXC. */
 export interface MarcacaoDeParcela {
@@ -160,6 +161,8 @@ export interface ContaAberta {
    * tela só não o mostra até pedirem as ocultas de volta.
    */
   oculta?: boolean;
+  /** O último pagamento mandado direto ao ModoBank por este título. */
+  noBanco?: NoBancoNaLista;
 }
 
 /** De onde a conta veio, quando quem a criou foi esta aplicação. */

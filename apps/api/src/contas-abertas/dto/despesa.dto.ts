@@ -68,6 +68,9 @@ export class PagarTituloDto {
   /** O que aparece no histórico do lançamento no IXC. */
   @IsOptional() @IsString() @MaxLength(200) historico?: string;
 
+  /** Pelo ModoBank, direto à API do banco. Ver `PagamentosService.pagar`. */
+  @IsOptional() @IsBoolean() enviarAoBanco?: boolean;
+
   /** @deprecated A conta escolhida manda; fica por compatibilidade. */
   @IsOptional() @IsIn(['BANCO', 'EM_MAOS']) forma?: 'BANCO' | 'EM_MAOS';
 }
@@ -114,6 +117,12 @@ export class PagarLoteDto {
   @IsNumber()
   @Min(0)
   valorPago?: number;
+
+  /**
+   * Os títulos do ModoBank vão direto à API do banco, em vez de só aprovados.
+   * Ver `PagamentosService.pagar`.
+   */
+  @IsOptional() @IsBoolean() enviarAoBanco?: boolean;
 
   /** @deprecated A conta escolhida manda; fica por compatibilidade. */
   @IsOptional() @IsIn(['BANCO', 'EM_MAOS']) forma?: 'BANCO' | 'EM_MAOS';

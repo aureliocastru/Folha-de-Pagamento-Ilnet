@@ -862,6 +862,21 @@ export interface ContaAberta {
   origem: OrigemNaFolha | null;
   /** Tirada da lista por alguém. Continua devida e somada no resumo. */
   oculta?: boolean;
+  /** O último pagamento mandado direto ao ModoBank por este título. */
+  noBanco?: NoBancoDaConta;
+}
+
+/** Onde está o pagamento que este app mandou direto ao ModoBank. */
+export interface NoBancoDaConta {
+  situacao: 'ENVIANDO' | 'NO_BANCO' | 'AGUARDANDO_APROVACAO' | 'PAGO' | 'RECUSADO';
+  forma: 'BOLETO' | 'PIX';
+  valor: number;
+  favorecido: string | null;
+  erro: string | null;
+  /** O banco pagou e a baixa no IXC ainda não saiu. */
+  faltaBaixa: boolean;
+  comComprovante: boolean;
+  enviadoEm: string;
 }
 
 /** Um pedaço de título que se divide entre categorias (a fatura do cartão). */

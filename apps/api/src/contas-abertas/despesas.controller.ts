@@ -28,6 +28,7 @@ import {
 } from './dto/despesa.dto';
 import { HistoricoPagamentosService } from './historico-pagamentos.service';
 import { NotasFiscaisService } from './notas-fiscais.service';
+import { PagamentosNoBancoService } from './pagamentos-no-banco.service';
 import { PagamentosService } from './pagamentos.service';
 
 function usuarioId(req: Request): string | undefined {
@@ -48,6 +49,7 @@ export class DespesasController {
     // Pagar por aqui torna velha a leitura guardada do "Já pago".
     private readonly historico: HistoricoPagamentosService,
     private readonly notasFiscais: NotasFiscaisService,
+    private readonly noBanco: PagamentosNoBancoService,
   ) {}
 
   /** O número da nota fiscal do título — a Contabilidade o lê daqui. */
@@ -174,11 +176,40 @@ export class DespesasController {
         jaSaiu: dto.jaSaiu,
         desconto: dto.desconto,
         valorPago: dto.valorPago,
+        enviarAoBanco: dto.enviarAoBanco,
       },
       usuarioNome(req),
     );
     this.historico.esquecerLeituras();
     return r;
+  }
+
+  /** Se o pagamento direto pelo ModoBank está ligado, e o saldo da conta. */
+  @Get('contas-abertas/banco/situacao')
+  situacaoDoBanco() {
+    return this.noBanco.situacao();
+  }
+
+  /** Para quem vai e quanto sai, lido no banco antes de confirmar. */
+  @Get('contas-abertas/:idFnApagar/banco/previa')
+  previaNoBanco(@Param('idFnApagar', ParseIntPipe) idFnApagar: number) {
+    return this.noBanco.previa(idFnApagar);
+  }
+
+  /** O comprovante do banco, para abrir numa aba. */
+  @Get('contas-abertas/:idFnApagar/banco/comprovante')
+  async comprovanteDoBanco(
+    @Param('idFnApagar', ParseIntPipe) idFnApagar: number,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const { pdf, nome } = await this.noBanco.comprovante(idFnApagar);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Length': String(pdf.length),
+      'Content-Disposition': `inline; filename="${nome}"`,
+      'Cache-Control': 'private, no-store',
+    });
+    return new StreamableFile(pdf);
   }
 
   /** Muda o que dá para mudar num título ainda em aberto. */

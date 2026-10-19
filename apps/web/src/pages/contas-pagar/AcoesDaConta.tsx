@@ -1,11 +1,85 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { Aviso, CampoDinheiro, Carregando, Janela } from '../../components/ui';
+import { Aviso, CampoDinheiro, Carregando, Janela, Selo } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { abrirArquivo } from '../../lib/arquivo';
 import { formatBRL, formatData, formatNumeroBR } from '../../lib/format';
-import type { ContaAberta } from '../../lib/types';
+import type { ContaAberta, NoBancoDaConta } from '../../lib/types';
 import { CampoDeData } from '../../components/CampoDeData';
 import { NovaDespesa, type EdicaoDaConta } from './NovaDespesa';
+
+/** Se o pagamento direto pelo ModoBank está ligado no servidor. */
+interface SituacaoDoBanco {
+  ativo: boolean;
+  /** O banco só paga depois que alguém aprovar lá. */
+  pedeAprovacao: boolean;
+  saldo: number | null;
+  erro: string | null;
+}
+
+/** Para quem vai e quanto sai, lido no banco antes de confirmar. */
+interface PreviaNoBanco {
+  forma: 'BOLETO' | 'PIX';
+  favorecido: string | null;
+  valor: number;
+  valorDoTitulo: number;
+}
+
+/**
+ * O pagamento mandado direto ao ModoBank, no lugar da linha da lista: é o que
+ * impede pagar de novo, por outro caminho, o que o banco já está pagando.
+ */
+export function SeloNoBanco({
+  noBanco,
+  idFnApagar,
+}: {
+  noBanco: NoBancoDaConta;
+  idFnApagar: number;
+}) {
+  const [erro, setErro] = useState<string | null>(null);
+  const forma = noBanco.forma === 'BOLETO' ? 'Boleto' : 'Pix';
+  const para = noBanco.favorecido ? ` para ${noBanco.favorecido}` : '';
+  const [tom, texto] =
+    noBanco.situacao === 'RECUSADO'
+      ? (['erro', 'Banco recusou'] as const)
+      : noBanco.situacao === 'AGUARDANDO_APROVACAO'
+        ? (['atencao', 'Aprovar no ModoBank'] as const)
+        : noBanco.situacao === 'PAGO'
+          ? noBanco.faltaBaixa
+            ? (['atencao', 'Pago no banco · falta baixa'] as const)
+            : (['pago', 'Pago pelo banco'] as const)
+          : (['info', 'No banco · pagando'] as const);
+
+  return (
+    <>
+      <Selo
+        pequeno
+        ponto={noBanco.situacao !== 'RECUSADO' && noBanco.situacao !== 'PAGO'}
+        tom={tom}
+        titulo={`${forma} de ${formatBRL(noBanco.valor)}${para}${noBanco.erro ? ` — ${noBanco.erro}` : ''}`}
+      >
+        {texto}
+      </Selo>
+      {noBanco.comComprovante && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setErro(null);
+            abrirArquivo(
+              `/contas-abertas/${idFnApagar}/banco/comprovante`,
+              `comprovante-${idFnApagar}.pdf`,
+            ).catch((err: unknown) => setErro(mensagemErro(err)));
+          }}
+          className="text-xs font-semibold text-brand-700 underline dark:text-brand-300"
+        >
+          Comprovante
+        </button>
+      )}
+      {erro && <span className="text-xs text-rose-600">{erro}</span>}
+    </>
+  );
+}
 
 /** Uma conta de onde o dinheiro sai, como o IXC a tem. */
 interface ContaDePagamento {
@@ -57,9 +131,10 @@ function hojeISO(): string {
  * A conta escolhida decide o que acontece, e a tela diz qual é o caso antes de
  * confirmar:
  *
- * - **ModoBank**: só aprova no IXC. O pagamento sai pela tela dele lá, com um
- *   botão que este app não tem permissão de acionar — marcar como paga aqui
- *   seria dar por quitado o que o banco ainda não pagou.
+ * - **ModoBank**: com a API do banco ligada no servidor, o boleto ou o Pix vai
+ *   direto para ele, e a baixa no IXC sai sozinha quando ele pagar. Sem a API,
+ *   só aprova no IXC, e o pagamento sai pela tela do banco lá — marcar como
+ *   paga aqui seria dar por quitado o que o banco ainda não pagou.
  * - **qualquer outra conta**: aprova e dá baixa, que é o mesmo que fazer o
  *   pagamento manual no IXC. É o que evita repetir o trabalho lá.
  *
@@ -107,6 +182,9 @@ export function PagarEmMaos({
     economia: number;
     acrescimo: number;
     aguardandoBanco: number;
+    /** Quantas foram mandadas direto ao ModoBank. */
+    noBanco: number;
+    avisos: string[];
     falhas: Array<{ idFnApagar: number; erro: string }>;
   } | null>(null);
 
@@ -163,6 +241,30 @@ export function PagarEmMaos({
    */
   const soAprova = contaDoBancoEscolhida && !jaSaiu;
 
+  const banco = useQuery({
+    queryKey: ['banco-situacao'],
+    queryFn: async () =>
+      (await api.get<SituacaoDoBanco>('/contas-abertas/banco/situacao')).data,
+    staleTime: 30_000,
+  });
+  const bancoLigado = !!banco.data?.ativo;
+  /** Pelo ModoBank, com a API ligada: o pagamento vai direto ao banco. */
+  const peloBanco = soAprova && bancoLigado;
+  /** Uma conta só: o banco diz antes para quem vai e quanto sai. */
+  const previa = useQuery({
+    queryKey: ['banco-previa', contas[0]?.idFnApagar],
+    queryFn: async () =>
+      (
+        await api.get<PreviaNoBanco>(
+          `/contas-abertas/${contas[0].idFnApagar}/banco/previa`,
+        )
+      ).data,
+    enabled: peloBanco && contas.length === 1,
+    retry: 0,
+    gcTime: 0,
+    refetchOnWindowFocus: false,
+  });
+
   const total = contas.reduce((s, c) => s + c.valorAberto, 0);
 
   /**
@@ -202,11 +304,20 @@ export function PagarEmMaos({
       ? descontoQueCabe(total, descontoNumero)
       : null;
   const descontoNaoCabe = !!cabimento && !cabimento.cabe;
+  /** No boleto, o que o banco cobra hoje — com juros, se venceu. */
+  const valorGrande = peloBanco && previa.data ? previa.data.valor : aPagar;
+  /** O banco já disse que não paga esta: mandar só repete a recusa. */
+  const bancoRecusa = peloBanco && previa.isError;
 
   const pagar = useMutation({
     mutationFn: async () => {
       const { data: r } = await api.post<{
-        pagas: Array<{ idFnApagar: number; aguardandoBanco: boolean }>;
+        pagas: Array<{
+          idFnApagar: number;
+          aguardandoBanco: boolean;
+          noBanco?: { situacao: string };
+          avisos?: string[];
+        }>;
         falhas: Array<{ idFnApagar: number; erro: string }>;
         total: number;
         economia: number;
@@ -224,16 +335,21 @@ export function PagarEmMaos({
         // Acima do título vai o valor de destino, e não a diferença: repetir
         // depois de uma falha acha o título já no valor e não o sobe de novo.
         valorPago: pagouAMais ? aPagar : undefined,
+        // Os do ModoBank vão direto ao banco; os de outras contas, como sempre.
+        enviarAoBanco: bancoLigado,
       });
       return r;
     },
     onSuccess: (r) => {
+      const doBanco = r.pagas.filter((p) => p.noBanco);
       setResultado({
         pagas: r.pagas.length,
         total: r.total,
         economia: r.economia,
         acrescimo: r.acrescimo ?? 0,
         aguardandoBanco: r.pagas.filter((p) => p.aguardandoBanco).length,
+        noBanco: doBanco.length,
+        avisos: doBanco.flatMap((p) => p.avisos ?? []),
         falhas: r.falhas,
       });
       void queryClient.invalidateQueries({ queryKey: ['contas-abertas'] });
@@ -254,34 +370,50 @@ export function PagarEmMaos({
      * aconteceu, e a que importa — o motivo — ficava embaixo delas.
      */
     const nadaSaiu = resultado.pagas === 0;
+    /** Todas as que passaram foram mandadas direto ao ModoBank. */
+    const todasNoBanco = !nadaSaiu && resultado.noBanco === resultado.pagas;
 
     return (
       <Janela
         titulo={
           nadaSaiu
             ? 'Nada foi pago'
-            : resultado.aguardandoBanco
-              ? 'Aprovado no IXC'
-              : 'Pagamento feito'
+            : todasNoBanco
+              ? 'Mandado ao banco'
+              : resultado.aguardandoBanco
+                ? 'Aprovado no IXC'
+                : 'Pagamento feito'
         }
         onFechar={onFechar}
       >
         <p className="font-display text-lg font-semibold text-tinta-900">
           {nadaSaiu
-            ? `Nenhuma das ${resultado.falhas.length} conta(s) foi paga — o IXC recusou.`
-            : resultado.aguardandoBanco
-              ? `${resultado.pagas} conta(s) aprovadas — ${formatBRL(resultado.total)}`
-              : resultado.pagas === 1
-                ? `${formatBRL(resultado.total)} pago e baixado no IXC`
-                : `${resultado.pagas} contas pagas — ${formatBRL(resultado.total)}`}
+            ? `Nenhuma das ${resultado.falhas.length} conta(s) foi paga.`
+            : todasNoBanco
+              ? `${resultado.pagas} conta(s) mandadas ao banco — ${formatBRL(resultado.total)}`
+              : resultado.aguardandoBanco
+                ? `${resultado.pagas} conta(s) aprovadas — ${formatBRL(resultado.total)}`
+                : resultado.pagas === 1
+                  ? `${formatBRL(resultado.total)} pago e baixado no IXC`
+                  : `${resultado.pagas} contas pagas — ${formatBRL(resultado.total)}`}
         </p>
         <p className="mt-1 text-sm text-tinta-500">
           {nadaSaiu
             ? 'Nenhum dinheiro saiu e nada foi baixado no IXC. O motivo está abaixo — corrija e tente de novo.'
-            : resultado.aguardandoBanco
-              ? `Estão liberadas no IXC para o ${escolhida?.nome ?? 'banco'} pagar — é lá que o pagamento sai.`
-              : `Saiu de ${escolhida?.nome ?? 'a conta de cada título'}. No IXC as contas constam quitadas; estornar, se precisar, é por lá.`}
+            : todasNoBanco
+              ? banco.data?.pedeAprovacao
+                ? 'Aprove no ModoBank para o dinheiro sair.'
+                : 'O banco está pagando.'
+              : resultado.aguardandoBanco
+                ? `Estão liberadas no IXC para o ${escolhida?.nome ?? 'banco'} pagar — é lá que o pagamento sai.`
+                : `Saiu de ${escolhida?.nome ?? 'a conta de cada título'}. No IXC as contas constam quitadas; estornar, se precisar, é por lá.`}
         </p>
+
+        {resultado.avisos.map((a) => (
+          <Aviso key={a} tom="atencao">
+            {a}
+          </Aviso>
+        ))}
 
         {/* A economia fica na tela do "pronto", e não só no painel do mês:
             quem acabou de negociar o desconto é quem confere se ele entrou
@@ -337,9 +469,21 @@ export function PagarEmMaos({
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <div className="text-sm text-tinta-500">
-              {soAprova ? 'Vai ser liberado para o banco' : 'Vai sair de'}
+              {peloBanco
+                ? `Vai sair de ${escolhida?.nome ?? 'ModoBank'}`
+                : soAprova
+                  ? 'Vai ser liberado para o banco'
+                  : 'Vai sair de'}
             </div>
-            <div className="valor text-3xl">{formatBRL(aPagar)}</div>
+            <div className="valor text-3xl">{formatBRL(valorGrande)}</div>
+            {/* Boleto vencido: o banco cobra o juro, e é esse o número grande. */}
+            {peloBanco &&
+              previa.data &&
+              Math.abs(previa.data.valor - previa.data.valorDoTitulo) > 0.005 && (
+                <div className="mt-0.5 text-xs text-tinta-400">
+                  título de {formatBRL(previa.data.valorDoTitulo)}
+                </div>
+              )}
             {/* Com desconto o número grande deixa de ser o do título, e é o
                 do título que a pessoa tem na frente ao conferir. Os dois
                 aparecem: o que sai, grande, e de onde ele veio, embaixo. */}
@@ -402,10 +546,37 @@ export function PagarEmMaos({
             não é o caso comum (dar baixa na conta escolhida, que já está no
             seletor): pelo banco só aprova, e nas misturadas cada título vai
             para a sua conta. */}
-        {(misturadas || soAprova) && (
+        {/* Para quem vai, segundo o banco: o nome do dono da chave ou o
+            beneficiário do boleto. É a conferência de que a chave é a certa. */}
+        {peloBanco && contas.length === 1 && !previa.isError && (
+          <p className="mt-3 text-sm font-semibold text-tinta-800">
+            {previa.data
+              ? `${previa.data.forma === 'BOLETO' ? 'Boleto' : 'Pix'} para ${
+                  previa.data.favorecido ?? 'quem o banco não informou'
+                }`
+              : 'Consultando no banco…'}
+          </p>
+        )}
+        {peloBanco && banco.data?.saldo != null && (
+          <p
+            className={`mt-1 text-xs ${
+              banco.data.saldo < valorGrande
+                ? 'font-semibold text-rose-600 dark:text-rose-300'
+                : 'text-tinta-400'
+            }`}
+          >
+            Saldo no banco: {formatBRL(banco.data.saldo)}
+          </p>
+        )}
+        {/* Sem saldo é sem conexão: o motivo (IP, certificado) aparece aqui. */}
+        {peloBanco && banco.data?.erro && (
+          <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">{banco.data.erro}</p>
+        )}
+
+        {(misturadas || (soAprova && !peloBanco)) && (
           <p
             className={`mt-3 text-sm ${
-              soAprova || (algumPeloBanco && !jaSaiu)
+              soAprova || (algumPeloBanco && !jaSaiu && !bancoLigado)
                 ? 'text-amber-700 dark:text-amber-300'
                 : 'text-emerald-700 dark:text-emerald-300'
             }`}
@@ -413,13 +584,17 @@ export function PagarEmMaos({
             {misturadas
               ? `Cada título dá baixa na conta que está nele${
                   algumPeloBanco && !jaSaiu
-                    ? ` — os do ${nomeDaConta(contaDoBanco)} só são aprovados.`
+                    ? bancoLigado
+                      ? ` — os do ${nomeDaConta(contaDoBanco)} vão para o banco pagar.`
+                      : ` — os do ${nomeDaConta(contaDoBanco)} só são aprovados.`
                     : '.'
                 }`
               : `Só aprova — o pagamento sai pelo ${escolhida?.nome ?? 'ModoBank'}.`}
           </p>
         )}
       </div>
+
+      {bancoRecusa && <Aviso tom="erro">{mensagemErro(previa.error)}</Aviso>}
 
       {/* A conta do título é onde o pagamento foi combinado. Trocar pode ser o
           certo, mas é o engano que baixa num banco o que saiu de outro. */}
@@ -557,24 +732,35 @@ export function PagarEmMaos({
       <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
         <span className="mr-auto text-xs text-tinta-400">
           {contas.length > 1
-            ? `${contas.length} contas, uma de cada vez no IXC.`
-            : 'A conta é aprovada na auditoria do IXC.'}
+            ? `${contas.length} contas, uma de cada vez.`
+            : peloBanco
+              ? ''
+              : 'A conta é aprovada na auditoria do IXC.'}
         </span>
         <button onClick={onFechar} className="btn btn-neutro">
           Cancelar
         </button>
         <button
           onClick={() => pagar.mutate()}
-          disabled={pagar.isPending || descontoNaoCabe}
+          disabled={
+            pagar.isPending ||
+            descontoNaoCabe ||
+            bancoRecusa ||
+            (peloBanco && contas.length === 1 && previa.isLoading)
+          }
           className="btn btn-primario"
         >
           {pagar.isPending
-            ? 'Enviando ao IXC…'
-            : soAprova
-              ? `Aprovar ${formatBRL(total)} para o banco pagar`
-              : jaSaiu
-                ? `Registrar ${formatBRL(aPagar)} como pago`
-                : `Confirmar pagamento de ${formatBRL(aPagar)}`}
+            ? peloBanco
+              ? 'Mandando ao banco…'
+              : 'Enviando ao IXC…'
+            : peloBanco
+              ? `Pagar ${formatBRL(valorGrande)} pelo banco`
+              : soAprova
+                ? `Aprovar ${formatBRL(total)} para o banco pagar`
+                : jaSaiu
+                  ? `Registrar ${formatBRL(aPagar)} como pago`
+                  : `Confirmar pagamento de ${formatBRL(aPagar)}`}
         </button>
       </div>
     </Janela>

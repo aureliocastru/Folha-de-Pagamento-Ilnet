@@ -24,7 +24,7 @@ import type {
   ContaAberta,
   ContasAbertas,
 } from '../../lib/types';
-import { EditarConta, ExcluirConta, PagarEmMaos } from './AcoesDaConta';
+import { EditarConta, ExcluirConta, PagarEmMaos, SeloNoBanco } from './AcoesDaConta';
 import { DespesasNaoEnviadas } from './DespesasNaoEnviadas';
 import { DetalheDaConta } from './DetalheDaConta';
 import { NovaDespesa } from './NovaDespesa';
@@ -711,6 +711,9 @@ function Linha({
               Folha · {TIPO_LABEL[conta.origem.tipo] ?? conta.origem.tipo}
               {conta.origem.beneficiario ? ` · ${conta.origem.beneficiario}` : ''}
             </Selo>
+          )}
+          {conta.noBanco && (
+            <SeloNoBanco noBanco={conta.noBanco} idFnApagar={conta.idFnApagar} />
           )}
         </div>
       </td>

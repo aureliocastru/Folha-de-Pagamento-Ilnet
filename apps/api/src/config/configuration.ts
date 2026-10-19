@@ -32,6 +32,25 @@ const envSchema = z.object({
 
   // Intervalo (minutos) do polling de retorno do banco; 0 desliga.
   SYNC_PAGAMENTOS_INTERVALO_MIN: z.coerce.number().int().min(0).default(10),
+
+  // API do ModoBank (plataforma ONZ) — pagar boleto e Pix direto daqui. Sem as
+  // quatro primeiras o pagamento pelo ModoBank continua como era: o app aprova
+  // e o pagamento sai pela tela do banco no IXC. A URL é a da instância do
+  // banco, mostrada no portal junto da credencial.
+  MODOBANK_CLIENT_ID: z.string().optional().default(''),
+  MODOBANK_CLIENT_SECRET: z.string().optional().default(''),
+  // O arquivo .pfx da credencial, em base64 (é binário: não cabe numa variável
+  // de outro jeito).
+  MODOBANK_CERTIFICADO: z.string().optional().default(''),
+  MODOBANK_CERTIFICADO_SENHA: z.string().optional().default(''),
+  MODOBANK_API_URL: z
+    .string()
+    .url()
+    .default('https://secureapi.sulcredi1-prod.onz.software/api/v2'),
+  // APPROVAL_REQUIRED = o banco só paga depois que alguém aprovar lá; INSTANT
+  // = paga na hora. Começa pedindo aprovação.
+  MODOBANK_FLUXO: z.enum(['APPROVAL_REQUIRED', 'INSTANT']).default('APPROVAL_REQUIRED'),
+  MODOBANK_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;
@@ -70,6 +89,15 @@ export function configuration() {
       somenteLeitura: env.IXC_SOMENTE_LEITURA,
     },
     pollPagamentosMin: env.SYNC_PAGAMENTOS_INTERVALO_MIN,
+    modobank: {
+      clientId: env.MODOBANK_CLIENT_ID.trim(),
+      clientSecret: env.MODOBANK_CLIENT_SECRET.trim(),
+      certificado: env.MODOBANK_CERTIFICADO,
+      senhaDoCertificado: env.MODOBANK_CERTIFICADO_SENHA,
+      url: env.MODOBANK_API_URL.replace(/\/+$/, ''),
+      fluxo: env.MODOBANK_FLUXO,
+      timeoutMs: env.MODOBANK_TIMEOUT_MS,
+    },
   };
 }
 
