@@ -147,7 +147,7 @@ export function AssinarContrato() {
         <TextoDoContrato blocos={blocosDoTexto(c.texto)} />
       </div>
 
-      <label className="mt-5 flex items-start gap-3 rounded-xl bg-brand-50 p-4 text-sm text-tinta-800">
+      <label className="mt-5 flex items-start gap-3 rounded-xl bg-brand-50 p-4 text-sm text-tinta-800 dark:bg-brand-500/10">
         <input
           type="checkbox"
           checked={li}

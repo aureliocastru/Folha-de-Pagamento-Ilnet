@@ -160,9 +160,9 @@ export function Assinar() {
         </p>
       </div>
 
-      <div className="mt-5 rounded-2xl bg-brand-50 p-5 text-center">
-        <div className="eyebrow text-brand-600">Você recebeu</div>
-        <div className="valor mt-1 text-4xl text-brand-700">
+      <div className="mt-5 rounded-2xl bg-brand-50 p-5 text-center dark:bg-brand-500/10">
+        <div className="eyebrow text-brand-600 dark:text-brand-300">Você recebeu</div>
+        <div className="valor mt-1 text-4xl text-brand-700 dark:text-brand-200">
           {formatBRL(r.valor)}
         </div>
         <div className="mt-1 text-sm text-tinta-600">em dinheiro, em mãos</div>

@@ -391,7 +391,7 @@ const contabilidade: Modulo = {
 };
 
 /**
- * Patrocinadores — quem a ILNET patrocina.
+ * Patrocínios — quem a ILNET patrocina.
  *
  * O atleta, o time, o grupo de dança: o contato, o que já se mandou e quando,
  * o contrato que eles assinam e os arquivos de cada um. Cada patrocinado é o
@@ -400,7 +400,7 @@ const contabilidade: Modulo = {
  */
 const patrocinio: Modulo = {
   id: 'patrocinio',
-  nome: 'Patrocinadores',
+  nome: 'Patrocínios',
   descricao:
     'Quem a ILNET patrocina: contato, o que já se mandou, o contrato assinado ' +
     'e os arquivos de cada um',

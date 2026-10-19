@@ -46,7 +46,7 @@ export function Pagamentos() {
 
   return (
     <Pagina>
-      <CabecalhoPagina secao="Patrocinadores" titulo="Pagamentos" />
+      <CabecalhoPagina secao="Patrocínios" titulo="Pagamentos" />
 
       <div className="mb-4 flex flex-wrap items-center gap-1.5">
         <button

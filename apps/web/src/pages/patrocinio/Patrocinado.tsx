@@ -109,7 +109,7 @@ export function PatrocinadoAberto() {
   return (
     <Pagina>
       <CabecalhoPagina
-        secao="Patrocinadores"
+        secao="Patrocínios"
         titulo={p.nome}
         voltar={() => navigate('..', { relative: 'path' })}
         acoes={

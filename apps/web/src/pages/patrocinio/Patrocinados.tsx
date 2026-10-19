@@ -71,7 +71,7 @@ export function Patrocinados() {
   return (
     <Pagina>
       <CabecalhoPagina
-        secao="Patrocinadores"
+        secao="Patrocínios"
         titulo="Quem a ILNET patrocina"
         acoes={
           <button onClick={() => setNovo(true)} className="btn btn-primario">

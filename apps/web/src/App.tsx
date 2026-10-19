@@ -425,7 +425,7 @@ export default function App() {
         <Route path=":id" element={<CampoApr />} />
       </Route>
 
-      {/* Patrocinadores — quem a ILNET patrocina: o contato, o contrato, os
+      {/* Patrocínios — quem a ILNET patrocina: o contato, o contrato, os
           arquivos e os pagamentos. Cada patrocinado é um fornecedor do IXC, e
           pagar é lançar a conta a pagar dele. */}
       <Route
