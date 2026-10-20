@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { api, mensagemErro, mensagemErroDeArquivo } from '../lib/api';
 import type { NotaDoTitulo } from '../lib/types';
 import { CampoDaNota, subirNotas, type ArquivoDaNota as NotaEscolhida } from './CampoDaNota';
+import { IconeCompartilhar } from './icones';
 import { FotoAmpliada } from './ui';
 
 /** O arquivo já lido do IXC, guardado para não pedir duas vezes. */
@@ -10,6 +11,36 @@ interface ArquivoDaNota {
   url: string;
   /** "image/jpeg", "application/pdf" — é quem decide se abre aqui ou numa aba. */
   tipo: string;
+  /** O mesmo arquivo, pronto para o Compartilhar do celular (WhatsApp). */
+  arquivo: File;
+}
+
+/** O celular deixa mandar este arquivo pelo Compartilhar? No computador, quase nunca. */
+function compartilhavel(f: File): boolean {
+  return typeof navigator.canShare === 'function' && navigator.canShare({ files: [f] });
+}
+
+/**
+ * Abre o Compartilhar do aparelho com o arquivo — é por ele que o comprovante
+ * vai para o WhatsApp. Chamado direto do toque: o iPhone recusa o
+ * Compartilhar que vem depois de uma espera, por isso o arquivo já tem de
+ * estar baixado (o botão só aparece depois de abrir).
+ */
+function compartilhar(f: File, onRecusa: () => void) {
+  navigator.share({ files: [f], title: f.name }).catch((e: unknown) => {
+    // Fechar a janela de compartilhar sem escolher ninguém não é erro.
+    if (e instanceof DOMException && e.name === 'AbortError') return;
+    onRecusa();
+  });
+}
+
+/** "Comprovante ModoBank" + PDF → "Comprovante ModoBank.pdf". */
+function nomeDoArquivo(nota: NotaDoTitulo, tipo: string): string {
+  const ext =
+    nota.extensao?.replace(/^\./, '') ||
+    (tipo === 'application/pdf' ? 'pdf' : tipo.startsWith('image/') ? tipo.slice(6) : 'bin');
+  const base = (nota.descricao || 'arquivo').replace(/[\\/:*?"<>|]+/g, ' ').trim() || 'arquivo';
+  return `${base}.${ext}`;
 }
 
 /** Uma nota guardada aqui — sem o arquivo, que vem quando se pede. */
@@ -290,6 +321,8 @@ function NotasNoIxc({
   const [vendo, setVendo] = useState<NotaDoTitulo | null>(null);
   /** O PDF já baixado: abre por um link, que o toque abre sem o celular recusar. */
   const [pdf, setPdf] = useState<number | null>(null);
+  const avisarRecusa = () =>
+    setErro('O aparelho não deixou compartilhar este arquivo. Abra e salve, e mande pelo WhatsApp.');
 
   /*
    * Os arquivos já baixados. Passar de uma foto à outra não pode significar
@@ -336,7 +369,11 @@ function NotasNoIxc({
     if (pronto) return pronto;
 
     const data = await baixar(nota);
-    const lido = { url: URL.createObjectURL(data), tipo: data.type };
+    const lido = {
+      url: URL.createObjectURL(data),
+      tipo: data.type,
+      arquivo: new File([data], nomeDoArquivo(nota, data.type), { type: data.type }),
+    };
     baixados.set(nota.id, lido);
     return lido;
   }
@@ -431,6 +468,17 @@ function NotasNoIxc({
                   Abrir o PDF
                 </a>
               )}
+              {/* Aberto o arquivo, ele já está no aparelho: o Compartilhar sai na hora. */}
+              {pdf === nota.id && baixados.get(nota.id) && compartilhavel(baixados.get(nota.id)!.arquivo) && (
+                <button
+                  type="button"
+                  onClick={() => compartilhar(baixados.get(nota.id)!.arquivo, avisarRecusa)}
+                  className="btn btn-p btn-ok"
+                >
+                  <IconeCompartilhar />
+                  Compartilhar
+                </button>
+              )}
             </span>
           ))}
         </div>
@@ -449,6 +497,18 @@ function NotasNoIxc({
           onFechar={() => setVendo(null)}
           onAnterior={indice > 0 ? () => void irPara(-1) : undefined}
           onProxima={indice < lista.length - 1 ? () => void irPara(1) : undefined}
+          acao={
+            compartilhavel(aberta.arquivo) ? (
+              <button
+                type="button"
+                onClick={() => compartilhar(aberta.arquivo, avisarRecusa)}
+                className="btn btn-ok"
+              >
+                <IconeCompartilhar />
+                Compartilhar
+              </button>
+            ) : undefined
+          }
         />
       )}
     </div>
