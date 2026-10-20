@@ -1,6 +1,8 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import {
   AbastecimentosService,
+  diaEmBrasilia,
+  encaixar,
   mediaDeConsumo,
   resumirCombustivel,
 } from './abastecimentos.service';
@@ -28,6 +30,8 @@ function montar(
     veiculos?: Record<string, Record<string, unknown>>;
     /** Litros comprados, litros já conferidos e o que se pagou por eles. */
     galao?: { entrou?: number; litrosPagos?: number; pago?: number; saiu?: number };
+    /** Os abastecimentos que o veículo já tem, para a nota de outro dia achar o lugar. */
+    historico?: Array<{ data: Date; km?: number | null; horimetro?: number | null }>;
   } = {},
 ) {
   const g = opts.galao;
@@ -81,6 +85,9 @@ function montar(
         veiculo: { responsaveis: [{ funcionarioId: opts.responsavelId ?? 'f1' }], logins: [] },
         galao: null,
       })),
+      findMany: jest.fn(async () =>
+        (opts.historico ?? []).map((a) => ({ km: null, horimetro: null, ...a })),
+      ),
       create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
         id: 'a1',
         valor: null,
@@ -326,6 +333,88 @@ describe('a conferência', () => {
       valor: 50,
       conferidoPor: 'Administrador',
     });
+  });
+});
+
+/**
+ * A nota que ficou esquecida na gaveta e aparece depois das seguintes.
+ *
+ * Pela ficha ela entra com o dia dela e o km menor que o último: o painel diz
+ * onde ela fica, sem apagar as outras. Só não entra quando o dia contradiz o
+ * km — aí é dedo trocado, e a mensagem diz entre que dias ela cabe.
+ */
+describe('a nota esquecida, lançada pela ficha', () => {
+  // 01/10 com 12.000 km e 20/10 com 13.000 km; a esquecida é de 10/10, 12.500 km.
+  const HISTORICO = [
+    { data: new Date('2026-10-01T13:00:00Z'), km: 12_000 },
+    { data: new Date('2026-10-20T13:00:00Z'), km: 13_000 },
+  ];
+
+  it('entra no dia dela, com o km menor que o último', async () => {
+    const { service, prisma } = montar({ ultimoKm: 13_000, historico: HISTORICO });
+    await service.lancarPeloSistema(
+      'v1',
+      { km: 12_500, foto: FOTO, data: '2026-10-10' },
+      { nome: 'Administrador' },
+    );
+    const dados = prisma.abastecimento.create.mock.calls[0][0].data;
+    expect(dados.km).toBe(12_500);
+    // Meio-dia de Brasília do dia da nota.
+    expect((dados.data as Date).toISOString()).toBe('2026-10-10T15:00:00.000Z');
+  });
+
+  it('o dia que contradiz o km não entra, e diz entre que dias ela cabe', async () => {
+    const { service, prisma } = montar({ ultimoKm: 13_000, historico: HISTORICO });
+    await expect(
+      service.lancarPeloSistema(
+        'v1',
+        { km: 12_500, foto: FOTO, data: '2026-09-25' },
+        { nome: 'Administrador' },
+      ),
+    ).rejects.toThrow(/entre 01\/10 e 20\/10/);
+    expect(prisma.abastecimento.create).not.toHaveBeenCalled();
+  });
+
+  it('dia depois de hoje não existe', async () => {
+    const { service } = montar();
+    await expect(
+      service.lancarPeloSistema('v1', { km: 12_500, foto: FOTO, data: '2999-01-01' }, { nome: 'Adm' }),
+    ).rejects.toThrow(/depois de hoje/);
+  });
+});
+
+describe('encaixar', () => {
+  const AGORA = new Date('2026-10-20T18:00:00Z');
+  const HISTORICO = [
+    { data: new Date('2026-10-01T13:00:00Z'), medidor: 12_000 },
+    { data: new Date('2026-10-20T13:00:00Z'), medidor: 13_000 },
+  ];
+
+  it('as vizinhas são pelo painel', () => {
+    const r = encaixar(HISTORICO, '2026-10-10', 12_500, AGORA);
+    expect(r.fora).toBe(false);
+    expect(r.antes?.medidor).toBe(12_000);
+    expect(r.depois?.medidor).toBe(13_000);
+  });
+
+  it('no mesmo dia da de depois, entra um minuto antes dela', () => {
+    // A esquecida é de hoje mesmo, e de antes da que já foi lançada hoje.
+    const r = encaixar(HISTORICO, '2026-10-20', 12_500, AGORA);
+    expect(r.fora).toBe(false);
+    expect(r.quando.toISOString()).toBe('2026-10-20T12:59:00.000Z');
+  });
+
+  it('hoje, sem vizinha no dia, é agora', () => {
+    const r = encaixar(HISTORICO, '2026-10-20', 13_200, AGORA);
+    expect(r.quando).toBe(AGORA);
+  });
+
+  it('km maior que o de uma nota mais nova é dia errado', () => {
+    expect(encaixar(HISTORICO, '2026-09-30', 12_500, AGORA).fora).toBe(true);
+  });
+
+  it('o dia é o de Brasília: 22h do dia 9 ainda é dia 9', () => {
+    expect(diaEmBrasilia(new Date('2026-10-10T01:00:00Z'))).toBe('2026-10-09');
   });
 });
 
@@ -679,6 +768,47 @@ describe('mediaDeConsumo', () => {
     ]);
     // Os 20 litros sem km nenhum atrás deles não entram: 500 km por 50 L.
     expect(r).toMatchObject({ medio: 10, base: 2 });
+  });
+
+  it('a nota esquecida, lançada por último, entra no lugar dela pelo km', () => {
+    const r = mediaDeConsumo([
+      { km: 1000, litros: 40 },
+      { km: 2000, litros: 50 },
+      // A de 1500 km ficou na gaveta e foi digitada depois da de 2000.
+      { km: 1500, litros: 50 },
+    ]);
+    expect(r).toMatchObject({ medio: 10, ultimo: 10, base: 3 });
+  });
+
+  it('o trecho sem os litros fica de fora, e não faz a média subir', () => {
+    const r = mediaDeConsumo([
+      { km: 1000, litros: 40 },
+      // Conferida sem os litros: os 500 km até aqui não têm com o que dividir.
+      { km: 1500, litros: null },
+      { km: 2000, litros: 50 },
+    ]);
+    // Só o trecho de 1500 a 2000: 500 km por 50 L. Antes saíam 1000 por 50, 20 km/L.
+    expect(r).toMatchObject({ medio: 10 });
+  });
+
+  it('o último ainda sem litros não dá o último trecho, mas a média fica', () => {
+    const r = mediaDeConsumo([
+      { km: 1000, litros: 40 },
+      { km: 1500, litros: 50 },
+      { km: 2000, litros: null },
+    ]);
+    expect(r).toMatchObject({ medio: 10, ultimo: null });
+  });
+
+  it('dois no mesmo km — o galão e o posto — somam os litros num ponto só', () => {
+    const r = mediaDeConsumo([
+      { km: 1000, litros: 40 },
+      { km: 1500, litros: 20 },
+      { km: 1500, litros: 30 },
+      { km: 2000, litros: 50 },
+    ]);
+    // 1000 km por 100 L.
+    expect(r).toMatchObject({ medio: 10, ultimo: 10 });
   });
 
   it('abaixo da média esperada, o consumo é irregular', () => {

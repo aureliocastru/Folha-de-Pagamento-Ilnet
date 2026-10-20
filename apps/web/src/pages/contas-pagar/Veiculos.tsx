@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
 import { useAssistente } from '../../components/Assistente';
+import { CampoDeData } from '../../components/CampoDeData';
 import { FotoDaNota } from '../../components/FotoDaNota';
 import { NotasDaParte, NotasDoTitulo } from '../../components/NotasDoTitulo';
 import {
@@ -795,12 +796,44 @@ function comecaCom(nome: string): (descricao: string) => boolean {
 const dataEHora = (iso: string) =>
   new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
 
+/** "2026-10-20": o dia de um instante no horário de Brasília — o mesmo da API. */
+function diaEmBrasilia(quando: string | Date): string {
+  return new Date(new Date(quando).getTime() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/**
+ * Entre quais notas fica a de um medidor: a de medidor logo abaixo (ou igual)
+ * e a de medidor logo acima. É o painel, que só anda para a frente, que diz
+ * onde a nota esquecida entra.
+ */
+function vizinhasPeloPainel(
+  lancados: Abastecimento[],
+  campo: 'km' | 'horimetro',
+  valor: number,
+): { antes?: Abastecimento & { medidor: number }; depois?: Abastecimento & { medidor: number } } {
+  let antes: (Abastecimento & { medidor: number }) | undefined;
+  let depois: (Abastecimento & { medidor: number }) | undefined;
+  for (const a of lancados) {
+    const medidor = a[campo];
+    if (medidor == null) continue;
+    if (medidor <= valor) {
+      if (!antes || medidor > antes.medidor) antes = { ...a, medidor };
+    } else if (!depois || medidor < depois.medidor) {
+      depois = { ...a, medidor };
+    }
+  }
+  return { antes, depois };
+}
+
 /** Lançar um abastecimento pela ficha: o km, a foto e, se já estiver à mão, o valor. */
 function LancarAbastecimento({
   veiculo,
+  lancados,
   onFechar,
 }: {
   veiculo: VeiculoNaLista;
+  /** Os que o veículo já tem: é entre eles que a nota esquecida acha o lugar. */
+  lancados: Abastecimento[];
   onFechar: () => void;
 }) {
   const qc = useQueryClient();
@@ -808,14 +841,28 @@ function LancarAbastecimento({
   const [litrosDigitados, setLitrosDigitados] = useState('');
   const [fotos, setFotos] = useState<string[]>([]);
   const [valor, setValor] = useState('');
+  /** O dia escolhido à mão. Null = o que o km pede: hoje, ou o da nota esquecida. */
+  const [diaEscolhido, setDiaEscolhido] = useState<string | null>(null);
 
   // O galão não tem painel; a máquina conta horas; o resto conta km.
   const ehGalao = veiculo.tipo === 'GALAO';
   const ehMaquina = veiculo.tipo === 'MAQUINA';
   const anterior = ehMaquina ? veiculo.ultimoHorimetro : veiculo.ultimoKm;
+  const unidade = (n: number) => (ehMaquina ? horas(n) : km(n));
 
   const medidor = medidorNumero(medidorDigitado);
-  const medidorAtras = anterior != null && medidor != null && medidor < anterior;
+  // Km menor que o do último não é erro aqui: é a nota que ficou esquecida.
+  const antiga = anterior != null && medidor != null && medidor < anterior;
+  // A nota de agora também tem vizinha: a última, de onde o dia não pode voltar.
+  const { antes, depois } =
+    !ehGalao && medidor != null
+      ? vizinhasPeloPainel(lancados, ehMaquina ? 'horimetro' : 'km', medidor)
+      : {};
+  const hoje = diaEmBrasilia(new Date());
+  const diaMinimo = antes ? diaEmBrasilia(antes.data) : undefined;
+  const diaMaximo = depois ? diaEmBrasilia(depois.data) : hoje;
+  const dia = diaEscolhido ?? diaMaximo;
+  const diaFora = dia > diaMaximo || (diaMinimo != null && dia < diaMinimo);
   // O campo guarda o canônico ("45.59"): a vírgula é só o que se vê.
   const litrosNumero = litrosDigitados ? Number(litrosDigitados) : null;
 
@@ -826,6 +873,7 @@ function LancarAbastecimento({
         ...(litrosNumero ? { litros: litrosNumero } : {}),
         foto: await juntarFotos(fotos),
         valor: Number(valor) > 0 ? Number(valor) : undefined,
+        data: dia,
       });
     },
     onSuccess: () => {
@@ -835,7 +883,8 @@ function LancarAbastecimento({
   });
 
   const valido =
-    (ehGalao || (medidor != null && !medidorAtras)) &&
+    (ehGalao || medidor != null) &&
+    !diaFora &&
     (!ehGalao || (litrosNumero != null && litrosNumero > 0)) &&
     fotos.length > 0;
 
@@ -864,14 +913,44 @@ function LancarAbastecimento({
               }
               className="campo num"
             />
-            {medidorAtras && anterior != null && (
-              <p className="mt-1 text-xs font-semibold text-rose-600">
-                O último abastecimento foi com {ehMaquina ? horas(anterior) : km(anterior)}.
-                Confira o painel.
+            {antiga && (
+              <p className="mt-1 text-xs font-semibold text-amber-600 dark:text-amber-300">
+                Nota antiga: entra{' '}
+                {antes
+                  ? `depois da de ${formatData(diaEmBrasilia(antes.data))} (${unidade(antes.medidor)})`
+                  : ''}
+                {antes && depois ? ' e ' : ''}
+                {depois
+                  ? `antes da de ${formatData(diaEmBrasilia(depois.data))} (${unidade(depois.medidor)})`
+                  : ''}
+                .
               </p>
             )}
           </div>
         )}
+
+        <div>
+          <label className="rotulo" htmlFor="abast-dia-sistema">
+            Dia da nota
+          </label>
+          <CampoDeData
+            id="abast-dia-sistema"
+            valor={dia}
+            min={diaMinimo}
+            max={diaMaximo}
+            onChange={(escolhido) => setDiaEscolhido(escolhido || null)}
+            className="campo"
+          />
+          {diaFora && (
+            <p className="mt-1 text-xs font-semibold text-rose-600">
+              Com este {ehMaquina ? 'horímetro' : 'km'}, o dia é
+              {diaMinimo
+                ? ` entre ${formatData(diaMinimo)} e ${formatData(diaMaximo)}`
+                : ` até ${formatData(diaMaximo)}`}
+              .
+            </p>
+          )}
+        </div>
 
         <div>
           <label className="rotulo" htmlFor="abast-litros-sistema">
@@ -978,7 +1057,11 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
   }
   if (abastecendo && ficha.data) {
     return (
-      <LancarAbastecimento veiculo={ficha.data.veiculo} onFechar={() => setAbastecendo(false)} />
+      <LancarAbastecimento
+        veiculo={ficha.data.veiculo}
+        lancados={ficha.data.abastecimentos}
+        onFechar={() => setAbastecendo(false)}
+      />
     );
   }
   if (manutencao) {

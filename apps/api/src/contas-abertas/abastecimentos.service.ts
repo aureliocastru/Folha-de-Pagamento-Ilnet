@@ -564,6 +564,67 @@ export class AbastecimentosService {
     return { km, horimetro: null };
   }
 
+  /**
+   * O medidor da nota lançada pela ficha, e o instante em que ela entra.
+   *
+   * Aqui a nota pode ser de outro dia: a que ficou esquecida na gaveta e chega
+   * depois das seguintes. Ela entra no lugar dela pelo painel, que só anda para
+   * a frente — o km menor que o último não é erro, é nota antiga. O que não
+   * pode é o dia contradizer o km: nota de dia passado com km maior que o de
+   * uma nota mais nova (ou o contrário) é dedo trocado, no dia ou no painel.
+   */
+  private async notaNoDia(
+    veiculo: { id: string; apelido: string; tipo: TipoVeiculo },
+    dados: { km?: number | null; horimetro?: number | null },
+    dia: string,
+    agora: Date,
+  ): Promise<{ medidor: { km: number | null; horimetro: number | null }; quando: Date }> {
+    if (veiculo.tipo === 'GALAO') {
+      return { medidor: { km: null, horimetro: null }, quando: encaixar([], dia, null, agora).quando };
+    }
+
+    const maquina = veiculo.tipo === 'MAQUINA';
+    const valor = maquina
+      ? horimetroValido(
+          dados.horimetro,
+          'Digite o horímetro da máquina — as horas do painel, com o décimo se houver.',
+        )
+      : medidorValido(dados.km, 'Digite o km do painel, só os números.');
+
+    const lista = await this.prisma.abastecimento.findMany({
+      where: { veiculoId: veiculo.id },
+      select: { data: true, km: true, horimetro: true },
+    });
+    const historico = lista.map((a) => ({
+      data: a.data,
+      medidor: maquina ? numero(a.horimetro) : a.km,
+    }));
+    const lugar = encaixar(historico, dia, valor, agora);
+
+    if (lugar.fora) {
+      const escrito = (n: number) =>
+        maquina ? `${n.toFixed(1)} horas` : `${n.toLocaleString('pt-BR')} km`;
+      const nota = (a: { data: Date; medidor: number }) =>
+        `a de ${diaEscrito(diaEmBrasilia(a.data))} (${escrito(a.medidor)})`;
+      const { antes, depois } = lugar;
+      const onde =
+        antes && depois
+          ? `vem depois d${nota(antes)} e antes d${nota(depois)}. Escolha um dia entre ` +
+            `${diaEscrito(diaEmBrasilia(antes.data))} e ${diaEscrito(diaEmBrasilia(depois.data))}.`
+          : depois
+            ? `vem antes d${nota(depois)}. Escolha um dia até ${diaEscrito(diaEmBrasilia(depois.data))}.`
+            : antes
+              ? `vem depois d${nota(antes)}. Escolha um dia a partir de ${diaEscrito(diaEmBrasilia(antes.data))}.`
+              : '';
+      throw new BadRequestException(`Com ${escrito(valor)}, esta nota ${onde}`);
+    }
+
+    return {
+      medidor: maquina ? { km: null, horimetro: valor } : { km: valor, horimetro: null },
+      quando: lugar.quando,
+    };
+  }
+
   // --- O sistema ---
 
   /**
@@ -573,15 +634,25 @@ export class AbastecimentosService {
    */
   async lancarPeloSistema(
     veiculoId: string,
-    dados: { km?: number | null; horimetro?: number | null; litros?: number | null; foto: string; valor?: number | null },
+    dados: {
+      km?: number | null;
+      horimetro?: number | null;
+      litros?: number | null;
+      foto: string;
+      valor?: number | null;
+      /** O dia da nota, "AAAA-MM-DD". Ausente = hoje. */
+      data?: string | null;
+    },
     quem: { id?: string; nome: string },
   ): Promise<AbastecimentoNaTela> {
     conferirFoto(dados.foto);
     const valor = dados.valor == null ? null : valorValido(dados.valor);
+    const agora = new Date();
+    const dia = diaValido(dados.data, agora);
     const veiculo = await this.veiculoAtivo(veiculoId);
     const litros =
       veiculo.tipo === 'GALAO' ? litrosValidos(dados.litros) : litrosSeVierem(dados.litros);
-    const medidor = await this.medidorDoDestino(veiculo, dados);
+    const { medidor, quando } = await this.notaNoDia(veiculo, dados, dia, agora);
 
     const criado = await this.prisma.abastecimento.create({
       data: {
@@ -589,7 +660,7 @@ export class AbastecimentosService {
         litros,
         ...medidor,
         valor,
-        data: new Date(),
+        data: quando,
         usuarioId: quem.id ?? null,
         lancadoPor: quem.nome,
         ...(valor != null ? { conferidoPor: quem.nome, conferidoEm: new Date() } : {}),
@@ -1017,6 +1088,94 @@ function litrosSeVierem(litros: number | null | undefined): number | null {
   return litrosValidos(litros);
 }
 
+/** Brasília é UTC−3 o ano inteiro: o dia da nota sai do instante assim. */
+const BRASILIA = -3 * 60 * 60 * 1000;
+const MINUTO = 60 * 1000;
+
+/** "2026-10-20": o dia de um instante, no horário de Brasília. */
+export function diaEmBrasilia(d: Date): string {
+  return new Date(d.getTime() + BRASILIA).toISOString().slice(0, 10);
+}
+
+/** "2026-10-05" → "05/10", como se lê na nota. */
+function diaEscrito(dia: string): string {
+  return `${dia.slice(8, 10)}/${dia.slice(5, 7)}`;
+}
+
+/** O dia digitado, conferido. Vazio é hoje; depois de hoje não existe nota. */
+function diaValido(dia: string | null | undefined, agora: Date): string {
+  const hoje = diaEmBrasilia(agora);
+  if (!dia) return hoje;
+  const lido = new Date(`${dia}T12:00:00Z`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dia) || Number.isNaN(lido.getTime()) || diaEmBrasilia(lido) !== dia) {
+    throw new BadRequestException('O dia do abastecimento está escrito errado.');
+  }
+  if (dia > hoje) {
+    throw new BadRequestException('O dia do abastecimento não pode ser depois de hoje.');
+  }
+  return dia;
+}
+
+/**
+ * Onde entra uma nota do dia `dia`, com o medidor `valor`.
+ *
+ * As vizinhas são pelo painel: `antes` é a de medidor logo abaixo (ou igual),
+ * `depois` a de medidor logo acima. `fora` diz que o dia contradiz o painel —
+ * há nota de dia anterior com medidor maior, ou de dia posterior com medidor
+ * menor. No mesmo dia vale qualquer ordem: é o painel que a decide.
+ *
+ * O instante: hoje é agora; dia passado é meio-dia. Se uma vizinha é do mesmo
+ * dia, ele se acomoda do lado certo dela, para a lista do dia sair na ordem
+ * do painel também.
+ */
+export function encaixar(
+  historico: Array<{ data: Date; medidor: number | null }>,
+  dia: string,
+  valor: number | null,
+  agora: Date,
+): {
+  quando: Date;
+  fora: boolean;
+  antes?: { data: Date; medidor: number };
+  depois?: { data: Date; medidor: number };
+} {
+  const hoje = diaEmBrasilia(agora);
+  let quando = dia === hoje ? agora : new Date(new Date(`${dia}T12:00:00Z`).getTime() - BRASILIA);
+  if (valor == null) return { quando, fora: false };
+
+  const medidos = historico.filter(
+    (a): a is { data: Date; medidor: number } => a.medidor != null,
+  );
+  let antes: { data: Date; medidor: number } | undefined;
+  let depois: { data: Date; medidor: number } | undefined;
+  for (const a of medidos) {
+    if (a.medidor <= valor) {
+      if (!antes || a.medidor > antes.medidor || (a.medidor === antes.medidor && a.data > antes.data)) {
+        antes = a;
+      }
+    } else if (!depois || a.medidor < depois.medidor || (a.medidor === depois.medidor && a.data < depois.data)) {
+      depois = a;
+    }
+  }
+
+  const fora = medidos.some((a) => {
+    const d = diaEmBrasilia(a.data);
+    return (d < dia && a.medidor > valor) || (d > dia && a.medidor < valor);
+  });
+
+  const antesNoDia = antes && diaEmBrasilia(antes.data) === dia ? antes : undefined;
+  const depoisNoDia = depois && diaEmBrasilia(depois.data) === dia ? depois : undefined;
+  if (antesNoDia && depoisNoDia) {
+    quando = new Date((antesNoDia.data.getTime() + depoisNoDia.data.getTime()) / 2);
+  } else if (antesNoDia && quando <= antesNoDia.data) {
+    quando = new Date(antesNoDia.data.getTime() + MINUTO);
+  } else if (depoisNoDia && quando >= depoisNoDia.data) {
+    quando = new Date(depoisNoDia.data.getTime() - MINUTO);
+  }
+
+  return { quando, fora, antes, depois };
+}
+
 /** O que o Prisma devolve de uma coluna decimal, como número — ou nada. */
 function numero(v: { toString(): string } | number | null | undefined): number | null {
   return v == null ? null : Number(v);
@@ -1151,6 +1310,13 @@ export function resumirCombustivel(
  * uma máquina pode vir sem, e um litro sem quilômetro nenhum atrás dele
  * estragaria a média dos outros.
  *
+ * A ordem é a do painel, e não a do dia em que se digitou: o painel só anda
+ * para a frente, e é assim que a nota esquecida, lançada depois das seguintes,
+ * cai no lugar dela. A conta é trecho a trecho — de um medidor ao seguinte,
+ * pelos litros que entraram no fim dele —, e o trecho cujos litros ninguém
+ * escreveu fica de fora inteiro: contar os km dele sem os litros fazia a
+ * média subir sozinha.
+ *
  * Nas máquinas a conta se inverte — ninguém pergunta quantos quilômetros uma
  * retroescavadeira faz por litro; pergunta-se quantos litros ela come por hora
  * de trabalho.
@@ -1162,9 +1328,10 @@ export function mediaDeConsumo(
   ideal: number | null = null,
 ): Consumo {
   const unidade = medidor === 'km' ? 'km_por_litro' : 'litros_por_hora';
-  const medidos = lista.filter(
-    (a) => (medidor === 'km' ? a.km : a.horimetro) != null,
-  );
+  const valor = (a: (typeof lista)[number]) => (medidor === 'km' ? a.km : a.horimetro);
+  const medidos = lista
+    .filter((a) => valor(a) != null)
+    .sort((a, b) => (valor(a) as number) - (valor(b) as number));
   const vazio: Consumo = {
     medio: null,
     ultimo: null,
@@ -1176,30 +1343,43 @@ export function mediaDeConsumo(
   };
   if (medidos.length < 2) return vazio;
 
-  const valor = (a: (typeof medidos)[number]) =>
-    (medidor === 'km' ? a.km : a.horimetro) as number;
+  /*
+   * Os pontos do painel. Dois abastecimentos no mesmo km — o galão e o posto,
+   * um atrás do outro — são um ponto só, com os litros dos dois; faltando os
+   * de um, o ponto fica sem.
+   */
+  const pontos: Array<{ medidor: number; litros: number | null }> = [];
+  for (const a of medidos) {
+    const litros = a.litros != null && a.litros > 0 ? a.litros : null;
+    const anterior = pontos[pontos.length - 1];
+    if (anterior && anterior.medidor === valor(a)) {
+      anterior.litros = anterior.litros == null || litros == null ? null : anterior.litros + litros;
+    } else {
+      pontos.push({ medidor: valor(a) as number, litros });
+    }
+  }
 
-  const andados = valor(medidos[medidos.length - 1]) - valor(medidos[0]);
-  const litrosDepois = medidos
-    .slice(1)
-    .reduce((soma, a) => soma + (a.litros ?? 0), 0);
+  // Do primeiro ponto, só o medidor: o que entrou nele foi gasto antes.
+  const trechos = pontos.slice(1).map((p, i) => ({
+    distancia: p.medidor - pontos[i].medidor,
+    litros: p.litros,
+  }));
+  const comLitros = trechos.filter(
+    (t): t is { distancia: number; litros: number } => t.litros != null,
+  );
+  const andados = comLitros.reduce((soma, t) => soma + t.distancia, 0);
+  const litrosDepois = comLitros.reduce((soma, t) => soma + t.litros, 0);
   if (andados <= 0 || litrosDepois <= 0) return vazio;
-
-  // O trecho mais recente: o que se andou desde a última vez, pelos litros
-  // que entraram agora.
-  const ultimo = medidos[medidos.length - 1];
-  const penultimo = medidos[medidos.length - 2];
-  const andadosAgora = valor(ultimo) - valor(penultimo);
-  const litrosAgora = ultimo.litros ?? 0;
 
   const conta = (distancia: number, litros: number) =>
     medidor === 'km' ? distancia / litros : litros / distancia;
 
   const medio = arredondar(conta(andados, litrosDepois));
+  // O trecho mais recente: o que se andou desde a última vez, pelos litros
+  // que entraram agora.
+  const agora = trechos[trechos.length - 1];
   const ultimoTrecho =
-    andadosAgora > 0 && litrosAgora > 0
-      ? arredondar(conta(andadosAgora, litrosAgora))
-      : null;
+    agora && agora.litros != null ? arredondar(conta(agora.distancia, agora.litros)) : null;
 
   /*
    * Pior que o esperado quer dizer coisas opostas nos dois medidores: o carro

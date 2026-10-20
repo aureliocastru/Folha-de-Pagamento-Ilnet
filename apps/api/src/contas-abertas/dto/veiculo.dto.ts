@@ -263,6 +263,12 @@ export class LancarAbastecimentoNoSistemaDto {
   @IsNumber()
   @Min(0)
   valor?: number;
+
+  /**
+   * O dia da nota, "AAAA-MM-DD". Ausente é hoje; a nota esquecida vem com o
+   * dia dela. O service confere se ele combina com o km.
+   */
+  @IsOptional() @Transform(semVazio) @IsString() @MaxLength(10) data?: string;
 }
 
 /** O que o administrador leu na nota: o valor e, se estiver escrito, os litros. */
