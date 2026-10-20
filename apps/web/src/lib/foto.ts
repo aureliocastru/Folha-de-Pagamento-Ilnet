@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react';
+
 /**
  * Reduz a foto da nota antes de mandar.
  *
@@ -40,6 +42,36 @@ export async function reduzirFoto(arquivo: File): Promise<string> {
     Math.min(1, LADO_MAIOR / Math.max(bitmap.width, bitmap.height)),
     TETO_DA_FOTO,
   );
+}
+
+/**
+ * O Ctrl+V de um print, ouvido na janela inteira.
+ *
+ * Quem copiou o print — do WhatsApp Web, do recorte da tela — quer colar, e
+ * não procurar antes onde clicar. Só imagem: texto colado é de algum campo (o
+ * motivo, o valor), e roubá-lo quebraria a digitação. Com `ativo` desligado
+ * (a foto já está posta, está preparando), o Ctrl+V volta a ser dos campos.
+ *
+ * Uma por tela: duas ouvindo ao mesmo tempo levariam o mesmo print.
+ */
+export function useColarFoto(aoColar: (arquivo: File) => void, ativo = true) {
+  // O `aoColar` de agora vem por aqui, sem trocar o ouvinte a cada desenho.
+  const atual = useRef(aoColar);
+  atual.current = aoColar;
+
+  useEffect(() => {
+    if (!ativo) return;
+    function ouvir(e: ClipboardEvent) {
+      const arquivo = [...(e.clipboardData?.files ?? [])].find((f) =>
+        f.type.startsWith('image/'),
+      );
+      if (!arquivo) return;
+      e.preventDefault();
+      atual.current(arquivo);
+    }
+    window.addEventListener('paste', ouvir);
+    return () => window.removeEventListener('paste', ouvir);
+  }, [ativo]);
 }
 
 /** Quantas fotos cabem numa nota: o papel e o visor da bomba, por exemplo. */

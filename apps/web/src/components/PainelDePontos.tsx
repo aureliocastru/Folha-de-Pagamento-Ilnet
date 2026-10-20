@@ -5,7 +5,7 @@ import { mensagemErro } from '../lib/api';
 import { semAcento } from '../lib/busca';
 import { useCelular } from '../lib/celular';
 import { formatData } from '../lib/format';
-import { reduzirFoto } from '../lib/foto';
+import { reduzirFoto, useColarFoto } from '../lib/foto';
 import { Aviso, Carregando, FotoAmpliada, Janela, Vazio } from './ui';
 import { CampoDeData } from './CampoDeData';
 
@@ -250,7 +250,13 @@ function FichaDePontos({
     const arquivo = e.target.files?.[0];
     // Limpo sempre: sem isso, escolher a mesma foto de novo não dispara nada.
     e.target.value = '';
-    if (!arquivo) return;
+    if (arquivo) await usarFoto(arquivo);
+  }
+
+  // O print colado com Ctrl+V entra como a foto escolhida.
+  useColarFoto((arquivo) => void usarFoto(arquivo), !foto && !preparandoFoto);
+
+  async function usarFoto(arquivo: File) {
     setErroFoto(null);
     setPreparandoFoto(true);
     try {
@@ -429,9 +435,12 @@ function FichaDePontos({
                 disabled={preparandoFoto}
               />
             </label>
+            {!celular && (
+              <span className="self-center text-xs text-tinta-400">ou cole o print (Ctrl+V)</span>
+            )}
           </div>
         )}
-        {erroFoto && <p className="mt-1.5 text-xs text-rose-600">{erroFoto}</p>}
+        {erroFoto &&<p className="mt-1.5 text-xs text-rose-600">{erroFoto}</p>}
       </div>
 
       <div className="mb-4 flex flex-wrap items-end gap-2">

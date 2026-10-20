@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { useRef, useState, type ChangeEvent } from 'react';
 import { useCelular } from '../lib/celular';
-import { FOTOS_POR_NOTA, reduzirFoto } from '../lib/foto';
+import { FOTOS_POR_NOTA, reduzirFoto, useColarFoto } from '../lib/foto';
 
 /**
  * A foto de uma nota: tirar na hora, anexar a que já está no aparelho, ou —
@@ -28,8 +28,8 @@ export function FotoDaNota({
   const [preparando, setPreparando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const cheia = fotos.length >= FOTOS_POR_NOTA;
-  // O Ctrl+V é ouvido na janela inteira; as fotos e o `onFotos` de agora vêm
-  // por aqui, sem trocar o ouvinte a cada vez que a tela desenha.
+  // As fotos e o `onFotos` de agora: a foto reduzida chega depois de uma
+  // espera, e uma pode ter saído enquanto isso.
   const atual = useRef({ fotos, onFotos });
   atual.current = { fotos, onFotos };
 
@@ -49,27 +49,9 @@ export function FotoDaNota({
       setPreparando(false);
     }
   }
-  const usarAgora = useRef(usar);
-  usarAgora.current = usar;
-
-  /*
-   * Colar o print da nota — o que chegou pelo WhatsApp Web, o recorte da tela
-   * —, como na nota da Nova Despesa. Na janela inteira, e não num quadrado
-   * onde clicar antes: quem copiou quer colar. Só imagem: texto colado é de
-   * outro campo (o km, o valor), e roubá-lo quebraria a digitação. Com as
-   * duas fotos já postas, o Ctrl+V volta a ser dos campos.
-   */
-  useEffect(() => {
-    function aoColar(e: ClipboardEvent) {
-      if (atual.current.fotos.length >= FOTOS_POR_NOTA) return;
-      const arquivo = [...(e.clipboardData?.files ?? [])].find((f) => f.type.startsWith('image/'));
-      if (!arquivo) return;
-      e.preventDefault();
-      void usarAgora.current([arquivo]);
-    }
-    window.addEventListener('paste', aoColar);
-    return () => window.removeEventListener('paste', aoColar);
-  }, []);
+  // O print colado com Ctrl+V, como na nota da Nova Despesa. Com as duas fotos
+  // já postas, o Ctrl+V volta a ser dos campos.
+  useColarFoto((arquivo) => void usar([arquivo]), !cheia);
 
   async function aoEscolher(e: ChangeEvent<HTMLInputElement>) {
     const arquivos = [...(e.target.files ?? [])];

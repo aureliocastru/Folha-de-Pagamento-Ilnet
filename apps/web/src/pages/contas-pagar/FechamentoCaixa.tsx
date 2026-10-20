@@ -19,7 +19,8 @@ import { api, mensagemErro } from '../../lib/api';
 import { abrirArquivo } from '../../lib/arquivo';
 import { useTermoAdiado } from '../../lib/busca';
 import { useAuth } from '../../lib/auth';
-import { reduzirFoto } from '../../lib/foto';
+import { useCelular } from '../../lib/celular';
+import { reduzirFoto, useColarFoto } from '../../lib/foto';
 import { formatBRL, formatData } from '../../lib/format';
 import { CampoDeData } from '../../components/CampoDeData';
 import type {
@@ -2124,6 +2125,19 @@ function AcertarConta({
 
   const ehNota = tipo === 'NOTA';
   const comDespesa = ehNota && lancarDespesa;
+  const celular = useCelular();
+
+  async function anexarFoto(arquivo: File) {
+    try {
+      const reduzida = await reduzirFoto(arquivo);
+      setFotos((atual) => [...atual, reduzida]);
+      setErro(null);
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : String(err));
+    }
+  }
+  // O print da nota colado com Ctrl+V vira mais uma foto.
+  useColarFoto((arquivo) => void anexarFoto(arquivo), ehNota);
   const quanto = Number(valor) || 0;
   /* Nota ou troco maior que o saldo deixaria a pessoa devendo negativo, e o
      negativo entraria no total da rua abatendo o saldo de quem realmente está
@@ -2421,20 +2435,16 @@ function AcertarConta({
                   type="file"
                   accept="image/*"
                   className="hidden"
-                  onChange={async (e) => {
+                  onChange={(e) => {
                     const arquivo = e.target.files?.[0];
                     e.target.value = '';
-                    if (!arquivo) return;
-                    try {
-                      const reduzida = await reduzirFoto(arquivo);
-                      setFotos((atual) => [...atual, reduzida]);
-                      setErro(null);
-                    } catch (err) {
-                      setErro(err instanceof Error ? err.message : String(err));
-                    }
+                    if (arquivo) void anexarFoto(arquivo);
                   }}
                 />
               </label>
+              {!celular && (
+                <span className="text-xs text-tinta-400">ou cole o print (Ctrl+V)</span>
+              )}
             </div>
           </div>
         )}
