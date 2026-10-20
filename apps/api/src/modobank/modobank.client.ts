@@ -231,10 +231,7 @@ export class ModobankClient {
   async donoDaChave(chave: string): Promise<DonoDaChave | null> {
     let r: Record<string, unknown>;
     try {
-      r = await this.pedir<Record<string, unknown>>(
-        'get',
-        `/pix/keys/${encodeURIComponent(chave)}`,
-      );
+      r = await this.pedir<Record<string, unknown>>('get', `/pix/keys/${chaveNoCaminho(chave)}`);
     } catch (err) {
       if (err instanceof RecusaDoBanco && err.statusDoBanco === 404) return null;
       throw err;
@@ -469,6 +466,18 @@ export class ModobankClient {
     });
     return this.http;
   }
+}
+
+/**
+ * A chave Pix no caminho da consulta, com o `+` e o `@` como são.
+ *
+ * O celular é "+5598…": codificado, virava "%2B5598…", e o banco respondia
+ * "o valor informado não é uma chave Pix" (onz-0008) — a primeira conta paga
+ * a um celular travou nisso. No caminho de uma URL o `+` e o `@` valem por si;
+ * o resto continua codificado.
+ */
+export function chaveNoCaminho(chave: string): string {
+  return encodeURIComponent(chave).replace(/%2B/gi, '+').replace(/%40/g, '@');
 }
 
 /**

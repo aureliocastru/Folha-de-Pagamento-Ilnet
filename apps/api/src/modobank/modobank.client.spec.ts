@@ -1,4 +1,10 @@
-import { barrasDaArrecadacao, formaDaResposta, mensagemDoBanco, pdfDaResposta } from './modobank.client';
+import {
+  barrasDaArrecadacao,
+  chaveNoCaminho,
+  formaDaResposta,
+  mensagemDoBanco,
+  pdfDaResposta,
+} from './modobank.client';
 
 /**
  * O comprovante do banco: o manual não diz em que forma ele vem, e a primeira
@@ -55,5 +61,16 @@ describe('mensagemDoBanco', () => {
     expect(mensagemDoBanco({ status: 500, data: '<html><head><title>Not Found</title></head></html>' })).toBe(
       'HTTP 500: Not Found',
     );
+  });
+});
+
+describe('chaveNoCaminho', () => {
+  it('o celular vai com o +, e o e-mail com o @', () => {
+    expect(chaveNoCaminho('+5598991234567')).toBe('+5598991234567');
+    expect(chaveNoCaminho('fulano@email.com')).toBe('fulano@email.com');
+  });
+
+  it('o resto continua codificado', () => {
+    expect(chaveNoCaminho('a b/c')).toBe('a%20b%2Fc');
   });
 });
