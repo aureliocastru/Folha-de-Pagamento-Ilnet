@@ -16,6 +16,7 @@ import {
   GuiaLida,
   lerGuia,
   lerPagamento,
+  lerPixDaGuia,
   type PagamentoDaGuia,
 } from './guias.parse';
 import { extrairTextoPdf } from '../pdf/pdf';
@@ -364,7 +365,7 @@ export class ImpostosService {
         dataVencimento: guia.vencimento,
         observacao: `${rotulo} · competência ${competenciaBR(guia.competencia)}`,
         documento: guia.numeroDocumento,
-        ...formaDePagar(pagamento),
+        ...formaDePagar(pagamento, guia.textoOriginal ? lerPixDaGuia(guia.textoOriginal) : null),
       },
       usuarioId,
     );
@@ -558,7 +559,11 @@ function arredondar(n: number): number {
  * PIX da conta, com o tipo que a tela do IXC usa para essa chave que vale só
  * para uma cobrança.
  */
-function formaDePagar(pagamento: PagamentoDaGuia | null): {
+function formaDePagar(
+  pagamento: PagamentoDaGuia | null,
+  /** O Pix da guia, quando ela traz também o QR Code — o DARF traz. */
+  pix: string | null = null,
+): {
   tipoPagamentoIxc?: string;
   codigoBarras?: string;
   chavePix?: string;
@@ -566,7 +571,19 @@ function formaDePagar(pagamento: PagamentoDaGuia | null): {
 } {
   if (!pagamento) return {};
   if (pagamento.forma === 'BOLETO') {
-    return { tipoPagamentoIxc: 'Boleto', codigoBarras: pagamento.codigoBarras };
+    /*
+     * Com o QR junto, vão os dois, e a conta se paga por Pix: o ModoBank não
+     * paga guia de arrecadação pelo código de barras. O código fica para quem
+     * pagar à mão, no aplicativo de outro banco.
+     */
+    return pix
+      ? {
+          tipoPagamentoIxc: 'Pix',
+          codigoBarras: pagamento.codigoBarras,
+          chavePix: pix,
+          tipoChavePix: 'Código copia e cola',
+        }
+      : { tipoPagamentoIxc: 'Boleto', codigoBarras: pagamento.codigoBarras };
   }
   return {
     tipoPagamentoIxc: 'Pix',

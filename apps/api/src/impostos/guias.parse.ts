@@ -173,20 +173,29 @@ export function lerPagamento(texto: string): PagamentoDaGuia | null {
     }
   }
 
-  /*
-   * O PIX vem como o payload inteiro do QR Code, numa linha só: começa em
-   * "000201" e termina no CRC ("6304" + quatro caracteres). Logo abaixo dele o
-   * PDF do FGTS imprime "PIX Copia e Cola:" seguido de uma URL — que **não** é
-   * o copia e cola, é só o endereço do QR. Pegar o rótulo em vez do payload
-   * daria uma chave que nenhum banco paga.
-   */
+  const pix = lerPixDaGuia(texto);
+  return pix ? { forma: 'PIX', copiaECola: pix } : null;
+}
+
+/**
+ * O "copia e cola" do QR Code Pix da guia, mesmo quando ela também tem código
+ * de barras.
+ *
+ * O DARF traz os dois, e o ModoBank só paga o segundo: a API dele não paga
+ * guia de arrecadação pelo código de barras (recusa com `onz-0013`). É por
+ * aqui que o DARF chega ao banco como Pix.
+ *
+ * O PIX vem como o payload inteiro do QR Code, numa linha só: começa em
+ * "000201" e termina no CRC ("6304" + quatro caracteres). Logo abaixo dele o
+ * PDF do FGTS imprime "PIX Copia e Cola:" seguido de uma URL — que **não** é
+ * o copia e cola, é só o endereço do QR. Pegar o rótulo em vez do payload
+ * daria uma chave que nenhum banco paga.
+ */
+export function lerPixDaGuia(texto: string): string | null {
   for (const bruto of texto.split(/\r?\n/)) {
     const linha = bruto.trim();
-    if (linha.startsWith('000201') && /6304[0-9A-Fa-f]{4}$/.test(linha)) {
-      return { forma: 'PIX', copiaECola: linha };
-    }
+    if (linha.startsWith('000201') && /6304[0-9A-Fa-f]{4}$/.test(linha)) return linha;
   }
-
   return null;
 }
 

@@ -35,9 +35,17 @@ export type ComoPagar =
  */
 export function comoPagar(raw: Record<string, unknown>): ComoPagar | null {
   const barras = String(raw.codigo_barras ?? '').replace(/\D/g, '');
+  const chave = String(raw.chave_pix ?? '').trim();
+  /*
+   * Guia de arrecadação (começa com 8: DARF, GPS, conta de consumo) com o QR
+   * Pix guardado na chave: vai o Pix. A API do ModoBank não paga arrecadação
+   * pelo código de barras — só boleto bancário —, e o DARF traz os dois.
+   */
+  if (barras.startsWith('8') && /^000201/.test(chave)) {
+    return { forma: 'PIX', copiaECola: true, codigo: chave };
+  }
   if (barras.length >= 44) return { forma: 'BOLETO', codigo: barras };
 
-  const chave = String(raw.chave_pix ?? '').trim();
   if (!chave) return null;
 
   const doRadio =

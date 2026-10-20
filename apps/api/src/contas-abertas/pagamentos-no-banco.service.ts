@@ -17,6 +17,7 @@ import {
   type SituacaoDoPagamento,
 } from '../modobank/modobank.client';
 import { MODOBANK_RECEBER } from '../modobank/modobank.module';
+import { lerPixDaGuia } from '../impostos/guias.parse';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   comoPagar,
@@ -127,7 +128,7 @@ export class PagamentosNoBancoService {
     this.exigirAtivo();
     const raw = await this.titulo(idFnApagar);
     const valorDoTitulo = lerSituacaoContaPagar(raw).valorAberto;
-    const como = this.exigirComo(idFnApagar, raw);
+    const como = await this.exigirComo(idFnApagar, raw);
     const destino = await this.resolver(como, valorDoTitulo, novaChave(idFnApagar));
     return {
       forma: como.forma,
@@ -176,7 +177,7 @@ export class PagamentosNoBancoService {
       );
     }
 
-    const como = this.exigirComo(idFnApagar, raw);
+    const como = await this.exigirComo(idFnApagar, raw);
     const chave = novaChave(idFnApagar);
     const valorPix = Math.round((opcoes.valorDoTitulo - opcoes.desconto) * 100) / 100;
     const destino = await this.resolver(como, valorPix, chave);
@@ -463,7 +464,7 @@ export class PagamentosNoBancoService {
     }
   }
 
-  private exigirComo(idFnApagar: number, raw: Record<string, unknown>): ComoPagar {
+  private async exigirComo(idFnApagar: number, raw: Record<string, unknown>): Promise<ComoPagar> {
     const como = comoPagar(raw);
     if (!como) {
       throw new BadRequestException(
@@ -471,7 +472,24 @@ export class PagamentosNoBancoService {
           'não tem para onde mandar. Edite a conta e preencha um dos dois.',
       );
     }
-    return como;
+    if (como.forma !== 'BOLETO' || !como.codigo.startsWith('8')) return como;
+
+    /*
+     * Guia de arrecadação sem Pix no título: o banco recusaria o código de
+     * barras. Se a guia entrou pelos Impostos, o QR Pix dela está no texto
+     * guardado do PDF — e é por ele que ela se paga.
+     */
+    const guia = await this.prisma.guia.findFirst({
+      where: { contaPagar: { idFnApagarIxc: idFnApagar } },
+      select: { textoOriginal: true },
+    });
+    const pix = guia?.textoOriginal ? lerPixDaGuia(guia.textoOriginal) : null;
+    if (pix) return { forma: 'PIX', copiaECola: true, codigo: pix };
+    throw new BadRequestException(
+      'O ModoBank não paga guia de arrecadação (DARF, GPS, conta de consumo) pelo ' +
+        'código de barras: pela API ele só paga boleto bancário e Pix. Se a guia tem ' +
+        'QR Code Pix, edite a conta e leia o QR no campo da chave Pix — aí ela paga por aqui.',
+    );
   }
 
   private async titulo(idFnApagar: number): Promise<Record<string, unknown>> {

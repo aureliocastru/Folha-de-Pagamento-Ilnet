@@ -89,6 +89,21 @@ describe('comoPagar', () => {
     expect(comoPagar({ codigo_barras: '', chave_pix: ' ' })).toBeNull();
     expect(comoPagar({ codigo_barras: '123' })).toBeNull();
   });
+
+  it('o DARF com o QR Pix guardado vai por Pix — o banco não paga arrecadação pelo código', () => {
+    const qr = '00020101021226870014br.gov.bcb.pix2565qrpix.bb.com.br/darf5204000053039865802BR6304ABCD';
+    expect(comoPagar({ codigo_barras: '8'.padEnd(48, '0'), chave_pix: qr })).toEqual({
+      forma: 'PIX',
+      copiaECola: true,
+      codigo: qr,
+    });
+  });
+
+  it('boleto bancário com chave anotada continua sendo boleto', () => {
+    expect(
+      comoPagar({ codigo_barras: '2379'.padEnd(47, '0'), chave_pix: '000201abc6304ABCD' }),
+    ).toMatchObject({ forma: 'BOLETO' });
+  });
 });
 
 describe('regras do banco', () => {
