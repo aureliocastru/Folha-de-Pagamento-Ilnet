@@ -224,7 +224,7 @@ export class PagamentosNoBancoService {
        * 5xx, tempo esgotado) não diz se chegou — a linha fica ENVIANDO e o
        * acompanhamento pergunta ao banco pela chave.
        */
-      if (err instanceof RecusaDoBanco && err.status < 500) {
+      if (err instanceof RecusaDoBanco && err.statusDoBanco < 500) {
         await this.prisma.pagamentoNoBanco.update({
           where: { id: pagamento.id },
           data: { situacao: 'RECUSADO', erro: err.message },

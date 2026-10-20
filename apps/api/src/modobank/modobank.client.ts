@@ -1,4 +1,10 @@
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  Injectable,
+  Logger,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import axios, { type AxiosInstance, type AxiosResponse } from 'axios';
 import { Agent } from 'node:https';
 import type { AppConfig } from '../config/configuration';
@@ -57,13 +63,20 @@ export interface SituacaoDoPagamento {
   liquidadoEm: Date | null;
 }
 
-/** Recusa do banco, com o que ele disse. O status HTTP decide o que fazer. */
-export class RecusaDoBanco extends Error {
+/**
+ * Recusa do banco, com o que ele disse. O status HTTP do banco
+ * (`statusDoBanco`) decide o que fazer.
+ *
+ * É um erro HTTP do Nest: a que ninguém pega no caminho chega à tela com a
+ * frase do banco — recusa dele vira 400, falha dele 502. Antes era um `Error`
+ * cru, e a prévia de um DARF recusado aparecia só como "Internal server error".
+ */
+export class RecusaDoBanco extends HttpException {
   constructor(
     message: string,
-    readonly status: number,
+    readonly statusDoBanco: number,
   ) {
-    super(message);
+    super(message, statusDoBanco >= 500 ? HttpStatus.BAD_GATEWAY : HttpStatus.BAD_REQUEST);
   }
 }
 
@@ -204,7 +217,7 @@ export class ModobankClient {
         `/pix/keys/${encodeURIComponent(chave)}`,
       );
     } catch (err) {
-      if (err instanceof RecusaDoBanco && err.status === 404) return null;
+      if (err instanceof RecusaDoBanco && err.statusDoBanco === 404) return null;
       throw err;
     }
     const d = (r.data ?? r) as Record<string, unknown>;
@@ -300,7 +313,7 @@ export class ModobankClient {
       );
       return lerSituacaoDoPix(r.data ?? {});
     } catch (err) {
-      if (err instanceof RecusaDoBanco && err.status === 404) return null;
+      if (err instanceof RecusaDoBanco && err.statusDoBanco === 404) return null;
       throw err;
     }
   }
