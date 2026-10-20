@@ -80,6 +80,25 @@ function contaQueSaiJunto(guia: Guia): string {
 }
 
 /** A API respondeu que o PDF não tem texto — a vez da leitura da imagem. */
+/**
+ * A leitura do PDF com texto, mais o QR Code Pix da guia.
+ *
+ * A API lê só o texto, e o QR é desenho: sem isto o DAS e o DARE iam ao IXC só
+ * com o código de barras, que o ModoBank não paga. O Pix vai junto no texto
+ * guardado da guia, de onde a conta a pagar e o pagamento pelo banco o tiram.
+ * Sem QR (ou se a leitura falhar), a guia segue como estava.
+ */
+async function comOPixDaGuia(leitura: LeituraDaGuia, arquivo: File): Promise<LeituraDaGuia> {
+  if (!leitura.textoOriginal || /^000201/m.test(leitura.textoOriginal)) return leitura;
+  try {
+    const { lerPixDoArquivo } = await import('../../lib/ocr-pdf');
+    const pix = await lerPixDoArquivo(arquivo);
+    return pix ? { ...leitura, textoOriginal: `${leitura.textoOriginal}\n${pix}` } : leitura;
+  } catch {
+    return leitura;
+  }
+}
+
 function pdfSemTexto(err: unknown): boolean {
   return (
     axios.isAxiosError(err) &&
@@ -185,7 +204,7 @@ export function Impostos() {
       form.append('arquivo', arquivo);
       try {
         const { data } = await api.post<LeituraDaGuia>('/impostos/guias/ler', form);
-        return data;
+        return await comOPixDaGuia(data, arquivo);
       } catch (err) {
         if (!pdfSemTexto(err)) throw err;
       }

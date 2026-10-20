@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import axios from 'axios';
 import { useState } from 'react';
 import { Aviso, CampoDinheiro, Carregando, Janela, Selo } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
@@ -6,6 +7,7 @@ import { abrirArquivo } from '../../lib/arquivo';
 import { formatBRL, formatData, formatNumeroBR } from '../../lib/format';
 import type { ContaAberta, NoBancoDaConta } from '../../lib/types';
 import { CampoDeData } from '../../components/CampoDeData';
+import { PixDaGuia } from '../../components/PixDaGuia';
 import { NovaDespesa, type EdicaoDaConta } from './NovaDespesa';
 
 /** Se o pagamento direto pelo ModoBank está ligado no servidor. */
@@ -308,6 +310,10 @@ export function PagarEmMaos({
   const valorGrande = peloBanco && previa.data ? previa.data.valor : aPagar;
   /** O banco já disse que não paga esta: mandar só repete a recusa. */
   const bancoRecusa = peloBanco && previa.isError;
+  /** Guia de arrecadação sem o Pix: a janela oferece o PDF e a câmera para achá-lo. */
+  const guiaSemPix =
+    axios.isAxiosError(previa.error) &&
+    (previa.error.response?.data as { codigo?: string } | undefined)?.codigo === 'GUIA_SEM_PIX';
 
   const pagar = useMutation({
     mutationFn: async () => {
@@ -594,7 +600,12 @@ export function PagarEmMaos({
         )}
       </div>
 
-      {bancoRecusa && <Aviso tom="erro">{mensagemErro(previa.error)}</Aviso>}
+      {bancoRecusa &&
+        (guiaSemPix ? (
+          <PixDaGuia idFnApagar={contas[0].idFnApagar} onPronto={() => void previa.refetch()} />
+        ) : (
+          <Aviso tom="erro">{mensagemErro(previa.error)}</Aviso>
+        ))}
 
       {/* A conta do título é onde o pagamento foi combinado. Trocar pode ser o
           certo, mas é o engano que baixa num banco o que saiu de outro. */}

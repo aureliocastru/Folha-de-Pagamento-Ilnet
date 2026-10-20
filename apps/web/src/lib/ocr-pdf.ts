@@ -328,3 +328,65 @@ function bemEscrito(pedaco: string): boolean {
   if (/^\d{2}:\d{2}(:\d{2})?$/.test(pedaco)) return true;
   return /^[\d./-]+$/.test(pedaco) && /\d/.test(pedaco) && !pedaco.includes(',');
 }
+
+/**
+ * Só o QR Code Pix de uma guia — PDF ou foto —, sem ler as letras.
+ *
+ * A guia salva do site tem texto, e a API a lê sem desenhar nada: o QR, que é
+ * imagem, ficava de fora. Sem ele o DAS e o DARE iam ao IXC só com o código
+ * de barras — e o ModoBank não paga guia de arrecadação pelo código, só pelo
+ * Pix. Desenhar as páginas e procurar o QR leva poucos segundos (não há OCR
+ * aqui). Null = não há QR Pix no arquivo.
+ */
+export async function lerPixDoArquivo(arquivo: File): Promise<string | null> {
+  const ehPix = (c: string) => /^000201/.test(c.trim()) && /br\.gov\.bcb\.pix/i.test(c);
+
+  if (arquivo.type.startsWith('image/')) {
+    const imagem = await createImageBitmap(arquivo);
+    const desenhar = async (largura: number) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = largura;
+      canvas.height = Math.round((imagem.height * largura) / imagem.width);
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) throw new Error('Este navegador não lê a imagem.');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(imagem, 0, 0, canvas.width, canvas.height);
+      return canvas;
+    };
+    const achados = await lerCodigos(await desenhar(LARGURA_DO_OCR), desenhar);
+    return achados.find(ehPix)?.trim() ?? null;
+  }
+
+  const pdfjs = await import('pdfjs-dist');
+  const { default: WorkerDoPdf } = await import('pdfjs-dist/build/pdf.worker.min.mjs?worker');
+  const worker = new WorkerDoPdf();
+  pdfjs.GlobalWorkerOptions.workerPort = worker;
+  const documento = await pdfjs.getDocument({ data: await arquivo.arrayBuffer() }).promise;
+  try {
+    for (let n = 1; n <= documento.numPages; n++) {
+      const pagina = await documento.getPage(n);
+      const largura = pagina.getViewport({ scale: 1 }).width;
+      const desenhar = async (larguraEmPixels: number) => {
+        const viewport = pagina.getViewport({ scale: larguraEmPixels / largura });
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(viewport.width);
+        canvas.height = Math.round(viewport.height);
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        if (!ctx) throw new Error('Este navegador não desenha a página do PDF.');
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        await pagina.render({ canvas, canvasContext: ctx, viewport, intent: 'print' }).promise;
+        return canvas;
+      };
+      const achado = (await lerCodigos(await desenhar(LARGURA_DO_OCR), desenhar)).find(ehPix);
+      pagina.cleanup();
+      if (achado) return achado.trim();
+    }
+    return null;
+  } finally {
+    await documento.destroy();
+    pdfjs.GlobalWorkerOptions.workerPort = null;
+    worker.terminate();
+  }
+}

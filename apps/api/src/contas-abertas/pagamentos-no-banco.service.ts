@@ -485,11 +485,13 @@ export class PagamentosNoBancoService {
     });
     const pix = guia?.textoOriginal ? lerPixDaGuia(guia.textoOriginal) : null;
     if (pix) return { forma: 'PIX', copiaECola: true, codigo: pix };
-    throw new BadRequestException(
-      'O ModoBank não paga guia de arrecadação (DARF, GPS, conta de consumo) pelo ' +
-        'código de barras: pela API ele só paga boleto bancário e Pix. Se a guia tem ' +
-        'QR Code Pix, edite a conta e leia o QR no campo da chave Pix — aí ela paga por aqui.',
-    );
+    // O `codigo` é o que faz a janela de pagar oferecer o PDF e a câmera.
+    throw new BadRequestException({
+      codigo: 'GUIA_SEM_PIX',
+      message:
+        'Guia paga pelo Pix dela: o ModoBank não paga DARF, DAS, DARE ou conta de consumo ' +
+        'pelo código de barras. Mande o PDF da guia ou leia o QR Code Pix dela.',
+    });
   }
 
   private async titulo(idFnApagar: number): Promise<Record<string, unknown>> {
