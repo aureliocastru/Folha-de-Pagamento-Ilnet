@@ -433,29 +433,35 @@ describe('PagamentosService.pagar — enviar ao banco', () => {
 });
 
 describe('PagamentosNoBancoPoller — a baixa do que o banco pagou', () => {
-  function montar(titulo: Record<string, unknown>) {
-    const pago = {
+  function montar(titulo: Record<string, unknown>, linha: Record<string, unknown> = {}) {
+    const pago: Record<string, unknown> = {
       id: 'p1',
       idFnApagar: 4242,
       forma: 'BOLETO',
       valor: 1532.4,
       situacao: 'PAGO',
+      idNoBanco: 'b1',
       baixadoEm: null,
       erro: null,
+      comprovanteEm: null,
+      comprovanteErro: null,
       pagoEm: new Date('2026-10-19T15:00:00Z'),
       updatedAt: new Date(),
       createdAt: new Date(),
+      ...linha,
     };
     const prisma = {
       pagamentoNoBanco: {
         findMany: jest.fn(async () => [pago]),
-        update: jest.fn(async () => pago),
+        findUnique: jest.fn(async () => pago),
+        // A linha guarda o que se gravou: a baixa vale para o comprovante logo depois.
+        update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => Object.assign(pago, data)),
       },
     };
     const pagamentos = { pagar: jest.fn(async () => ({ paga: true })) };
     const config = { obter: jest.fn().mockResolvedValue({ contaPagamentoId: 18 }) };
     const ixc = { getById: jest.fn(async () => titulo) };
-    const noBanco = { ativo: true, atualizar: jest.fn() };
+    const noBanco = { ativo: true, atualizar: jest.fn(), anexarComprovante: jest.fn(async () => true) };
     const poller = new PagamentosNoBancoPoller(
       noBanco as never,
       pagamentos as never,
@@ -463,8 +469,32 @@ describe('PagamentosNoBancoPoller — a baixa do que o banco pagou', () => {
       prisma as never,
       ixc as never,
     );
-    return { poller, pagamentos, prisma };
+    return { poller, pagamentos, prisma, noBanco };
   }
+
+  it('baixado, anexa o comprovante do banco no título', async () => {
+    const { poller, noBanco } = montar({ ...TITULO });
+    await poller.acompanhar();
+    expect(noBanco.anexarComprovante).toHaveBeenCalledWith(
+      expect.objectContaining({ idFnApagar: 4242, baixadoEm: expect.any(Date) }),
+    );
+  });
+
+  it('o pago de antes, já baixado, ganha o comprovante que faltava', async () => {
+    const { poller, pagamentos, noBanco } = montar({ ...TITULO }, { baixadoEm: new Date() });
+    await poller.acompanhar();
+    expect(pagamentos.pagar).not.toHaveBeenCalled();
+    expect(noBanco.anexarComprovante).toHaveBeenCalled();
+  });
+
+  it('logo depois de uma falha no comprovante, espera antes de pedir de novo', async () => {
+    const { poller, noBanco } = montar(
+      { ...TITULO },
+      { baixadoEm: new Date(), comprovanteErro: 'O banco não devolveu o comprovante.' },
+    );
+    await poller.acompanhar();
+    expect(noBanco.anexarComprovante).not.toHaveBeenCalled();
+  });
 
   it('baixa na conta do ModoBank, no dia em que saiu, pelo valor que saiu', async () => {
     const { poller, pagamentos, prisma } = montar({ ...TITULO });

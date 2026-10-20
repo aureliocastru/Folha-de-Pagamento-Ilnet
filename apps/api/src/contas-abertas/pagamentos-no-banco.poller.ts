@@ -22,6 +22,9 @@ const INTERVALO_MS = 60_000;
 /** Depois de uma baixa que falhou, quanto esperar para tentar de novo. */
 const ESPERA_DEPOIS_DE_FALHA_MS = 10 * 60_000;
 
+/** Até quando insistir no comprovante de um pagamento que o banco não entrega. */
+const PRAZO_DO_COMPROVANTE_MS = 30 * 24 * 60 * 60_000;
+
 /**
  * O retorno do ModoBank: pergunta ao banco onde está cada pagamento mandado
  * daqui e, quando ele diz que pagou, dá a baixa no IXC.
@@ -70,6 +73,12 @@ export class PagamentosNoBancoPoller implements OnModuleInit, OnModuleDestroy {
           OR: [
             { situacao: { in: SITUACOES_EM_ANDAMENTO } },
             { situacao: 'PAGO', baixadoEm: null },
+            // Pago e baixado, mas o comprovante ainda não foi para o título.
+            {
+              situacao: 'PAGO',
+              comprovanteEm: null,
+              createdAt: { gte: new Date(Date.now() - PRAZO_DO_COMPROVANTE_MS) },
+            },
           ],
         },
         orderBy: { createdAt: 'asc' },
@@ -82,6 +91,7 @@ export class PagamentosNoBancoPoller implements OnModuleInit, OnModuleDestroy {
           if (atual.situacao === 'PAGO' && !atual.baixadoEm) {
             await this.baixar(atual);
           }
+          await this.anexarComprovante(atual.id);
         } catch (err) {
           this.logger.warn(
             `ModoBank, título ${p.idFnApagar}: ${err instanceof Error ? err.message : String(err)}`,
@@ -91,6 +101,19 @@ export class PagamentosNoBancoPoller implements OnModuleInit, OnModuleDestroy {
     } finally {
       this.executando = false;
     }
+  }
+
+  /**
+   * O comprovante, depois da baixa: só do que está pago e baixado, e sem
+   * martelar o banco — depois de uma falha, espera antes de pedir de novo.
+   */
+  private async anexarComprovante(id: string): Promise<void> {
+    const p = await this.prisma.pagamentoNoBanco.findUnique({ where: { id } });
+    if (!p || p.situacao !== 'PAGO' || !p.baixadoEm || p.comprovanteEm) return;
+    if (p.comprovanteErro && Date.now() - p.updatedAt.getTime() < ESPERA_DEPOIS_DE_FALHA_MS) {
+      return;
+    }
+    await this.noBanco.anexarComprovante(p);
   }
 
   /**

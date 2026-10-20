@@ -1348,6 +1348,11 @@ model PagamentoNoBanco {
   /// Quando a baixa no IXC saiu. Null com `situacao` PAGO = falta baixar.
   baixadoEm       DateTime?       @map("baixado_em")
   pagoEm          DateTime?       @map("pago_em")
+  /// Quando o PDF do comprovante foi anexado ao título no IXC — é de lá que o
+  /// Já pagos e a Contabilidade o leem. Null com a baixa dada = falta anexar.
+  comprovanteEm   DateTime?       @map("comprovante_em")
+  /// Por que o comprovante ainda não foi anexado; tenta-se de novo depois.
+  comprovanteErro String?         @map("comprovante_erro")
 
   criadoPor String?  @map("criado_por")
   createdAt DateTime @default(now()) @map("created_at")

@@ -277,11 +277,16 @@ export class ModobankClient {
       forma === 'BOLETO'
         ? `/billets/payments/receipt/${encodeURIComponent(idNoBanco)}`
         : `/pix/payments/receipt/${encodeURIComponent(idNoBanco)}`;
-    const r = await this.pedir<{ data?: { pdf?: string } }>('get', caminho);
-    if (!r.data?.pdf) {
+    // Lido como bytes: o banco pode mandar o PDF cru ou um JSON com ele dentro.
+    const r = await this.pedir<ArrayBuffer>('get', caminho, undefined, undefined, 'arraybuffer');
+    const bruto = Buffer.from(r);
+    const pdf = pdfDaResposta(bruto);
+    if (!pdf) {
+      // Só a forma (chaves e tamanhos), nunca o conteúdo: é o que diz como ler.
+      this.logger.warn(`Comprovante do ModoBank num formato desconhecido: ${formaDaResposta(bruto)}`);
       throw new ServiceUnavailableException('O banco não devolveu o comprovante.');
     }
-    return Buffer.from(r.data.pdf, 'base64');
+    return pdf;
   }
 
   /**
@@ -293,6 +298,7 @@ export class ModobankClient {
     caminho: string,
     corpo?: unknown,
     cabecalhos?: Record<string, string>,
+    formato: 'json' | 'arraybuffer' = 'json',
   ): Promise<T> {
     for (let tentativa = 1; ; tentativa++) {
       const token = await this.tokenValido();
@@ -302,6 +308,7 @@ export class ModobankClient {
           url: caminho,
           data: corpo,
           headers: { Authorization: `Bearer ${token}`, ...cabecalhos },
+          responseType: formato,
         }),
       );
       if (r.status === 401 && tentativa === 1) {
@@ -309,6 +316,8 @@ export class ModobankClient {
         continue;
       }
       if (r.status >= 400) {
+        // A recusa vem em JSON mesmo quando se pediu bytes.
+        if (formato === 'arraybuffer') r.data = jsonOuTexto(Buffer.from(r.data as ArrayBuffer));
         throw new RecusaDoBanco(`ModoBank: ${mensagemDoBanco(r)}`, r.status);
       }
       return r.data as T;
@@ -378,6 +387,65 @@ export class ModobankClient {
       validateStatus: () => true,
     });
     return this.http;
+  }
+}
+
+/**
+ * O PDF do comprovante, de onde ele vier na resposta.
+ *
+ * O manual não diz a forma, e a primeira tentativa (`data.pdf`) não era ela.
+ * Aceita o PDF cru, ou qualquer texto do JSON que seja um PDF em base64 — com
+ * ou sem o "data:application/pdf;base64," na frente —, em qualquer chave e
+ * profundidade. Null = não veio PDF nenhum.
+ */
+export function pdfDaResposta(bruto: Buffer): Buffer | null {
+  if (bruto.subarray(0, 5).toString('latin1') === '%PDF-') return bruto;
+  const json = jsonOuTexto(bruto);
+  const achar = (v: unknown): Buffer | null => {
+    if (typeof v === 'string') {
+      const base64 = v.replace(/^data:[^,]*;base64,/, '').replace(/\s+/g, '');
+      // "JVBER" é o "%PDF" em base64.
+      return base64.startsWith('JVBER') ? Buffer.from(base64, 'base64') : null;
+    }
+    if (v && typeof v === 'object') {
+      for (const filho of Object.values(v as Record<string, unknown>)) {
+        const achado = achar(filho);
+        if (achado) return achado;
+      }
+    }
+    return null;
+  };
+  return achar(json);
+}
+
+/**
+ * A forma de uma resposta, sem o conteúdo: "{data:{receipt:texto(48210)}}".
+ * Vai para o log quando o comprovante não é reconhecido.
+ */
+export function formaDaResposta(bruto: Buffer): string {
+  const json = jsonOuTexto(bruto);
+  const forma = (v: unknown, fundo: number): string => {
+    if (typeof v === 'string') return `texto(${v.length})`;
+    if (Array.isArray(v)) return `[${v.length}${v.length ? ` × ${forma(v[0], fundo + 1)}` : ''}]`;
+    if (v && typeof v === 'object') {
+      if (fundo > 4) return '{…}';
+      return `{${Object.entries(v as Record<string, unknown>)
+        .map(([k, x]) => `${k}:${forma(x, fundo + 1)}`)
+        .join(',')}}`;
+    }
+    return v === null ? 'null' : typeof v;
+  };
+  return typeof json === 'string'
+    ? `não é JSON: ${bruto.length} bytes, começa por ${JSON.stringify(bruto.subarray(0, 12).toString('latin1'))}`
+    : forma(json, 0);
+}
+
+function jsonOuTexto(bruto: Buffer): unknown {
+  const texto = bruto.toString('utf8');
+  try {
+    return JSON.parse(texto);
+  } catch {
+    return texto;
   }
 }
 

@@ -305,6 +305,39 @@ export class PagamentosNoBancoService {
     };
   }
 
+  /**
+   * Anexa o comprovante do banco ao título, no IXC.
+   *
+   * É de lá que o Já pagos mostra os arquivos do pagamento e que a
+   * Contabilidade tira o comprovante de cada saída — anexado no título, ele
+   * aparece nos dois sem caminho novo. Falhou, fica anotado, e o
+   * acompanhamento tenta de novo depois.
+   */
+  async anexarComprovante(p: PagamentoNoBanco): Promise<boolean> {
+    if (!p.idNoBanco) return false;
+    try {
+      const pdf = await this.banco.comprovante(p.forma, p.idNoBanco);
+      await this.ixc.upload(
+        'fn_apagar_arquivos',
+        'arquivo',
+        { nome: `comprovante-modobank-${p.idFnApagar}.pdf`, tipo: 'application/pdf', conteudo: pdf },
+        { id_apagar: String(p.idFnApagar), descricao: 'Comprovante ModoBank' },
+      );
+      await this.prisma.pagamentoNoBanco.update({
+        where: { id: p.id },
+        data: { comprovanteEm: new Date(), comprovanteErro: null },
+      });
+      this.logger.log(`ModoBank, título ${p.idFnApagar}: comprovante anexado no IXC.`);
+      return true;
+    } catch (err) {
+      await this.prisma.pagamentoNoBanco.update({
+        where: { id: p.id },
+        data: { comprovanteErro: err instanceof Error ? err.message : String(err) },
+      });
+      return false;
+    }
+  }
+
   /** O último pagamento no banco de cada título, para a lista de contas. */
   async naLista(ids: number[]): Promise<Map<number, NoBancoNaLista>> {
     const mapa = new Map<number, NoBancoNaLista>();
