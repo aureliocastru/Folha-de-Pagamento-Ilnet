@@ -463,12 +463,22 @@ export function Janela({
               }
             : undefined
         }
-        className={`fixed inset-0 z-50 flex flex-col bg-barra/70 backdrop-blur-sm ${
+        /*
+          Um balão, e não uma folha de ponta a ponta: com margem dos lados e
+          os quatro cantos redondos, do mesmo tamanho com e sem teclado — antes
+          ele mudava de cara quando o teclado abria (pedido do dono, 20/10/2026).
+          O fundo é quase preto: o que está atrás não disputa o olho com o que
+          se está preenchendo. As folgas de cima e de baixo respeitam a barra do
+          iPhone e a faixa do gesto do sistema.
+        */
+        className={`fixed inset-0 z-50 flex flex-col bg-black/80 px-3 backdrop-blur-sm ${
           teclado
-            ? 'justify-center px-3'
+            ? noAlto
+              ? 'justify-start py-3'
+              : 'justify-center py-3'
             : noAlto
-              ? 'justify-start pt-[env(safe-area-inset-top)]'
-              : 'justify-end'
+              ? 'justify-start pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]'
+              : 'justify-end pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]'
         }`}
       >
         <div
@@ -477,30 +487,20 @@ export function Janela({
           aria-label={titulo}
           onInput={marcarMexido}
           onChange={marcarMexido}
-          className={`surgir flex flex-col border-tinta-100 bg-papel shadow-2xl ${
-            teclado
-              ? 'max-h-full rounded-2xl border'
-              : noAlto
-                ? 'max-h-[92vh] rounded-b-2xl border-b'
-                : 'max-h-[92vh] rounded-t-2xl border-t'
+          className={`surgir flex flex-col rounded-2xl border border-tinta-100 bg-papel shadow-2xl ${
+            teclado ? 'max-h-full' : 'max-h-[88vh]'
           }`}
         >
-          <div
-            className={`faixa-titulo flex shrink-0 items-center justify-between gap-3 py-2 pl-4 pr-2 ${
-              noAlto && !teclado ? '' : 'rounded-t-2xl'
-            }`}
-          >
+          <div className="faixa-titulo flex shrink-0 items-center justify-between gap-3 rounded-t-2xl py-2 pl-4 pr-2">
             <h2 className="titulo-bloco min-w-0 truncate">{titulo}</h2>
             <BotaoFechar onFechar={onFechar} />
           </div>
-          {/* A folga de baixo respeita a faixa do gesto do sistema: sem ela o
-              último botão do formulário fica debaixo da barrinha do iPhone. */}
           {/* `overflow-x-clip`: a janela não anda para o lado, como a página
               (ver o `overflow-x: clip` do body). O que é largo de verdade — uma
               tabela — rola dentro da própria moldura. */}
           <div
             ref={miolo}
-            className="rolagem-fina min-h-0 flex-1 overflow-y-auto overflow-x-clip px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]"
+            className="rolagem-fina min-h-0 flex-1 overflow-y-auto overflow-x-clip px-4 py-4"
           >
             {children}
           </div>
@@ -511,7 +511,7 @@ export function Janela({
   }
 
   return createPortal(
-    <div className="rolagem-fina fixed inset-0 z-50 flex justify-center overflow-y-auto overflow-x-clip bg-barra/70 p-4 backdrop-blur-sm">
+    <div className="rolagem-fina fixed inset-0 z-50 flex justify-center overflow-y-auto overflow-x-clip bg-black/80 p-4 backdrop-blur-sm">
       <div
         role="dialog"
         aria-modal="true"

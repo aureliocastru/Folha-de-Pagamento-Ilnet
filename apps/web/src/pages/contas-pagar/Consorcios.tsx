@@ -1249,7 +1249,8 @@ export function CadastroDoConsorcio({
                 value={termo}
                 onChange={(e) => setTermo(e.target.value)}
                 className="campo"
-                placeholder="Nome, nome fantasia ou CPF/CNPJ"
+                type="search"
+                placeholder="Razão social, fantasia ou CPF/CNPJ"
                 autoComplete="off"
                 autoFocus
               />

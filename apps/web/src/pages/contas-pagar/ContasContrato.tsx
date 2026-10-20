@@ -1571,7 +1571,8 @@ function CadastroDoEndereco({
                 value={termo}
                 onChange={(e) => setTermo(e.target.value)}
                 className="campo"
-                placeholder="Nome, razão social ou CNPJ da distribuidora"
+                type="search"
+                placeholder="Razão social ou CNPJ da distribuidora"
                 autoComplete="off"
               />
               {fornecedores.isLoading && (

@@ -1347,7 +1347,8 @@ export function NovaDespesa({
                   id="fornecedor"
                   value={termo}
                   onChange={(e) => setTermo(e.target.value)}
-                  placeholder="Nome, nome fantasia ou CPF/CNPJ"
+                  type="search"
+                  placeholder="Razão social, fantasia ou CPF/CNPJ"
                   className="campo"
                   autoComplete="off"
                   autoFocus

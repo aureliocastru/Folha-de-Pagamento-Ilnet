@@ -2537,7 +2537,8 @@ function AcertarConta({
                       value={termo}
                       onChange={(e) => setTermo(e.target.value)}
                       className="campo"
-                      placeholder="nome, nome fantasia ou CPF/CNPJ"
+                      type="search"
+                      placeholder="Razão social, fantasia ou CPF/CNPJ"
                       autoComplete="off"
                     />
                     {fornecedores.isFetching && (

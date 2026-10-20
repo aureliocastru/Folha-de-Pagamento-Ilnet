@@ -1307,7 +1307,8 @@ function CadastroDoCartao({
                 value={termo}
                 onChange={(e) => setTermo(e.target.value)}
                 className="campo"
-                placeholder="Nome, razão social ou CNPJ do banco"
+                type="search"
+                placeholder="Razão social ou CNPJ do banco"
                 autoComplete="off"
               />
               {fornecedores.isLoading && (

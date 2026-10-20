@@ -184,7 +184,7 @@ function GavetaDoModulo({
     <div className="fixed inset-0 z-40 flex">
       {/* Tocar fora fecha, ao contrário da `Janela`: não há trabalho nenhum
           guardado numa lista de links. */}
-      <div onClick={onFechar} aria-hidden className="absolute inset-0 bg-barra/60 backdrop-blur-sm" />
+      <div onClick={onFechar} aria-hidden className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
 
       <div className="gaveta-entra rolagem-fina relative flex w-[86%] max-w-[320px] flex-col overflow-y-auto overflow-x-clip border-r border-white/10 bg-barra pb-[env(safe-area-inset-bottom)] shadow-2xl">
         <div className="flex items-start justify-between gap-2 px-4 pb-4 pt-5">
