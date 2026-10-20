@@ -15,6 +15,7 @@ import {
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { useTermoAdiado } from '../../lib/busca';
+import { lerBoleto, lerPix } from '../../lib/codigo-de-pagamento';
 import { formatBRL, numeroDigitado, soFracao } from '../../lib/format';
 import { CampoDeData } from '../../components/CampoDeData';
 import {
@@ -291,6 +292,10 @@ export function NovaDespesa({
   const [contaPagamento, setContaPagamento] = useState(o?.contaPagamento ?? '');
   /** Qual leitor está aberto: o do boleto, o do QR do PIX, ou nenhum. */
   const [lendo, setLendo] = useState<'boleto' | 'pix' | null>(null);
+  /** O "Ler código" do alto foi tocado: falta dizer se é QR ou código de barras. */
+  const [escolhendoLeitura, setEscolhendoLeitura] = useState(false);
+  /** O que o último código lido preencheu, dito embaixo do botão. */
+  const [lidoDoCodigo, setLidoDoCodigo] = useState<string | null>(null);
 
   /**
    * Esta conta já foi paga antes de existir no IXC — o boleto saiu pelo
@@ -927,6 +932,44 @@ export function NovaDespesa({
   // na lista para pagar de novo.
   const quitou = !!lancada?.baixa && lancada.baixa.pagas === lancada.baixa.tentadas;
 
+  /**
+   * O código lido pela câmera preenche o que ele sabe: a forma de pagar, o
+   * próprio código e, de dentro dele, o valor e o vencimento do boleto, ou o
+   * valor e o nome de quem recebe o Pix — que vai para a busca do fornecedor.
+   * O valor fica de fora quando a conta é a soma de várias notas.
+   */
+  function usarCodigoLido(alvo: 'boleto' | 'pix', codigo: string) {
+    const pegaValor = !dividida;
+    if (alvo === 'boleto') {
+      setTipoPagamento('Boleto');
+      setCodigoBarras(codigo);
+      const b = lerBoleto(codigo);
+      if (b?.valor && pegaValor) setValor(b.valor.toFixed(2));
+      if (b?.vencimento) setVencimento(b.vencimento);
+      setLidoDoCodigo(
+        [
+          'Boleto lido',
+          b?.valor ? formatBRL(b.valor) : null,
+          b?.vencimento ? `vence ${formatarDia(b.vencimento)}` : null,
+        ]
+          .filter(Boolean)
+          .join(' · '),
+      );
+      return;
+    }
+    setTipoPagamento('Pix');
+    setChavePix(codigo);
+    setTipoChavePix('Código copia e cola');
+    const p = lerPix(codigo);
+    if (p?.valor && pegaValor) setValor(p.valor.toFixed(2));
+    if (p?.nome && !fornecedor) setTermo(p.nome);
+    setLidoDoCodigo(
+      ['Pix lido', p?.valor ? formatBRL(p.valor) : null, p?.nome ? `para ${p.nome}` : null]
+        .filter(Boolean)
+        .join(' · '),
+    );
+  }
+
   /*
    * No celular, uma pergunta por vez — e a revisão no fim.
    *
@@ -1151,6 +1194,60 @@ export function NovaDespesa({
       larga
     >
       {a.cabecalho}
+
+      {/*
+        O atalho do pagamento: ler o código antes de tudo. O boleto e o QR do
+        Pix já trazem o valor (e o boleto, o vencimento) — lido o código, sobra
+        escolher o fornecedor e dizer o que é a conta.
+      */}
+      {!edicao && a.mostrar(0) && leitorDeCodigoSuportado() && (
+        <div className="mb-3">
+          {escolhendoLeitura ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setEscolhendoLeitura(false);
+                  setLendo('pix');
+                }}
+                className="btn btn-primario"
+              >
+                QR Code (Pix)
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEscolhendoLeitura(false);
+                  setLendo('boleto');
+                }}
+                className="btn btn-primario"
+              >
+                Código de barras (boleto)
+              </button>
+              <button
+                type="button"
+                onClick={() => setEscolhendoLeitura(false)}
+                className="btn btn-neutro"
+              >
+                Cancelar
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setEscolhendoLeitura(true)}
+              className="btn btn-ferramenta w-full sm:w-auto"
+            >
+              Ler código
+            </button>
+          )}
+          {lidoDoCodigo && (
+            <p className="ajuda font-semibold text-emerald-700 dark:text-emerald-300">
+              {lidoDoCodigo}
+            </p>
+          )}
+        </div>
+      )}
 
       {editandoFornecedor && fornecedor && (
         <EditarFornecedor
@@ -2179,12 +2276,7 @@ export function NovaDespesa({
         <LeitorDeCodigo
           alvo={lendo}
           onLido={(codigo) => {
-            if (lendo === 'boleto') {
-              setCodigoBarras(codigo);
-            } else {
-              setChavePix(codigo);
-              setTipoChavePix('Código copia e cola');
-            }
+            usarCodigoLido(lendo, codigo);
             setLendo(null);
           }}
           onFechar={() => setLendo(null)}
