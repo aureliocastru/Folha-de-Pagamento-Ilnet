@@ -76,7 +76,9 @@ export class RecusaDoBanco extends HttpException {
     message: string,
     readonly statusDoBanco: number,
   ) {
-    super(message, statusDoBanco >= 500 ? HttpStatus.BAD_GATEWAY : HttpStatus.BAD_REQUEST);
+    // 503, e não 502: o proxy do servidor troca o corpo do 502 por uma página
+    // dele, e a frase do banco se perdia no caminho.
+    super(message, statusDoBanco >= 500 ? HttpStatus.SERVICE_UNAVAILABLE : HttpStatus.BAD_REQUEST);
   }
 }
 
@@ -168,14 +170,31 @@ export class ModobankClient {
 
   /** Lê o boleto no banco sem pagar: quem recebe e quanto ele cobra hoje. */
   async consultarBoleto(codigo: string): Promise<BoletoNoBanco> {
-    const r = await this.pedir<Record<string, unknown>>('post', '/billets/info', {
-      billetCode: codigo.replace(/\D/g, ''),
-    });
+    const digitos = codigo.replace(/\D/g, '');
+    let r: Record<string, unknown>;
+    /** O código que o banco aceitou: é ele que vai no pagamento, se a consulta não devolver outro. */
+    let usado = digitos;
+    try {
+      r = await this.pedir<Record<string, unknown>>('post', '/billets/info', { billetCode: digitos });
+    } catch (err) {
+      /*
+       * A guia de arrecadação (DARF, GPS, conta de consumo) tem a linha de 48
+       * números, com um dígito de conferência a cada 11. Se o banco não a
+       * aceitar assim, tenta o código de barras de 44, que é o mesmo sem os
+       * dígitos de conferência. O pagamento vai depois com o código que o
+       * banco devolveu na consulta (`digitableCode`).
+       */
+      const barras = barrasDaArrecadacao(digitos);
+      if (!barras || !(err instanceof RecusaDoBanco)) throw err;
+      this.logger.warn(`ModoBank recusou a linha de 48 (${err.message}); tentando o código de barras de 44.`);
+      r = await this.pedir<Record<string, unknown>>('post', '/billets/info', { billetCode: barras });
+      usado = barras;
+    }
     const numero = (v: unknown) => (typeof v === 'number' ? v : Number(v ?? NaN));
     const total = numero(r.totalUpdated);
     const original = numero(r.originalValue);
     return {
-      linhaDigitavel: String(r.digitableCode ?? '').replace(/\D/g, '') || codigo.replace(/\D/g, ''),
+      linhaDigitavel: String(r.digitableCode ?? '').replace(/\D/g, '') || usado,
       favorecido: texto(r.recipient),
       documentoDoFavorecido: texto(r.documentRecipient),
       vencimento: data(r.payDueDate ?? r.dueDateRegister),
@@ -453,6 +472,16 @@ export class ModobankClient {
 }
 
 /**
+ * A linha de 48 de uma guia de arrecadação (começa com 8: DARF, GPS, conta de
+ * consumo) como código de barras de 44 — os quatro blocos de 11 sem o dígito
+ * de conferência de cada um. Null = não é linha de arrecadação.
+ */
+export function barrasDaArrecadacao(digitos: string): string | null {
+  if (digitos.length !== 48 || digitos[0] !== '8') return null;
+  return digitos.slice(0, 11) + digitos.slice(12, 23) + digitos.slice(24, 35) + digitos.slice(36, 47);
+}
+
+/**
  * O PDF do comprovante, de onde ele vier na resposta.
  *
  * O manual não diz a forma, e a primeira tentativa (`data.pdf`) não era ela.
@@ -565,6 +594,12 @@ export function lerSituacaoDoPix(d: Record<string, unknown>): SituacaoDoPagament
 
 /** O que o banco disse, no formato RFC 7807 que ele usa (`detail`, `title`). */
 export function mensagemDoBanco(r: Pick<AxiosResponse, 'status' | 'data'>): string {
+  // Às vezes o banco responde com uma página, e não com JSON: vale o título dela.
+  if (typeof r.data === 'string') {
+    const titulo = /<title>([^<]*)<\/title>/i.exec(r.data)?.[1]?.trim();
+    const frase = titulo || r.data.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+    return frase ? `HTTP ${r.status}: ${frase}` : `HTTP ${r.status}`;
+  }
   const d = (r.data ?? {}) as Record<string, unknown>;
   const partes = [texto(d.detail), texto(d.title), texto(d.message)].filter(Boolean);
   const tipo = texto(d.type);

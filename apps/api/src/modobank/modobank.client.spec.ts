@@ -1,4 +1,4 @@
-import { formaDaResposta, pdfDaResposta } from './modobank.client';
+import { barrasDaArrecadacao, formaDaResposta, mensagemDoBanco, pdfDaResposta } from './modobank.client';
 
 /**
  * O comprovante do banco: o manual não diz em que forma ele vem, e a primeira
@@ -35,5 +35,25 @@ describe('formaDaResposta', () => {
   it('as chaves e os tamanhos, sem o conteúdo', () => {
     const corpo = Buffer.from(JSON.stringify({ data: { url: 'https://x/y', itens: [1, 2] } }));
     expect(formaDaResposta(corpo)).toBe('{data:{url:texto(11),itens:[2 × number]}}');
+  });
+});
+
+describe('barrasDaArrecadacao', () => {
+  it('a linha de 48 do DARF vira o código de barras de 44, sem os dígitos de conferência', () => {
+    const blocos = ['85810000041', '58400328251', '02100000000', '00000000000'];
+    const linha = blocos.map((b) => `${b}9`).join('');
+    expect(barrasDaArrecadacao(linha)).toBe(blocos.join(''));
+  });
+
+  it('boleto bancário não é arrecadação', () => {
+    expect(barrasDaArrecadacao('23793381286000000000300000000400184340000010000')).toBeNull();
+  });
+});
+
+describe('mensagemDoBanco', () => {
+  it('a página que o banco manda no lugar do JSON vale pelo título', () => {
+    expect(mensagemDoBanco({ status: 500, data: '<html><head><title>Not Found</title></head></html>' })).toBe(
+      'HTTP 500: Not Found',
+    );
   });
 });
