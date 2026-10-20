@@ -87,7 +87,15 @@ export class ModobankClient {
 
   /** As quatro peças da credencial estão no ambiente. */
   get configurado(): boolean {
-    return !!(this.cfg.clientId && this.cfg.clientSecret && this.cfg.certificado);
+    return !!(this.cfg.clientId && this.cfg.clientSecret && this.cfg.certificado && this.cfg.url);
+  }
+
+  /**
+   * Abre a conversa com o banco — certificado, credencial e IP — sem pedir
+   * nada além do token. É a prova de que a credencial está de pé.
+   */
+  async conectar(): Promise<void> {
+    await this.tokenValido();
   }
 
   get fluxo(): ConfigModobank['fluxo'] {

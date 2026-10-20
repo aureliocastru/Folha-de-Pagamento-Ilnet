@@ -51,6 +51,16 @@ const envSchema = z.object({
   // = paga na hora. Começa pedindo aprovação.
   MODOBANK_FLUXO: z.enum(['APPROVAL_REQUIRED', 'INSTANT']).default('APPROVAL_REQUIRED'),
   MODOBANK_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
+
+  // O recebimento pelo ModoBank (cash in: cobrança Pix, QR Code). É outro
+  // certificado — o do zip CASH_IN — e outra URL, mostrada no portal junto da
+  // credencial de recebimento. ID e segredo em branco = os mesmos da conta.
+  // Sem certificado e URL, o recebimento fica desligado.
+  MODOBANK_RECEBER_CLIENT_ID: z.string().optional().default(''),
+  MODOBANK_RECEBER_CLIENT_SECRET: z.string().optional().default(''),
+  MODOBANK_RECEBER_CERTIFICADO: z.string().optional().default(''),
+  MODOBANK_RECEBER_CERTIFICADO_SENHA: z.string().optional().default(''),
+  MODOBANK_RECEBER_API_URL: z.string().optional().default(''),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;
@@ -95,6 +105,15 @@ export function configuration() {
       certificado: env.MODOBANK_CERTIFICADO,
       senhaDoCertificado: env.MODOBANK_CERTIFICADO_SENHA,
       url: env.MODOBANK_API_URL.replace(/\/+$/, ''),
+      fluxo: env.MODOBANK_FLUXO,
+      timeoutMs: env.MODOBANK_TIMEOUT_MS,
+    },
+    modobankReceber: {
+      clientId: (env.MODOBANK_RECEBER_CLIENT_ID || env.MODOBANK_CLIENT_ID).trim(),
+      clientSecret: (env.MODOBANK_RECEBER_CLIENT_SECRET || env.MODOBANK_CLIENT_SECRET).trim(),
+      certificado: env.MODOBANK_RECEBER_CERTIFICADO,
+      senhaDoCertificado: env.MODOBANK_RECEBER_CERTIFICADO_SENHA,
+      url: env.MODOBANK_RECEBER_API_URL.trim().replace(/\/+$/, ''),
       fluxo: env.MODOBANK_FLUXO,
       timeoutMs: env.MODOBANK_TIMEOUT_MS,
     },

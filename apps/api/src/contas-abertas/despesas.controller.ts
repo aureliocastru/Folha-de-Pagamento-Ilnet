@@ -190,6 +190,12 @@ export class DespesasController {
     return this.noBanco.situacao();
   }
 
+  /** Se a credencial do recebimento pelo ModoBank (cash in) está de pé. */
+  @Get('contas-abertas/banco/recebimento')
+  recebimentoDoBanco() {
+    return this.noBanco.situacaoDoRecebimento();
+  }
+
   /** Para quem vai e quanto sai, lido no banco antes de confirmar. */
   @Get('contas-abertas/:idFnApagar/banco/previa')
   previaNoBanco(@Param('idFnApagar', ParseIntPipe) idFnApagar: number) {

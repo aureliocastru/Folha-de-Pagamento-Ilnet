@@ -1,8 +1,10 @@
 import {
   BadRequestException,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import type { PagamentoNoBanco, SituacaoNoBanco } from '@prisma/client';
@@ -14,6 +16,7 @@ import {
   type PagamentoAceito,
   type SituacaoDoPagamento,
 } from '../modobank/modobank.client';
+import { MODOBANK_RECEBER } from '../modobank/modobank.module';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   comoPagar,
@@ -69,10 +72,26 @@ export class PagamentosNoBancoService {
     private readonly banco: ModobankClient,
     private readonly prisma: PrismaService,
     private readonly ixc: IxcClient,
+    /** O recebimento (cash in): por ora só se confere que a credencial abre. */
+    @Optional() @Inject(MODOBANK_RECEBER) private readonly receber?: ModobankClient,
   ) {}
 
   get ativo(): boolean {
     return this.banco.configurado;
+  }
+
+  /**
+   * Se a credencial do recebimento está no ambiente e o banco a aceita.
+   * Ainda não há tela que receba: é o "já está no jeito" para quando houver.
+   */
+  async situacaoDoRecebimento(): Promise<{ configurado: boolean; conectado: boolean; erro: string | null }> {
+    if (!this.receber?.configurado) return { configurado: false, conectado: false, erro: null };
+    try {
+      await this.receber.conectar();
+      return { configurado: true, conectado: true, erro: null };
+    } catch (err) {
+      return { configurado: true, conectado: false, erro: mensagem(err) };
+    }
   }
 
   /** Para a tela: se dá para pagar pelo banco, e o saldo de agora. */
