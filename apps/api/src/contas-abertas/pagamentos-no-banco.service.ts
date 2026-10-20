@@ -84,13 +84,22 @@ export class PagamentosNoBancoService {
    * Se a credencial do recebimento está no ambiente e o banco a aceita.
    * Ainda não há tela que receba: é o "já está no jeito" para quando houver.
    */
-  async situacaoDoRecebimento(): Promise<{ configurado: boolean; conectado: boolean; erro: string | null }> {
+  async situacaoDoRecebimento(): Promise<{
+    configurado: boolean;
+    conectado: boolean;
+    erro: string | null;
+    /** Só quando o token não sai: o que cada caminho comum de token respondeu. */
+    caminhos?: Array<{ caminho: string; status: number | string }>;
+  }> {
     if (!this.receber?.configurado) return { configurado: false, conectado: false, erro: null };
     try {
       await this.receber.conectar();
       return { configurado: true, conectado: true, erro: null };
     } catch (err) {
-      return { configurado: true, conectado: false, erro: mensagem(err) };
+      const erro = mensagem(err);
+      // Caminho errado: procura o certo, para não adivinhar de deploy em deploy.
+      const caminhos = /404/.test(erro) ? await this.receber.sondarToken() : undefined;
+      return { configurado: true, conectado: false, erro, caminhos };
     }
   }
 

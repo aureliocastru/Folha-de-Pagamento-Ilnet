@@ -98,6 +98,47 @@ export class ModobankClient {
     await this.tokenValido();
   }
 
+  /**
+   * Onde fica o token neste endereço: pede-o em cada caminho comum e diz o
+   * que cada um respondeu. 404 é caminho que não existe; qualquer outra
+   * resposta (200, 400, 401) é o caminho certo. Serve para achar o do
+   * recebimento, cuja documentação o banco não mandou. Só os status saem
+   * daqui — nunca o corpo, que pode trazer o token.
+   */
+  async sondarToken(): Promise<Array<{ caminho: string; status: number | string }>> {
+    const origem = new URL(this.cfg.url).origin;
+    const caminhos = [
+      '/oauth/token',
+      '/api/v2/oauth/token',
+      '/api/v1/oauth/token',
+      '/v2/oauth/token',
+      '/v1/oauth/token',
+      '/api/oauth/token',
+      '/oauth2/token',
+      '/token',
+      '/auth/token',
+      '/api/v2/token',
+      '/api/token',
+    ];
+    const corpo = new URLSearchParams({
+      grant_type: 'client_credentials',
+      client_id: this.cfg.clientId,
+      client_secret: this.cfg.clientSecret,
+    }).toString();
+    const achados: Array<{ caminho: string; status: number | string }> = [];
+    for (const caminho of caminhos) {
+      try {
+        const r = await this.cliente().post(`${origem}${caminho}`, corpo, {
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        });
+        achados.push({ caminho, status: r.status });
+      } catch (err) {
+        achados.push({ caminho, status: err instanceof Error ? err.message.slice(0, 80) : 'erro' });
+      }
+    }
+    return achados;
+  }
+
   get fluxo(): ConfigModobank['fluxo'] {
     return this.cfg.fluxo;
   }
