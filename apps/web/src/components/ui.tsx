@@ -343,10 +343,18 @@ export function Janela({
   children,
   larga = false,
   media = false,
+  noAlto = false,
 }: {
   titulo: string;
   onFechar: () => void;
   children: ReactNode;
+  /**
+   * No celular, a folha pendurada no alto da tela em vez de subir do pé. É a
+   * do "Lançar conta": o leitor da câmera e o que se preenche ficam onde os
+   * olhos estão, e não lá embaixo (pedido do dono, 20/10/2026). Com o teclado
+   * aberto nada muda: ela já se prende ao pedaço visível.
+   */
+  noAlto?: boolean;
   /**
    * Mais larga no computador, para um formulário em duas colunas caber na
    * tela sem rolar. No celular não muda nada: lá ela é a folha de sempre.
@@ -456,7 +464,11 @@ export function Janela({
             : undefined
         }
         className={`fixed inset-0 z-50 flex flex-col bg-barra/70 backdrop-blur-sm ${
-          teclado ? 'justify-center px-3' : 'justify-end'
+          teclado
+            ? 'justify-center px-3'
+            : noAlto
+              ? 'justify-start pt-[env(safe-area-inset-top)]'
+              : 'justify-end'
         }`}
       >
         <div
@@ -466,10 +478,18 @@ export function Janela({
           onInput={marcarMexido}
           onChange={marcarMexido}
           className={`surgir flex flex-col border-tinta-100 bg-papel shadow-2xl ${
-            teclado ? 'max-h-full rounded-2xl border' : 'max-h-[92vh] rounded-t-2xl border-t'
+            teclado
+              ? 'max-h-full rounded-2xl border'
+              : noAlto
+                ? 'max-h-[92vh] rounded-b-2xl border-b'
+                : 'max-h-[92vh] rounded-t-2xl border-t'
           }`}
         >
-          <div className="faixa-titulo flex shrink-0 items-center justify-between gap-3 rounded-t-2xl py-2 pl-4 pr-2">
+          <div
+            className={`faixa-titulo flex shrink-0 items-center justify-between gap-3 py-2 pl-4 pr-2 ${
+              noAlto && !teclado ? '' : 'rounded-t-2xl'
+            }`}
+          >
             <h2 className="titulo-bloco min-w-0 truncate">{titulo}</h2>
             <BotaoFechar onFechar={onFechar} />
           </div>

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 /**
  * Lê o código de barras do boleto ou o QR Code do PIX pela câmera.
@@ -229,8 +230,14 @@ export function LeitorDeCodigo({
 
   const modo = ALVOS[alvo];
 
-  return (
-    <div className="fixed inset-0 z-[60] flex flex-col bg-barra/95 p-4">
+  /*
+   * Pendurado no `body`, e não onde foi escrito: aberto de dentro da folha do
+   * "Lançar conta", o `fixed` media pela folha (a animação dela deixa um
+   * `transform`) e a câmera aparecia só na metade de baixo da tela. Assim ela
+   * ocupa a tela toda, a partir do alto, abaixo da barra do iPhone.
+   */
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex flex-col bg-barra/95 p-4 pt-[max(1rem,env(safe-area-inset-top))]">
       <div className="flex items-center justify-between gap-3 pb-3">
         <span className="text-sm font-semibold text-white">{modo.titulo}</span>
         <button
@@ -269,6 +276,7 @@ export function LeitorDeCodigo({
       <p className="pt-3 text-center text-xs text-white/60">
         {erro ? '' : preparando ? 'Abrindo a câmera…' : lendo ? modo.ajuda : 'Código lido.'}
       </p>
-    </div>
+    </div>,
+    document.body,
   );
 }

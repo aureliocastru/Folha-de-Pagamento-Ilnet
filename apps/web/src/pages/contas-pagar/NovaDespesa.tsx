@@ -1091,7 +1091,7 @@ export function NovaDespesa({
 
   if (dividindo) {
     return (
-      <Janela titulo="Várias notas, um pagamento" onFechar={() => setDividindo(false)} larga>
+      <Janela titulo="Várias notas, um pagamento" onFechar={() => setDividindo(false)} larga noAlto>
         <TelaDasNotas
           notas={divisao}
           onMudar={setDivisao}
@@ -1122,6 +1122,7 @@ export function NovaDespesa({
       <Janela
         titulo={quitou ? 'Conta lançada e paga' : 'Conta lançada'}
         onFechar={onFechar}
+        noAlto
       >
         <div className="text-center">
           <p className="font-display text-lg font-semibold text-tinta-900">
@@ -1192,6 +1193,7 @@ export function NovaDespesa({
       titulo={edicao ? 'Editar conta a pagar' : 'Lançar conta a pagar'}
       onFechar={onFechar}
       larga
+      noAlto
     >
       {a.cabecalho}
 
