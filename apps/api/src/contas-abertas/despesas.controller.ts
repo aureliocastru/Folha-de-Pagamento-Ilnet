@@ -19,6 +19,7 @@ import { FornecedorService } from '../financeiro/fornecedor.service';
 import { DespesasService } from './despesas.service';
 import {
   AnexarNotaDto,
+  LerQrDto,
   CriarDespesaDto,
   EditarTituloDto,
   ExcluirLoteDto,
@@ -188,6 +189,13 @@ export class DespesasController {
   @Get('contas-abertas/banco/situacao')
   situacaoDoBanco() {
     return this.noBanco.situacao();
+  }
+
+  /** O valor e quem recebe de um QR Pix, perguntados ao banco — sem pagar. */
+  @Post('contas-abertas/banco/ler-qr')
+  @HttpCode(200)
+  lerQrNoBanco(@Body() dto: LerQrDto) {
+    return this.noBanco.lerQr(dto.codigo);
   }
 
   /** Se a credencial do recebimento pelo ModoBank (cash in) está de pé. */

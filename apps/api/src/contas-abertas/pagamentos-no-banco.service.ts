@@ -82,6 +82,18 @@ export class PagamentosNoBancoService {
   }
 
   /**
+   * O valor e quem recebe de um QR Pix, lidos no banco.
+   *
+   * O QR das guias é dinâmico: o valor não vem escrito no código, fica no
+   * servidor de quem cobra, e só o banco o busca. É o que faz o "Ler código"
+   * pôr o valor da guia na conta. Não paga nada.
+   */
+  async lerQr(codigo: string): Promise<{ valor: number | null; favorecido: string | null }> {
+    this.exigirAtivo();
+    return this.banco.lerCopiaECola(codigo, novaChave(0));
+  }
+
+  /**
    * Se a credencial do recebimento está no ambiente e o banco a aceita.
    * Ainda não há tela que receba: é o "já está no jeito" para quando houver.
    */

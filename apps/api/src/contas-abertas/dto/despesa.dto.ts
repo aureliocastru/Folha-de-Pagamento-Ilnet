@@ -425,6 +425,11 @@ export class NumeroNotaFiscalDto {
   @IsOptional() @IsString() @MaxLength(60) numero?: string | null;
 }
 
+/** O "copia e cola" de um QR Pix, para o banco dizer o valor e quem recebe. */
+export class LerQrDto {
+  @IsString() @Matches(/^000201/, { message: 'Isto não é um QR Code Pix.' }) @MaxLength(600) codigo!: string;
+}
+
 export class AnexarNotaDto {
   @IsString({ message: 'Escolha ou cole a nota.' })
   @Matches(/^data:[-\w.+]+\/[-\w.+]+;base64,/, {

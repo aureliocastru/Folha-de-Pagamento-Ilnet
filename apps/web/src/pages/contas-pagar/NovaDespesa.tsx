@@ -961,13 +961,33 @@ export function NovaDespesa({
     setChavePix(codigo);
     setTipoChavePix('Código copia e cola');
     const p = lerPix(codigo);
-    if (p?.valor && pegaValor) setValor(p.valor.toFixed(2));
+    const dizer = (valorLido: number | null, nome: string | null, resto?: string) =>
+      setLidoDoCodigo(
+        ['Pix lido', valorLido ? formatBRL(valorLido) : null, nome ? `para ${nome}` : null, resto]
+          .filter(Boolean)
+          .join(' · '),
+      );
     if (p?.nome && !fornecedor) setTermo(p.nome);
-    setLidoDoCodigo(
-      ['Pix lido', p?.valor ? formatBRL(p.valor) : null, p?.nome ? `para ${p.nome}` : null]
-        .filter(Boolean)
-        .join(' · '),
-    );
+    if (p?.valor) {
+      if (pegaValor) setValor(p.valor.toFixed(2));
+      dizer(p.valor, p.nome);
+      return;
+    }
+    /*
+     * O QR das guias (DAS, DARF, DARE) é dinâmico: o valor não vem no código,
+     * fica no servidor de quem cobra. Quem o busca é o banco.
+     */
+    dizer(null, p?.nome ?? null, 'procurando o valor no banco…');
+    void api
+      .post<{ valor: number | null; favorecido: string | null }>('/contas-abertas/banco/ler-qr', {
+        codigo,
+      })
+      .then(({ data }) => {
+        if (data.valor && pegaValor) setValor(data.valor.toFixed(2));
+        if (data.favorecido && !fornecedor && !p?.nome) setTermo(data.favorecido);
+        dizer(data.valor, data.favorecido ?? p?.nome ?? null, data.valor ? undefined : 'sem valor no QR');
+      })
+      .catch(() => dizer(null, p?.nome ?? null, 'o banco não disse o valor — confira'));
   }
 
   /*
@@ -1200,9 +1220,10 @@ export function NovaDespesa({
       {/*
         O atalho do pagamento: ler o código antes de tudo. O boleto e o QR do
         Pix já trazem o valor (e o boleto, o vencimento) — lido o código, sobra
-        escolher o fornecedor e dizer o que é a conta.
+        escolher o fornecedor e dizer o que é a conta. Na edição também, junto
+        da conta: ler o QR da guia troca o valor pelo dela.
       */}
-      {!edicao && a.mostrar(0) && leitorDeCodigoSuportado() && (
+      {(edicao || a.mostrar(0)) && leitorDeCodigoSuportado() && (
         <div className="mb-3">
           {escolhendoLeitura ? (
             <div className="flex flex-wrap items-center gap-2">
