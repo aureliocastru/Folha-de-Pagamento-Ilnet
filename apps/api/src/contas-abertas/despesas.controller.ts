@@ -19,7 +19,6 @@ import { FornecedorService } from '../financeiro/fornecedor.service';
 import { DespesasService } from './despesas.service';
 import {
   AnexarNotaDto,
-  CadastrarFornecedorIxcDto,
   LerQrDto,
   CriarDespesaDto,
   EditarTituloDto,
@@ -271,13 +270,6 @@ export class DespesasController {
   @Get('fornecedores-ixc/:id')
   buscarFornecedorPorId(@Param('id', ParseIntPipe) id: number) {
     return this.fornecedores.buscarNoIxcPorId(id);
-  }
-
-  /** Cadastra no IXC o fornecedor que a busca não achou. */
-  @Post('fornecedores-ixc')
-  @HttpCode(201)
-  cadastrarFornecedor(@Body() dto: CadastrarFornecedorIxcDto) {
-    return this.fornecedores.cadastrarNoIxc(dto);
   }
 
   /** Cria a conta a pagar no IXC e a etiqueta com a categoria escolhida. */

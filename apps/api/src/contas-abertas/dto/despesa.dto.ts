@@ -425,26 +425,6 @@ export class NumeroNotaFiscalDto {
   @IsOptional() @IsString() @MaxLength(60) numero?: string | null;
 }
 
-/** O fornecedor novo, cadastrado no IXC pelo "+" do "Lançar conta". */
-export class CadastrarFornecedorIxcDto {
-  @IsString({ message: 'Escreva o nome do fornecedor.' })
-  @MinLength(2, { message: 'O nome do fornecedor é curto demais.' })
-  @MaxLength(120)
-  nome!: string;
-
-  /** Só CPF (11 dígitos) ou CNPJ (14), com ou sem pontuação. */
-  @IsOptional()
-  @IsString()
-  @Matches(/^(\D*\d\D*){11}$|^(\D*\d\D*){14}$|^\s*$/, {
-    message: 'O CPF tem 11 números e o CNPJ, 14.',
-  })
-  cpfCnpj?: string;
-
-  @IsOptional() @IsString() @MaxLength(120) nomeFantasia?: string;
-  @IsOptional() @IsString() @MaxLength(40) telefone?: string;
-  @IsOptional() @IsString() @MaxLength(160) email?: string;
-}
-
 /** O "copia e cola" de um QR Pix, para o banco dizer o valor e quem recebe. */
 export class LerQrDto {
   @IsString() @Matches(/^000201/, { message: 'Isto não é um QR Code Pix.' }) @MaxLength(600) codigo!: string;

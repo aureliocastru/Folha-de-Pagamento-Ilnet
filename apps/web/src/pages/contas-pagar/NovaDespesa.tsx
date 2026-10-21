@@ -26,7 +26,7 @@ import {
 } from '../../components/CampoDaNota';
 import { EditarFornecedor } from '../../components/EditarFornecedor';
 import { IconeLapis, IconeMais } from '../../components/icones';
-import { NovoFornecedorIxc } from '../../components/NovoFornecedorIxc';
+import { CadastroDeFornecedor } from '../../components/CadastroDeFornecedor';
 import {
   TIPOS_CHAVE_PIX,
   type CategoriaDespesa,
@@ -346,6 +346,8 @@ export function NovaDespesa({
   const [editandoFornecedor, setEditandoFornecedor] = useState(false);
   /** O "+" do campo: cadastrar no IXC quem a busca não achou. */
   const [cadastrandoFornecedor, setCadastrandoFornecedor] = useState(false);
+  /** O que o IXC disse ao cadastrar, quando não correu tudo bem. */
+  const [avisoDoCadastro, setAvisoDoCadastro] = useState<string | null>(null);
   const dividida = divisao.length > 0;
   const somaDasNotas = somarNotas(divisao);
   const [avisoDaNota, setAvisoDaNota] = useState<string | null>(null);
@@ -1284,15 +1286,30 @@ export function NovaDespesa({
         />
       )}
 
+      {/* O mesmo cadastro da tela de Fornecedores, por cima da conta. */}
       {cadastrandoFornecedor && (
-        <NovoFornecedorIxc
-          digitado={termo}
+        <Janela
+          titulo="Novo fornecedor"
           onFechar={() => setCadastrandoFornecedor(false)}
-          onPronto={(f) => {
-            setCadastrandoFornecedor(false);
-            setFornecedor(f);
-          }}
-        />
+        >
+          <CadastroDeFornecedor
+            digitado={termo}
+            onCancelar={() => setCadastrandoFornecedor(false)}
+            onSalvo={({ beneficiario: b, avisoIxc }) => {
+              setCadastrandoFornecedor(false);
+              setAvisoDoCadastro(avisoIxc);
+              void queryClient.invalidateQueries({ queryKey: ['avulsos'] });
+              if (b.idFornecedorIxc) {
+                setFornecedor({
+                  idFornecedor: b.idFornecedorIxc,
+                  nome: b.nome,
+                  nomeFantasia: null,
+                  cpfCnpj: b.cpfCnpj,
+                });
+              }
+            }}
+          />
+        </Janela>
       )}
 
       {/*
@@ -1448,6 +1465,9 @@ export function NovaDespesa({
                   </div>
                 )}
               </>
+            )}
+            {avisoDoCadastro && (
+              <p className="ajuda text-amber-700">{avisoDoCadastro}</p>
             )}
           </div>
           )}
