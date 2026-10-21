@@ -183,8 +183,12 @@ export class ModobankClient {
        * aceitar assim, tenta o código de barras de 44, que é o mesmo sem os
        * dígitos de conferência. O pagamento vai depois com o código que o
        * banco devolveu na consulta (`digitableCode`).
+       *
+       * O boleto bancário (linha de 47) tem o mesmo par: a consulta pela
+       * linha voltou "onz-0004" em todo boleto (21/10/2026), e o código de
+       * barras de 44 é a outra forma que a API diz aceitar.
        */
-      const barras = barrasDaArrecadacao(digitos);
+      const barras = barrasDaArrecadacao(digitos) ?? barrasDoBoleto(digitos);
       if (!barras || !(err instanceof RecusaDoBanco)) throw err;
       this.logger.warn(`ModoBank recusou a linha de 48 (${err.message}); tentando o código de barras de 44.`);
       r = await this.pedir<Record<string, unknown>>('post', '/billets/info', { billetCode: barras });
@@ -478,6 +482,23 @@ export class ModobankClient {
  */
 export function chaveNoCaminho(chave: string): string {
   return encodeURIComponent(chave).replace(/%2B/gi, '+').replace(/%40/g, '@');
+}
+
+/**
+ * A linha digitável de 47 de um boleto bancário como o código de barras de 44:
+ * banco e moeda, o dígito geral, vencimento e valor, e depois o campo livre
+ * sem os dígitos de conferência de cada campo. Null = não é linha de boleto.
+ */
+export function barrasDoBoleto(digitos: string): string | null {
+  if (digitos.length !== 47) return null;
+  return (
+    digitos.slice(0, 4) +
+    digitos[32] +
+    digitos.slice(33, 47) +
+    digitos.slice(4, 9) +
+    digitos.slice(10, 20) +
+    digitos.slice(21, 31)
+  );
 }
 
 /**

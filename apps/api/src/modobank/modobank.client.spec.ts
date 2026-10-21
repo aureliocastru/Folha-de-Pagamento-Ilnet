@@ -1,5 +1,6 @@
 import {
   barrasDaArrecadacao,
+  barrasDoBoleto,
   chaveNoCaminho,
   formaDaResposta,
   mensagemDoBanco,
@@ -53,6 +54,18 @@ describe('barrasDaArrecadacao', () => {
 
   it('boleto bancário não é arrecadação', () => {
     expect(barrasDaArrecadacao('23793381286000000000300000000400184340000010000')).toBeNull();
+  });
+});
+
+describe('barrasDoBoleto', () => {
+  it('a linha de 47 vira o código de barras de 44', () => {
+    expect(barrasDoBoleto('23793381286000000000300000000400184340000010000')).toBe(
+      '23791843400000100003381260000000000000000040',
+    );
+  });
+
+  it('o que não tem 47 números não é linha de boleto', () => {
+    expect(barrasDoBoleto('23791843400000100003381260000000000000000040')).toBeNull();
   });
 });
 
