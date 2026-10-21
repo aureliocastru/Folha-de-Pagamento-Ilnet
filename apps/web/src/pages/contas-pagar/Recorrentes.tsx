@@ -10,6 +10,7 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { combina } from '../../lib/busca';
 import { formatBRL, formatData } from '../../lib/format';
 import {
   CadastroDoConsorcio,
@@ -82,6 +83,8 @@ export function Recorrentes() {
   const [aba, setAba] = useState<'mensais' | 'consorcios' | 'financiamentos'>(
     'mensais',
   );
+  /** A busca vale para as três abas: trocar de aba não apaga o que se digitou. */
+  const [busca, setBusca] = useState('');
   /**
    * O cadastro aberto: `base` nula é um cadastro novo, e `modo` diz se o que
    * se está cadastrando tem veículo no nome.
@@ -263,6 +266,22 @@ export function Recorrentes() {
   const financiamentosAtivos = financiamentos.filter((i) => i.recorrente.ativa);
   const financiamentosPorMes = somaPorMes(financiamentos);
 
+  /** Pelo fornecedor, pela descrição ou pelo valor ("900" acha R$ 900,00). */
+  function achados(lista: RecorrenteComResumo[]): RecorrenteComResumo[] {
+    if (!busca.trim()) return lista;
+    return lista.filter(({ recorrente: r }) =>
+      combina(
+        [r.fornecedorNome, r.observacao, formatBRL(Number(r.valor)), r.valor],
+        busca,
+      ),
+    );
+  }
+  const nadaComABusca = {
+    titulo: 'Nada com essa busca',
+    texto: `Nenhum com "${busca.trim()}" no fornecedor, na descrição ou no valor.`,
+  };
+  const itensAchados = achados(itens);
+
   return (
     <Pagina>
       <CabecalhoPagina
@@ -433,6 +452,18 @@ export function Recorrentes() {
         ))}
       </div>
 
+      {todos.length > 0 && (
+        <input
+          type="search"
+          className="campo mb-3 max-w-xs"
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          placeholder="Procurar pelo fornecedor, descrição ou valor"
+          aria-label="Procurar despesa"
+          autoComplete="off"
+        />
+      )}
+
       {aviso && (
         <Aviso
           tom={erro ? 'erro' : 'pago'}
@@ -463,7 +494,8 @@ export function Recorrentes() {
               <Carregando />
             ) : (
               <ListaDeConsorcios
-                itens={consorcios}
+                itens={achados(consorcios)}
+                vazio={consorcios.length > 0 ? nadaComABusca : undefined}
                 onEditar={(r) => setCadastro({ base: r, modo: 'consorcio' })}
                 onAntecipar={(r) => setAntecipando(r.id)}
                 onAbrir={(r) => setHistorico(r.id)}
@@ -497,12 +529,16 @@ export function Recorrentes() {
               <Carregando />
             ) : (
               <ListaDeConsorcios
-                itens={financiamentos}
-                vazio={{
-                  titulo: 'Nenhum financiamento cadastrado',
-                  texto:
-                    'Cadastre em "Novo financiamento": o banco, o que está sendo pago e em que parcela está. A conta de cada mês passa a nascer sozinha no IXC.',
-                }}
+                itens={achados(financiamentos)}
+                vazio={
+                  financiamentos.length > 0
+                    ? nadaComABusca
+                    : {
+                        titulo: 'Nenhum financiamento cadastrado',
+                        texto:
+                          'Cadastre em "Novo financiamento": o banco, o que está sendo pago e em que parcela está. A conta de cada mês passa a nascer sozinha no IXC.',
+                      }
+                }
                 onEditar={(r) => setCadastro({ base: r, modo: 'financiamento' })}
                 onAntecipar={(r) => setAntecipando(r.id)}
                 onAbrir={(r) => setHistorico(r.id)}
@@ -538,6 +574,8 @@ export function Recorrentes() {
             Ao lançar uma conta, marque "Repetir todo mês" — a partir do mês
             seguinte ela nasce sozinha aqui.
           </Vazio>
+        ) : itensAchados.length === 0 ? (
+          <Vazio titulo={nadaComABusca.titulo}>{nadaComABusca.texto}</Vazio>
         ) : (
           <div className="overflow-x-auto rolagem-fina">
             {/*
@@ -571,7 +609,7 @@ export function Recorrentes() {
                 </tr>
               </thead>
               <tbody>
-                {itens.map(({ recorrente: r, geradas, diasParaGerar }) => {
+                {itensAchados.map(({ recorrente: r, geradas, diasParaGerar }) => {
                   return (
                     <tr
                       key={r.id}
