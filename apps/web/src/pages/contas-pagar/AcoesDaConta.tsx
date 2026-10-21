@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import axios from 'axios';
 import { useState } from 'react';
 import { Aviso, CampoDinheiro, Carregando, Janela, Selo } from '../../components/ui';
@@ -252,20 +257,51 @@ export function PagarEmMaos({
   const bancoLigado = !!banco.data?.ativo;
   /** Pelo ModoBank, com a API ligada: o pagamento vai direto ao banco. */
   const peloBanco = soAprova && bancoLigado;
-  /** Uma conta só: o banco diz antes para quem vai e quanto sai. */
-  const previa = useQuery({
-    queryKey: ['banco-previa', contas[0]?.idFnApagar],
-    queryFn: async () =>
-      (
-        await api.get<PreviaNoBanco>(
-          `/contas-abertas/${contas[0].idFnApagar}/banco/previa`,
-        )
-      ).data,
-    enabled: peloBanco && contas.length === 1,
-    retry: 0,
-    gcTime: 0,
-    refetchOnWindowFocus: false,
+  /**
+   * Este título vai direto ao banco: sai pelo ModoBank (o escolhido, ou o do
+   * título quando nada foi escolhido), com a API ligada e sem "já saiu".
+   */
+  const vaiAoBanco = (c: ContaAberta) =>
+    bancoLigado &&
+    !jaSaiu &&
+    !!contaDoBanco &&
+    (contaEscolhida ? Number(contaEscolhida) : contaDe(c)) === contaDoBanco;
+  /**
+   * Para cada título que vai ao banco, o banco diz antes para quem vai e
+   * quanto sai — o dono da chave Pix, o beneficiário do boleto. É a
+   * conferência de que a chave é a certa, conta por conta, antes de pagar o
+   * lote inteiro.
+   */
+  const previas = useQueries({
+    queries: contas.map((c) => ({
+      queryKey: ['banco-previa', c.idFnApagar],
+      queryFn: async () =>
+        (
+          await api.get<PreviaNoBanco>(
+            `/contas-abertas/${c.idFnApagar}/banco/previa`,
+          )
+        ).data,
+      enabled: vaiAoBanco(c),
+      retry: 0,
+      gcTime: 0,
+      refetchOnWindowFocus: false,
+    })),
   });
+  const previa = previas[0];
+  const previaDe = (c: ContaAberta) => previas[contas.indexOf(c)];
+  /** O banco já disse que não paga estas: ficam de fora do lote. */
+  const recusadas = contas.filter((c) => vaiAoBanco(c) && previaDe(c)?.isError);
+  /** As que vão de fato: todas, menos as que o banco recusou. */
+  const aMandar = contas.filter((c) => !recusadas.includes(c));
+  const consultandoBanco = contas.some(
+    (c) => vaiAoBanco(c) && previaDe(c)?.isLoading,
+  );
+  /** Com algum título indo ao banco, a lista diz para quem vai cada um. */
+  const mostrarBancoNaLista =
+    contas.length > 1 && contas.some((c) => vaiAoBanco(c));
+  /** No lote, o que o banco disse que sai — ou o título, se não vai a ele. */
+  const valorNoBanco = (c: ContaAberta) =>
+    vaiAoBanco(c) ? (previaDe(c)?.data?.valor ?? c.valorAberto) : c.valorAberto;
 
   const total = contas.reduce((s, c) => s + c.valorAberto, 0);
 
@@ -306,10 +342,22 @@ export function PagarEmMaos({
       ? descontoQueCabe(total, descontoNumero)
       : null;
   const descontoNaoCabe = !!cabimento && !cabimento.cabe;
-  /** No boleto, o que o banco cobra hoje — com juros, se venceu. */
-  const valorGrande = peloBanco && previa.data ? previa.data.valor : aPagar;
-  /** O banco já disse que não paga esta: mandar só repete a recusa. */
-  const bancoRecusa = peloBanco && previa.isError;
+  /**
+   * No boleto, o que o banco cobra hoje — com juros, se venceu. No lote, a
+   * soma do que vai: o que o banco disse de cada um, e o título nos outros.
+   */
+  const valorGrande =
+    contas.length > 1
+      ? Math.round(aMandar.reduce((s, c) => s + valorNoBanco(c), 0) * 100) / 100
+      : peloBanco && previa.data
+        ? previa.data.valor
+        : aPagar;
+  /** O banco já disse que não paga: mandar só repete a recusa. */
+  const bancoRecusa =
+    contas.length === 1 ? peloBanco && previa.isError : aMandar.length === 0;
+  /** O lote inteiro vai ao banco. */
+  const loteTodoNoBanco =
+    contas.length > 1 && aMandar.length > 0 && aMandar.every((c) => vaiAoBanco(c));
   /** Guia de arrecadação sem o Pix: a janela oferece o PDF e a câmera para achá-lo. */
   const guiaSemPix =
     axios.isAxiosError(previa.error) &&
@@ -329,7 +377,9 @@ export function PagarEmMaos({
         economia: number;
         acrescimo?: number;
       }>('/contas-abertas/pagar-lote', {
-        idsFnApagar: contas.map((c) => c.idFnApagar),
+        // As que o banco recusou na prévia ficam de fora: mandá-las só
+        // repetiria a recusa, conta por conta.
+        idsFnApagar: aMandar.map((c) => c.idFnApagar),
         // Sem escolha, vai vazio: o servidor baixa cada título na conta que
         // está nele. Mandar a padrão aqui era o que trocava o banco.
         contaPagamento: contaEscolhida ? Number(contaEscolhida) : undefined,
@@ -628,18 +678,33 @@ export function PagarEmMaos({
         </Aviso>
       )}
 
+      {contas.length > 1 && recusadas.length > 0 && (
+        <Aviso tom="atencao">
+          {recusadas.length === 1
+            ? 'Uma conta fica de fora: o banco não a paga (o motivo está na linha dela).'
+            : `${recusadas.length} contas ficam de fora: o banco não as paga (o motivo está na linha de cada uma).`}{' '}
+          Corrija e pague à parte.
+        </Aviso>
+      )}
+
       <div className="mt-4 max-h-[40vh] overflow-y-auto rolagem-fina rounded-xl border border-tinta-100">
         <table className="w-full text-sm">
           <thead>
             <tr>
               <th className="th">Fornecedor</th>
+              {mostrarBancoNaLista && (
+                <th className="th">Quem recebe, segundo o banco</th>
+              )}
               <th className="th">Vencimento</th>
               <th className="th text-right">Valor</th>
             </tr>
           </thead>
           <tbody>
             {contas.map((c) => (
-              <tr key={c.idFnApagar} className="linha">
+              <tr
+                key={c.idFnApagar}
+                className={`linha ${recusadas.includes(c) ? 'opacity-60' : ''}`}
+              >
                 <td className="td">
                   <div className="text-tinta-800">
                     {c.fornecedor.nome || `Fornecedor ${c.fornecedor.id ?? '?'}`}
@@ -655,11 +720,16 @@ export function PagarEmMaos({
                     </div>
                   )}
                 </td>
+                {mostrarBancoNaLista && (
+                  <td className="td">
+                    <QuemRecebeNoBanco vai={vaiAoBanco(c)} previa={previaDe(c)} />
+                  </td>
+                )}
                 <td className="td num whitespace-nowrap text-tinta-500">
                   {c.vencimento ? formatData(c.vencimento) : '—'}
                 </td>
                 <td className="td whitespace-nowrap text-right">
-                  <span className="valor">{formatBRL(c.valorAberto)}</span>
+                  <span className="valor">{formatBRL(valorNoBanco(c))}</span>
                 </td>
               </tr>
             ))}
@@ -743,7 +813,7 @@ export function PagarEmMaos({
       <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
         <span className="mr-auto text-xs text-tinta-400">
           {contas.length > 1
-            ? `${contas.length} contas, uma de cada vez.`
+            ? `${aMandar.length} conta(s), uma de cada vez.`
             : peloBanco
               ? ''
               : 'A conta é aprovada na auditoria do IXC.'}
@@ -757,7 +827,7 @@ export function PagarEmMaos({
             pagar.isPending ||
             descontoNaoCabe ||
             bancoRecusa ||
-            (peloBanco && contas.length === 1 && previa.isLoading)
+            consultandoBanco
           }
           className="btn btn-primario"
         >
@@ -765,7 +835,9 @@ export function PagarEmMaos({
             ? peloBanco
               ? 'Mandando ao banco…'
               : 'Enviando ao IXC…'
-            : peloBanco
+            : consultandoBanco
+              ? 'Consultando no banco…'
+              : peloBanco || loteTodoNoBanco
               ? `Pagar ${formatBRL(valorGrande)} pelo banco`
               : soAprova
                 ? `Aprovar ${formatBRL(total)} para o banco pagar`
@@ -775,6 +847,48 @@ export function PagarEmMaos({
         </button>
       </div>
     </Janela>
+  );
+}
+
+/** Para quem o banco diz que vai o dinheiro de um título do lote. */
+function QuemRecebeNoBanco({
+  vai,
+  previa,
+}: {
+  vai: boolean;
+  previa?: {
+    data?: PreviaNoBanco;
+    isLoading: boolean;
+    isError: boolean;
+    error: unknown;
+  };
+}) {
+  if (!vai) {
+    return <span className="text-xs text-tinta-400">não vai ao banco</span>;
+  }
+  if (!previa || previa.isLoading) {
+    return <span className="text-xs text-tinta-400">Consultando…</span>;
+  }
+  if (previa.isError) {
+    return (
+      <span className="text-xs text-rose-600 dark:text-rose-300">
+        {mensagemErro(previa.error)}
+      </span>
+    );
+  }
+  const p = previa.data;
+  if (!p) return null;
+  return (
+    <div className="min-w-0">
+      <div className="text-[13px] font-semibold text-tinta-800">
+        {p.favorecido ?? 'o banco não informou'}
+      </div>
+      <div className="text-xs text-tinta-400">
+        {p.forma === 'BOLETO' ? 'Boleto' : 'Pix'}
+        {Math.abs(p.valor - p.valorDoTitulo) > 0.005 &&
+          ` · título de ${formatBRL(p.valorDoTitulo)}`}
+      </div>
+    </div>
   );
 }
 

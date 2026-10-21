@@ -433,7 +433,7 @@ export function Inicio() {
             }
             className="btn btn-pagar btn-p"
           >
-            Pagar em mãos
+            Pagar
           </button>
           <button
             onClick={() => {
