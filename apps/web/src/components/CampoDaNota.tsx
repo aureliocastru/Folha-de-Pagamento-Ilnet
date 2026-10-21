@@ -13,6 +13,21 @@ export interface ArquivoDaNota {
 /** Um arquivo com o nome que a aba de arquivos do IXC vai mostrar. */
 export type NotaParaSubir = ArquivoDaNota & { descricao: string };
 
+/**
+ * Abre o PDF escolhido numa aba, para conferir antes de lançar.
+ *
+ * Ele já está na memória (o `dados` é o arquivo inteiro), então a aba abre no
+ * próprio clique, sem espera — e por isso o navegador não a bloqueia.
+ */
+function abrirPdf(dados: string): void {
+  const [, base64 = ''] = dados.split(',', 2);
+  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+  window.open(url, '_blank');
+  // A aba já leu o arquivo; um minuto de folga e a memória volta.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 /** No máximo tantos por conta: cada um é uma ida ao webservice do IXC. */
 export const NOTAS_POR_CONTA = 10;
 
@@ -179,13 +194,26 @@ export function CampoDaNota({
                 />
               </button>
             ) : (
-              <span className="rounded-lg border border-tinta-200 px-2 py-1 text-xs text-tinta-600">
+              <button
+                type="button"
+                onClick={() => abrirPdf(nota.dados)}
+                title="Abrir o PDF"
+                className="rounded-lg border border-tinta-200 px-2 py-1 text-xs text-tinta-600 transition hover:border-brand-300 hover:text-brand-700"
+              >
                 PDF
-              </span>
+              </button>
             )}
-            <span className="max-w-[160px] truncate text-sm text-tinta-600">
+            {/* O nome também abre: é nele que o olho está. */}
+            <button
+              type="button"
+              onClick={() =>
+                nota.dados.startsWith('data:image/') ? setVendo(i) : abrirPdf(nota.dados)
+              }
+              title={nota.dados.startsWith('data:image/') ? 'Ver em tela cheia' : 'Abrir o PDF'}
+              className="max-w-[160px] truncate text-sm text-tinta-600 hover:text-brand-700 hover:underline"
+            >
               {nota.nome || 'print colado'}
-            </span>
+            </button>
             <button
               type="button"
               onClick={() => onMudar(notas.filter((_, j) => j !== i))}
