@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -11,6 +12,7 @@ import { api, getToken } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import type { Agenda } from '../lib/types';
 import { IconeBloco } from './icones';
+import { imagemDaColagem, LeitorDeTexto } from './LeitorDeTexto';
 
 const CHAVE = ['agenda'] as const;
 
@@ -63,6 +65,14 @@ export function BlocoDeNotas() {
 
 function NoCanto() {
   const [aberto, setAberto] = useState(false);
+  /**
+   * As duas folhas do bloco: as notas, e o leitor que tira o texto de um
+   * print. O leitor mora aqui para estar no mesmo canto, em todas as telas.
+   */
+  const [aba, setAba] = useState<'notas' | 'ler'>('notas');
+  /** O print colado no campo de notas: a aba de ler abre com ele. */
+  const [imagemColada, setImagemColada] = useState<File | null>(null);
+  const esquecerImagem = useCallback(() => setImagemColada(null), []);
   const queryClient = useQueryClient();
 
   const consulta = useQuery({
@@ -337,13 +347,36 @@ function NoCanto() {
           */}
           <div
             role="dialog"
-            aria-label="Bloco de notas"
+            aria-label={aba === 'ler' ? 'Ler texto' : 'Bloco de notas'}
             className="surgir fixed right-2 top-2 z-40 flex h-[min(30rem,calc(100vh-1rem))] w-[min(23rem,calc(100vw-1rem))] flex-col overflow-hidden rounded-2xl border-2 border-amber-400 bg-white shadow-2xl"
           >
             <div className="flex items-center justify-between gap-3 bg-amber-400 py-1.5 pl-4 pr-1.5">
-              <h2 className="font-display text-sm font-bold uppercase tracking-[0.12em] text-amber-950">
-                Bloco de notas
-              </h2>
+              <div role="tablist" className="flex items-center gap-1">
+                {(
+                  [
+                    ['notas', 'Bloco de notas'],
+                    ['ler', 'Ler texto'],
+                  ] as const
+                ).map(([qual, nome]) => (
+                  <button
+                    key={qual}
+                    type="button"
+                    role="tab"
+                    aria-selected={aba === qual}
+                    onClick={() => {
+                      if (qual !== aba) gravarJa();
+                      setAba(qual);
+                    }}
+                    className={`rounded-lg px-2 py-1 font-display text-[12px] font-bold uppercase tracking-[0.1em] transition ${
+                      aba === qual
+                        ? 'bg-white/70 text-amber-950'
+                        : 'text-amber-900/70 hover:bg-amber-500/40'
+                    }`}
+                  >
+                    {nome}
+                  </button>
+                ))}
+              </div>
               {/* 44px no celular, como o X das janelas: o "×" de texto de
                   antes era um alvo de 20px na quina da tela. */}
               <button
@@ -380,6 +413,13 @@ function NoCanto() {
               A tecla que se perde nesse instante é o preço de não perder o
               recado da semana passada. Ver o `carregou`.
             */}
+            {aba === 'ler' ? (
+              <LeitorDeTexto
+                imagemInicial={imagemColada}
+                aoUsarImagem={esquecerImagem}
+              />
+            ) : (
+            <>
             <textarea
               autoFocus
               ref={campoRef}
@@ -388,6 +428,15 @@ function NoCanto() {
               onChange={(e) => digitou(e.target.value)}
               onKeyDown={teclaNoCampo}
               onBlur={gravarJa}
+              onPaste={(e) => {
+                // Um print colado nas notas é para ler: vai para a outra aba.
+                const imagem = imagemDaColagem(e.clipboardData);
+                if (!imagem) return;
+                e.preventDefault();
+                gravarJa();
+                setImagemColada(imagem);
+                setAba('ler');
+              }}
               spellCheck={false}
               placeholder={
                 carregou
@@ -411,6 +460,8 @@ function NoCanto() {
                 atualizadoEm={consulta.data?.atualizadoEm ?? null}
               />
             </div>
+            </>
+            )}
           </div>
         </>
       )}
