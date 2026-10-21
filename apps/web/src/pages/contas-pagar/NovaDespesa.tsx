@@ -25,7 +25,8 @@ import {
   type NotaParaSubir,
 } from '../../components/CampoDaNota';
 import { EditarFornecedor } from '../../components/EditarFornecedor';
-import { IconeLapis } from '../../components/icones';
+import { IconeLapis, IconeMais } from '../../components/icones';
+import { NovoFornecedorIxc } from '../../components/NovoFornecedorIxc';
 import {
   TIPOS_CHAVE_PIX,
   type CategoriaDespesa,
@@ -343,6 +344,8 @@ export function NovaDespesa({
   const [dividindo, setDividindo] = useState(false);
   /** O Editar do fornecedor aberto por cima, pelo lápis do cartão dele. */
   const [editandoFornecedor, setEditandoFornecedor] = useState(false);
+  /** O "+" do campo: cadastrar no IXC quem a busca não achou. */
+  const [cadastrandoFornecedor, setCadastrandoFornecedor] = useState(false);
   const dividida = divisao.length > 0;
   const somaDasNotas = somarNotas(divisao);
   const [avisoDaNota, setAvisoDaNota] = useState<string | null>(null);
@@ -1281,6 +1284,17 @@ export function NovaDespesa({
         />
       )}
 
+      {cadastrandoFornecedor && (
+        <NovoFornecedorIxc
+          digitado={termo}
+          onFechar={() => setCadastrandoFornecedor(false)}
+          onPronto={(f) => {
+            setCadastrandoFornecedor(false);
+            setFornecedor(f);
+          }}
+        />
+      )}
+
       {/*
         Duas colunas no computador: a conta à esquerda, o pagamento à
         direita — tudo numa tela, sem rolar. Dentro de cada uma, um campo por
@@ -1364,16 +1378,29 @@ export function NovaDespesa({
                     aqui e oferecia a lista dele por cima da nossa — um retângulo
                     preto com "posto sao d", "posto sao domi" tapando justamente os
                     fornecedores do IXC, que são o que se veio escolher. */}
-                <input
-                  id="fornecedor"
-                  value={termo}
-                  onChange={(e) => setTermo(e.target.value)}
-                  type="search"
-                  placeholder="Razão social, fantasia ou CPF/CNPJ"
-                  className="campo"
-                  autoComplete="off"
-                  autoFocus
-                />
+                {/* O "+" mora dentro do campo, na ponta direita: quem não
+                    achou o fornecedor cadastra ali mesmo, sem ir ao IXC. */}
+                <div className="relative">
+                  <input
+                    id="fornecedor"
+                    value={termo}
+                    onChange={(e) => setTermo(e.target.value)}
+                    type="search"
+                    placeholder="Razão social, fantasia ou CPF/CNPJ"
+                    className="campo pr-10"
+                    autoComplete="off"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setCadastrandoFornecedor(true)}
+                    className="absolute inset-y-0 right-0 flex w-9 items-center justify-center rounded-r-lg text-brand-600 hover:bg-tinta-50"
+                    title="Cadastrar fornecedor novo no IXC"
+                    aria-label="Cadastrar fornecedor novo no IXC"
+                  >
+                    <IconeMais className="h-4 w-4" />
+                  </button>
+                </div>
                 {fornecedores.isFetching && <Carregando texto="Procurando no IXC…" />}
 
                 {fornecedores.error && (
@@ -1383,10 +1410,16 @@ export function NovaDespesa({
                 )}
 
                 {fornecedores.data && fornecedores.data.length === 0 && (
-                  <p className="mt-2 text-sm text-tinta-500">
-                    Nenhum fornecedor ativo com esse nome. Se ele ainda não existe,
-                    cadastre-o no IXC — é lá que este app o procura.
-                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-tinta-500">
+                    Nenhum fornecedor ativo com esse nome.
+                    <button
+                      type="button"
+                      onClick={() => setCadastrandoFornecedor(true)}
+                      className="btn btn-neutro btn-p"
+                    >
+                      Cadastrar "{termo.trim()}"
+                    </button>
+                  </div>
                 )}
 
                 {!!fornecedores.data?.length && (

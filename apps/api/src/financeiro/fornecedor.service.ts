@@ -500,6 +500,57 @@ export class FornecedorService {
   }
 
   /**
+   * Cadastra no IXC o fornecedor que a busca do "Lançar conta" não achou — o
+   * "+" do campo, para não ter de largar a conta e ir ao IXC.
+   *
+   * Com CPF/CNPJ de quem já está lá, não nasce outro: devolve o que existe,
+   * que é onde estão os dados bancários. O tipo de pessoa sai do documento
+   * (14 dígitos é empresa); sem documento, pessoa física, como no IXC.
+   */
+  async cadastrarNoIxc(dados: {
+    nome: string;
+    cpfCnpj?: string | null;
+    nomeFantasia?: string | null;
+    telefone?: string | null;
+    email?: string | null;
+  }): Promise<{ fornecedor: FornecedorNoIxc; reaproveitado: boolean }> {
+    const nome = dados.nome.trim();
+    const digitos = somenteDigitos(dados.cpfCnpj);
+    const fantasia = dados.nomeFantasia?.trim();
+    const cfg = await this.config.obter();
+
+    const criado = await this.criarFornecedor({
+      nome,
+      cpfCnpj: digitos || null,
+      tipoPessoa: digitos.length === 14 ? 'J' : 'F',
+      cidadeId: cfg.cidadePadraoId,
+      email: dados.email?.trim() || null,
+      celular: dados.telefone?.trim() || null,
+      // O payload padrão repete a razão social na fantasia; o apelido
+      // digitado vale sobre ela.
+      extras: fantasia ? { fantasia } : undefined,
+    });
+
+    const fornecedor = (await this.buscarNoIxcPorId(criado.id)) ?? {
+      idFornecedor: criado.id,
+      nome,
+      nomeFantasia: fantasia || null,
+      cpfCnpj: mascararDocumento(digitos) ?? null,
+      tipoPessoa: digitos.length === 14 ? 'J' : 'F',
+      email: dados.email?.trim() || null,
+      telefone: dados.telefone?.trim() || null,
+      cidadeIxc: cfg.cidadePadraoId,
+      ativo: true,
+      banco: null,
+      agencia: null,
+      conta: null,
+      chavePix: null,
+      tipoChavePix: null,
+    };
+    return { fornecedor, reaproveitado: criado.reaproveitado };
+  }
+
+  /**
    * Muda o cadastro do fornecedor no próprio IXC e devolve como ele ficou.
    *
    * Por ora só o nome fantasia, que é o campo que faltava: é por ele que a

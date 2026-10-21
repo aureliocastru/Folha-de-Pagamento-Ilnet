@@ -406,3 +406,56 @@ describe('atualizarNoIxc', () => {
     expect(gravados).toEqual([]);
   });
 });
+
+describe('cadastrarNoIxc (o "+" do Lançar conta)', () => {
+  it('com CNPJ, nasce empresa, mascarado e com o apelido digitado', async () => {
+    const { service, criados } = montarServico({
+      noIxc: { id: '4100', razao: 'Posto São Domingos Ltda', fantasia: 'Posto SD' },
+    });
+
+    const r = await service.cadastrarNoIxc({
+      nome: '  Posto São Domingos Ltda ',
+      cpfCnpj: '12345678000190',
+      nomeFantasia: 'Posto SD',
+    });
+
+    expect(r.reaproveitado).toBe(false);
+    expect(r.fornecedor.idFornecedor).toBe(4100);
+    expect(criados).toHaveLength(1);
+    expect(criados[0]).toMatchObject({
+      tipo_pessoa: 'J',
+      razao: 'Posto São Domingos Ltda',
+      fantasia: 'Posto SD',
+      cpf_cnpj: '12.345.678/0001-90',
+    });
+  });
+
+  it('com o documento de quem já está no IXC, não cria outro', async () => {
+    const { service, criados } = montarServico({
+      responder: baseComMascara,
+      noIxc: NO_IXC,
+    });
+
+    const r = await service.cadastrarNoIxc({
+      nome: 'Marcos',
+      cpfCnpj: '111.222.333-44',
+    });
+
+    expect(r.reaproveitado).toBe(true);
+    expect(r.fornecedor.idFornecedor).toBe(3246);
+    expect(criados).toEqual([]);
+  });
+
+  it('sem documento, nasce pessoa física e a fantasia fica a do payload', async () => {
+    const { service, criados } = montarServico();
+
+    await service.cadastrarNoIxc({ nome: 'Deda pedreiro' });
+
+    expect(criados[0]).toMatchObject({
+      tipo_pessoa: 'F',
+      razao: 'Deda pedreiro',
+      fantasia: 'Deda pedreiro',
+      cpf_cnpj: '',
+    });
+  });
+});
