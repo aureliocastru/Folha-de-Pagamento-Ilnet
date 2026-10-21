@@ -481,7 +481,9 @@ export class ContasAbertasService {
 
     let nomes: Map<number, string>;
     try {
-      nomes = await this.nomesDosFornecedores();
+      nomes = await this.nomesDosFornecedores(
+        faltando.map((c) => c.fornecedor.id!),
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.logger.warn(`Não deu para ler os fornecedores: ${message}`);
@@ -661,8 +663,40 @@ export class ContasAbertasService {
     return nomes;
   }
 
-  /** O mesmo, para os fornecedores: um índice só, servindo as duas telas. */
-  async nomesDosFornecedores(): Promise<Map<number, string>> {
+  /**
+   * O mesmo, para os fornecedores: um índice só, servindo as duas telas.
+   *
+   * `precisos` são os que a tela vai mostrar. Quem nasceu depois do índice
+   * (cadastrado agora há pouco, pelo "+" ou no IXC) não está nele, e a conta
+   * aparecia como "Fornecedor 3281" até o índice vencer — então esses poucos
+   * são lidos um a um e entram no índice.
+   */
+  async nomesDosFornecedores(
+    precisos: number[] = [],
+  ): Promise<Map<number, string>> {
+    const nomes = await this.indiceDeFornecedores();
+    const faltam = [...new Set(precisos)]
+      .filter((id) => !nomes.has(id))
+      .slice(0, 30);
+    await Promise.all(
+      faltam.map(async (id) => {
+        try {
+          const raw = await this.ixc.getById<Record<string, unknown>>(
+            'fornecedor',
+            'fornecedor.id',
+            id,
+          );
+          const nome = String(raw?.razao ?? raw?.fantasia ?? '').trim();
+          if (nome) nomes.set(id, nome);
+        } catch {
+          // Fica o "Fornecedor N" de sempre: um nome a menos não para a tela.
+        }
+      }),
+    );
+    return nomes;
+  }
+
+  private async indiceDeFornecedores(): Promise<Map<number, string>> {
     const agora = Date.now();
     if (
       this.indiceFornecedores &&

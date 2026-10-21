@@ -891,7 +891,9 @@ export class HistoricoPagamentosService implements OnModuleInit, OnModuleDestroy
     );
     if (semNome.length > 0) {
       try {
-        const nomes = await this.contasAbertas.nomesDosFornecedores();
+        const nomes = await this.contasAbertas.nomesDosFornecedores(
+          semNome.map((p) => p.fornecedor.id!),
+        );
         for (const p of semNome) {
           p.fornecedor.nome =
             nomes.get(p.fornecedor.id!) ?? `Fornecedor ${p.fornecedor.id}`;
