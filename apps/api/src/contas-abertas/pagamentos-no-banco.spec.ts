@@ -99,6 +99,40 @@ describe('comoPagar', () => {
     });
   });
 
+  it('quem escolheu Pix paga por Pix, mesmo com o código de barras gravado', () => {
+    expect(
+      comoPagar({
+        codigo_barras: '2379'.padEnd(47, '0'),
+        tipo_pagamento: 'Pix',
+        chave_pix: 'fulano@email.com',
+      }),
+    ).toMatchObject({ forma: 'PIX', chave: 'fulano@email.com' });
+  });
+
+  it('Pix sem chave no título usa a do cadastro do fornecedor', () => {
+    expect(
+      comoPagar(
+        { codigo_barras: '2379'.padEnd(47, '0'), tipo_pagamento: 'Pix', chave_pix: '' },
+        { chave: '12.345.678/0001-95', tipo: 'CPF/CNPJ' },
+      ),
+    ).toMatchObject({ forma: 'PIX', chave: '12345678000195' });
+  });
+
+  it('Pix sem chave em lugar nenhum, com código de barras, fica no boleto', () => {
+    expect(
+      comoPagar(
+        { codigo_barras: '2379'.padEnd(47, '0'), tipo_pagamento: 'Pix', chave_pix: '' },
+        { chave: null, tipo: null },
+      ),
+    ).toMatchObject({ forma: 'BOLETO' });
+  });
+
+  it('a chave do cadastro só vale para quem escolheu Pix', () => {
+    expect(
+      comoPagar({ tipo_pagamento: 'Boleto', chave_pix: '' }, { chave: 'fulano@email.com', tipo: null }),
+    ).toBeNull();
+  });
+
   it('boleto bancário com chave anotada continua sendo boleto', () => {
     expect(
       comoPagar({ codigo_barras: '2379'.padEnd(47, '0'), chave_pix: '000201abc6304ABCD' }),

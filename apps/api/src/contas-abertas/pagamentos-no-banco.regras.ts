@@ -31,11 +31,23 @@ export type ComoPagar =
  * o que o boleto pede hoje, com juros. Título com os dois é boleto que alguém
  * também anotou uma chave.
  *
+ * Mas quem marcou "Pix" no tipo de pagamento escolheu o Pix: o código de
+ * barras que ficou gravado de antes não o desfaz (a fatura do cartão
+ * reembolsada por Pix a quem a pagou, 21/10/2026). E o Pix sem chave no
+ * título usa a do cadastro do fornecedor — é o que a tela de lançar promete
+ * ("em branco usa a chave do fornecedor no IXC").
+ *
  * Null = não há por onde pagar.
  */
-export function comoPagar(raw: Record<string, unknown>): ComoPagar | null {
+export function comoPagar(
+  raw: Record<string, unknown>,
+  doFornecedor?: { chave: string | null; tipo: string | null } | null,
+): ComoPagar | null {
   const barras = String(raw.codigo_barras ?? '').replace(/\D/g, '');
-  const chave = String(raw.chave_pix ?? '').trim();
+  const escolheuPix = /pix/i.test(String(raw.tipo_pagamento ?? ''));
+  const daConta = String(raw.chave_pix ?? '').trim();
+  const doCadastro = escolheuPix && !daConta ? (doFornecedor?.chave ?? '').trim() : '';
+  const chave = daConta || doCadastro;
   /*
    * Guia de arrecadação (começa com 8: DARF, GPS, conta de consumo) com o QR
    * Pix guardado na chave: vai o Pix. A API do ModoBank não paga arrecadação
@@ -44,15 +56,19 @@ export function comoPagar(raw: Record<string, unknown>): ComoPagar | null {
   if (barras.startsWith('8') && /^000201/.test(chave)) {
     return { forma: 'PIX', copiaECola: true, codigo: chave };
   }
-  if (barras.length >= 44) return { forma: 'BOLETO', codigo: barras };
+  if (barras.length >= 44 && !(escolheuPix && chave)) {
+    return { forma: 'BOLETO', codigo: barras };
+  }
 
   if (!chave) return null;
 
-  const doRadio =
-    Object.keys(raw)
-      .filter((c) => /tipo_?(chave_?)?pix|pix_?tipo/i.test(c))
-      .map((c) => normalizarTipoChavePix(raw[c]))
-      .find((t) => t !== null) ?? null;
+  // O rádio do título fala da chave do título; a do cadastro traz o tipo dela.
+  const doRadio = doCadastro
+    ? normalizarTipoChavePix(doFornecedor?.tipo)
+    : (Object.keys(raw)
+        .filter((c) => /tipo_?(chave_?)?pix|pix_?tipo/i.test(c))
+        .map((c) => normalizarTipoChavePix(raw[c]))
+        .find((t) => t !== null) ?? null);
 
   if (doRadio === 'Código copia e cola' || /^000201/.test(chave)) {
     return { forma: 'PIX', copiaECola: true, codigo: chave };

@@ -8,6 +8,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import type { PagamentoNoBanco, SituacaoNoBanco } from '@prisma/client';
+import { FornecedorService } from '../financeiro/fornecedor.service';
 import { IxcClient } from '../ixc/ixc.client';
 import { lerSituacaoContaPagar } from '../ixc/ixc.financeiro';
 import {
@@ -73,6 +74,8 @@ export class PagamentosNoBancoService {
     private readonly banco: ModobankClient,
     private readonly prisma: PrismaService,
     private readonly ixc: IxcClient,
+    /** A chave Pix do cadastro, para o título de Pix sem chave própria. */
+    @Optional() private readonly fornecedores?: FornecedorService,
     /** O recebimento (cash in): por ora só se confere que a credencial abre. */
     @Optional() @Inject(MODOBANK_RECEBER) private readonly receber?: ModobankClient,
   ) {}
@@ -477,7 +480,7 @@ export class PagamentosNoBancoService {
   }
 
   private async exigirComo(idFnApagar: number, raw: Record<string, unknown>): Promise<ComoPagar> {
-    const como = comoPagar(raw);
+    const como = comoPagar(raw, await this.chaveDoCadastro(raw));
     if (!como) {
       throw new BadRequestException(
         `O título ${idFnApagar} não tem código de barras nem chave Pix: o banco ` +
@@ -504,6 +507,21 @@ export class PagamentosNoBancoService {
         'Guia paga pelo Pix dela: o ModoBank não paga DARF, DAS, DARE ou conta de consumo ' +
         'pelo código de barras. Mande o PDF da guia ou leia o QR Code Pix dela.',
     });
+  }
+
+  /**
+   * A chave Pix do fornecedor, só quando o título é Pix e não tem a dele —
+   * nos outros casos ela não é usada, e a consulta ao IXC seria à toa.
+   */
+  private async chaveDoCadastro(
+    raw: Record<string, unknown>,
+  ): Promise<{ chave: string | null; tipo: string | null } | null> {
+    if (!/pix/i.test(String(raw.tipo_pagamento ?? ''))) return null;
+    if (String(raw.chave_pix ?? '').trim()) return null;
+    const id = Number(raw.id_fornecedor ?? raw.fornecedor_id);
+    if (!this.fornecedores || !Number.isInteger(id) || id <= 0) return null;
+    const f = await this.fornecedores.buscarNoIxcPorId(id);
+    return f ? { chave: f.chavePix, tipo: f.tipoChavePix } : null;
   }
 
   private async titulo(idFnApagar: number): Promise<Record<string, unknown>> {
