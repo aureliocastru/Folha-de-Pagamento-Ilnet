@@ -15,6 +15,18 @@ interface ArquivoDaNota {
   arquivo: File;
 }
 
+/**
+ * Abre o PDF numa aba, sem um segundo clique.
+ *
+ * O arquivo vem da API autenticada, então ele só existe depois do download — e
+ * o navegador pode recusar uma aba aberta tanto tempo depois do clique (o
+ * iPhone recusa quase sempre). Recusada, fica o link "Abrir o PDF" de antes,
+ * que é um toque novo e abre sempre.
+ */
+function abrirNumaAba(url: string): void {
+  window.open(url, '_blank');
+}
+
 /** O celular deixa mandar este arquivo pelo Compartilhar? No computador, quase nunca. */
 function compartilhavel(f: File): boolean {
   return typeof navigator.canShare === 'function' && navigator.canShare({ files: [f] });
@@ -218,7 +230,9 @@ function NotasGuardadas({ notas }: { notas: NotaGuardada[] }) {
         setVendo(nota.id);
       } else {
         const blob = await (await fetch(dados)).blob();
-        setPdf({ id: nota.id, url: URL.createObjectURL(blob) });
+        const url = URL.createObjectURL(blob);
+        setPdf({ id: nota.id, url });
+        abrirNumaAba(url);
       }
     } catch (e) {
       setErro(mensagemErro(e));
@@ -389,7 +403,10 @@ function NotasNoIxc({
     try {
       const lido = await arquivo(nota);
       if (lido.tipo.startsWith('image/')) setVendo(nota);
-      else setPdf(nota.id);
+      else {
+        setPdf(nota.id);
+        abrirNumaAba(lido.url);
+      }
     } catch (e) {
       setErro(await mensagemErroDeArquivo(e));
     } finally {

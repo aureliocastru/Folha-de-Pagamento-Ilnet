@@ -27,6 +27,7 @@ import {
 import { EditarFornecedor } from '../../components/EditarFornecedor';
 import { IconeLapis, IconeMais } from '../../components/icones';
 import { CadastroDeFornecedor } from '../../components/CadastroDeFornecedor';
+import { NotasDoTitulo } from '../../components/NotasDoTitulo';
 import {
   TIPOS_CHAVE_PIX,
   type CategoriaDespesa,
@@ -1566,6 +1567,9 @@ export function NovaDespesa({
           )}
           {a.mostrar(6) && !dividida && (
             <div>
+              {/* Na edição, as que o título já tem: é a primeira coisa que se
+                  procura aqui, antes de anexar outra. */}
+              {edicao && <NotasDoTitulo idFnApagar={edicao.conta.idFnApagar} />}
               <CampoDaNota notas={notas} onMudar={setNotas} parcelado={parcelado} />
             </div>
           )}
