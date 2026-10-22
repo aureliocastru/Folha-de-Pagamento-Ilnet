@@ -12,8 +12,10 @@ import {
   montarComodatoNaOs,
   montarFechamento,
   montarMaterialNaOs,
+  naOrdemDoTecnico,
   osRecusaMaterial,
   produtoParaOs,
+  tipoDoAssunto,
   type Fechamento,
   type OsParaEscrever,
   type ProdutoParaOs,
@@ -66,6 +68,7 @@ describe('lerOs', () => {
       id: '3788',
       protocolo: '2026092400123',
       status: 'ag',
+      prioridade: 'a',
       id_assunto: '4',
       id_cliente: '900',
       id_contrato_kit: '2294',
@@ -87,6 +90,7 @@ describe('lerOs', () => {
       id: 3788,
       protocolo: '2026092400123',
       status: 'AG',
+      prioridade: 'A',
       assuntoId: 4,
       clienteId: 900,
       contratoId: 2294,
@@ -116,6 +120,65 @@ describe('lerOs', () => {
 
   it('linha sem id não é OS', () => {
     expect(lerOs({ status: 'A' })).toBeNull();
+  });
+
+  it('prioridade fora de B, N, A e C fica sem prioridade, e não vira normal', () => {
+    expect(lerOs({ id: '1', prioridade: 'C' })?.prioridade).toBe('C');
+    expect(lerOs({ id: '1', prioridade: '1' })?.prioridade).toBeNull();
+    expect(lerOs({ id: '1' })?.prioridade).toBeNull();
+  });
+});
+
+describe('tipoDoAssunto', () => {
+  it('lê o tipo de serviço pelo nome do assunto, sem ligar para acento e caixa', () => {
+    expect(tipoDoAssunto('Cliente sem internet')).toBe('SEM_INTERNET');
+    expect(tipoDoAssunto('SEM CONEXÃO')).toBe('SEM_INTERNET');
+    expect(tipoDoAssunto('LOS - fibra rompida')).toBe('SEM_INTERNET');
+    expect(tipoDoAssunto('Instalação Fibra')).toBe('INSTALACAO');
+    expect(tipoDoAssunto('Mudança de endereço')).toBe('MUDANCA_DE_ENDERECO');
+    expect(tipoDoAssunto('Troca de Titularidade')).toBe('MUDANCA_DE_TITULARIDADE');
+    expect(tipoDoAssunto('Troca de equipamento')).toBe('OUTROS');
+    expect(tipoDoAssunto(null)).toBe('OUTROS');
+  });
+
+  it('a mudança que fala em instalar é mudança, e não instalação', () => {
+    expect(tipoDoAssunto('Instalação - mudança de endereço')).toBe('MUDANCA_DE_ENDERECO');
+    expect(tipoDoAssunto('Instalação por mudança de titularidade')).toBe('MUDANCA_DE_TITULARIDADE');
+  });
+
+  it('"los" só como palavra: "modelos" não é cliente sem internet', () => {
+    expect(tipoDoAssunto('Troca de modelos de ONU')).toBe('OUTROS');
+  });
+});
+
+describe('naOrdemDoTecnico', () => {
+  const os = (
+    id: number,
+    tipo: Parameters<typeof naOrdemDoTecnico>[0]['tipo'],
+    prioridade: 'B' | 'N' | 'A' | 'C' | null,
+    agenda: string | null = null,
+  ) => ({ id, tipo, prioridade, agenda, abertura: '2026-10-20 08:00:00', recusa: null });
+
+  it('sem internet, instalação, mudança de endereço, de titularidade, e o resto', () => {
+    const lista = [
+      os(1, 'OUTROS', 'C'),
+      os(2, 'MUDANCA_DE_TITULARIDADE', 'N'),
+      os(3, 'INSTALACAO', 'N'),
+      os(4, 'MUDANCA_DE_ENDERECO', 'N'),
+      os(5, 'SEM_INTERNET', 'B'),
+    ];
+    expect(lista.sort(naOrdemDoTecnico).map((o) => o.id)).toEqual([5, 3, 4, 2, 1]);
+  });
+
+  it('no mesmo tipo, a mais urgente primeiro; sem prioridade conta como normal', () => {
+    const lista = [
+      os(1, 'INSTALACAO', 'B'),
+      os(2, 'INSTALACAO', null, '2026-10-22 10:00:00'),
+      os(3, 'INSTALACAO', 'C'),
+      os(4, 'INSTALACAO', 'N', '2026-10-22 14:00:00'),
+      os(5, 'INSTALACAO', 'A'),
+    ];
+    expect(lista.sort(naOrdemDoTecnico).map((o) => o.id)).toEqual([3, 5, 4, 2, 1]);
   });
 });
 

@@ -28,12 +28,16 @@ import {
   montarBaixaDeComodato,
   montarComodatoNaOs,
   montarMaterialNaOs,
+  naOrdemDoTecnico,
   osRecusaMaterial,
   STATUS_DA_OS,
+  tipoDoAssunto,
   type ComodatoDoContrato,
   type OsDoIxc,
   type OsParaEscrever,
+  type PrioridadeDaOs,
   type ProdutoParaOs,
+  type TipoDeOs,
 } from './os-ixc';
 import {
   motivoForaDosAparelhos,
@@ -87,7 +91,10 @@ export interface OsNaLista {
   protocolo: string | null;
   status: string;
   statusNome: string;
+  prioridade: PrioridadeDaOs | null;
   assunto: string | null;
+  /** O tipo de serviço, tirado do assunto — é o que ordena a lista. */
+  tipo: TipoDeOs;
   cliente: string | null;
   endereco: string | null;
   abertura: string | null;
@@ -241,11 +248,7 @@ export class OsService {
     const agora = new Date();
     const os = lista
       .map((o) => naLista(o, assuntos, clientes, contagens.get(o.id), agora))
-      .sort(
-        (a, b) =>
-          Number(!!a.recusa) - Number(!!b.recusa) ||
-          (b.agenda ?? b.abertura ?? '').localeCompare(a.agenda ?? a.abertura ?? ''),
-      );
+      .sort(naOrdemDoTecnico);
     return { tecnico: { nome: tecnico.nome, almox: tecnico.almox }, os };
   }
 
@@ -1359,12 +1362,15 @@ function naLista(
   contagem: Contagem | undefined,
   agora: Date,
 ): OsNaLista {
+  const assunto = assuntos.get(os.assuntoId) ?? (os.assuntoId ? `Assunto ${os.assuntoId}` : null);
   return {
     id: os.id,
     protocolo: os.protocolo,
     status: os.status,
     statusNome: STATUS_DA_OS[os.status] ?? os.status,
-    assunto: assuntos.get(os.assuntoId) ?? (os.assuntoId ? `Assunto ${os.assuntoId}` : null),
+    prioridade: os.prioridade,
+    assunto,
+    tipo: tipoDoAssunto(assunto),
     cliente: clientes.get(os.clienteId) ?? (os.clienteId ? `Cliente ${os.clienteId}` : null),
     endereco: os.endereco,
     abertura: os.abertura,

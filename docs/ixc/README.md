@@ -37,7 +37,7 @@ Troque `BUSCA` pelo que procura (`baixa`, `fornecedor`, `auditoria`…).
 | Conferência de estoque: o que faltou | `transf_almox_top` + `transf_almox_item` para "Perdas e Falhas" | documentado; é a transferência que já andava |
 | Conferência de estoque: o que sobrou | `entrada` + `movimento_produtos` (compra de acerto) | documentado; o saldo sobe com a compra ainda aberta |
 | Inventário do IXC (ajustar saldo ao contado) | `inventario_estoque` | **não documentado; grava errado pela API** (ver abaixo) |
-| OS do técnico (ler) | `su_oss_chamado` por `id_tecnico` | documentado; `id_tecnico` é o `funcionarios.id` (o `ixcId` daqui) |
+| OS do técnico (ler) | `su_oss_chamado` por `id_tecnico` | documentado; `id_tecnico` é o `funcionarios.id` (o `ixcId` daqui). A `prioridade` (B, N, A, C) é a da descrição dos campos — o exemplo do "inserir" manda "1", e a base ainda não foi lida para ver qual vale |
 | Aparelho instalado na OS | `su_oss_mov_comodato_wiz` (POST) | documentado — **ainda não conferido contra a base** (ver abaixo) |
 | Aparelho retirado do cliente | `baixar_comodato_23069` | documentado — **ainda não conferido contra a base** |
 | Material gasto na OS | `su_oss_mov_produto` (POST) | documentado — **ainda não conferido contra a base** |

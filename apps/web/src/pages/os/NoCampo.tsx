@@ -5,12 +5,15 @@ import { IconeCaixa, IconeLupa, IconeOs, IconeRecolhido } from '../../components
 import { LeitorDeCodigo, leitorDeCodigoSuportado } from '../../components/LeitorDeCodigo';
 import { Aviso, Carregando, Janela, Selo } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
-import { semAcento } from '../../lib/busca';
+import { semAcento, useBuscaNaTela, useFiltrados } from '../../lib/busca';
 import {
   CONDICAO_LABEL,
   FINALIZACAO_LABEL,
+  PRIORIDADE_LABEL,
+  PRIORIDADE_TOM,
   SITUACAO_LABEL,
   SITUACAO_TOM,
+  TIPO_DE_OS_LABEL,
   TIPO_LABEL,
   TIPO_TOM,
   dataHoraCurta,
@@ -26,7 +29,9 @@ import {
   type OsAberta,
   type OsNaLista,
   type PecaAchada,
+  type PrioridadeDaOs,
   type ResultadoDaGravacao,
+  type TipoDeOs,
 } from '../../lib/os';
 import { VoltarAoInicio } from '../apr/Campo';
 import { useTecladoAberto } from '../../lib/teclado';
@@ -45,19 +50,36 @@ import { useTecladoAberto } from '../../lib/teclado';
  */
 
 const CHAVE_LISTA = ['minhas-os'];
+const SEM_OS: OsNaLista[] = [];
+const TIPOS_DE_OS = Object.keys(TIPO_DE_OS_LABEL) as TipoDeOs[];
 
-/** As OS do técnico: as abertas no IXC com ele, e as que ele acabou de fechar. */
+/** Onde a busca procura: o número, o protocolo, o cliente, o endereço e o assunto. */
+function camposDaOs(o: OsNaLista) {
+  return [o.id, o.protocolo, o.cliente, o.endereco, o.assunto, TIPO_DE_OS_LABEL[o.tipo]];
+}
+
+/**
+ * As OS do técnico: as abertas no IXC com ele, e as que ele acabou de fechar.
+ * As abertas vêm separadas pelo tipo de serviço, na ordem em que se atende — a
+ * API já manda nessa ordem, e dentro do tipo a mais urgente primeiro.
+ */
 export function CampoMinhasOs() {
   const navigate = useNavigate();
+  const [busca, setBusca] = useState('');
+  const { termo } = useBuscaNaTela(busca);
   const lista = useQuery({
     queryKey: CHAVE_LISTA,
     queryFn: async () => (await api.get<MinhasOs>('/minhas-os')).data,
     retry: 0,
   });
-  const os = lista.data?.os ?? [];
+  const os = lista.data?.os ?? SEM_OS;
+  const achadas = useFiltrados(os, camposDaOs, termo);
   // Das finalizadas, a API só manda as de hoje.
-  const abertas = os.filter((o) => o.status !== 'F');
-  const fechadas = os.filter((o) => o.status === 'F');
+  const abertas = achadas.filter((o) => o.status !== 'F');
+  const fechadas = achadas.filter((o) => o.status === 'F');
+  const porTipo = TIPOS_DE_OS.map((tipo) => ({ tipo, os: abertas.filter((o) => o.tipo === tipo) })).filter(
+    (g) => g.os.length > 0,
+  );
 
   return (
     <div className="space-y-5">
@@ -96,13 +118,36 @@ export function CampoMinhasOs() {
         </div>
       )}
 
-      {abertas.length > 0 && (
-        <div className="space-y-2">
-          {abertas.map((o) => (
-            <CartaoDaOs key={o.id} os={o} onAbrir={() => navigate(`/campo/os/${o.id}`)} />
-          ))}
-        </div>
+      {os.length > 0 && (
+        <input
+          type="search"
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          placeholder="Procurar por cliente, endereço, nº da OS…"
+          aria-label="Procurar OS"
+          autoComplete="off"
+          className="campo"
+        />
       )}
+
+      {os.length > 0 && achadas.length === 0 && (
+        <p className="rounded-xl border border-dashed border-tinta-300 px-4 py-6 text-center text-[13px] text-tinta-500">
+          Nenhuma OS sua com "{busca.trim()}".
+        </p>
+      )}
+
+      {porTipo.map((g) => (
+        <section key={g.tipo}>
+          <h2 className="eyebrow mb-2">
+            {TIPO_DE_OS_LABEL[g.tipo]} · {g.os.length}
+          </h2>
+          <div className="space-y-2">
+            {g.os.map((o) => (
+              <CartaoDaOs key={o.id} os={o} onAbrir={() => navigate(`/campo/os/${o.id}`)} />
+            ))}
+          </div>
+        </section>
+      ))}
 
       {fechadas.length > 0 && (
         <section>
@@ -125,6 +170,7 @@ function CartaoDaOs({ os, onAbrir }: { os: OsNaLista; onAbrir: () => void }) {
         <Selo tom={os.status === 'F' ? 'neutro' : 'info'} ponto>
           {os.statusNome}
         </Selo>
+        <SeloDaPrioridade prioridade={os.prioridade} />
         {os.pendentes > 0 && (
           <Selo tom="atencao" pequeno>
             {os.pendentes} não enviado{os.pendentes > 1 ? 's' : ''}
@@ -150,6 +196,15 @@ function CartaoDaOs({ os, onAbrir }: { os: OsNaLista; onAbrir: () => void }) {
         {os.agenda ? `Agendada ${dataHoraCurta(os.agenda)}` : `Aberta ${dataHoraCurta(os.abertura) ?? ''}`}
       </p>
     </button>
+  );
+}
+
+function SeloDaPrioridade({ prioridade }: { prioridade: PrioridadeDaOs | null }) {
+  if (!prioridade) return null;
+  return (
+    <Selo tom={PRIORIDADE_TOM[prioridade]} pequeno>
+      {PRIORIDADE_LABEL[prioridade]}
+    </Selo>
   );
 }
 
@@ -247,6 +302,7 @@ export function CampoOs() {
               <Selo tom={dados.os.status === 'F' ? 'neutro' : 'info'} ponto>
                 {dados.os.statusNome}
               </Selo>
+              <SeloDaPrioridade prioridade={dados.os.prioridade} />
               <span className="text-[12px] text-tinta-400">
                 OS {dados.os.id}
                 {dados.os.protocolo ? ` · protocolo ${dados.os.protocolo}` : ''}

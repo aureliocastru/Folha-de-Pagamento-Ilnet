@@ -38,12 +38,25 @@ export interface ItemDeOs {
   criadoEm: string;
 }
 
+/** A prioridade da OS no IXC: baixa, normal, alta, crítica. */
+export type PrioridadeDaOs = 'B' | 'N' | 'A' | 'C';
+
+/** O tipo de serviço, tirado do assunto pela API — é o que ordena a lista do técnico. */
+export type TipoDeOs =
+  | 'SEM_INTERNET'
+  | 'INSTALACAO'
+  | 'MUDANCA_DE_ENDERECO'
+  | 'MUDANCA_DE_TITULARIDADE'
+  | 'OUTROS';
+
 export interface OsNaLista {
   id: number;
   protocolo: string | null;
   status: string;
   statusNome: string;
+  prioridade: PrioridadeDaOs | null;
   assunto: string | null;
+  tipo: TipoDeOs;
   cliente: string | null;
   endereco: string | null;
   abertura: string | null;
@@ -337,6 +350,29 @@ export const FINALIZACAO_LABEL: Record<SituacaoItemDeOs, string> = {
   GRAVADO: 'Finalizada por aqui',
   FALHOU: 'Finalização recusada',
   CONFERIR: 'Finalização a conferir',
+};
+
+export const PRIORIDADE_LABEL: Record<PrioridadeDaOs, string> = {
+  C: 'Prioridade crítica',
+  A: 'Prioridade alta',
+  N: 'Prioridade normal',
+  B: 'Prioridade baixa',
+};
+
+export const PRIORIDADE_TOM: Record<PrioridadeDaOs, Tom> = {
+  C: 'erro',
+  A: 'atencao',
+  N: 'neutro',
+  B: 'neutro',
+};
+
+/** Os tipos na ordem em que o técnico atende — a mesma em que a API manda a lista. */
+export const TIPO_DE_OS_LABEL: Record<TipoDeOs, string> = {
+  SEM_INTERNET: 'Cliente sem internet',
+  INSTALACAO: 'Instalação',
+  MUDANCA_DE_ENDERECO: 'Mudança de endereço',
+  MUDANCA_DE_TITULARIDADE: 'Mudança de titularidade',
+  OUTROS: 'Outros',
 };
 
 export const CONDICAO_LABEL: Record<CondicaoDoRetirado, string> = {

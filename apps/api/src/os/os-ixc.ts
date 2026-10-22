@@ -43,6 +43,81 @@ export const STATUS_DA_OS: Record<string, string> = {
 };
 
 /**
+ * A prioridade da OS no IXC (`su_oss_chamado.prioridade`), como a coleção a
+ * descreve: B baixa, N normal, A alta, C crítica. O exemplo do "inserir" manda
+ * "1" — o que não for uma das quatro letras fica sem prioridade, e não vira
+ * "normal" por palpite.
+ */
+export type PrioridadeDaOs = 'B' | 'N' | 'A' | 'C';
+
+/** Quanto pesa cada prioridade na lista do técnico: a crítica primeiro. */
+export const PESO_DA_PRIORIDADE: Record<PrioridadeDaOs, number> = { C: 0, A: 1, N: 2, B: 3 };
+
+function lerPrioridade(v: unknown): PrioridadeDaOs | null {
+  const p = String(v ?? '').trim().toUpperCase();
+  return p === 'B' || p === 'N' || p === 'A' || p === 'C' ? p : null;
+}
+
+/**
+ * O tipo de serviço da OS, na ordem em que o técnico atende: o cliente sem
+ * internet primeiro, depois a instalação, a mudança de endereço, a de
+ * titularidade, e o resto.
+ */
+export const TIPOS_DE_OS = [
+  'SEM_INTERNET',
+  'INSTALACAO',
+  'MUDANCA_DE_ENDERECO',
+  'MUDANCA_DE_TITULARIDADE',
+  'OUTROS',
+] as const;
+export type TipoDeOs = (typeof TIPOS_DE_OS)[number];
+
+/**
+ * O tipo de serviço, tirado do nome do assunto. O assunto é cadastro livre no
+ * IXC ("Sem conexão", "Instalação Fibra", "Troca de titularidade"), e não há
+ * campo que diga o tipo: vai pelo nome.
+ *
+ * As mudanças se olham antes da instalação, porque o assunto da mudança de
+ * endereço costuma falar em instalar no endereço novo.
+ */
+export function tipoDoAssunto(nome: string | null): TipoDeOs {
+  const n = (nome ?? '')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase();
+  if (/titular/.test(n)) return 'MUDANCA_DE_TITULARIDADE';
+  if (/endereco/.test(n)) return 'MUDANCA_DE_ENDERECO';
+  if (/sem (internet|conexao|acesso|sinal|navegacao)|offline|fora do ar|\blos\b/.test(n)) {
+    return 'SEM_INTERNET';
+  }
+  if (/instala/.test(n)) return 'INSTALACAO';
+  return 'OUTROS';
+}
+
+/** O que a ordem da lista olha numa OS. */
+interface OsNaFila {
+  recusa: string | null;
+  tipo: TipoDeOs;
+  prioridade: PrioridadeDaOs | null;
+  agenda: string | null;
+  abertura: string | null;
+}
+
+/**
+ * A ordem da lista do técnico: pelo tipo de serviço (`TIPOS_DE_OS`), dentro
+ * dele pela prioridade (a sem prioridade conta como normal), e no empate a
+ * agendada mais recente primeiro. A que não aceita mais nada vai para o fim.
+ */
+export function naOrdemDoTecnico(a: OsNaFila, b: OsNaFila): number {
+  return (
+    Number(!!a.recusa) - Number(!!b.recusa) ||
+    TIPOS_DE_OS.indexOf(a.tipo) - TIPOS_DE_OS.indexOf(b.tipo) ||
+    PESO_DA_PRIORIDADE[a.prioridade ?? 'N'] - PESO_DA_PRIORIDADE[b.prioridade ?? 'N'] ||
+    (b.agenda ?? b.abertura ?? '').localeCompare(a.agenda ?? a.abertura ?? '')
+  );
+}
+
+/**
  * Quantos dias depois de finalizada uma OS ainda aceita material por aqui.
  *
  * É comum a OS ser finalizada no IXC (pelo atendimento, ou pelo aplicativo de
@@ -58,6 +133,7 @@ export interface OsDoIxc {
   protocolo: string | null;
   /** A, AN, EN, AS, AG, DS, EX, RAG, F. */
   status: string;
+  prioridade: PrioridadeDaOs | null;
   assuntoId: number;
   clienteId: number;
   /** `id_contrato_kit` — o contrato do cliente em que a OS foi aberta. */
@@ -107,6 +183,7 @@ export function lerOs(l: Record<string, unknown>): OsDoIxc | null {
     id,
     protocolo: texto(l.protocolo),
     status: String(l.status ?? '').trim().toUpperCase(),
+    prioridade: lerPrioridade(l.prioridade),
     assuntoId: numeroDoIxc(l.id_assunto),
     clienteId: numeroDoIxc(l.id_cliente),
     contratoId: numeroDoIxc(l.id_contrato_kit),

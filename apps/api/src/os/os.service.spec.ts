@@ -166,6 +166,7 @@ const OS: OsDoIxc = {
   id: 3788,
   protocolo: '2026092400123',
   status: 'EX',
+  prioridade: 'N',
   assuntoId: 4,
   clienteId: 900,
   contratoId: 2294,
