@@ -171,6 +171,7 @@ const OS: OsDoIxc = {
   contratoId: 2294,
   loginId: 51,
   filialId: 1,
+  setorId: 3,
   tecnicoId: 17,
   abertura: '2026-09-23 08:00:00',
   agenda: null,

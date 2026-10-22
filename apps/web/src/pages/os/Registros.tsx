@@ -4,21 +4,28 @@ import { Aviso, Bloco, CabecalhoPagina, Carregando, Pagina, Selo, Vazio } from '
 import { api, mensagemErro } from '../../lib/api';
 import {
   CONDICAO_LABEL,
+  FINALIZACAO_LABEL,
   SITUACAO_LABEL,
   SITUACAO_TOM,
   TIPO_LABEL,
   TIPO_TOM,
   identificacaoDaPeca,
   quantidadeComUnidade,
+  type FinalizacaoDeOs,
   type ItemDeOs,
   type RegistroDeOs,
+  type ResultadoDaFinalizacao,
   type ResultadoDaGravacao,
 } from '../../lib/os';
 
 /**
- * As OS em que algum técnico mexeu em material — e, primeiro, as que pedem
- * alguém da base: o que ficou sem enviar, o que o IXC recusou, e o que ficou
- * em "conferir" (o IXC deu erro e, relido, não deu para saber se gravou).
+ * As OS em que algum técnico mexeu em material ou que finalizou pelo celular —
+ * e, primeiro, as que pedem alguém da base: o que ficou sem enviar, o que o
+ * IXC recusou, e o que ficou em "conferir" (o IXC deu erro e, relido, não deu
+ * para saber se gravou).
+ *
+ * A finalização que esperava um item recusado se manda daqui depois de acertar
+ * o item: o "Finalizar no IXC" leva os itens pendentes e fecha a OS.
  *
  * "Conferir" não se resolve daqui às cegas: alguém olha a OS no IXC e diz o
  * que viu. Repetir sem olhar é o jeito de tirar duas vezes da van.
@@ -69,6 +76,35 @@ export function Registros() {
     onSettled: recarregar,
   });
 
+  const finalizar = useMutation({
+    mutationFn: async (id: string) =>
+      (await api.post<ResultadoDaFinalizacao>(`/os/finalizacoes/${id}/gravar`)).data,
+    onSuccess: ({ finalizacao: f }) =>
+      setAviso(
+        f.situacao === 'GRAVADO'
+          ? { tom: f.aviso ? 'atencao' : 'pago', texto: f.aviso ?? 'OS finalizada no IXC.' }
+          : { tom: 'erro', texto: `${FINALIZACAO_LABEL[f.situacao]}: ${f.erro ?? 'sem motivo dito.'}` },
+      ),
+    onError: (e) => setAviso({ tom: 'erro', texto: mensagemErro(e) }),
+    onSettled: recarregar,
+  });
+
+  const finalizacaoConferida = useMutation({
+    mutationFn: async (p: { id: string; fechou: boolean }) => {
+      await api.post(`/os/finalizacoes/${p.id}/conferido`, { gravou: p.fechou });
+    },
+    onError: (e) => setAviso({ tom: 'erro', texto: mensagemErro(e) }),
+    onSettled: recarregar,
+  });
+
+  const descartarFinalizacao = useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/os/finalizacoes/${id}`);
+    },
+    onError: (e) => setAviso({ tom: 'erro', texto: mensagemErro(e) }),
+    onSettled: recarregar,
+  });
+
   const registros = lista.data ?? [];
 
   return (
@@ -105,7 +141,7 @@ export function Registros() {
         <Bloco>
           <Vazio titulo={todas ? 'Nenhuma OS registrada ainda' : 'Nada esperando a base'}>
             {todas
-              ? 'As OS aparecem aqui quando um técnico anota aparelho ou material nelas.'
+              ? 'As OS aparecem aqui quando um técnico anota aparelho ou material nelas, ou as finaliza pelo celular.'
               : 'Tudo o que os técnicos anotaram já está no IXC.'}
           </Vazio>
         </Bloco>
@@ -152,12 +188,130 @@ export function Registros() {
                   }}
                 />
               ))}
+              {r.finalizacao && (
+                <LinhaDaFinalizacao
+                  finalizacao={r.finalizacao}
+                  enviando={finalizar.isPending && finalizar.variables === r.finalizacao.id}
+                  ocupado={
+                    finalizar.isPending || finalizacaoConferida.isPending || descartarFinalizacao.isPending
+                  }
+                  onFinalizar={() => {
+                    const f = r.finalizacao!;
+                    if (confirm(`Finalizar a OS ${r.osIxcId} no IXC, com o relato de ${f.tecnico}?`)) {
+                      finalizar.mutate(f.id);
+                    }
+                  }}
+                  onConferido={(fechou) => {
+                    const pergunta = fechou
+                      ? `Você viu a OS ${r.osIxcId} finalizada no IXC?`
+                      : `Confirmado que a OS ${r.osIxcId} NÃO está finalizada no IXC? A finalização volta a poder ser enviada.`;
+                    if (confirm(pergunta)) finalizacaoConferida.mutate({ id: r.finalizacao!.id, fechou });
+                  }}
+                  onDescartar={() => {
+                    if (
+                      confirm(
+                        `Descartar a finalização da OS ${r.osIxcId}? Ela não foi ao IXC e sai daqui — ` +
+                          'a OS continua aberta lá.',
+                      )
+                    ) {
+                      descartarFinalizacao.mutate(r.finalizacao!.id);
+                    }
+                  }}
+                />
+              )}
             </ul>
           </Bloco>
         ))}
       </div>
     </Pagina>
   );
+}
+
+/** A finalização pelo celular, ao pé dos itens da OS. */
+function LinhaDaFinalizacao({
+  finalizacao: f,
+  enviando,
+  ocupado,
+  onFinalizar,
+  onConferido,
+  onDescartar,
+}: {
+  finalizacao: FinalizacaoDeOs;
+  enviando: boolean;
+  ocupado: boolean;
+  onFinalizar: () => void;
+  onConferido: (fechou: boolean) => void;
+  onDescartar: () => void;
+}) {
+  const podeIr = f.situacao === 'PENDENTE' || f.situacao === 'FALHOU';
+  return (
+    <li className="flex flex-wrap items-start gap-3 bg-realce px-4 py-3 md:px-5">
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Selo tom="marca" pequeno>
+            Finalização
+          </Selo>
+          <Selo tom={SITUACAO_TOM[f.situacao]} pequeno ponto>
+            {FINALIZACAO_LABEL[f.situacao]}
+          </Selo>
+          <span className="text-[11px] text-tinta-400">
+            {f.tecnico} · {horaCurta(f.fim)}
+            {f.latitude !== null && f.longitude !== null && (
+              <>
+                {' · '}
+                <a
+                  href={`https://www.google.com/maps?q=${f.latitude},${f.longitude}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline"
+                >
+                  onde estava
+                </a>
+              </>
+            )}
+          </span>
+        </div>
+        <p className="mt-1 text-[12px] text-tinta-500">
+          {[f.resposta, f.diagnostico, `de ${horaCurta(f.inicio)} a ${horaCurta(f.fim)}`]
+            .filter(Boolean)
+            .join(' · ')}
+        </p>
+        <p className="mt-0.5 line-clamp-3 whitespace-pre-line text-sm text-tinta-800">{f.relato}</p>
+        {f.erro && <p className="text-[12px] text-rose-600 dark:text-rose-300">{f.erro}</p>}
+        {f.aviso && <p className="text-[12px] text-amber-700 dark:text-amber-300">{f.aviso}</p>}
+      </div>
+      {f.situacao === 'CONFERIR' && (
+        <div className="flex gap-1.5">
+          <button type="button" disabled={ocupado} onClick={() => onConferido(true)} className="btn btn-neutro btn-p">
+            Fechou no IXC
+          </button>
+          <button type="button" disabled={ocupado} onClick={() => onConferido(false)} className="btn btn-sutil btn-p">
+            Não fechou
+          </button>
+        </div>
+      )}
+      {podeIr && (
+        <div className="flex gap-1.5">
+          <button type="button" disabled={ocupado} onClick={onFinalizar} className="btn btn-primario btn-p">
+            {enviando ? 'Finalizando…' : 'Finalizar no IXC'}
+          </button>
+          <button type="button" disabled={ocupado} onClick={onDescartar} className="btn btn-sutil btn-p text-rose-600">
+            Descartar
+          </button>
+        </div>
+      )}
+    </li>
+  );
+}
+
+/** "22/10 08:30", no fuso de quem olha. */
+function horaCurta(iso: string): string {
+  return new Date(iso).toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 function LinhaDaBase({

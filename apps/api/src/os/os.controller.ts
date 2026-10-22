@@ -22,6 +22,7 @@ import {
   IncluirMaterialDto,
   ReceberRecolhidosDto,
 } from './dto/os.dto';
+import { FinalizacaoService } from './finalizacao.service';
 import { MateriaisDeOsService } from './materiais.service';
 import { OsService } from './os.service';
 import { RecolhidosService } from './recolhidos.service';
@@ -52,6 +53,7 @@ export class OsController {
     private readonly materiais: MateriaisDeOsService,
     private readonly relatorio: RelatorioOsService,
     private readonly produtos: ProdutosService,
+    private readonly finalizacao: FinalizacaoService,
   ) {}
 
   /** Os números que o menu mostra: o que espera alguém da base. */
@@ -61,9 +63,13 @@ export class OsController {
       this.os.registros({ pendencias: true, limite: 500 }),
       this.recolhidos.pendentes(),
     ]);
+    const situacaoDaFinalizacao = (r: (typeof pendencias)[number]) => r.finalizacao?.situacao;
     return {
-      comProblema: pendencias.filter((r) => r.problemas > 0).length,
-      pendentes: pendencias.filter((r) => r.pendentes > 0).length,
+      comProblema: pendencias.filter(
+        (r) => r.problemas > 0 || ['FALHOU', 'CONFERIR'].includes(situacaoDaFinalizacao(r) ?? ''),
+      ).length,
+      pendentes: pendencias.filter((r) => r.pendentes > 0 || situacaoDaFinalizacao(r) === 'PENDENTE')
+        .length,
       recolhidos: recolhidos.length,
     };
   }
@@ -96,6 +102,32 @@ export class OsController {
   @HttpCode(204)
   async descartar(@Req() req: Request, @Param('id', ParseUUIDPipe) id: string) {
     await this.os.descartar(id, quem(req));
+  }
+
+  // --- Finalizações pelo celular ---
+
+  /** Leva ao IXC a finalização que ficou para trás (e os itens pendentes da OS). */
+  @Post('finalizacoes/:id/gravar')
+  @HttpCode(200)
+  gravarFinalizacao(@Req() req: Request, @Param('id', ParseUUIDPipe) id: string) {
+    return this.finalizacao.levarPelaBase(id, quem(req));
+  }
+
+  /** A base diz se a OS fechou no IXC — o `gravou` do DTO é "a OS fechou". */
+  @Post('finalizacoes/:id/conferido')
+  @HttpCode(200)
+  finalizacaoConferida(
+    @Req() req: Request,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ConferidoDto,
+  ) {
+    return this.finalizacao.resolverConferencia(id, dto.gravou, quem(req));
+  }
+
+  @Delete('finalizacoes/:id')
+  @HttpCode(204)
+  async descartarFinalizacao(@Req() req: Request, @Param('id', ParseUUIDPipe) id: string) {
+    await this.finalizacao.descartar(id, quem(req));
   }
 
   // --- Recolhidos ---

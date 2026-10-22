@@ -1,5 +1,9 @@
+import type { AssuntoDoIxc } from './os-ixc';
 import {
+  motivoDoAssunto,
+  motivoDosItensTravados,
   motivoForaDosAparelhos,
+  motivoParaNaoFinalizar,
   motivoParaNaoGastar,
   motivoParaNaoInstalar,
   motivoParaNaoRetirar,
@@ -218,5 +222,111 @@ describe('motivoForaDosAparelhos', () => {
 
   it('sem lista nenhuma, nada se instala — e a mensagem diz o que falta', () => {
     expect(motivoForaDosAparelhos(34, 'ONU', [])).toMatch(/ainda não montou a lista de aparelhos/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Finalizar a OS
+// ---------------------------------------------------------------------------
+
+describe('motivoParaNaoFinalizar', () => {
+  const assunto: AssuntoDoIxc = {
+    id: 4,
+    nome: 'Troca de equipamento',
+    respostaPadraoId: 12,
+    diagnosticoObrigatorio: false,
+    fotosExigidas: 0,
+    aparelhosExigidos: 0,
+    produtosExigidos: 0,
+    equipeObrigatoria: false,
+    geraComissao: false,
+  };
+  const agora = new Date('2026-10-22T13:00:00Z'); // 10:00 daqui
+  const base = {
+    status: 'EX',
+    assunto,
+    pedido: {
+      respostaId: 12,
+      diagnosticoId: null,
+      relato: 'Troquei a ONU, sinal ok.',
+      inicio: new Date('2026-10-22T11:30:00Z'),
+    },
+    respostas: [{ id: 12, nome: 'Concluída', texto: null, setorId: 0 }],
+    diagnosticos: [{ id: 5, nome: 'ONU queimada', texto: null, setorId: 0 }],
+    aparelhos: 0,
+    produtos: 0,
+    abertura: '2026-10-22 07:00:00',
+    agora,
+  };
+
+  it('o pedido certo passa', () => {
+    expect(motivoParaNaoFinalizar(base)).toBeNull();
+  });
+
+  it('a OS já finalizada no IXC não se finaliza de novo', () => {
+    expect(motivoParaNaoFinalizar({ ...base, status: 'F' })).toMatch(/já está finalizada/);
+  });
+
+  it('o assunto que exige foto ou equipe se finaliza pelo IXC', () => {
+    expect(motivoDoAssunto({ ...assunto, fotosExigidas: 2 })).toMatch(/exige 2 fotos.*pelo IXC/);
+    expect(motivoDoAssunto({ ...assunto, equipeObrigatoria: true })).toMatch(/equipe.*pelo IXC/);
+    expect(motivoParaNaoFinalizar({ ...base, assunto: { ...assunto, fotosExigidas: 1 } })).toMatch(/foto/);
+    expect(motivoDoAssunto(assunto)).toBeNull();
+  });
+
+  it('o aparelho e o produto que o assunto exige contam o que está no IXC e o que vai antes', () => {
+    const exige = { ...assunto, aparelhosExigidos: 1, produtosExigidos: 2 };
+    expect(motivoParaNaoFinalizar({ ...base, assunto: exige, aparelhos: 0, produtos: 2 })).toMatch(
+      /1 aparelho\(s\).*tem 0.*Instalei/,
+    );
+    expect(motivoParaNaoFinalizar({ ...base, assunto: exige, aparelhos: 1, produtos: 1 })).toMatch(
+      /2 produto\(s\).*tem 1.*Gastei/,
+    );
+    expect(motivoParaNaoFinalizar({ ...base, assunto: exige, aparelhos: 1, produtos: 2 })).toBeNull();
+  });
+
+  it('a resposta e o diagnóstico têm de existir, e o diagnóstico obrigatório tem de vir', () => {
+    expect(motivoParaNaoFinalizar({ ...base, pedido: { ...base.pedido, respostaId: 99 } })).toMatch(/resposta/);
+    expect(motivoParaNaoFinalizar({ ...base, pedido: { ...base.pedido, diagnosticoId: 99 } })).toMatch(
+      /diagnóstico/,
+    );
+    const exigeDiagnostico = { ...base, assunto: { ...assunto, diagnosticoObrigatorio: true } };
+    expect(motivoParaNaoFinalizar(exigeDiagnostico)).toMatch(/exige o diagnóstico/);
+    expect(
+      motivoParaNaoFinalizar({ ...exigeDiagnostico, pedido: { ...base.pedido, diagnosticoId: 5 } }),
+    ).toBeNull();
+    // Sem resposta pode: no IXC ela é opcional.
+    expect(motivoParaNaoFinalizar({ ...base, pedido: { ...base.pedido, respostaId: null } })).toBeNull();
+  });
+
+  it('o relato vazio não passa', () => {
+    expect(motivoParaNaoFinalizar({ ...base, pedido: { ...base.pedido, relato: '  ok ' } })).toMatch(
+      /o que foi feito/,
+    );
+  });
+
+  it('o início não pode estar no futuro, nem antes da abertura da OS', () => {
+    const em = (iso: string) => ({ ...base, pedido: { ...base.pedido, inicio: new Date(iso) } });
+    expect(motivoParaNaoFinalizar(em('2026-10-22T13:30:00Z'))).toMatch(/futuro/);
+    // Cinco minutos de folga para o relógio do celular.
+    expect(motivoParaNaoFinalizar(em('2026-10-22T13:04:00Z'))).toBeNull();
+    expect(motivoParaNaoFinalizar(em('2026-10-22T09:59:00Z'))).toMatch(/antes da abertura da OS \(22\/10, 07:00\)/);
+    expect(motivoParaNaoFinalizar(em('invalido'))).toMatch(/hora/);
+  });
+});
+
+describe('motivoDosItensTravados', () => {
+  it('tudo no IXC não trava', () => {
+    expect(motivoDosItensTravados([])).toBeNull();
+  });
+
+  it('diz o que está segurando o fechamento', () => {
+    expect(
+      motivoDosItensTravados([{ situacao: 'FALHOU' }, { situacao: 'CONFERIR' }, { situacao: 'PENDENTE' }]),
+    ).toBe(
+      'A OS não foi finalizada: tem 1 item(ns) recusado(s) pelo IXC, 1 item(ns) esperando a base ' +
+        'conferir no IXC, 1 item(ns) que ainda não foram ao IXC. Ela se finaliza depois que eles ' +
+        'estiverem no IXC.',
+    );
   });
 });

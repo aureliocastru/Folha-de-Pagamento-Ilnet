@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AlmoxarifadoModule } from '../almoxarifado/almoxarifado.module';
 import { IxcModule } from '../ixc/ixc.module';
 import { UsuariosModule } from '../usuarios/usuarios.module';
+import { FinalizacaoService } from './finalizacao.service';
 import { MateriaisDeOsService } from './materiais.service';
 import { MinhasOsController } from './minhas-os.controller';
 import { OsDoIxcService } from './os-do-ixc.service';
@@ -27,6 +28,7 @@ import { TecnicosService } from './tecnicos.service';
     OsDoIxcService,
     TecnicosService,
     OsService,
+    FinalizacaoService,
     RecolhidosService,
     MateriaisDeOsService,
     RelatorioOsService,

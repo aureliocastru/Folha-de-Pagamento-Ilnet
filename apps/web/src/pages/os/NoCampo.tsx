@@ -8,6 +8,7 @@ import { api, mensagemErro } from '../../lib/api';
 import { semAcento } from '../../lib/busca';
 import {
   CONDICAO_LABEL,
+  FINALIZACAO_LABEL,
   SITUACAO_LABEL,
   SITUACAO_TOM,
   TIPO_LABEL,
@@ -18,6 +19,7 @@ import {
   type AparelhoParaInstalar,
   type ComodatoParaRetirar,
   type CondicaoDoRetirado,
+  type FinalizacaoDeOs,
   type ItemDeOs,
   type MaterialDaVan,
   type MinhasOs,
@@ -32,10 +34,10 @@ import { useTecladoAberto } from '../../lib/teclado';
 /**
  * As ordens de serviço no celular do técnico.
  *
- * A OS é do IXC — nasce no atendimento, e é lá que se finaliza. Aqui o técnico
- * diz o que fez com material dentro dela: o aparelho que tirou do cliente, o
- * que instalou no lugar, e o conector e o drop que gastou. Tudo sai e volta da
- * van dele, que é o almoxarifado dele no IXC.
+ * A OS é do IXC — nasce no atendimento. Aqui o técnico diz o que fez com
+ * material dentro dela: o aparelho que tirou do cliente, o que instalou no
+ * lugar, e o conector e o drop que gastou. Tudo sai e volta da van dele, que é
+ * o almoxarifado dele no IXC. No fim, ele finaliza a OS (`Finalizar.tsx`).
  *
  * **Anotar e enviar são dois passos.** Anotar confere contra o IXC e guarda;
  * nada muda no estoque até o "Enviar ao IXC". É o que deixa o técnico anotar
@@ -131,6 +133,11 @@ function CartaoDaOs({ os, onAbrir }: { os: OsNaLista; onAbrir: () => void }) {
         {os.problemas > 0 && (
           <Selo tom="erro" pequeno>
             {os.problemas} com problema
+          </Selo>
+        )}
+        {os.finalizacao && os.finalizacao !== 'GRAVADO' && (
+          <Selo tom={os.finalizacao === 'PENDENTE' ? 'atencao' : 'erro'} pequeno>
+            {FINALIZACAO_LABEL[os.finalizacao]}
           </Selo>
         )}
         <span className="ml-auto text-[11px] text-tinta-400">OS {os.id}</span>
@@ -312,6 +319,8 @@ export function CampoOs() {
             )}
           </section>
 
+          <SecaoDeFinalizar osId={id} status={dados.os.status} finalizacao={dados.finalizacao} />
+
           {/* Digitando, a barra sai da frente do campo — ver `useTecladoAberto`. */}
           {aEnviar > 0 && !recusa && !teclado && (
             <div className="fixed inset-x-0 bottom-0 z-30 border-t border-tinta-200 bg-papel/95 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] backdrop-blur">
@@ -371,6 +380,53 @@ export function CampoOs() {
         </>
       )}
     </div>
+  );
+}
+
+/**
+ * A finalização da OS: o botão que abre o passo a passo, e o que aconteceu com
+ * a última vez — recusada, esperando um item, esperando a base conferir.
+ */
+function SecaoDeFinalizar({
+  osId,
+  status,
+  finalizacao: f,
+}: {
+  osId: number;
+  status: string;
+  finalizacao: FinalizacaoDeOs | null;
+}) {
+  const podeFinalizar = status !== 'F' && (!f || f.situacao === 'PENDENTE' || f.situacao === 'FALHOU');
+  if (!f && !podeFinalizar) return null;
+  return (
+    <section className="space-y-2">
+      <h2 className="eyebrow">Finalizar</h2>
+      {f && (
+        <Aviso
+          tom={
+            f.situacao === 'GRAVADO'
+              ? f.aviso
+                ? 'atencao'
+                : 'pago'
+              : f.situacao === 'PENDENTE' || f.situacao === 'GRAVANDO'
+                ? 'atencao'
+                : 'erro'
+          }
+        >
+          <strong>{FINALIZACAO_LABEL[f.situacao]}</strong>
+          {f.situacao === 'GRAVADO' &&
+            f.gravadoEm &&
+            ` em ${new Date(f.gravadoEm).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`}
+          {f.situacao === 'CONFERIR' && ' — a base confere no IXC e fecha a OS.'}
+          {(f.erro || f.aviso) && <span className="mt-1 block">{f.erro ?? f.aviso}</span>}
+        </Aviso>
+      )}
+      {podeFinalizar && (
+        <Link to={`/campo/os/${osId}/finalizar`} className="btn btn-neutro w-full justify-center py-3 text-base">
+          {f ? 'Finalizar de novo' : 'Finalizar OS'}
+        </Link>
+      )}
+    </section>
   );
 }
 

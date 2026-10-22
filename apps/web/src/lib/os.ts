@@ -52,6 +52,53 @@ export interface OsNaLista {
   anotados: number;
   pendentes: number;
   problemas: number;
+  /** A finalização pelo celular, quando houve. */
+  finalizacao: SituacaoItemDeOs | null;
+}
+
+/** A OS finalizada pelo celular — e a fila de levar isso ao IXC. */
+export interface FinalizacaoDeOs {
+  id: string;
+  situacao: SituacaoItemDeOs;
+  respostaId: number | null;
+  resposta: string | null;
+  diagnosticoId: number | null;
+  diagnostico: string | null;
+  relato: string;
+  inicio: string;
+  fim: string;
+  geraComissao: boolean;
+  latitude: number | null;
+  longitude: number | null;
+  precisao: number | null;
+  erro: string | null;
+  aviso: string | null;
+  tentativas: number;
+  gravadoEm: string | null;
+  tecnico: string;
+  registradoPor: string;
+  criadoEm: string;
+}
+
+/** O que o passo a passo de finalizar precisa para abrir. */
+export interface ParaFinalizar {
+  assunto: {
+    nome: string;
+    diagnosticoObrigatorio: boolean;
+    aparelhosExigidos: number;
+    produtosExigidos: number;
+  };
+  /** Por que esta OS não se finaliza pelo celular. */
+  recusa: string | null;
+  respostas: Array<{ id: number; nome: string; texto: string | null }>;
+  diagnosticos: Array<{ id: number; nome: string }>;
+  sugestao: { respostaId: number | null; inicio: string | null };
+  finalizacao: FinalizacaoDeOs | null;
+}
+
+export interface ResultadoDaFinalizacao {
+  finalizacao: FinalizacaoDeOs;
+  itens: ResultadoDaGravacao;
 }
 
 export interface MinhasOs {
@@ -99,6 +146,7 @@ export interface OsAberta {
   paraInstalar: AparelhoParaInstalar[];
   /** A base ainda não marcou nenhum modelo como aparelho de cliente. */
   semListaDeAparelhos: boolean;
+  finalizacao: FinalizacaoDeOs | null;
   materiais: MaterialDaVan[];
   itens: ItemDeOs[];
 }
@@ -137,6 +185,7 @@ export interface RegistroDeOs {
   pendentes: number;
   problemas: number;
   itens: ItemDeOs[];
+  finalizacao: FinalizacaoDeOs | null;
 }
 
 export interface Recolhido extends ItemDeOs {
@@ -279,6 +328,15 @@ export const SITUACAO_TOM: Record<SituacaoItemDeOs, Tom> = {
   GRAVADO: 'pago',
   FALHOU: 'erro',
   CONFERIR: 'erro',
+};
+
+/** A situação da finalização, dita do jeito da OS e não do item. */
+export const FINALIZACAO_LABEL: Record<SituacaoItemDeOs, string> = {
+  PENDENTE: 'Finalização pendente',
+  GRAVANDO: 'Finalizando',
+  GRAVADO: 'Finalizada por aqui',
+  FALHOU: 'Finalização recusada',
+  CONFERIR: 'Finalização a conferir',
 };
 
 export const CONDICAO_LABEL: Record<CondicaoDoRetirado, string> = {

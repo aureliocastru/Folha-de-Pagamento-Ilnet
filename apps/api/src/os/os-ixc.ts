@@ -17,6 +17,9 @@
  *  - **material gasto** — `su_oss_mov_produto` ("Produtos › Tipo Produto
  *    (inserir)"): o conector e o drop saem do almoxarifado dele pela OS.
  *
+ * E uma quarta, que fecha a OS: `su_oss_chamado_fechar` ("Ações ›
+ * Finalizar"), com o que o técnico disse no passo a passo do celular.
+ *
  * Os exemplos da documentação mandam `"ixcsoft": "listar"` também nas
  * inserções. Não se repete isso aqui: o `IxcClient` só põe esse cabeçalho nas
  * listagens, como em toda outra escrita desta casa.
@@ -61,6 +64,8 @@ export interface OsDoIxc {
   contratoId: number;
   loginId: number;
   filialId: number;
+  /** O setor da OS — as respostas e os diagnósticos de outro setor não aparecem. */
+  setorId: number;
   /** `funcionarios.id` do IXC — o mesmo `ixcId` do cadastro daqui. */
   tecnicoId: number;
   /** "AAAA-MM-DD HH:MM:SS", ou null. */
@@ -107,6 +112,7 @@ export function lerOs(l: Record<string, unknown>): OsDoIxc | null {
     contratoId: numeroDoIxc(l.id_contrato_kit),
     loginId: numeroDoIxc(l.id_login),
     filialId: numeroDoIxc(l.id_filial),
+    setorId: numeroDoIxc(l.setor),
     tecnicoId: numeroDoIxc(l.id_tecnico),
     abertura: dataDoIxc(l.data_abertura),
     agenda: dataDoIxc(l.data_agenda),
@@ -423,5 +429,200 @@ export function montarMaterialNaOs(
     id_estrutura: '',
     ultima_situacao_patrimonio: '',
     id_pedido_os: '',
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Finalizar a OS
+// ---------------------------------------------------------------------------
+
+/**
+ * O assunto da OS, no que a finalização precisa dele. É o cadastro do IXC
+ * ("Suporte › Cadastros › Assunto") que diz o que cada tipo de OS pede ao ser
+ * finalizada — quem configura o assunto lá configura a finalização daqui.
+ */
+export interface AssuntoDoIxc {
+  id: number;
+  nome: string;
+  /** `id_resposta_padrao_finalizacao`: a resposta que já vem escolhida. */
+  respostaPadraoId: number | null;
+  diagnosticoObrigatorio: boolean;
+  /** Quantas fotos o assunto exige na finalização. Zero = não exige. */
+  fotosExigidas: number;
+  /** Quantos aparelhos em comodato a OS precisa ter. Zero = não exige. */
+  aparelhosExigidos: number;
+  /** Quantos produtos (material) a OS precisa ter. Zero = não exige. */
+  produtosExigidos: number;
+  equipeObrigatoria: boolean;
+  /** O assunto paga comissão (`valor_comissao` acima de zero). */
+  geraComissao: boolean;
+}
+
+function sim(v: unknown): boolean {
+  return String(v ?? '').trim().toUpperCase() === 'S';
+}
+
+/** "Exige" com quantidade: a quantidade vazia vale um. */
+function exigidos(exige: unknown, quantidade: unknown): number {
+  return sim(exige) ? Math.max(1, numeroDoIxc(quantidade)) : 0;
+}
+
+/** Uma linha de `su_oss_assunto`. Null quando não tem id. */
+export function lerAssunto(l: Record<string, unknown>): AssuntoDoIxc | null {
+  const id = numeroDoIxc(l.id);
+  if (id <= 0) return null;
+  const respostaPadraoId = numeroDoIxc(l.id_resposta_padrao_finalizacao);
+  return {
+    id,
+    nome: texto(l.assunto) ?? texto(l.descricao) ?? `Assunto ${id}`,
+    respostaPadraoId: respostaPadraoId > 0 ? respostaPadraoId : null,
+    diagnosticoObrigatorio: sim(l.diagnostico_obrigatorio_finalizacao_os),
+    fotosExigidas: exigidos(l.exige_fotos_finalizacao_os, l.quantidade_fotos_finalizacao_os),
+    aparelhosExigidos: exigidos(l.exige_comodato_finalizar_os, l.quantidade_equipamentos),
+    produtosExigidos: exigidos(l.exige_produto_finalizar_os, l.quantidade_produtos),
+    equipeObrigatoria: sim(l.equipe_obrigatoria_finalizacao_os),
+    geraComissao: numeroDoIxc(l.valor_comissao) > 0,
+  };
+}
+
+/**
+ * Uma resposta padrão (`su_oss_respostas`) ou um diagnóstico
+ * (`su_diagnostico`): o que o técnico escolhe numa lista ao finalizar.
+ */
+export interface OpcaoDoIxc {
+  id: number;
+  nome: string;
+  /** O texto da resposta — no IXC, escolher a resposta escreve isto na mensagem. */
+  texto: string | null;
+  /** Zero = de todos os setores. */
+  setorId: number;
+}
+
+/** Uma linha de `su_oss_respostas`. Null quando não tem id ou está inativa. */
+export function lerResposta(l: Record<string, unknown>): OpcaoDoIxc | null {
+  const id = numeroDoIxc(l.id);
+  if (id <= 0 || String(l.ativo ?? 'S').trim().toUpperCase() === 'N') return null;
+  const corpo = texto(l.resposta);
+  return {
+    id,
+    nome: texto(l.titulo) ?? corpo?.slice(0, 60) ?? `Resposta ${id}`,
+    texto: corpo,
+    setorId: numeroDoIxc(l.setor),
+  };
+}
+
+/** Uma linha de `su_diagnostico`. Null quando não tem id ou está inativo. */
+export function lerDiagnostico(l: Record<string, unknown>): OpcaoDoIxc | null {
+  const id = numeroDoIxc(l.id);
+  if (id <= 0 || String(l.ativo ?? 'S').trim().toUpperCase() === 'N') return null;
+  return {
+    id,
+    nome: texto(l.descricao) ?? `Diagnóstico ${id}`,
+    texto: null,
+    setorId: numeroDoIxc(l.id_setor),
+  };
+}
+
+/**
+ * As opções do setor da OS, e as de todos os setores. Quando o filtro não
+ * deixa nada, valem todas: uma lista vazia trava o técnico, e escolher uma
+ * resposta de outro setor não estraga nada.
+ */
+export function doSetor(opcoes: OpcaoDoIxc[], setorId: number): OpcaoDoIxc[] {
+  if (setorId <= 0) return opcoes;
+  const doSetor = opcoes.filter((o) => o.setorId <= 0 || o.setorId === setorId);
+  return doSetor.length > 0 ? doSetor : opcoes;
+}
+
+/**
+ * "DD/MM/AAAA HH:MM:SS", no fuso daqui — o formato em que o IXC escreve data
+ * com hora, como o "DD/MM/AAAA" das escritas de material. **Ainda sem prova
+ * nesta base** (ver PLANO.md, Fase 0): a releitura depois de fechar confere o
+ * status, e não a data.
+ */
+export function dataHoraParaIxc(d: Date): string {
+  const partes = new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(d);
+  const p = (tipo: Intl.DateTimeFormatPartTypes) => partes.find((x) => x.type === tipo)?.value ?? '00';
+  return `${p('day')}/${p('month')}/${p('year')} ${p('hour')}:${p('minute')}:${p('second')}`;
+}
+
+/** O que o fechamento da OS leva. */
+export interface Fechamento {
+  osId: number;
+  tecnicoIxcId: number;
+  inicio: Date;
+  fim: Date;
+  respostaId: number | null;
+  diagnosticoId: number | null;
+  /** A mensagem de fechamento, já montada (`mensagemDoFechamento`). */
+  mensagem: string;
+  geraComissao: boolean;
+  gps: { latitude: number; longitude: number; em: Date } | null;
+}
+
+/**
+ * A mensagem que fica na OS: o relato do técnico, e de onde veio — quem lê a
+ * OS no IXC precisa saber que ela foi finalizada pelo celular, e por quem.
+ */
+export function mensagemDoFechamento(relato: string, tecnico: string): string {
+  return `${relato.trim()}\n\n— Finalizada pelo celular por ${tecnico}.`;
+}
+
+/**
+ * O corpo do `POST /su_oss_chamado_fechar` ("Ações › Finalizar").
+ *
+ * Vão os campos do exemplo da documentação, todos — os de processo
+ * (`id_processo`, `id_tarefa_atual`, `sequencia_atual`…) vazios, porque a OS
+ * sem processo não os usa. Se as OS desta base tiverem processo, o fechamento
+ * é o "Finalizar com tarefa", e esses campos têm de vir da tarefa (ver
+ * PLANO.md, Fase 0).
+ *
+ * `gera_comissao` sai do assunto: "S" quando ele tem valor de comissão. É o
+ * que a casa configurou no IXC; mandar vazio deixaria o IXC decidir de um
+ * jeito que ninguém aqui conferiu.
+ */
+export function montarFechamento(f: Fechamento): Record<string, unknown> {
+  const mensagem = f.mensagem.trim();
+  if (!mensagem) throw new BadRequestException('Falta o relato do que foi feito.');
+  if (!(f.fim.getTime() >= f.inicio.getTime())) {
+    throw new BadRequestException('O fim do serviço não pode ser antes do início.');
+  }
+  const gps = f.gps;
+  return {
+    id_chamado: id(f.osId, 'a OS'),
+    id_tarefa_atual: '',
+    eh_tarefa_decisao: '',
+    sequencia_atual: '',
+    proxima_sequencia_forcada: '',
+    finaliza_processo_aux: '',
+    gera_comissao_aux: '',
+    id_processo: '',
+    data_inicio: dataHoraParaIxc(f.inicio),
+    data_final: dataHoraParaIxc(f.fim),
+    id_resposta: f.respostaId && f.respostaId > 0 ? String(f.respostaId) : '',
+    mensagem,
+    id_tecnico: id(f.tecnicoIxcId, 'o técnico no IXC'),
+    id_equipe: '',
+    gera_comissao: f.geraComissao ? 'S' : 'N',
+    status: 'F',
+    data: dataHoraParaIxc(f.fim),
+    id_evento: '',
+    id_su_diagnostico: f.diagnosticoId && f.diagnosticoId > 0 ? String(f.diagnosticoId) : '',
+    justificativa_sla_atrasado: '',
+    id_evento_status: '',
+    id_proxima_tarefa: '',
+    id_proxima_tarefa_aux: '',
+    latitude: gps ? gps.latitude.toFixed(7) : '',
+    longitude: gps ? gps.longitude.toFixed(7) : '',
+    gps_time: gps ? dataHoraParaIxc(gps.em) : '',
   };
 }

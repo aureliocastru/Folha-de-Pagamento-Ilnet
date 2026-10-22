@@ -8,7 +8,7 @@
  * recusa vira erro na tela ou aviso na lista é quem chamou.
  */
 
-import type { ComodatoDoContrato } from './os-ixc';
+import type { AssuntoDoIxc, ComodatoDoContrato, OpcaoDoIxc } from './os-ixc';
 
 /** A peça como `TransferenciasService.acharPeca` a devolve — só o que se confere. */
 export interface PecaLida {
@@ -232,6 +232,145 @@ export function naOrdemDeGravar<T extends { tipo: ItemJaAnotado['tipo']; created
       ORDEM[a.tipo] - ORDEM[b.tipo] ||
       (a.createdAt?.getTime() ?? 0) - (b.createdAt?.getTime() ?? 0),
   );
+}
+
+// ---------------------------------------------------------------------------
+// Finalizar a OS
+// ---------------------------------------------------------------------------
+
+/** O que o técnico mandou no passo a passo de finalizar. */
+export interface PedidoDeFinalizar {
+  respostaId: number | null;
+  diagnosticoId: number | null;
+  relato: string;
+  inicio: Date;
+}
+
+/**
+ * O que o assunto exige e o celular ainda não sabe fazer. A OS desse assunto
+ * se finaliza pelo IXC, e a tela diz isso antes de o técnico preencher nada.
+ */
+export function motivoDoAssunto(assunto: AssuntoDoIxc): string | null {
+  if (assunto.fotosExigidas > 0) {
+    const fotos = assunto.fotosExigidas > 1 ? `${assunto.fotosExigidas} fotos` : 'foto';
+    return (
+      `No IXC, o assunto "${assunto.nome}" exige ${fotos} para finalizar, e as fotos ainda ` +
+      'não vão pelo celular. Finalize esta OS pelo IXC.'
+    );
+  }
+  if (assunto.equipeObrigatoria) {
+    return (
+      `No IXC, o assunto "${assunto.nome}" exige a equipe para finalizar, e a equipe não vai ` +
+      'pelo celular. Finalize esta OS pelo IXC.'
+    );
+  }
+  return null;
+}
+
+/** O início que se mostra na tela: "22/10 08:30". */
+function inicioNaTela(d: Date): string {
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(d);
+}
+
+/**
+ * Pode finalizar a OS com o que o técnico mandou? Antes de qualquer escrita:
+ *
+ *  - **a OS ainda está aberta?** A finalizada no IXC não se finaliza de novo;
+ *  - **o assunto pede o que o celular não faz?** (ver `motivoDoAssunto`);
+ *  - **a OS tem o que o assunto exige?** Aparelho em comodato, produto: conta
+ *    o que já está na OS no IXC e o que está anotado para ir antes do
+ *    fechamento — o técnico que esqueceu de anotar fica sabendo agora, e não
+ *    pela recusa do IXC depois que ele foi embora;
+ *  - **a resposta e o diagnóstico existem?** O diagnóstico, quando o assunto
+ *    o exige, é obrigatório;
+ *  - **o relato diz alguma coisa?**
+ *  - **o início faz sentido?** Nem no futuro, nem antes de a OS existir.
+ */
+export function motivoParaNaoFinalizar(dados: {
+  status: string;
+  assunto: AssuntoDoIxc;
+  pedido: PedidoDeFinalizar;
+  respostas: OpcaoDoIxc[];
+  diagnosticos: OpcaoDoIxc[];
+  /** Aparelhos em comodato na OS: os que estão no IXC e os anotados que ainda vão. */
+  aparelhos: number;
+  /** Produtos gastos na OS, contados do mesmo jeito. */
+  produtos: number;
+  /** A abertura da OS, "AAAA-MM-DD HH:MM:SS" no fuso daqui. */
+  abertura: string | null;
+  agora: Date;
+}): string | null {
+  const { assunto, pedido } = dados;
+  if (dados.status === 'F') return 'A OS já está finalizada no IXC.';
+  const doAssunto = motivoDoAssunto(assunto);
+  if (doAssunto) return doAssunto;
+
+  if (dados.aparelhos < assunto.aparelhosExigidos) {
+    return (
+      `O assunto "${assunto.nome}" exige ${assunto.aparelhosExigidos} aparelho(s) em comodato ` +
+      `na OS, e ela tem ${dados.aparelhos}. Anote em "Instalei" antes de finalizar.`
+    );
+  }
+  if (dados.produtos < assunto.produtosExigidos) {
+    return (
+      `O assunto "${assunto.nome}" exige ${assunto.produtosExigidos} produto(s) na OS, e ela ` +
+      `tem ${dados.produtos}. Anote em "Gastei" antes de finalizar.`
+    );
+  }
+
+  if (pedido.respostaId !== null && !dados.respostas.some((r) => r.id === pedido.respostaId)) {
+    return 'A resposta escolhida não está mais no IXC. Escolha de novo.';
+  }
+  if (pedido.diagnosticoId !== null && !dados.diagnosticos.some((d) => d.id === pedido.diagnosticoId)) {
+    return 'O diagnóstico escolhido não está mais no IXC. Escolha de novo.';
+  }
+  if (pedido.diagnosticoId === null && assunto.diagnosticoObrigatorio) {
+    return `O assunto "${assunto.nome}" exige o diagnóstico. Escolha um.`;
+  }
+
+  if (pedido.relato.trim().length < 5) return 'Escreva o que foi feito no serviço.';
+
+  const inicio = pedido.inicio.getTime();
+  if (Number.isNaN(inicio)) return 'Diga a hora em que o serviço começou.';
+  // Cinco minutos de folga: o relógio do celular nem sempre bate com o do servidor.
+  if (inicio > dados.agora.getTime() + 5 * 60_000) {
+    return 'O início do serviço está no futuro. Confira a hora.';
+  }
+  const aberta = dados.abertura ? Date.parse(dados.abertura.replace(' ', 'T') + '-03:00') : NaN;
+  if (!Number.isNaN(aberta) && inicio < aberta) {
+    return (
+      `O início do serviço está antes da abertura da OS (${inicioNaTela(new Date(aberta))}). ` +
+      'Confira a hora.'
+    );
+  }
+  return null;
+}
+
+/**
+ * Por que o fechamento esperou: os itens da OS que não estão no IXC. O
+ * fechamento vai por último — depois de finalizada, o IXC pode recusar o que
+ * faltava escrever na OS, e a troca ficaria pela metade.
+ */
+export function motivoDosItensTravados(
+  itens: Array<{ situacao: ItemJaAnotado['situacao'] }>,
+): string | null {
+  const conta = (s: ItemJaAnotado['situacao'][]) => itens.filter((i) => s.includes(i.situacao)).length;
+  const recusados = conta(['FALHOU']);
+  const conferir = conta(['CONFERIR']);
+  const naoForam = conta(['PENDENTE', 'GRAVANDO']);
+  const partes = [
+    recusados && `${recusados} item(ns) recusado(s) pelo IXC`,
+    conferir && `${conferir} item(ns) esperando a base conferir no IXC`,
+    naoForam && `${naoForam} item(ns) que ainda não foram ao IXC`,
+  ].filter(Boolean);
+  if (partes.length === 0) return null;
+  return `A OS não foi finalizada: tem ${partes.join(', ')}. Ela se finaliza depois que eles estiverem no IXC.`;
 }
 
 function arredondar(n: number): number {

@@ -216,6 +216,8 @@ model Funcionario {
   pontos        LancamentoDePontos[]
   /// O que esta pessoa instalou, retirou e gastou nas ordens de serviço.
   itensDeOs     ItemDeOs[]
+  /// As OS que esta pessoa finalizou pelo celular.
+  finalizacoesDeOs FinalizacaoDeOs[]
   /// O almoxarifado dela no IXC, quando o administrador o fixou à mão.
   almoxFixado   AlmoxDoTecnico?
 
@@ -3402,13 +3404,71 @@ model RegistroDeOs {
   endereco   String?
   filialId   Int     @map("filial_id")
 
-  itens ItemDeOs[]
+  itens       ItemDeOs[]
+  finalizacao FinalizacaoDeOs?
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@index([createdAt])
   @@map("registros_de_os")
+}
+
+/// A OS finalizada pelo celular: o que o técnico disse no passo a passo, e a
+/// fila de levar isso ao IXC (`su_oss_chamado_fechar`). Uma por OS.
+///
+/// A situação é a mesma dos itens, e quer dizer o mesmo: PENDENTE ainda não
+/// foi (ou parou antes de ir: um item que o IXC recusou segura o fechamento),
+/// GRAVANDO é a trava, FALHOU o IXC recusou e relida a OS não fechou, CONFERIR
+/// não deu para saber.
+model FinalizacaoDeOs {
+  id String @id @default(uuid())
+
+  registro   RegistroDeOs @relation(fields: [registroId], references: [id], onDelete: Cascade)
+  registroId String       @unique @map("registro_id")
+
+  situacao SituacaoItemDeOs @default(PENDENTE)
+
+  /// Quem finalizou. O `ixcId` vai junto porque é ele que o fechamento leva
+  /// em `id_tecnico`, e a base pode reenviar depois.
+  tecnico      Funcionario @relation(fields: [tecnicoId], references: [id], onDelete: Restrict)
+  tecnicoId    String      @map("tecnico_id")
+  tecnicoIxcId Int         @map("tecnico_ixc_id")
+
+  /// `su_oss_respostas` e `su_diagnostico`, com o nome escrito: o cadastro de
+  /// lá muda.
+  respostaId    Int?    @map("resposta_id")
+  resposta      String?
+  diagnosticoId Int?    @map("diagnostico_id")
+  diagnostico   String?
+  /// O que foi feito, na palavra do técnico. Vai como a mensagem do fechamento.
+  relato        String
+
+  inicio       DateTime
+  fim          DateTime
+  /// Do assunto no IXC (`valor_comissao`), lido na hora de finalizar.
+  geraComissao Boolean  @default(false) @map("gera_comissao")
+
+  /// Onde o celular estava ao finalizar. Nulo quando o técnico não deu
+  /// permissão ou o GPS não respondeu — finaliza do mesmo jeito.
+  latitude  Decimal?  @db.Decimal(10, 7)
+  longitude Decimal?  @db.Decimal(10, 7)
+  /// Em metros, como o navegador diz.
+  precisao  Int?
+  gpsEm     DateTime? @map("gps_em")
+
+  erro       String?
+  aviso      String?
+  tentativas Int       @default(0)
+  gravadoEm  DateTime? @map("gravado_em")
+
+  registradoPor String   @map("registrado_por")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([situacao])
+  @@index([tecnicoId, gravadoEm])
+  @@map("finalizacoes_de_os")
 }
 
 /// Um aparelho ou um material dentro da OS.

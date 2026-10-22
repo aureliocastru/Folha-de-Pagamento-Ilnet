@@ -1,12 +1,20 @@
 import {
+  dataHoraParaIxc,
+  doSetor,
   finalizadaHoje,
+  lerAssunto,
   lerComodato,
+  lerDiagnostico,
   lerOs,
+  lerResposta,
+  mensagemDoFechamento,
   montarBaixaDeComodato,
   montarComodatoNaOs,
+  montarFechamento,
   montarMaterialNaOs,
   osRecusaMaterial,
   produtoParaOs,
+  type Fechamento,
   type OsParaEscrever,
   type ProdutoParaOs,
 } from './os-ixc';
@@ -63,6 +71,7 @@ describe('lerOs', () => {
       id_contrato_kit: '2294',
       id_login: '51',
       id_filial: '1',
+      setor: '3',
       id_tecnico: '17',
       data_abertura: '2026-09-23 08:00:00',
       data_agenda: '2026-09-24 09:00:00',
@@ -83,6 +92,7 @@ describe('lerOs', () => {
       contratoId: 2294,
       loginId: 51,
       filialId: 1,
+      setorId: 3,
       tecnicoId: 17,
       abertura: '2026-09-23 08:00:00',
       agenda: '2026-09-24 09:00:00',
@@ -315,5 +325,141 @@ describe('montarMaterialNaOs', () => {
   it('patrimônio não é material, e quantidade zero não sai', () => {
     expect(() => montarMaterialNaOs(os, onu, 1)).toThrow(/patrimônio/);
     expect(() => montarMaterialNaOs(os, conector, 0)).toThrow(/maior que zero/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Finalizar a OS
+// ---------------------------------------------------------------------------
+
+describe('lerAssunto', () => {
+  it('lê do cadastro do IXC o que a finalização pede', () => {
+    expect(
+      lerAssunto({
+        id: '4',
+        assunto: 'Instalação FTTH',
+        id_resposta_padrao_finalizacao: '12',
+        diagnostico_obrigatorio_finalizacao_os: 'S',
+        exige_fotos_finalizacao_os: 'S',
+        quantidade_fotos_finalizacao_os: '3',
+        exige_comodato_finalizar_os: 'S',
+        quantidade_equipamentos: '',
+        exige_produto_finalizar_os: 'N',
+        quantidade_produtos: '5',
+        equipe_obrigatoria_finalizacao_os: 'N',
+        valor_comissao: '15.00',
+      }),
+    ).toEqual({
+      id: 4,
+      nome: 'Instalação FTTH',
+      respostaPadraoId: 12,
+      diagnosticoObrigatorio: true,
+      fotosExigidas: 3,
+      // "Exige" sem quantidade vale um.
+      aparelhosExigidos: 1,
+      // A quantidade sem o "exige" não vale nada.
+      produtosExigidos: 0,
+      equipeObrigatoria: false,
+      geraComissao: true,
+    });
+  });
+
+  it('o assunto sem nada configurado não exige nada', () => {
+    expect(lerAssunto({ id: '7', assunto: 'Visita técnica', id_resposta_padrao_finalizacao: '0' })).toEqual({
+      id: 7,
+      nome: 'Visita técnica',
+      respostaPadraoId: null,
+      diagnosticoObrigatorio: false,
+      fotosExigidas: 0,
+      aparelhosExigidos: 0,
+      produtosExigidos: 0,
+      equipeObrigatoria: false,
+      geraComissao: false,
+    });
+    expect(lerAssunto({ id: '0' })).toBeNull();
+  });
+});
+
+describe('lerResposta, lerDiagnostico e doSetor', () => {
+  it('a resposta traz o título e o texto; a inativa não entra', () => {
+    expect(
+      lerResposta({ id: '12', titulo: 'Instalação concluída', resposta: 'Cliente navegando.', setor: '3', ativo: 'S' }),
+    ).toEqual({ id: 12, nome: 'Instalação concluída', texto: 'Cliente navegando.', setorId: 3 });
+    expect(lerResposta({ id: '13', titulo: 'Velha', ativo: 'N' })).toBeNull();
+    expect(lerDiagnostico({ id: '5', descricao: 'Conector danificado', id_setor: '0', ativo: 'S' })).toEqual({
+      id: 5,
+      nome: 'Conector danificado',
+      texto: null,
+      setorId: 0,
+    });
+  });
+
+  it('do setor da OS e de todos; sem nenhuma do setor, valem todas', () => {
+    const opcoes = [
+      { id: 1, nome: 'De todos', texto: null, setorId: 0 },
+      { id: 2, nome: 'Do suporte', texto: null, setorId: 3 },
+      { id: 3, nome: 'Do comercial', texto: null, setorId: 8 },
+    ];
+    expect(doSetor(opcoes, 3).map((o) => o.id)).toEqual([1, 2]);
+    expect(doSetor(opcoes, 0).map((o) => o.id)).toEqual([1, 2, 3]);
+    expect(doSetor(opcoes.slice(1), 5).map((o) => o.id)).toEqual([2, 3]);
+  });
+});
+
+describe('montarFechamento', () => {
+  const fechamento: Fechamento = {
+    osId: 3788,
+    tecnicoIxcId: 17,
+    // 08:30 e 10:05 no fuso daqui.
+    inicio: new Date('2026-10-22T11:30:00Z'),
+    fim: new Date('2026-10-22T13:05:09Z'),
+    respostaId: 12,
+    diagnosticoId: null,
+    mensagem: mensagemDoFechamento('Troquei a ONU.  ', 'Cleyson'),
+    geraComissao: true,
+    gps: { latitude: -12.9714, longitude: -38.5014, em: new Date('2026-10-22T13:04:00Z') },
+  };
+
+  it('a data com hora vai no formato de escrita do IXC, no fuso daqui', () => {
+    expect(dataHoraParaIxc(new Date('2026-10-22T02:07:03Z'))).toBe('21/10/2026 23:07:03');
+  });
+
+  it('fecha a OS com o técnico, as horas, a resposta, a mensagem e o GPS', () => {
+    expect(montarFechamento(fechamento)).toMatchObject({
+      id_chamado: '3788',
+      id_tecnico: '17',
+      status: 'F',
+      data_inicio: '22/10/2026 08:30:00',
+      data_final: '22/10/2026 10:05:09',
+      data: '22/10/2026 10:05:09',
+      id_resposta: '12',
+      id_su_diagnostico: '',
+      mensagem: 'Troquei a ONU.\n\n— Finalizada pelo celular por Cleyson.',
+      gera_comissao: 'S',
+      latitude: '-12.9714000',
+      longitude: '-38.5014000',
+      gps_time: '22/10/2026 10:04:00',
+      // A OS sem processo não leva tarefa.
+      id_processo: '',
+      id_tarefa_atual: '',
+      id_equipe: '',
+    });
+  });
+
+  it('sem GPS os campos vão vazios, e sem comissão vai "N"', () => {
+    expect(montarFechamento({ ...fechamento, gps: null, geraComissao: false })).toMatchObject({
+      latitude: '',
+      longitude: '',
+      gps_time: '',
+      gera_comissao: 'N',
+    });
+  });
+
+  it('recusa aqui o que o IXC recusaria lá', () => {
+    expect(() => montarFechamento({ ...fechamento, mensagem: '   ' })).toThrow(/relato/);
+    expect(() => montarFechamento({ ...fechamento, fim: new Date('2026-10-22T11:00:00Z') })).toThrow(
+      /antes do início/,
+    );
+    expect(() => montarFechamento({ ...fechamento, tecnicoIxcId: 0 })).toThrow(/técnico/);
   });
 });

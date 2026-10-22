@@ -1,4 +1,4 @@
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -6,6 +6,7 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsISO8601,
   IsNumber,
   IsOptional,
   IsString,
@@ -13,6 +14,8 @@ import {
   Max,
   MaxLength,
   Min,
+  MinLength,
+  ValidateNested,
 } from 'class-validator';
 
 const texto = ({ value }: { value: unknown }) =>
@@ -79,6 +82,42 @@ export class AnotarRetiradasDto {
 
   @IsOptional() @Transform(texto) @IsString() @MaxLength(500)
   observacao?: string;
+}
+
+/** Onde o celular estava ao finalizar, como o navegador diz. */
+export class GpsDto {
+  @IsNumber() @Min(-90) @Max(90)
+  latitude!: number;
+
+  @IsNumber() @Min(-180) @Max(180)
+  longitude!: number;
+
+  /** Em metros. */
+  @IsOptional() @IsNumber() @Min(0) @Max(100000)
+  precisao?: number;
+
+  @IsISO8601()
+  em!: string;
+}
+
+/** O passo a passo de finalizar. O que cada assunto exige está em `FinalizacaoService.finalizar`. */
+export class FinalizarDto {
+  @IsOptional() @Transform(inteiro) @IsInt() @Min(1)
+  respostaId?: number;
+
+  @IsOptional() @Transform(inteiro) @IsInt() @Min(1)
+  diagnosticoId?: number;
+
+  @Transform(texto) @IsString() @MinLength(5) @MaxLength(2000)
+  relato!: string;
+
+  /** A hora em que o serviço começou. */
+  @IsISO8601()
+  inicio!: string;
+
+  /** Sem permissão ou sem resposta do GPS, a OS se finaliza sem ele. */
+  @IsOptional() @ValidateNested() @Type(() => GpsDto)
+  gps?: GpsDto;
 }
 
 /** A base diz o que viu no IXC sobre um item que ficou em conferência. */

@@ -14,12 +14,13 @@ import {
 import { UserRole } from '@prisma/client';
 import type { Request } from 'express';
 import { Roles } from '../auth/roles.decorator';
-import { AnotarItemDto, AnotarRetiradasDto } from './dto/os.dto';
+import { AnotarItemDto, AnotarRetiradasDto, FinalizarDto } from './dto/os.dto';
+import { FinalizacaoService } from './finalizacao.service';
 import { OsService, type Login } from './os.service';
 
 /**
- * As ordens de serviço do técnico, no celular: as OS dele no IXC, e o que ele
- * instala, retira e gasta em cada uma.
+ * As ordens de serviço do técnico, no celular: as OS dele no IXC, o que ele
+ * instala, retira e gasta em cada uma, e a finalização.
  *
  * Como a tela do colaborador, isto é **da pessoa que entrou** — nada aqui
  * recebe o técnico de fora. Quem ele é sai do login; quais OS são dele, do
@@ -35,7 +36,10 @@ import { OsService, type Login } from './os.service';
 @Roles(UserRole.ADMIN, UserRole.RH, UserRole.VISUALIZADOR, UserRole.TECNICO)
 @Controller('minhas-os')
 export class MinhasOsController {
-  constructor(private readonly os: OsService) {}
+  constructor(
+    private readonly os: OsService,
+    private readonly finalizacao: FinalizacaoService,
+  ) {}
 
   @Get()
   minhas(@Req() req: Request) {
@@ -92,6 +96,23 @@ export class MinhasOsController {
   @HttpCode(200)
   gravar(@Req() req: Request, @Param('osId', ParseIntPipe) osId: number) {
     return this.os.gravar(logado(req), osId);
+  }
+
+  /** O que o passo a passo de finalizar mostra: as listas e o que o assunto pede. */
+  @Get(':osId/finalizar')
+  paraFinalizar(@Req() req: Request, @Param('osId', ParseIntPipe) osId: number) {
+    return this.finalizacao.paraFinalizar(logado(req), osId);
+  }
+
+  /** Finaliza a OS no IXC — depois de levar o que ficou anotado. */
+  @Post(':osId/finalizar')
+  @HttpCode(200)
+  finalizar(
+    @Req() req: Request,
+    @Param('osId', ParseIntPipe) osId: number,
+    @Body() dto: FinalizarDto,
+  ) {
+    return this.finalizacao.finalizar(logado(req), osId, dto);
   }
 }
 

@@ -270,10 +270,68 @@ Tudo é escrito **na própria OS do IXC**, saindo e voltando do almoxarifado del
       (`su_oss_chamado_arquivos` — o `IxcClient.upload` já sabe mandar)
 - [ ] Kit sugerido por assunto de OS (instalação: 1 drop, 2 conectores…) para
       o técnico só confirmar
-- [ ] Finalizar a OS pelo app (`su_oss_chamado_fechar`), se um dia a casa quiser
-      tirar isso do IXC
+- [ ] Finalizar a OS pelo app — ver a seção seguinte
 - [ ] Aparelho em comodato sem número de peça (produto comum, pela quantidade)
       na instalação — hoje só a retirada aceita
+
+## 🚧 Ordens de Serviço — finalizar a OS pelo celular
+
+O técnico finaliza a OS no fim do serviço, na mesma tela em que anota o que
+retirou, instalou e gastou: um passo a passo curto, inspirado no "finalizar
+wizard" do IXC e mais simples que ele. A base só acompanha e resolve o que der
+problema.
+
+**O que cada assunto pede vem do próprio IXC**, e não de um cadastro daqui: o
+`su_oss_assunto` já guarda a resposta padrão da finalização
+(`id_resposta_padrao_finalizacao`), se o diagnóstico é obrigatório, se exige
+fotos e quantas, se exige aparelho em comodato ou produto, se exige equipe, a
+comissão (`valor_comissao`) e as marcas do wizard de lá (`wiz_assinatura_obrig`,
+`wiz_autorizar_ONU`…). Quem configura o assunto no IXC configura a finalização
+daqui.
+
+**Ao finalizar, nesta ordem** (fila à prova de repetição, no molde dos itens:
+troca condicional no banco, releitura do IXC quando dá erro, "conferir" quando
+não dá para saber):
+
+1. os itens que ainda não foram ao IXC — se algum não for, a finalização para
+   e fica pendente, com o motivo;
+2. as fotos e a assinatura, em `su_oss_chamado_arquivos` (Fase 2);
+3. os dados da conexão, no login e na ONU (Fase 3);
+4. `su_oss_chamado_fechar`, com o relato, a resposta, o diagnóstico, o início e
+   o fim, o técnico e o GPS do celular;
+5. a releitura da OS: tem de estar finalizada; se não estiver, fica com aviso.
+
+O fechamento vai por último de propósito: depois de finalizada, o IXC pode
+recusar outras escritas na OS.
+
+- [ ] **Fase 0 — prova no IXC de verdade** (precisa da base real): a troca de
+      teste da seção anterior; finalizar uma OS de teste e conferir o formato
+      das datas (`data_inicio`, `data_final`, `gps_time` vão "DD/MM/AAAA
+      HH:MM:SS", o formato de escrita do IXC — ainda sem prova) e o
+      `gera_comissao`; anexar um arquivo; ver se as OS desta base usam
+      processo (`id_wfl_tarefa`) — se usarem, o fechamento precisa dos campos
+      do "Finalizar com tarefa"
+- [x] **Fase 1 — finalizar básico** (escrito, falta a prova da Fase 0): o
+      botão "Finalizar OS" no celular, o
+      relato (resposta padrão do assunto já escolhida, o texto dela no relato,
+      diagnóstico), a hora de início, o GPS, o resumo para conferir, a fila do
+      fechamento e, na base, a finalização dentro de "OS registradas" (enviar
+      de novo, conferir, descartar). O assunto que exige foto ou equipe ainda
+      se finaliza pelo IXC
+- [ ] **Fase 2 — fotos e assinatura**: os dois passos, anexados na OS, com o
+      mínimo de fotos do assunto, e o rascunho guardado no celular (o sinal cai
+      na casa do cliente)
+- [ ] **Fase 3a — conexão no texto**: MAC/série da ONU, sinal RX, CTO e porta,
+      escritos na mensagem do fechamento e guardados aqui
+- [ ] **Fase 3b — conexão no login e na ONU** (`radusuarios`: `onu_mac`,
+      `id_caixa_ftth`, `ftth_porta`, `sinal_ultimo_atendimento`;
+      `radpop_radio_cliente_fibra`). **A parte perigosa:** o `PUT` do IXC apaga
+      toda coluna que não vai no corpo (ver `docs/ixc/README.md`). Só entra
+      depois de provado num login de teste que ler o registro inteiro e
+      devolvê-lo com os campos mudados não apaga nada
+
+Fica de fora, de propósito, e continua no IXC: reagendar, deslocamento e
+execução, processos e tarefas, equipe e evento.
 
 ## Notas técnicas / decisões
 

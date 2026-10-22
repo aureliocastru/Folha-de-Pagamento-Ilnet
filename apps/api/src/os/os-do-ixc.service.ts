@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { numeroDoIxc } from '../almoxarifado/estoque.mapper';
 import { identidadeDaPeca } from '../almoxarifado/mover-tudo';
 import { ProdutosService } from '../almoxarifado/produtos.service';
@@ -6,15 +6,20 @@ import { IxcClient } from '../ixc/ixc.client';
 import {
   finalizadaHoje,
   hojeNaData,
+  lerAssunto,
   lerComodato,
+  lerDiagnostico,
   lerOs,
+  lerResposta,
   produtoParaOs,
+  type AssuntoDoIxc,
   type ComodatoDoContrato,
+  type OpcaoDoIxc,
   type OsDoIxc,
   type ProdutoParaOs,
 } from './os-ixc';
 
-/** Quanto valem os cadastros que quase não mudam (assuntos, filiais). */
+/** Quanto valem os cadastros que quase não mudam (assuntos, respostas, filiais). */
 const CADASTRO_VALE_MS = 30 * 60_000;
 
 /** Uma peça de patrimônio na prateleira de um almoxarifado. */
@@ -41,7 +46,9 @@ export interface AparelhoNoAlmox {
 @Injectable()
 export class OsDoIxcService {
   private readonly logger = new Logger(OsDoIxcService.name);
-  private assuntos: { em: number; nomes: Map<number, string> } | null = null;
+  private assuntos: { em: number; porId: Map<number, AssuntoDoIxc> } | null = null;
+  private respostasLidas: { em: number; opcoes: OpcaoDoIxc[] } | null = null;
+  private diagnosticosLidos: { em: number; opcoes: OpcaoDoIxc[] } | null = null;
   private filiais: { em: number; nomes: Map<number, string> } | null = null;
 
   constructor(
@@ -118,34 +125,91 @@ export class OsDoIxcService {
 
   /** id → nome do assunto ("Instalação", "Troca de equipamento"). */
   async nomesDosAssuntos(): Promise<Map<number, string>> {
-    if (this.assuntos && Date.now() - this.assuntos.em < CADASTRO_VALE_MS) {
-      return this.assuntos.nomes;
-    }
     try {
+      const assuntos = await this.assuntosDoIxc();
+      return new Map([...assuntos].map(([id, a]) => [id, a.nome]));
+    } catch (e) {
+      // Sem o nome, a OS aparece com o número do assunto — continua usável.
+      this.logger.warn(`Sem os assuntos de OS do IXC (${motivo(e)}).`);
+      return new Map(
+        [...(this.assuntos?.porId ?? new Map<number, AssuntoDoIxc>())].map(([id, a]) => [id, a.nome]),
+      );
+    }
+  }
+
+  /**
+   * O assunto da OS, com o que a finalização pede. Diferente dos nomes, aqui
+   * a falha do IXC sobe: finalizar sem saber se o assunto exige foto ou
+   * diagnóstico seria adivinhar.
+   */
+  async assunto(assuntoId: number): Promise<AssuntoDoIxc> {
+    const achado = (await this.assuntosDoIxc()).get(assuntoId);
+    if (!achado) {
+      throw new BadRequestException(`O assunto ${assuntoId} da OS não foi achado no IXC.`);
+    }
+    return achado;
+  }
+
+  private async assuntosDoIxc(): Promise<Map<number, AssuntoDoIxc>> {
+    if (this.assuntos && Date.now() - this.assuntos.em < CADASTRO_VALE_MS) {
+      return this.assuntos.porId;
+    }
+    const linhas = await this.ixc.listAll<Record<string, unknown>>(
+      'su_oss_assunto',
+      {
+        qtype: 'su_oss_assunto.id',
+        query: '0',
+        oper: '>',
+        sortname: 'su_oss_assunto.id',
+        sortorder: 'asc',
+      },
+      { pageSize: 500, maxPages: 4 },
+    );
+    const porId = new Map<number, AssuntoDoIxc>();
+    for (const l of linhas) {
+      const assunto = lerAssunto(l);
+      if (assunto) porId.set(assunto.id, assunto);
+    }
+    this.assuntos = { em: Date.now(), porId };
+    return porId;
+  }
+
+  /** As respostas padrão de OS, ativas (`su_oss_respostas`). */
+  async respostas(): Promise<OpcaoDoIxc[]> {
+    if (!this.respostasLidas || Date.now() - this.respostasLidas.em >= CADASTRO_VALE_MS) {
       const linhas = await this.ixc.listAll<Record<string, unknown>>(
-        'su_oss_assunto',
+        'su_oss_respostas',
         {
-          qtype: 'su_oss_assunto.id',
+          qtype: 'su_oss_respostas.id',
           query: '0',
           oper: '>',
-          sortname: 'su_oss_assunto.id',
+          sortname: 'su_oss_respostas.id',
           sortorder: 'asc',
         },
         { pageSize: 500, maxPages: 4 },
       );
-      const nomes = new Map<number, string>();
-      for (const l of linhas) {
-        const id = numeroDoIxc(l.id);
-        const nome = String(l.assunto ?? l.descricao ?? '').trim();
-        if (id > 0 && nome) nomes.set(id, nome);
-      }
-      this.assuntos = { em: Date.now(), nomes };
-      return nomes;
-    } catch (e) {
-      // Sem o nome, a OS aparece com o número do assunto — continua usável.
-      this.logger.warn(`Sem os assuntos de OS do IXC (${motivo(e)}).`);
-      return this.assuntos?.nomes ?? new Map();
+      this.respostasLidas = { em: Date.now(), opcoes: emOrdem(linhas.map(lerResposta)) };
     }
+    return this.respostasLidas.opcoes;
+  }
+
+  /** Os diagnósticos, ativos (`su_diagnostico`). */
+  async diagnosticos(): Promise<OpcaoDoIxc[]> {
+    if (!this.diagnosticosLidos || Date.now() - this.diagnosticosLidos.em >= CADASTRO_VALE_MS) {
+      const linhas = await this.ixc.listAll<Record<string, unknown>>(
+        'su_diagnostico',
+        {
+          qtype: 'su_diagnostico.id',
+          query: '0',
+          oper: '>',
+          sortname: 'su_diagnostico.id',
+          sortorder: 'asc',
+        },
+        { pageSize: 500, maxPages: 4 },
+      );
+      this.diagnosticosLidos = { em: Date.now(), opcoes: emOrdem(linhas.map(lerDiagnostico)) };
+    }
+    return this.diagnosticosLidos.opcoes;
   }
 
   /** id → nome da filial. É o rótulo que a baixa de comodato leva junto. */
@@ -365,4 +429,11 @@ export class OsDoIxcService {
 
 function motivo(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+/** As opções lidas, sem as vazias, em ordem de nome. */
+function emOrdem(opcoes: Array<OpcaoDoIxc | null>): OpcaoDoIxc[] {
+  return opcoes
+    .filter((o): o is OpcaoDoIxc => o !== null)
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 }

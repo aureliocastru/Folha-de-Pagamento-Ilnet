@@ -10,6 +10,7 @@ import {
   Prisma,
   SituacaoItemDeOs,
   TipoItemDeOs,
+  type FinalizacaoDeOs,
   type ItemDeOs,
   type RegistroDeOs,
 } from '@prisma/client';
@@ -96,6 +97,32 @@ export interface OsNaLista {
   anotados: number;
   pendentes: number;
   problemas: number;
+  /** A finalização pelo celular, quando houve. */
+  finalizacao: SituacaoItemDeOs | null;
+}
+
+/** A finalização como as telas a mostram. */
+export interface FinalizacaoNaTela {
+  id: string;
+  situacao: SituacaoItemDeOs;
+  respostaId: number | null;
+  resposta: string | null;
+  diagnosticoId: number | null;
+  diagnostico: string | null;
+  relato: string;
+  inicio: string;
+  fim: string;
+  geraComissao: boolean;
+  latitude: number | null;
+  longitude: number | null;
+  precisao: number | null;
+  erro: string | null;
+  aviso: string | null;
+  tentativas: number;
+  gravadoEm: string | null;
+  tecnico: string;
+  registradoPor: string;
+  criadoEm: string;
 }
 
 /** A OS aberta no celular: tudo o que o técnico escolhe, e o que já anotou. */
@@ -108,6 +135,8 @@ export interface OsAberta {
   paraInstalar: Array<AparelhoNoAlmox & { motivo: string | null }>;
   /** A base ainda não marcou nenhum modelo como aparelho: nada se instala. */
   semListaDeAparelhos: boolean;
+  /** A finalização pelo celular, quando já começou. */
+  finalizacao: FinalizacaoNaTela | null;
   /** O catálogo de materiais, com o que ele tem de cada um. */
   materiais: Array<{
     produtoId: number;
@@ -157,6 +186,10 @@ const COM_REGISTRO = { registro: { select: { osIxcId: true, cliente: true } } } 
 const PARA_A_TELA = { tecnico: { select: { nome: true, apelido: true } } } as const;
 
 type ItemComTecnico = ItemDeOs & { tecnico: { nome: string; apelido: string | null } };
+type FinalizacaoComTecnico = FinalizacaoDeOs & { tecnico: { nome: string; apelido: string | null } };
+
+/** O que a finalização está fazendo, no que a lista e os registros mostram. */
+const FINALIZACAO_NA_TELA = { finalizacao: { include: PARA_A_TELA } } as const;
 
 /**
  * A ordem de serviço no celular do técnico: o aparelho que ele instalou, o que
@@ -234,10 +267,14 @@ export class OsService {
         }),
         this.prisma.registroDeOs.findUnique({
           where: { osIxcId: os.id },
-          include: { itens: { include: PARA_A_TELA, orderBy: { createdAt: 'asc' } } },
+          include: {
+            itens: { include: PARA_A_TELA, orderBy: { createdAt: 'asc' } },
+            ...FINALIZACAO_NA_TELA,
+          },
         }),
       ]);
     const itens = registro?.itens ?? [];
+    const finalizacao = registro?.finalizacao ?? null;
     const catalogo = lista.filter((m) => !m.aparelho);
     // Da van, só o que é aparelho de cliente: a escada e a caneta de limpeza
     // também são patrimônio, e não se instalam em ninguém.
@@ -254,7 +291,13 @@ export class OsService {
 
     return {
       os: {
-        ...naLista(os, assuntos, clientes, contar(itens), new Date()),
+        ...naLista(
+          os,
+          assuntos,
+          clientes,
+          { ...contar(itens), finalizacao: finalizacao?.situacao ?? null },
+          new Date(),
+        ),
         mensagem: os.mensagem,
         contratoId: os.contratoId,
         clienteId: os.clienteId,
@@ -282,6 +325,7 @@ export class OsService {
         ),
       })),
       semListaDeAparelhos: modelos.size === 0,
+      finalizacao: finalizacao ? finalizacaoNaTela(finalizacao) : null,
       materiais: catalogo.map((m) => {
         const saldo = saldos.get(m.produtoId) ?? 0;
         const pendentes = pendentesDeMaterial.get(m.produtoId) ?? 0;
@@ -402,17 +446,29 @@ export class OsService {
   // A base
   // -------------------------------------------------------------------------
 
-  /** As OS com alguma coisa anotada, da mais recente para a mais antiga. */
+  /**
+   * As OS com alguma coisa anotada ou finalizada pelo celular, da mais recente
+   * para a mais antiga.
+   */
   async registros(filtro: { pendencias?: boolean; tecnicoId?: string; limite?: number }) {
     await this.esquecerInterrompidos();
+    const esperando: SituacaoItemDeOs[] = ['PENDENTE', 'FALHOU', 'CONFERIR'];
     const registros = await this.prisma.registroDeOs.findMany({
       where: {
         ...(filtro.pendencias
-          ? { itens: { some: { situacao: { in: ['PENDENTE', 'FALHOU', 'CONFERIR'] } } } }
+          ? {
+              OR: [
+                { itens: { some: { situacao: { in: esperando } } } },
+                { finalizacao: { situacao: { in: esperando } } },
+              ],
+            }
           : {}),
         ...(filtro.tecnicoId ? { itens: { some: { tecnicoId: filtro.tecnicoId } } } : {}),
       },
-      include: { itens: { include: PARA_A_TELA, orderBy: { createdAt: 'asc' } } },
+      include: {
+        itens: { include: PARA_A_TELA, orderBy: { createdAt: 'asc' } },
+        ...FINALIZACAO_NA_TELA,
+      },
       orderBy: { updatedAt: 'desc' },
       take: Math.min(filtro.limite ?? 200, 500),
     });
@@ -423,10 +479,16 @@ export class OsService {
       assunto: r.assunto,
       cliente: r.cliente,
       endereco: r.endereco,
-      tecnicos: [...new Set(r.itens.map((i) => nomeDoTecnico(i)))],
+      tecnicos: [
+        ...new Set([
+          ...r.itens.map((i) => nomeDoTecnico(i)),
+          ...(r.finalizacao ? [nomeDoTecnico(r.finalizacao)] : []),
+        ]),
+      ],
       atualizadoEm: r.updatedAt.toISOString(),
       ...contar(r.itens),
       itens: r.itens.map(naTela),
+      finalizacao: r.finalizacao ? finalizacaoNaTela(r.finalizacao) : null,
     }));
   }
 
@@ -748,8 +810,11 @@ export class OsService {
     return naTela(item);
   }
 
-  /** O registro da OS — criado na primeira anotação, com os dados de lá copiados. */
-  private async registroDaOs(os: OsDoIxc): Promise<RegistroDeOs> {
+  /**
+   * O registro da OS — criado na primeira anotação (ou na finalização, na OS
+   * sem material), com os dados de lá copiados.
+   */
+  async registroDaOs(os: OsDoIxc): Promise<RegistroDeOs> {
     const [assuntos, clientes] = await Promise.all([
       this.doIxc.nomesDosAssuntos(),
       this.doIxc.nomesDosClientes([os.clienteId]),
@@ -786,8 +851,11 @@ export class OsService {
    *    pedaço dela que o IXC aceita é verdade a menos para acertar à mão.
    * 4. **Confere** — relê a peça, o comodato e o saldo. O IXC que aceita e não
    *    faz vira gravado com aviso, e não gravado em silêncio.
+   *
+   * Público porque a finalização (`FinalizacaoService`) passa por aqui antes
+   * de fechar a OS: o que ficou anotado vai primeiro.
    */
-  private async executar(
+  async executar(
     registro: RegistroDeOs,
     os: OsDoIxc,
     filtro: { tecnicoId?: string },
@@ -1158,7 +1226,7 @@ export class OsService {
    * colaborador do IXC, o mesmo `ixcId` do cadastro: é assim que um técnico
    * não mexe na OS de outro trocando o número no pedido.
    */
-  private async contexto(login: Login, osId: number): Promise<{ tecnico: TecnicoDaOs; os: OsDoIxc }> {
+  async contexto(login: Login, osId: number): Promise<{ tecnico: TecnicoDaOs; os: OsDoIxc }> {
     if (!(osId > 0)) throw new BadRequestException('Número de OS inválido.');
     const [tecnico, os] = await Promise.all([this.tecnicos.doLogin(login.id), this.doIxc.os(osId)]);
     if (!os) throw new NotFoundException(`A OS ${osId} não foi achada no IXC.`);
@@ -1171,14 +1239,23 @@ export class OsService {
     return { tecnico, os };
   }
 
-  /** Quantos itens cada OS tem aqui, e quantos ainda esperam. */
-  private async contagens(osIds: number[]): Promise<Map<number, ReturnType<typeof contar>>> {
+  /** Quantos itens cada OS tem aqui, quantos ainda esperam, e a finalização. */
+  private async contagens(osIds: number[]): Promise<Map<number, Contagem>> {
     if (osIds.length === 0) return new Map();
     const registros = await this.prisma.registroDeOs.findMany({
       where: { osIxcId: { in: osIds } },
-      select: { osIxcId: true, itens: { select: { situacao: true } } },
+      select: {
+        osIxcId: true,
+        itens: { select: { situacao: true } },
+        finalizacao: { select: { situacao: true } },
+      },
     });
-    return new Map(registros.map((r) => [r.osIxcId, contar(r.itens)]));
+    return new Map(
+      registros.map((r) => [
+        r.osIxcId,
+        { ...contar(r.itens), finalizacao: r.finalizacao?.situacao ?? null },
+      ]),
+    );
   }
 
   /** O que está anotado, em qualquer OS, destas peças. */
@@ -1273,11 +1350,13 @@ function ehProduto(p: unknown): p is ProdutoParaOs {
   return !!p && typeof p === 'object' && !(p instanceof Error) && 'unidadeId' in p;
 }
 
+type Contagem = ReturnType<typeof contar> & { finalizacao: SituacaoItemDeOs | null };
+
 function naLista(
   os: OsDoIxc,
   assuntos: Map<number, string>,
   clientes: Map<number, string>,
-  contagem: ReturnType<typeof contar> | undefined,
+  contagem: Contagem | undefined,
   agora: Date,
 ): OsNaLista {
   return {
@@ -1294,6 +1373,7 @@ function naLista(
     anotados: contagem?.anotados ?? 0,
     pendentes: contagem?.pendentes ?? 0,
     problemas: contagem?.problemas ?? 0,
+    finalizacao: contagem?.finalizacao ?? null,
   };
 }
 
@@ -1351,7 +1431,32 @@ export function naTela(i: ItemComTecnico): ItemNaTela {
   };
 }
 
-function nomeDoTecnico(i: ItemComTecnico): string {
+export function finalizacaoNaTela(f: FinalizacaoComTecnico): FinalizacaoNaTela {
+  return {
+    id: f.id,
+    situacao: f.situacao,
+    respostaId: f.respostaId,
+    resposta: f.resposta,
+    diagnosticoId: f.diagnosticoId,
+    diagnostico: f.diagnostico,
+    relato: f.relato,
+    inicio: f.inicio.toISOString(),
+    fim: f.fim.toISOString(),
+    geraComissao: f.geraComissao,
+    latitude: f.latitude === null ? null : Number(f.latitude),
+    longitude: f.longitude === null ? null : Number(f.longitude),
+    precisao: f.precisao,
+    erro: f.erro,
+    aviso: f.aviso,
+    tentativas: f.tentativas,
+    gravadoEm: f.gravadoEm?.toISOString() ?? null,
+    tecnico: nomeDoTecnico(f),
+    registradoPor: f.registradoPor,
+    criadoEm: f.createdAt.toISOString(),
+  };
+}
+
+export function nomeDoTecnico(i: { tecnico: { nome: string; apelido: string | null } }): string {
   return i.tecnico.apelido || i.tecnico.nome;
 }
 

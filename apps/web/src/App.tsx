@@ -36,6 +36,7 @@ const Assinar = telaSobDemanda(() => import('./pages/Assinar').then((m) => m.Ass
 const AssinarContrato = telaSobDemanda(() => import('./pages/AssinarContrato').then((m) => m.AssinarContrato));
 const CampoMinhasOs = telaSobDemanda(() => import('./pages/os/NoCampo').then((m) => m.CampoMinhasOs));
 const CampoOs = telaSobDemanda(() => import('./pages/os/NoCampo').then((m) => m.CampoOs));
+const CampoFinalizar = telaSobDemanda(() => import('./pages/os/Finalizar').then((m) => m.CampoFinalizar));
 const MateriaisDeOs = telaSobDemanda(() => import('./pages/os/Materiais').then((m) => m.Materiais));
 const Recolhidos = telaSobDemanda(() => import('./pages/os/Recolhidos').then((m) => m.Recolhidos));
 const RegistrosDeOs = telaSobDemanda(() => import('./pages/os/Registros').then((m) => m.Registros));
@@ -419,6 +420,7 @@ export default function App() {
         <Route path="abastecimento" element={<CampoAbastecimento />} />
         <Route path="os" element={<CampoMinhasOs />} />
         <Route path="os/:osId" element={<CampoOs />} />
+        <Route path="os/:osId/finalizar" element={<CampoFinalizar />} />
         <Route path="aprs" element={<CampoAprs />} />
         <Route path="nova" element={<CampoNova />} />
         <Route path="minha-conta" element={<MinhaConta />} />
