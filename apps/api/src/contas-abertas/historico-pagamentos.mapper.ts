@@ -360,7 +360,7 @@ export function mapPagamento(
       'tipo_documento',
     ]),
     caixa: {
-      id: parseIxcId(raw.id_contas ?? raw.id_conta_pagamento ?? raw.id_caixa),
+      id: contaQuePagou(raw),
       nome: nomeDeVerdade(raw, ['conta_pagamento', 'nome_conta_pagamento']),
     },
     baixadoPor: nomeDeQuemBaixou(raw),
@@ -398,13 +398,32 @@ export function mapPagamento(
 }
 
 /**
+ * A conta de onde o dinheiro de um título baixado saiu.
+ *
+ * O título guarda duas: `id_contas` é a conta em que ele foi **lançado** para
+ * sair, e `conta_pagamento` é o código da conta que **pagou** — a que se
+ * escolhe na hora da baixa, e a mesma que a aba Pagamentos do título mostra no
+ * IXC. Quase sempre são a mesma; quando não são, vale a de quem pagou. Título
+ * 37868 (Aymore, 23/10/2026): lançado na ModoBank (18), pago pelo Sicoob (14),
+ * e o recibo e a lista diziam "saiu da ModoBank".
+ */
+export function contaQuePagou(raw: Record<string, unknown>): number | null {
+  return (
+    parseIxcId(raw.conta_pagamento) ??
+    parseIxcId(raw.id_contas) ??
+    parseIxcId(raw.id_conta_pagamento) ??
+    parseIxcId(raw.id_caixa)
+  );
+}
+
+/**
  * O nome da conta, quando a coluna traz nome — e não o código de novo.
  *
  * `fn_apagar.conta_pagamento` não é o rótulo que o nome promete: nesta base ela
- * repete o código da conta ("14"), e só vem preenchida nos títulos lançados pela
- * tela do IXC. Lida como nome, ela fazia a lista de pagos mostrar "14" numa
- * linha e "Conta Sicoob" na de baixo — a mesma conta com dois rostos, e o do
- * código escondendo o defeito de quem procurava por nome.
+ * traz o código da conta que pagou ("14" — ver `contaQuePagou`). Lida como
+ * nome, ela fazia a lista de pagos mostrar "14" numa linha e "Conta Sicoob" na
+ * de baixo — a mesma conta com dois rostos, e o do código escondendo o defeito
+ * de quem procurava por nome.
  *
  * Texto que é só dígito, então, não é nome: fica para o índice de contas
  * preencher, que é quem tem o nome de verdade.

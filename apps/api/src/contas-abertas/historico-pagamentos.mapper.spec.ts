@@ -194,8 +194,8 @@ describe('ler um pagamento', () => {
   });
 
   /**
-   * `conta_pagamento` promete o nome da conta e entrega o código dela — e só
-   * vem preenchida nos títulos lançados pela tela do IXC. Lida como nome, a
+   * `conta_pagamento` promete o nome da conta e entrega o código dela — o da
+   * conta que pagou. Lida como nome, a
    * lista de pagos mostrava "14" numa linha e "Conta Sicoob" na de baixo, para
    * a mesma conta, e quem visse "14" não tinha como saber de onde saiu.
    */
@@ -204,6 +204,13 @@ describe('ler um pagamento', () => {
 
     expect(p.caixa.id).toBe(14);
     expect(p.caixa.nome).toBeNull();
+  });
+
+  it('a conta é a que pagou, e não a em que o título foi lançado', () => {
+    // Título 37868: lançado na ModoBank (18), pago pelo Sicoob (14).
+    expect(mapPagamento(pago({ id_contas: '18', conta_pagamento: '14' }))!.caixa.id).toBe(14);
+    // Sem a conta que pagou, fica a do lançamento.
+    expect(mapPagamento(pago({ id_contas: '18', conta_pagamento: '' }))!.caixa.id).toBe(18);
   });
 
   it('nome de verdade na coluna de nome é aproveitado', () => {

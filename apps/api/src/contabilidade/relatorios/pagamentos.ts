@@ -75,7 +75,10 @@ export function lerPagamento(
   const pago = centavos(numero(raw.valor_total_pago)) || quitado;
   const fornecedorId = idDoIxc(raw.id_fornecedor);
   const fornecedor = fornecedorId !== null ? cad.fornecedores.get(fornecedorId) : undefined;
-  const contaId = idDoIxc(raw.id_contas);
+  // A conta que pagou (`conta_pagamento`), e não a em que o título foi lançado
+  // (`id_contas`): o pago pelo Sicoob tem de cair no extrato do Sicoob. Ver
+  // `contaQuePagou`, no histórico de pagamentos.
+  const contaId = idDoIxc(raw.conta_pagamento) ?? idDoIxc(raw.id_contas);
   const planoDeContasId = idDoIxc(raw.id_conta);
 
   return {

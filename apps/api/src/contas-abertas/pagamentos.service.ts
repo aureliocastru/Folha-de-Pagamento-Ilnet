@@ -1087,7 +1087,7 @@ export class PagamentosService {
    * De onde e em que dia o dinheiro deste título saiu, segundo o IXC agora.
    *
    * Lido do próprio título, como o histórico de pagamentos lê: o dia do débito
-   * (`debito_data`) e a conta (`id_contas`). A linha de baixa seria o caminho
+   * (`debito_data`) e a conta que pagou (`contaQuePagou`). A linha de baixa seria o caminho
    * natural, mas nesta base o webservice não a devolve.
    *
    * `'sem-baixa'` = estornado, cancelado ou nunca pago: não há saída nenhuma.
