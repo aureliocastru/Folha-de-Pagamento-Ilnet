@@ -29,7 +29,14 @@ const QUALIDADE = 0.85;
  */
 export const TETO_DA_FOTO = 1.5 * 1024 * 1024;
 
-export async function reduzirFoto(arquivo: File): Promise<string> {
+/**
+ * `ladoMaior` e `teto` mudam para a foto que não precisa ser lida a caneta —
+ * a da OS, que vai em dez de uma vez pelo sinal da casa do cliente.
+ */
+export async function reduzirFoto(
+  arquivo: File,
+  { ladoMaior = LADO_MAIOR, teto = TETO_DA_FOTO }: { ladoMaior?: number; teto?: number } = {},
+): Promise<string> {
   const bitmap = await carregar(arquivo);
   return codificar(
     (canvas, escala) => {
@@ -39,8 +46,8 @@ export async function reduzirFoto(arquivo: File): Promise<string> {
       canvas.height = altura;
       return (ctx) => ctx.drawImage(bitmap, 0, 0, largura, altura);
     },
-    Math.min(1, LADO_MAIOR / Math.max(bitmap.width, bitmap.height)),
-    TETO_DA_FOTO,
+    Math.min(1, ladoMaior / Math.max(bitmap.width, bitmap.height)),
+    teto,
   );
 }
 

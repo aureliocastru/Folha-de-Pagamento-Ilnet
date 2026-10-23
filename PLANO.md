@@ -316,11 +316,16 @@ recusar outras escritas na OS.
       relato (resposta padrão do assunto já escolhida, o texto dela no relato,
       diagnóstico), a hora de início, o GPS, o resumo para conferir, a fila do
       fechamento e, na base, a finalização dentro de "OS registradas" (enviar
-      de novo, conferir, descartar). O assunto que exige foto ou equipe ainda
-      se finaliza pelo IXC
-- [ ] **Fase 2 — fotos e assinatura**: os dois passos, anexados na OS, com o
-      mínimo de fotos do assunto, e o rascunho guardado no celular (o sinal cai
-      na casa do cliente)
+      de novo, conferir, descartar). O assunto que exige equipe ainda se
+      finaliza pelo IXC
+- [x] **Fase 2a — fotos** (escrito, falta a prova da Fase 0): um passo no
+      meio do passo a passo, tirar na hora ou escolher da galeria, até 10, com
+      o mínimo do assunto (`exige_fotos_finalizacao_os`). Guardadas aqui até
+      irem a `su_oss_chamado_arquivos`, uma a uma, antes do fechamento; a que o
+      IXC recusa segura o fechamento, e o reenvio não repete as que já foram.
+      Depois de ir, o conteúdo sai daqui (mora na OS do IXC)
+- [ ] **Fase 2b — assinatura** do cliente, anexada na OS como as fotos, e o
+      rascunho guardado no celular (o sinal cai na casa do cliente)
 - [ ] **Fase 3a — conexão no texto**: MAC/série da ONU, sinal RX, CTO e porta,
       escritos na mensagem do fechamento e guardados aqui
 - [ ] **Fase 3b — conexão no login e na ONU** (`radusuarios`: `onu_mac`,

@@ -39,7 +39,7 @@ export function FotoDaNota({
     setErro(null);
     setPreparando(true);
     try {
-      const novas = await Promise.all(arquivos.slice(0, cabem).map(reduzirFoto));
+      const novas = await Promise.all(arquivos.slice(0, cabem).map((a) => reduzirFoto(a)));
       // Lido de novo depois da espera: uma foto pode ter saído enquanto isso.
       const { fotos: agora, onFotos: avisar } = atual.current;
       avisar([...agora, ...novas].slice(0, FOTOS_POR_NOTA));

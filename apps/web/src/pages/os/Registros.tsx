@@ -267,8 +267,12 @@ function LinhaDaFinalizacao({
                 >
                   onde estava
                 </a>
+                {f.precisao !== null && ` (± ${f.precisao} m)`}
               </>
             )}
+            {f.fotos.total > 0 &&
+              ` · ${f.fotos.total} foto${f.fotos.total > 1 ? 's' : ''}` +
+                (f.fotos.enviadas < f.fotos.total ? ` (${f.fotos.enviadas} na OS do IXC)` : '')}
           </span>
         </div>
         <p className="mt-1 text-[12px] text-tinta-500">

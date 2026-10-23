@@ -123,6 +123,8 @@ export interface FinalizacaoNaTela {
   latitude: number | null;
   longitude: number | null;
   precisao: number | null;
+  /** As fotos guardadas, e quantas delas já estão na OS do IXC. */
+  fotos: { total: number; enviadas: number };
   erro: string | null;
   aviso: string | null;
   tentativas: number;
@@ -193,10 +195,22 @@ const COM_REGISTRO = { registro: { select: { osIxcId: true, cliente: true } } } 
 const PARA_A_TELA = { tecnico: { select: { nome: true, apelido: true } } } as const;
 
 type ItemComTecnico = ItemDeOs & { tecnico: { nome: string; apelido: string | null } };
-type FinalizacaoComTecnico = FinalizacaoDeOs & { tecnico: { nome: string; apelido: string | null } };
+type FinalizacaoComTecnico = FinalizacaoDeOs & {
+  tecnico: { nome: string; apelido: string | null };
+  fotos: Array<{ enviadaEm: Date | null }>;
+};
+
+/**
+ * A finalização com o que a tela mostra dela: o técnico e as fotos — se foram
+ * ao IXC, e nunca o conteúdo.
+ */
+export const FINALIZACAO_PARA_A_TELA = {
+  ...PARA_A_TELA,
+  fotos: { select: { enviadaEm: true } },
+} as const;
 
 /** O que a finalização está fazendo, no que a lista e os registros mostram. */
-const FINALIZACAO_NA_TELA = { finalizacao: { include: PARA_A_TELA } } as const;
+const FINALIZACAO_NA_TELA = { finalizacao: { include: FINALIZACAO_PARA_A_TELA } } as const;
 
 /**
  * A ordem de serviço no celular do técnico: o aparelho que ele instalou, o que
@@ -1452,6 +1466,7 @@ export function finalizacaoNaTela(f: FinalizacaoComTecnico): FinalizacaoNaTela {
     latitude: f.latitude === null ? null : Number(f.latitude),
     longitude: f.longitude === null ? null : Number(f.longitude),
     precisao: f.precisao,
+    fotos: { total: f.fotos.length, enviadas: f.fotos.filter((x) => x.enviadaEm !== null).length },
     erro: f.erro,
     aviso: f.aviso,
     tentativas: f.tentativas,

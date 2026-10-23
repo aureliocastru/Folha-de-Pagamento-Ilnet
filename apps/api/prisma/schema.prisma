@@ -3462,6 +3462,9 @@ model FinalizacaoDeOs {
   precisao  Int?
   gpsEm     DateTime? @map("gps_em")
 
+  /// As fotos que o técnico tirou ou anexou. Vão à OS no IXC antes do fechamento.
+  fotos FotoDaFinalizacao[]
+
   erro       String?
   aviso      String?
   tentativas Int       @default(0)
@@ -3474,6 +3477,40 @@ model FinalizacaoDeOs {
   @@index([situacao])
   @@index([tecnicoId, gravadoEm])
   @@map("finalizacoes_de_os")
+}
+
+/// Uma foto da finalização pelo celular, guardada aqui até ir à OS no IXC
+/// (`su_oss_chamado_arquivos`).
+///
+/// Mora à parte, como a foto dos pontos: são centenas de KB cada, e a lista de
+/// OS registradas lê as finalizações sem elas. Depois que vai, o conteúdo sai
+/// daqui — a foto mora na OS do IXC, que é onde se procura — e fica o registro
+/// de que foi.
+model FotoDaFinalizacao {
+  id String @id @default(uuid())
+
+  finalizacao   FinalizacaoDeOs @relation(fields: [finalizacaoId], references: [id], onDelete: Cascade)
+  finalizacaoId String          @map("finalizacao_id")
+
+  /// A ordem em que o técnico as pôs, a partir de 1. Vão nessa ordem.
+  ordem    Int
+  /// O nome com que vai ao IXC.
+  nome     String
+  tipo     String
+  tamanho  Int
+  /// sha256 do conteúdo: a mesma foto mandada duas vezes (o toque repetido
+  /// com o sinal fraco) não entra duas vezes.
+  hash     String
+  /// Nulo depois que foi ao IXC.
+  conteudo Bytes?
+
+  enviadaEm DateTime? @map("enviada_em")
+  erro      String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([finalizacaoId, hash])
+  @@map("fotos_das_finalizacoes")
 }
 
 /// Um aparelho ou um material dentro da OS.

@@ -255,6 +255,7 @@ describe('motivoParaNaoFinalizar', () => {
     diagnosticos: [{ id: 5, nome: 'ONU queimada', texto: null, setorId: 0 }],
     aparelhos: 0,
     produtos: 0,
+    fotos: 0,
     abertura: '2026-10-22 07:00:00',
     agora,
   };
@@ -267,11 +268,23 @@ describe('motivoParaNaoFinalizar', () => {
     expect(motivoParaNaoFinalizar({ ...base, status: 'F' })).toMatch(/já está finalizada/);
   });
 
-  it('o assunto que exige foto ou equipe se finaliza pelo IXC', () => {
-    expect(motivoDoAssunto({ ...assunto, fotosExigidas: 2 })).toMatch(/exige 2 fotos.*pelo IXC/);
+  it('o assunto que exige equipe se finaliza pelo IXC; o que exige foto, não mais', () => {
     expect(motivoDoAssunto({ ...assunto, equipeObrigatoria: true })).toMatch(/equipe.*pelo IXC/);
-    expect(motivoParaNaoFinalizar({ ...base, assunto: { ...assunto, fotosExigidas: 1 } })).toMatch(/foto/);
+    expect(motivoParaNaoFinalizar({ ...base, assunto: { ...assunto, equipeObrigatoria: true } })).toMatch(
+      /equipe/,
+    );
+    expect(motivoDoAssunto({ ...assunto, fotosExigidas: 2 })).toBeNull();
     expect(motivoDoAssunto(assunto)).toBeNull();
+  });
+
+  it('as fotos que o assunto exige, e o teto delas', () => {
+    const exige = { ...assunto, fotosExigidas: 2 };
+    expect(motivoParaNaoFinalizar({ ...base, assunto: exige })).toMatch(/exige 2 fotos.*nenhuma foi posta/);
+    expect(motivoParaNaoFinalizar({ ...base, assunto: exige, fotos: 1 })).toMatch(/foram 1\. Tire ou anexe/);
+    expect(motivoParaNaoFinalizar({ ...base, assunto: exige, fotos: 2 })).toBeNull();
+    // O assunto que não exige aceita quantas o técnico quiser, até o teto.
+    expect(motivoParaNaoFinalizar({ ...base, fotos: 10 })).toBeNull();
+    expect(motivoParaNaoFinalizar({ ...base, fotos: 11 })).toMatch(/Cabem 10 fotos/);
   });
 
   it('o aparelho e o produto que o assunto exige contam o que está no IXC e o que vai antes', () => {

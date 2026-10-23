@@ -17,7 +17,8 @@
  *  - **material gasto** — `su_oss_mov_produto` ("Produtos › Tipo Produto
  *    (inserir)"): o conector e o drop saem do almoxarifado dele pela OS.
  *
- * E uma quarta, que fecha a OS: `su_oss_chamado_fechar` ("Ações ›
+ * E duas da finalização: as fotos, em `su_oss_chamado_arquivos` ("Arquivos ›
+ * Arquivos (inserir)"), e o fechamento, `su_oss_chamado_fechar` ("Ações ›
  * Finalizar"), com o que o técnico disse no passo a passo do celular.
  *
  * Os exemplos da documentação mandam `"ixcsoft": "listar"` também nas
@@ -644,6 +645,18 @@ export interface Fechamento {
   mensagem: string;
   geraComissao: boolean;
   gps: { latitude: number; longitude: number; em: Date } | null;
+}
+
+/** O campo do arquivo em `su_oss_chamado_arquivos` — no pagar é "arquivo". */
+export const CAMPO_DO_ARQUIVO_DA_OS = 'local_arquivo';
+
+/**
+ * Os campos de texto de uma foto anexada à OS (`POST /su_oss_chamado_arquivos`,
+ * "Arquivos › Arquivos (inserir)"). O arquivo vai ao lado, no multipart do
+ * `IxcClient.upload`. A descrição é o que a aba de arquivos da OS lista.
+ */
+export function montarFotoNaOs(osId: number, descricao: string): Record<string, string> {
+  return { id_oss_chamado: id(osId, 'a OS'), descricao: descricao.trim().slice(0, 100) };
 }
 
 /**

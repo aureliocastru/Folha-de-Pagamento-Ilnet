@@ -13,6 +13,8 @@ import type { AssuntoDoIxc, OsDoIxc } from './os-ixc';
  *    fechou vira "recusada" (e pode ir de novo), e o que não dá para saber vai
  *    para a base conferir — nunca um segundo fechamento às cegas;
  *  - a OS que o atendimento fechou no meio não se fecha de novo;
+ *  - as fotos vão à OS antes do fechamento; a que não vai segura o fechamento,
+ *    e o reenvio não repete as que já foram;
  *  - o que o assunto exige e o celular não faz recusa antes de guardar.
  */
 
@@ -65,9 +67,17 @@ const PEDIDO = {
 
 const login = { id: 'u1', nome: 'cleyson' };
 
+/** Uma foto pequena, diferente para cada número. */
+function foto(n: number): string {
+  return 'data:image/jpeg;base64,' + Buffer.from([0xff, 0xd8, 0xff, 0xe0, n]).toString('base64');
+}
+
 function montar(opcoes: { assunto?: AssuntoDoIxc } = {}) {
   const registro = { id: 'r1', osIxcId: OS.id };
   const finalizacoes: Linha[] = [];
+  const fotos: Linha[] = [];
+  /** As fotos que o IXC recusa, pela ordem. */
+  const fotosRecusadas = new Set<number>();
   /** A situação dos itens da OS depois de `executar`. */
   const itensDepois: Array<{ situacao: string }> = [];
   /** O status da OS no IXC, como a releitura o vê. */
@@ -93,7 +103,11 @@ function montar(opcoes: { assunto?: AssuntoDoIxc } = {}) {
     }
     f.updatedAt = new Date();
   };
-  const comTecnico = (f: Linha) => ({ ...f, tecnico: { nome: 'Cleyson Souza', apelido: 'Cleyson' } });
+  const comTecnico = (f: Linha) => ({
+    ...f,
+    tecnico: { nome: 'Cleyson Souza', apelido: 'Cleyson' },
+    fotos: fotos.filter((x) => x.finalizacaoId === f.id),
+  });
 
   const prisma = {
     registroDeOs: {
@@ -140,6 +154,25 @@ function montar(opcoes: { assunto?: AssuntoDoIxc } = {}) {
         return { count: antes - finalizacoes.length };
       }),
     },
+    fotoDaFinalizacao: {
+      createMany: jest.fn(async ({ data }: { data: Array<Record<string, unknown>> }) => {
+        for (const d of data) {
+          if (fotos.some((x) => x.finalizacaoId === d.finalizacaoId && x.hash === d.hash)) continue;
+          fotos.push({ id: `foto${fotos.length + 1}`, enviadaEm: null, erro: null, ...d });
+        }
+        return { count: data.length };
+      }),
+      findMany: jest.fn(async ({ where }: { where: { finalizacaoId: string; enviadaEm: null } }) =>
+        fotos
+          .filter((x) => x.finalizacaoId === where.finalizacaoId && x.enviadaEm === null)
+          .sort((a, b) => Number(a.ordem) - Number(b.ordem)),
+      ),
+      update: jest.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+        const x = fotos.find((y) => y.id === where.id)!;
+        Object.assign(x, data);
+        return x;
+      }),
+    },
     itemDeOs: { findMany: jest.fn(async () => itensDepois) },
     funcionario: { findUnique: jest.fn(async () => ({ nome: 'Cleyson Souza', apelido: 'Cleyson' })) },
   };
@@ -150,6 +183,14 @@ function montar(opcoes: { assunto?: AssuntoDoIxc } = {}) {
       ixcOs.status = 'F';
       return { type: 'success', corpo };
     }),
+    upload: jest.fn(
+      async (recurso: string, _campo: string, _arquivo: unknown, campos: Record<string, string>) => {
+        ordem.push(recurso);
+        const n = Number(/Foto (\d+)/.exec(campos.descricao)?.[1]);
+        if (fotosRecusadas.has(n)) throw new ServiceUnavailableException('IXC (/su_oss_chamado_arquivos): fora');
+        return { type: 'success', id: String(500 + n) };
+      },
+    ),
   };
   const doIxc = {
     os: jest.fn(async () => {
@@ -177,7 +218,7 @@ function montar(opcoes: { assunto?: AssuntoDoIxc } = {}) {
     doIxc as never,
     osService as never,
   );
-  return { service, prisma, ixc, doIxc, osService, finalizacoes, itensDepois, ixcOs, ordem };
+  return { service, prisma, ixc, doIxc, osService, finalizacoes, fotos, fotosRecusadas, itensDepois, ixcOs, ordem };
 }
 
 describe('FinalizacaoService.finalizar', () => {
@@ -280,15 +321,64 @@ describe('FinalizacaoService.finalizar', () => {
     expect(r.finalizacao.aviso).toMatch(/já estava finalizada no IXC/);
   });
 
-  it('a OS já finalizada, e o assunto que exige foto, recusam antes de guardar', async () => {
+  it('a OS já finalizada, e o assunto que exige mais fotos do que vieram, recusam antes de guardar', async () => {
     const fechada = montar();
     fechada.ixcOs.status = 'F';
     await expect(fechada.service.finalizar(login, OS.id, PEDIDO)).rejects.toThrow(/já está finalizada/);
 
     const comFoto = montar({ assunto: { ...ASSUNTO, fotosExigidas: 2 } });
-    await expect(comFoto.service.finalizar(login, OS.id, PEDIDO)).rejects.toThrow(BadRequestException);
+    await expect(comFoto.service.finalizar(login, OS.id, { ...PEDIDO, fotos: [foto(1)] })).rejects.toThrow(
+      /exige 2 fotos.*foram 1/,
+    );
     expect(comFoto.finalizacoes).toHaveLength(0);
+    expect(comFoto.fotos).toHaveLength(0);
     expect(comFoto.ixc.action).not.toHaveBeenCalled();
+  });
+
+  it('as fotos vão à OS antes do fechamento, na ordem, e o conteúdo sai daqui', async () => {
+    const t = montar({ assunto: { ...ASSUNTO, fotosExigidas: 2 } });
+    // A mesma foto duas vezes (o dedo que tocou duas vezes) entra uma só.
+    const r = await t.service.finalizar(login, OS.id, { ...PEDIDO, fotos: [foto(1), foto(2), foto(2)] });
+
+    expect(t.ordem).toEqual(['itens', 'su_oss_chamado_arquivos', 'su_oss_chamado_arquivos', 'su_oss_chamado_fechar']);
+    const [recurso, campo, arquivo, campos] = t.ixc.upload.mock.calls[0];
+    expect(recurso).toBe('su_oss_chamado_arquivos');
+    expect(campo).toBe('local_arquivo');
+    expect(arquivo).toMatchObject({ nome: 'os-3788-foto-1.jpg', tipo: 'image/jpeg' });
+    expect(campos).toEqual({ id_oss_chamado: '3788', descricao: 'Foto 1 — finalização pelo celular' });
+    expect(t.fotos.map((f) => f.conteudo)).toEqual([null, null]);
+    expect(r.finalizacao).toMatchObject({ situacao: 'GRAVADO', fotos: { total: 2, enviadas: 2 } });
+  });
+
+  it('a foto que o IXC recusa segura o fechamento, e o reenvio não repete a que já foi', async () => {
+    const t = montar();
+    t.fotosRecusadas.add(2);
+    const r = await t.service.finalizar(login, OS.id, { ...PEDIDO, fotos: [foto(1), foto(2), foto(3)] });
+
+    expect(t.ixc.action).not.toHaveBeenCalled();
+    expect(r.finalizacao.situacao).toBe('FALHOU');
+    expect(r.finalizacao.erro).toMatch(/não foi finalizada: 2 foto\(s\) não foram à OS no IXC/);
+    expect(r.finalizacao.fotos).toEqual({ total: 3, enviadas: 1 });
+
+    // O técnico manda de novo, com uma foto a mais; a 1ª não vai outra vez.
+    t.fotosRecusadas.clear();
+    t.ixc.upload.mockClear();
+    const segunda = await t.service.finalizar(login, OS.id, { ...PEDIDO, fotos: [foto(1), foto(4)] });
+    expect(t.ixc.upload.mock.calls.map((c) => c[3].descricao)).toEqual([
+      'Foto 2 — finalização pelo celular',
+      'Foto 3 — finalização pelo celular',
+      'Foto 4 — finalização pelo celular',
+    ]);
+    expect(segunda.finalizacao).toMatchObject({ situacao: 'GRAVADO', fotos: { total: 4, enviadas: 4 } });
+  });
+
+  it('o que não é foto não entra', async () => {
+    const t = montar();
+    const pdf = 'data:application/pdf;base64,' + Buffer.from('%PDF-1.4').toString('base64');
+    await expect(t.service.finalizar(login, OS.id, { ...PEDIDO, fotos: [pdf] })).rejects.toThrow(
+      BadRequestException,
+    );
+    expect(t.finalizacoes).toHaveLength(0);
   });
 
   it('o aparelho que o assunto exige conta o que já está na OS no IXC', async () => {
@@ -301,11 +391,18 @@ describe('FinalizacaoService.finalizar', () => {
 });
 
 describe('FinalizacaoService.paraFinalizar', () => {
-  it('sugere a resposta padrão do assunto, e diz por que não dá quando o assunto exige foto', async () => {
+  it('sugere a resposta padrão do assunto e diz quantas fotos ele exige', async () => {
     const t = montar({ assunto: { ...ASSUNTO, fotosExigidas: 1 } });
     const para = await t.service.paraFinalizar(login, OS.id);
     expect(para.sugestao.respostaId).toBe(12);
     expect(para.respostas).toEqual([{ id: 12, nome: 'Concluída', texto: 'Serviço concluído.' }]);
-    expect(para.recusa).toMatch(/exige foto.*pelo IXC/);
+    expect(para.assunto.fotosExigidas).toBe(1);
+    expect(para.recusa).toBeNull();
+  });
+
+  it('diz por que não dá quando o assunto exige a equipe', async () => {
+    const t = montar({ assunto: { ...ASSUNTO, equipeObrigatoria: true } });
+    const para = await t.service.paraFinalizar(login, OS.id);
+    expect(para.recusa).toMatch(/exige a equipe.*pelo IXC/);
   });
 });

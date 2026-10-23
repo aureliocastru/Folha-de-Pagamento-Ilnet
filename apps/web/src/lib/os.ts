@@ -84,6 +84,8 @@ export interface FinalizacaoDeOs {
   latitude: number | null;
   longitude: number | null;
   precisao: number | null;
+  /** As fotos guardadas, e quantas delas já estão na OS do IXC. */
+  fotos: { total: number; enviadas: number };
   erro: string | null;
   aviso: string | null;
   tentativas: number;
@@ -93,6 +95,9 @@ export interface FinalizacaoDeOs {
   criadoEm: string;
 }
 
+/** Quantas fotos cabem numa finalização — o mesmo teto da API (`os.regras.ts`). */
+export const FOTOS_POR_FINALIZACAO = 10;
+
 /** O que o passo a passo de finalizar precisa para abrir. */
 export interface ParaFinalizar {
   assunto: {
@@ -100,6 +105,8 @@ export interface ParaFinalizar {
     diagnosticoObrigatorio: boolean;
     aparelhosExigidos: number;
     produtosExigidos: number;
+    /** Zero = não exige; o técnico põe quantas quiser, até o teto. */
+    fotosExigidas: number;
   };
   /** Por que esta OS não se finaliza pelo celular. */
   recusa: string | null;
