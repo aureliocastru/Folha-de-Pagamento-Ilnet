@@ -17,7 +17,6 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { FOTOS_POR_FINALIZACAO } from '../os.regras';
 
 const texto = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim() : value;
@@ -119,14 +118,17 @@ export class FinalizarDto {
   /** Sem permissão ou sem resposta do GPS, a OS se finaliza sem ele. */
   @IsOptional() @ValidateNested() @Type(() => GpsDto)
   gps?: GpsDto;
+}
 
-  /**
-   * As fotos, em data URL, já reduzidas no celular. Somam-se às que ficaram
-   * guardadas de uma tentativa anterior; o teto e o tipo estão em
-   * `FinalizacaoService.finalizar`.
-   */
-  @IsOptional() @IsArray() @ArrayMaxSize(FOTOS_POR_FINALIZACAO) @IsString({ each: true })
-  fotos?: string[];
+/** Uma foto, direto para a aba "Arquivos" da OS no IXC. O tipo e o teto estão em `FinalizacaoService.anexarFoto`. */
+export class AnexarFotoDto {
+  /** Data URL, já reduzida no celular. */
+  @IsString() @MinLength(1)
+  foto!: string;
+
+  /** O que a foto mostra — é o que a aba de arquivos da OS lista no IXC. */
+  @IsOptional() @Transform(texto) @IsString() @MaxLength(100)
+  descricao?: string;
 }
 
 /** A base diz o que viu no IXC sobre um item que ficou em conferência. */

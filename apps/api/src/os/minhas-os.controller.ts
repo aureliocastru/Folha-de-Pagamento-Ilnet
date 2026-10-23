@@ -14,7 +14,7 @@ import {
 import { UserRole } from '@prisma/client';
 import type { Request } from 'express';
 import { Roles } from '../auth/roles.decorator';
-import { AnotarItemDto, AnotarRetiradasDto, FinalizarDto } from './dto/os.dto';
+import { AnexarFotoDto, AnotarItemDto, AnotarRetiradasDto, FinalizarDto } from './dto/os.dto';
 import { FinalizacaoService } from './finalizacao.service';
 import { OsService, type Login } from './os.service';
 
@@ -102,6 +102,23 @@ export class MinhasOsController {
   @Get(':osId/finalizar')
   paraFinalizar(@Req() req: Request, @Param('osId', ParseIntPipe) osId: number) {
     return this.finalizacao.paraFinalizar(logado(req), osId);
+  }
+
+  /** O que está na aba "Arquivos" da OS, no IXC. */
+  @Get(':osId/arquivos')
+  arquivos(@Req() req: Request, @Param('osId', ParseIntPipe) osId: number) {
+    return this.finalizacao.arquivos(logado(req), osId);
+  }
+
+  /** Anexa uma foto direto na aba "Arquivos" da OS no IXC. Nada fica guardado aqui. */
+  @Post(':osId/fotos')
+  @HttpCode(201)
+  anexarFoto(
+    @Req() req: Request,
+    @Param('osId', ParseIntPipe) osId: number,
+    @Body() dto: AnexarFotoDto,
+  ) {
+    return this.finalizacao.anexarFoto(logado(req), osId, dto);
   }
 
   /** Finaliza a OS no IXC — depois de levar o que ficou anotado. */

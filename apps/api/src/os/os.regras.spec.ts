@@ -277,14 +277,13 @@ describe('motivoParaNaoFinalizar', () => {
     expect(motivoDoAssunto(assunto)).toBeNull();
   });
 
-  it('as fotos que o assunto exige, e o teto delas', () => {
+  it('as fotos que o assunto exige contam o que está na OS no IXC', () => {
     const exige = { ...assunto, fotosExigidas: 2 };
-    expect(motivoParaNaoFinalizar({ ...base, assunto: exige })).toMatch(/exige 2 fotos.*nenhuma foi posta/);
-    expect(motivoParaNaoFinalizar({ ...base, assunto: exige, fotos: 1 })).toMatch(/foram 1\. Tire ou anexe/);
+    expect(motivoParaNaoFinalizar({ ...base, assunto: exige })).toMatch(/exige 2 fotos.*tem nenhuma no IXC/);
+    expect(motivoParaNaoFinalizar({ ...base, assunto: exige, fotos: 1 })).toMatch(/tem 1 no IXC\. Anexe/);
     expect(motivoParaNaoFinalizar({ ...base, assunto: exige, fotos: 2 })).toBeNull();
-    // O assunto que não exige aceita quantas o técnico quiser, até o teto.
-    expect(motivoParaNaoFinalizar({ ...base, fotos: 10 })).toBeNull();
-    expect(motivoParaNaoFinalizar({ ...base, fotos: 11 })).toMatch(/Cabem 10 fotos/);
+    // Não há teto: o técnico anexa quantas quiser.
+    expect(motivoParaNaoFinalizar({ ...base, fotos: 25 })).toBeNull();
   });
 
   it('o aparelho e o produto que o assunto exige contam o que está no IXC e o que vai antes', () => {

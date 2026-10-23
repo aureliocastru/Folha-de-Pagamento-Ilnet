@@ -247,13 +247,6 @@ export interface PedidoDeFinalizar {
 }
 
 /**
- * Quantas fotos cabem numa finalização. Cada uma sai do celular com menos de
- * 1 MB, e todas sobem num pedido só — o teto de corpo da API (24 MB) tem de
- * caber com o base64 engordando um terço.
- */
-export const FOTOS_POR_FINALIZACAO = 10;
-
-/**
  * O que o assunto exige e o celular ainda não sabe fazer. A OS desse assunto
  * se finaliza pelo IXC, e a tela diz isso antes de o técnico preencher nada.
  */
@@ -286,8 +279,8 @@ function inicioNaTela(d: Date): string {
  *  - **a OS tem o que o assunto exige?** Aparelho em comodato, produto: conta
  *    o que já está na OS no IXC e o que está anotado para ir antes do
  *    fechamento — o técnico que esqueceu de anotar fica sabendo agora, e não
- *    pela recusa do IXC depois que ele foi embora. As fotos, do mesmo jeito:
- *    as que vieram agora e as guardadas de uma tentativa anterior;
+ *    pela recusa do IXC depois que ele foi embora. As fotos contam o que está
+ *    na aba "Arquivos" da OS no IXC, que é para onde vão no toque de anexar;
  *  - **a resposta e o diagnóstico existem?** O diagnóstico, quando o assunto
  *    o exige, é obrigatório;
  *  - **o relato diz alguma coisa?**
@@ -303,7 +296,7 @@ export function motivoParaNaoFinalizar(dados: {
   aparelhos: number;
   /** Produtos gastos na OS, contados do mesmo jeito. */
   produtos: number;
-  /** As fotos da finalização: as que vieram agora e as já guardadas. */
+  /** Os arquivos na aba "Arquivos" da OS, no IXC — é o que o IXC conta. */
   fotos: number;
   /** A abertura da OS, "AAAA-MM-DD HH:MM:SS" no fuso daqui. */
   abertura: string | null;
@@ -329,12 +322,9 @@ export function motivoParaNaoFinalizar(dados: {
   if (dados.fotos < assunto.fotosExigidas) {
     const pede = assunto.fotosExigidas > 1 ? `${assunto.fotosExigidas} fotos` : '1 foto';
     return (
-      `O assunto "${assunto.nome}" exige ${pede} para finalizar, e ` +
-      `${dados.fotos === 0 ? 'nenhuma foi posta' : `foram ${dados.fotos}`}. Tire ou anexe mais.`
+      `O assunto "${assunto.nome}" exige ${pede} para finalizar, e a OS tem ` +
+      `${dados.fotos === 0 ? 'nenhuma' : dados.fotos} no IXC. Anexe no passo das fotos.`
     );
-  }
-  if (dados.fotos > FOTOS_POR_FINALIZACAO) {
-    return `Cabem ${FOTOS_POR_FINALIZACAO} fotos numa finalização, e foram ${dados.fotos}. Tire alguma.`;
   }
 
   if (pedido.respostaId !== null && !dados.respostas.some((r) => r.id === pedido.respostaId)) {

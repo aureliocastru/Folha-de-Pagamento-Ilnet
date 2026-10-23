@@ -2,6 +2,7 @@ import {
   dataHoraParaIxc,
   doSetor,
   finalizadaHoje,
+  lerArquivoDaOs,
   lerAssunto,
   lerComodato,
   lerDiagnostico,
@@ -11,6 +12,7 @@ import {
   montarBaixaDeComodato,
   montarComodatoNaOs,
   montarFechamento,
+  montarFotoNaOs,
   montarMaterialNaOs,
   naOrdemDoTecnico,
   osRecusaMaterial,
@@ -466,6 +468,30 @@ describe('lerResposta, lerDiagnostico e doSetor', () => {
     expect(doSetor(opcoes, 3).map((o) => o.id)).toEqual([1, 2]);
     expect(doSetor(opcoes, 0).map((o) => o.id)).toEqual([1, 2, 3]);
     expect(doSetor(opcoes.slice(1), 5).map((o) => o.id)).toEqual([2, 3]);
+  });
+});
+
+describe('montarFotoNaOs e lerArquivoDaOs', () => {
+  it('a foto vai para a OS com a descrição que o técnico escreveu', () => {
+    expect(montarFotoNaOs(3788, '  Caixa CTO, porta 4 ')).toEqual({
+      id_oss_chamado: '3788',
+      descricao: 'Caixa CTO, porta 4',
+    });
+    expect(montarFotoNaOs(3788, 'x'.repeat(150)).descricao).toHaveLength(100);
+    expect(() => montarFotoNaOs(0, 'Foto')).toThrow(/a OS/);
+  });
+
+  it('lê a linha da aba "Arquivos", e a descrição vazia cai no nome do arquivo', () => {
+    expect(lerArquivoDaOs({ id: '77', id_oss_chamado: '3788', descricao: 'Sinal na ONU' })).toEqual({
+      id: 77,
+      osId: 3788,
+      descricao: 'Sinal na ONU',
+    });
+    expect(
+      lerArquivoDaOs({ id: '78', id_oss_chamado: '3788', descricao: '', local_arquivo: 'arquivos/os/foto-1.jpg' }),
+    ).toMatchObject({ descricao: 'foto-1.jpg' });
+    expect(lerArquivoDaOs({ id: '79', id_oss_chamado: '3788' })).toMatchObject({ descricao: 'Arquivo 79' });
+    expect(lerArquivoDaOs({ id: '0' })).toBeNull();
   });
 });
 

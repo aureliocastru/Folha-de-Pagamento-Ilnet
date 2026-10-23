@@ -45,7 +45,7 @@ Troque `BUSCA` pelo que procura (`baixa`, `fornecedor`, `auditoria`…).
 | Finalizar a OS | `su_oss_chamado_fechar` (POST) | documentado — **ainda não conferido contra a base**: as datas vão "DD/MM/AAAA HH:MM:SS" sem prova, e a OS com processo pediria o "Finalizar com tarefa" |
 | O que o assunto exige ao finalizar | `su_oss_assunto` (`id_resposta_padrao_finalizacao`, `diagnostico_obrigatorio_finalizacao_os`, `exige_fotos_finalizacao_os`…) | documentado (pelos campos do "inserir"); a leitura desses campos ainda não foi vista na base |
 | Respostas padrão e diagnósticos | `su_oss_respostas`, `su_diagnostico` | documentado |
-| Fotos da finalização, anexadas na OS | `su_oss_chamado_arquivos` (POST multipart: `id_oss_chamado`, `descricao`, o arquivo em `local_arquivo`) | documentado — **ainda não conferido contra a base**; a resposta do anexo vai inteira para o log (`IxcClient.upload`) |
+| Fotos da finalização, na aba "Arquivos" da OS | `su_oss_chamado_arquivos` (POST multipart: `id_oss_chamado`, `descricao`, o arquivo em `local_arquivo`; GET por `su_oss_chamado_arquivos.id_oss_chamado`) | documentado — **ainda não conferido contra a base**. A foto vai direto, uma por pedido, sem passar pelo banco daqui; a resposta do anexo vai inteira para o log (`IxcClient.upload`). A listagem só aceita linha com o `id_oss_chamado` da OS pedida: se a base não devolver essa coluna, a aba aparece vazia e o assunto que exige foto não finaliza pelo celular |
 
 ### As escritas da OS ainda não foram provadas nesta base
 

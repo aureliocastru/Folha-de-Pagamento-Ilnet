@@ -295,7 +295,8 @@ não dá para saber):
 
 1. os itens que ainda não foram ao IXC — se algum não for, a finalização para
    e fica pendente, com o motivo;
-2. as fotos e a assinatura, em `su_oss_chamado_arquivos` (Fase 2);
+2. a assinatura, em `su_oss_chamado_arquivos` (Fase 2b) — as fotos já estão
+   lá: vão direto para os arquivos da OS no toque de anexar, antes de finalizar;
 3. os dados da conexão, no login e na ONU (Fase 3);
 4. `su_oss_chamado_fechar`, com o relato, a resposta, o diagnóstico, o início e
    o fim, o técnico e o GPS do celular;
@@ -319,11 +320,12 @@ recusar outras escritas na OS.
       de novo, conferir, descartar). O assunto que exige equipe ainda se
       finaliza pelo IXC
 - [x] **Fase 2a — fotos** (escrito, falta a prova da Fase 0): um passo no
-      meio do passo a passo, tirar na hora ou escolher da galeria, até 10, com
-      o mínimo do assunto (`exige_fotos_finalizacao_os`). Guardadas aqui até
-      irem a `su_oss_chamado_arquivos`, uma a uma, antes do fechamento; a que o
-      IXC recusa segura o fechamento, e o reenvio não repete as que já foram.
-      Depois de ir, o conteúdo sai daqui (mora na OS do IXC)
+      meio do passo a passo, tirar na hora ou escolher da galeria, quantas o
+      técnico quiser, **cada uma com a sua descrição**. No toque de anexar,
+      cada foto vai num pedido só dela **direto para a aba "Arquivos" da OS no
+      IXC** (`su_oss_chamado_arquivos`) — nada fica guardado aqui. A tela lista
+      o que está na aba, e o mínimo do assunto (`exige_fotos_finalizacao_os`)
+      conta o que está lá
 - [ ] **Fase 2b — assinatura** do cliente, anexada na OS como as fotos, e o
       rascunho guardado no celular (o sinal cai na casa do cliente)
 - [ ] **Fase 3a — conexão no texto**: MAC/série da ONU, sinal RX, CTO e porta,

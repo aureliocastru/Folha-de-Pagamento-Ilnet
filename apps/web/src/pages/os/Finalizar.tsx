@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Aviso, Carregando, Selo } from '../../components/ui';
@@ -6,13 +6,13 @@ import { api, mensagemErro } from '../../lib/api';
 import { reduzirFoto } from '../../lib/foto';
 import {
   FINALIZACAO_LABEL,
-  FOTOS_POR_FINALIZACAO,
   SITUACAO_LABEL,
   SITUACAO_TOM,
   TIPO_LABEL,
   TIPO_TOM,
   identificacaoDaPeca,
   quantidadeComUnidade,
+  type ArquivoDaOs,
   type OsAberta,
   type ParaFinalizar,
   type ResultadoDaFinalizacao,
@@ -26,7 +26,8 @@ import {
  *    o texto dela vai para o relato, como no IXC), o diagnóstico, o relato e a
  *    hora em que o serviço começou.
  * 2. **Fotos** — tiradas na hora ou escolhidas da galeria, quantas o técnico
- *    quiser (até o teto). Vão anexadas na OS do IXC antes do fechamento.
+ *    quiser, cada uma com a sua descrição. Vão direto para a aba "Arquivos" da
+ *    OS no IXC, uma por vez, no toque de anexar; nada fica guardado aqui.
  * 3. **Conferir e finalizar** — o resumo, com o que ainda não foi ao IXC (vai
  *    antes do fechamento), e a localização do celular.
  *
@@ -44,7 +45,7 @@ export function CampoFinalizar() {
   const [diagnosticoId, setDiagnosticoId] = useState<number | null>(null);
   const [relato, setRelato] = useState('');
   const [inicio, setInicio] = useState('');
-  const [fotos, setFotos] = useState<string[]>([]);
+  const [fotos, setFotos] = useState<FotoParaAnexar[]>([]);
   const [resultado, setResultado] = useState<ResultadoDaFinalizacao | null>(null);
   const preenchido = useRef(false);
 
@@ -60,9 +61,17 @@ export function CampoFinalizar() {
     enabled: id > 0,
     retry: 0,
   });
+  const podeFinalizar = !!dados.data && !dados.data.recusa;
+  /** A aba "Arquivos" da OS no IXC: as fotos anexadas, e o que já estava lá. */
+  const arquivos = useQuery({
+    queryKey: ['minhas-os', id, 'arquivos'],
+    queryFn: async () => (await api.get<ArquivoDaOs[]>(`/minhas-os/${id}/arquivos`)).data,
+    enabled: id > 0 && podeFinalizar,
+    retry: 0,
+  });
   // Desde que a tela abre, e não só no último passo: o GPS leva tempo para
   // achar os satélites, e enquanto o técnico escreve o relato ele vai afinando.
-  const [gps, gpsDeNovo] = useGps(!!dados.data && !dados.data.recusa && !resultado);
+  const [gps, gpsDeNovo] = useGps(podeFinalizar && !resultado);
 
   // Uma vez só, quando chega: a finalização que voltou (recusada, esperando um
   // item) volta como estava; a nova começa com o que o assunto sugere.
@@ -96,7 +105,6 @@ export function CampoFinalizar() {
             gps.estado === 'ok' || gps.estado === 'melhorando'
               ? { latitude: gps.latitude, longitude: gps.longitude, precisao: gps.precisao, em: gps.em }
               : undefined,
-          fotos,
         })
       ).data,
     onSuccess: setResultado,
@@ -107,8 +115,6 @@ export function CampoFinalizar() {
   const os = aberta.data?.os;
   const d = dados.data;
   const respostas = d?.respostas ?? [];
-  /** As fotos de uma tentativa anterior, que ficaram guardadas e vão junto. */
-  const guardadas = d?.finalizacao?.fotos.total ?? 0;
 
   /** Trocar a resposta troca o texto — só se o relato ainda é o texto da anterior. */
   function escolherResposta(novaId: number | null) {
@@ -262,9 +268,10 @@ export function CampoFinalizar() {
             </div>
           ) : passo === 'fotos' ? (
             <PassoDasFotos
+              osId={id}
               fotos={fotos}
               onFotos={setFotos}
-              guardadas={guardadas}
+              arquivos={arquivos}
               exigidas={d.assunto.fotosExigidas}
               onVoltar={() => setPasso('relato')}
               onContinuar={() => setPasso('conferir')}
@@ -277,8 +284,7 @@ export function CampoFinalizar() {
               diagnostico={d.diagnosticos.find((x) => x.id === diagnosticoId)?.nome ?? null}
               relato={relato}
               inicio={inicio}
-              fotos={fotos}
-              guardadas={guardadas}
+              arquivos={arquivos.data}
               gps={gps}
               onGpsDeNovo={gpsDeNovo}
               enviando={finalizar.isPending}
@@ -301,68 +307,112 @@ export function CampoFinalizar() {
 // ---------------------------------------------------------------------------
 
 /**
- * A foto da OS não precisa ser lida a caneta como a da nota, e vão até dez
- * pelo sinal da casa do cliente: 1920px dão para ler o medidor e a etiqueta, e
- * abaixo de 900 KB as dez sobem num pedido só.
+ * A foto da OS não precisa ser lida a caneta como a da nota: 1920px dão para
+ * ler o medidor e a etiqueta, e abaixo de 900 KB ela sobe pelo sinal da casa
+ * do cliente.
  */
 const FOTO_DA_OS = { ladoMaior: 1920, teto: 900 * 1024 };
 
+/** Uma foto escolhida e ainda não anexada: a imagem e o que o técnico escreveu dela. */
+interface FotoParaAnexar {
+  chave: number;
+  foto: string;
+  descricao: string;
+  erro: string | null;
+}
+
 /**
- * Tirar na hora ou escolher da galeria — quantas o técnico quiser, até o
- * teto. As de uma tentativa anterior já estão guardadas e contam junto.
+ * Tirar na hora ou escolher da galeria, escrever o que cada foto mostra, e
+ * anexar. Cada uma vai num pedido só dela, direto para a aba "Arquivos" da OS
+ * no IXC — a que foi sai da lista daqui e aparece na de lá; a que falhou fica,
+ * com o motivo, para tentar de novo.
  */
 function PassoDasFotos({
+  osId,
   fotos,
   onFotos,
-  guardadas,
+  arquivos,
   exigidas,
   onVoltar,
   onContinuar,
 }: {
-  fotos: string[];
-  onFotos: (fotos: string[]) => void;
-  guardadas: number;
+  osId: number;
+  fotos: FotoParaAnexar[];
+  onFotos: (fotos: FotoParaAnexar[]) => void;
+  arquivos: UseQueryResult<ArquivoDaOs[]>;
   exigidas: number;
   onVoltar: () => void;
   onContinuar: () => void;
 }) {
+  const qc = useQueryClient();
   const [preparando, setPreparando] = useState(0);
+  const [anexando, setAnexando] = useState<number | null>(null);
   const [erro, setErro] = useState<string | null>(null);
-  // As fotos de agora: cada uma chega depois de uma espera, e outra pode ter
-  // saído ou entrado enquanto isso.
+  const proxima = useRef(1);
+  // A lista de agora: cada foto chega depois de uma espera, e outra pode ter
+  // entrado, saído ou ganhado descrição enquanto isso.
   const atual = useRef({ fotos, onFotos });
   atual.current = { fotos, onFotos };
 
-  const total = guardadas + fotos.length;
-  const cabem = FOTOS_POR_FINALIZACAO - total;
-  const faltam = Math.max(0, exigidas - total);
+  const naOs = arquivos.data ?? [];
+  // Sem a lista do IXC não dá para contar: quem decide é a API, ao finalizar.
+  const faltam = arquivos.data ? Math.max(0, exigidas - naOs.length) : 0;
+  const ocupado = anexando !== null;
+
+  /** Muda uma foto da lista (ou a tira, com null). */
+  function mudar(chave: number, mudanca: Partial<FotoParaAnexar> | null) {
+    const { fotos: agora, onFotos: avisar } = atual.current;
+    avisar(
+      mudanca === null
+        ? agora.filter((f) => f.chave !== chave)
+        : agora.map((f) => (f.chave === chave ? { ...f, ...mudanca } : f)),
+    );
+  }
 
   async function aoEscolher(e: ChangeEvent<HTMLInputElement>) {
-    const arquivos = [...(e.target.files ?? [])];
+    const escolhidos = [...(e.target.files ?? [])];
     // Limpo sempre: sem isso, escolher a mesma foto de novo não dispara nada.
     e.target.value = '';
-    const vagas = FOTOS_POR_FINALIZACAO - guardadas - atual.current.fotos.length - preparando;
-    const escolhidas = arquivos.slice(0, Math.max(0, vagas));
-    setErro(
-      arquivos.length > escolhidas.length
-        ? `Cabem ${FOTOS_POR_FINALIZACAO} fotos: ${arquivos.length - escolhidas.length} ficaram de fora.`
-        : null,
-    );
-    if (escolhidas.length === 0) return;
-    setPreparando((n) => n + escolhidas.length);
-    // Uma de cada vez: dez fotos da câmera abertas juntas derrubam o navegador
-    // de um celular mais simples.
-    for (const arquivo of escolhidas) {
+    if (escolhidos.length === 0) return;
+    setErro(null);
+    setPreparando((n) => n + escolhidos.length);
+    // Uma de cada vez: várias fotos da câmera abertas juntas derrubam o
+    // navegador de um celular mais simples.
+    for (const arquivo of escolhidos) {
       try {
         const foto = await reduzirFoto(arquivo, FOTO_DA_OS);
         const { fotos: agora, onFotos: avisar } = atual.current;
-        if (!agora.includes(foto)) avisar([...agora, foto]);
+        if (!agora.some((f) => f.foto === foto)) {
+          avisar([...agora, { chave: proxima.current++, foto, descricao: '', erro: null }]);
+        }
       } catch (err) {
         setErro(err instanceof Error ? err.message : String(err));
       } finally {
         setPreparando((n) => n - 1);
       }
     }
+  }
+
+  /** Na ordem, uma por vez. A primeira que falha para a fila — sem sinal, as outras falhariam igual. */
+  async function anexar() {
+    setErro(null);
+    for (const f of atual.current.fotos) {
+      setAnexando(f.chave);
+      try {
+        const { data } = await api.post<ArquivoDaOs>(`/minhas-os/${osId}/fotos`, {
+          foto: f.foto,
+          descricao: f.descricao.trim() || undefined,
+        });
+        qc.setQueryData<ArquivoDaOs[]>(['minhas-os', osId, 'arquivos'], (lista) => [...(lista ?? []), data]);
+        mudar(f.chave, null);
+      } catch (err) {
+        mudar(f.chave, { erro: mensagemErro(err) });
+        break;
+      }
+    }
+    setAnexando(null);
+    // Relida do IXC: é a lista de lá que conta para o assunto.
+    void qc.invalidateQueries({ queryKey: ['minhas-os', osId, 'arquivos'] });
   }
 
   return (
@@ -373,31 +423,41 @@ function PassoDasFotos({
           {exigidas > 0
             ? `O assunto pede ${exigidas > 1 ? `${exigidas} fotos` : '1 foto'}. Pode pôr mais, se quiser.`
             : 'Ponha as que quiser: a instalação, a caixa, o sinal no medidor, a etiqueta do aparelho.'}{' '}
-          Vão anexadas na OS do IXC.
+          Escreva o que cada uma mostra e toque em anexar: elas vão direto para os arquivos da OS no
+          IXC.
         </p>
       </div>
 
-      {guardadas > 0 && (
-        <p className="rounded-lg bg-realce px-3 py-2 text-[13px] text-tinta-600">
-          {guardadas > 1 ? `${guardadas} fotos já estão guardadas` : '1 foto já está guardada'} da tentativa
-          anterior, e {guardadas > 1 ? 'vão' : 'vai'} junto.
-        </p>
-      )}
-
       {(fotos.length > 0 || preparando > 0) && (
-        <ul className="grid grid-cols-3 gap-2">
-          {fotos.map((foto, i) => (
-            <li key={i} className="relative">
+        <ul className="space-y-2">
+          {fotos.map((f, i) => (
+            <li key={f.chave} className="flex gap-3 rounded-xl border border-tinta-200 p-2">
               <img
-                src={foto}
-                alt={`Foto ${guardadas + i + 1}`}
-                className="aspect-square w-full rounded-xl border border-tinta-200 object-cover"
+                src={f.foto}
+                alt={f.descricao || `Foto ${i + 1}`}
+                className="h-20 w-20 shrink-0 rounded-lg object-cover"
               />
+              <div className="min-w-0 flex-1">
+                <label className="text-[12px] font-medium text-tinta-500" htmlFor={`foto-${f.chave}`}>
+                  O que a foto mostra
+                </label>
+                <input
+                  id={`foto-${f.chave}`}
+                  value={f.descricao}
+                  onChange={(e) => mudar(f.chave, { descricao: e.target.value.slice(0, 100), erro: null })}
+                  disabled={ocupado}
+                  placeholder="Ex.: sinal na ONU, caixa CTO"
+                  className="campo mt-0.5"
+                />
+                {anexando === f.chave && <p className="mt-1 text-[12px] text-tinta-500">Anexando na OS…</p>}
+                {f.erro && <p className="mt-1 text-[12px] text-rose-600 dark:text-rose-300">{f.erro}</p>}
+              </div>
               <button
                 type="button"
-                onClick={() => onFotos(fotos.filter((_, j) => j !== i))}
-                aria-label={`Tirar a foto ${guardadas + i + 1}`}
-                className="absolute right-1 top-1 flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-lg leading-none text-white"
+                onClick={() => mudar(f.chave, null)}
+                disabled={ocupado}
+                aria-label={`Tirar a foto ${i + 1}`}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-tinta-100 text-lg leading-none text-tinta-600"
               >
                 ×
               </button>
@@ -406,47 +466,91 @@ function PassoDasFotos({
           {Array.from({ length: preparando }, (_, i) => (
             <li
               key={`p${i}`}
-              className="flex aspect-square items-center justify-center rounded-xl border border-dashed border-tinta-300 text-[12px] text-tinta-400"
+              className="flex h-24 items-center justify-center rounded-xl border border-dashed border-tinta-300 text-[12px] text-tinta-400"
             >
-              Preparando…
+              Preparando a foto…
             </li>
           ))}
         </ul>
       )}
 
-      {cabem - preparando > 0 ? (
-        <div className="grid grid-cols-2 gap-2">
-          <label className="btn btn-neutro h-12 cursor-pointer justify-center text-base">
-            Tirar foto
-            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={aoEscolher} />
-          </label>
-          <label className="btn btn-neutro h-12 cursor-pointer justify-center text-base">
-            Da galeria
-            {/* Da galeria dá para marcar várias de uma vez. */}
-            <input type="file" accept="image/*" multiple className="hidden" onChange={aoEscolher} />
-          </label>
-        </div>
-      ) : (
-        <p className="text-[13px] text-tinta-500">Chegou ao teto de {FOTOS_POR_FINALIZACAO} fotos.</p>
-      )}
+      <div className="grid grid-cols-2 gap-2">
+        <label className={`btn btn-neutro h-12 justify-center text-base ${ocupado ? 'opacity-50' : 'cursor-pointer'}`}>
+          Tirar foto
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={aoEscolher}
+            disabled={ocupado}
+          />
+        </label>
+        <label className={`btn btn-neutro h-12 justify-center text-base ${ocupado ? 'opacity-50' : 'cursor-pointer'}`}>
+          Da galeria
+          {/* Da galeria dá para marcar várias de uma vez. */}
+          <input type="file" accept="image/*" multiple className="hidden" onChange={aoEscolher} disabled={ocupado} />
+        </label>
+      </div>
 
-      <p className="text-[12px] text-tinta-400">
-        {total} de {FOTOS_POR_FINALIZACAO} fotos
-        {faltam > 0 && <span className="text-amber-700 dark:text-amber-300"> · faltam {faltam}</span>}
-      </p>
+      {fotos.length > 0 && (
+        <button
+          type="button"
+          onClick={() => void anexar()}
+          disabled={ocupado || preparando > 0}
+          className="btn btn-primario w-full justify-center py-3"
+        >
+          {ocupado
+            ? 'Anexando na OS…'
+            : `Anexar ${fotos.length > 1 ? `as ${fotos.length} fotos` : 'a foto'} na OS do IXC`}
+        </button>
+      )}
       {erro && <p className="text-[12px] text-rose-600 dark:text-rose-300">{erro}</p>}
 
+      <section>
+        <h3 className="eyebrow mb-1">Nos arquivos da OS no IXC</h3>
+        {arquivos.isLoading ? (
+          <p className="text-[13px] text-tinta-500">Lendo os arquivos da OS…</p>
+        ) : arquivos.isError ? (
+          <p className="text-[13px] text-rose-600 dark:text-rose-300">
+            Não consegui ler os arquivos da OS: {mensagemErro(arquivos.error)}
+          </p>
+        ) : naOs.length === 0 ? (
+          <p className="text-[13px] text-tinta-500">Nenhum arquivo ainda.</p>
+        ) : (
+          <ul className="space-y-1 text-[13px] text-tinta-700">
+            {naOs.map((a) => (
+              <li key={a.id} className="flex gap-1.5">
+                <span className="text-emerald-600 dark:text-emerald-400">✓</span>
+                <span className="min-w-0 break-words">{a.descricao}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {faltam > 0 && (
+          <p className="mt-1 text-[12px] text-amber-700 dark:text-amber-300">
+            Falta{faltam > 1 ? 'm' : ''} {faltam} para o que o assunto pede.
+          </p>
+        )}
+      </section>
+
+      {fotos.length > 0 && !ocupado && (
+        <p className="text-[12px] text-tinta-500">
+          Anexe as fotos acima, ou tire as que não quer, para seguir.
+        </p>
+      )}
+
       <div className="flex gap-2">
-        <button type="button" onClick={onVoltar} className="btn btn-sutil">
+        <button type="button" onClick={onVoltar} disabled={ocupado} className="btn btn-sutil">
           Voltar
         </button>
         <button
           type="button"
-          disabled={faltam > 0 || preparando > 0}
+          disabled={fotos.length > 0 || preparando > 0 || ocupado || faltam > 0}
           onClick={onContinuar}
           className="btn btn-primario flex-1 justify-center py-3"
         >
-          {preparando > 0 ? 'Preparando as fotos…' : total === 0 ? 'Continuar sem fotos' : 'Continuar'}
+          {naOs.length === 0 && fotos.length === 0 && exigidas === 0 ? 'Continuar sem fotos' : 'Continuar'}
         </button>
       </div>
     </div>
@@ -465,8 +569,7 @@ function Conferir({
   diagnostico,
   relato,
   inicio,
-  fotos,
-  guardadas,
+  arquivos,
   gps,
   onGpsDeNovo,
   enviando,
@@ -480,8 +583,8 @@ function Conferir({
   diagnostico: string | null;
   relato: string;
   inicio: string;
-  fotos: string[];
-  guardadas: number;
+  /** A aba "Arquivos" da OS no IXC; indefinida quando não deu para ler. */
+  arquivos: ArquivoDaOs[] | undefined;
   gps: EstadoDoGps;
   onGpsDeNovo: () => void;
   enviando: boolean;
@@ -493,7 +596,6 @@ function Conferir({
   const aindaVao = itens.filter((i) => i.situacao === 'PENDENTE' || i.situacao === 'FALHOU').length;
   const travados = itens.filter((i) => i.situacao === 'CONFERIR' || i.situacao === 'GRAVANDO').length;
   const { aparelhosExigidos, produtosExigidos } = para.assunto;
-  const totalDeFotos = guardadas + fotos.length;
   const esperandoGps =
     gps.estado === 'pegando' || (gps.estado === 'melhorando' && gps.precisao > PRECISAO_ACEITAVEL);
 
@@ -525,29 +627,20 @@ function Conferir({
       </section>
 
       <section className="card p-4">
-        <h2 className="eyebrow mb-2">Fotos</h2>
-        {totalDeFotos === 0 ? (
-          <p className="text-[13px] text-tinta-500">Nenhuma foto.</p>
+        <h2 className="eyebrow mb-2">Arquivos da OS no IXC</h2>
+        {!arquivos ? (
+          <p className="text-[13px] text-tinta-500">Não deu para ler os arquivos da OS no IXC.</p>
+        ) : arquivos.length === 0 ? (
+          <p className="text-[13px] text-tinta-500">Nenhum arquivo na OS.</p>
         ) : (
-          <>
-            {fotos.length > 0 && (
-              <div className="mb-2 flex gap-1.5 overflow-x-auto">
-                {fotos.map((foto, i) => (
-                  <img
-                    key={i}
-                    src={foto}
-                    alt={`Foto ${guardadas + i + 1}`}
-                    className="h-16 w-16 shrink-0 rounded-lg border border-tinta-200 object-cover"
-                  />
-                ))}
-              </div>
-            )}
-            <p className="text-[13px] text-tinta-600">
-              {totalDeFotos > 1 ? `${totalDeFotos} fotos vão anexadas` : '1 foto vai anexada'} na OS do IXC, antes
-              do fechamento
-              {guardadas > 0 && ` (${guardadas} já guardada${guardadas > 1 ? 's' : ''} da tentativa anterior)`}.
-            </p>
-          </>
+          <ul className="space-y-1 text-[13px] text-tinta-700">
+            {arquivos.map((a) => (
+              <li key={a.id} className="flex gap-1.5">
+                <span className="text-emerald-600 dark:text-emerald-400">✓</span>
+                <span className="min-w-0 break-words">{a.descricao}</span>
+              </li>
+            ))}
+          </ul>
         )}
       </section>
 
@@ -612,9 +705,7 @@ function Conferir({
           className="btn btn-primario flex-1 justify-center py-3 text-base"
         >
           {enviando
-            ? totalDeFotos > 0
-              ? 'Mandando as fotos e finalizando…'
-              : 'Finalizando no IXC…'
+            ? 'Finalizando no IXC…'
             : esperandoGps
               ? 'Esperando a localização…'
               : 'Finalizar no IXC'}
@@ -685,13 +776,6 @@ function Resultado({ osId, resultado }: { osId: number; resultado: ResultadoDaFi
         <p className="text-[13px] text-tinta-500">
           {resultado.itens.gravados} ite{resultado.itens.gravados > 1 ? 'ns foram' : 'm foi'} ao IXC antes do
           fechamento.
-        </p>
-      )}
-      {f.fotos.total > 0 && (
-        <p className="text-[13px] text-tinta-500">
-          {f.fotos.enviadas === f.fotos.total
-            ? `${f.fotos.total > 1 ? `As ${f.fotos.total} fotos estão` : 'A foto está'} na OS do IXC.`
-            : `${f.fotos.enviadas} de ${f.fotos.total} fotos foram à OS do IXC; as outras ficam guardadas e vão no próximo envio.`}
         </p>
       )}
       <Link

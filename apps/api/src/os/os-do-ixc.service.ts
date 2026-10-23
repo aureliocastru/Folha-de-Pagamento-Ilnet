@@ -6,12 +6,14 @@ import { IxcClient } from '../ixc/ixc.client';
 import {
   finalizadaHoje,
   hojeNaData,
+  lerArquivoDaOs,
   lerAssunto,
   lerComodato,
   lerDiagnostico,
   lerOs,
   lerResposta,
   produtoParaOs,
+  type ArquivoDaOs,
   type AssuntoDoIxc,
   type ComodatoDoContrato,
   type OpcaoDoIxc,
@@ -335,6 +337,31 @@ export class OsDoIxcService {
         quantidade: numeroDoIxc(l.qtde_saida),
       }))
       .filter((l) => l.id > 0 && l.produtoId > 0);
+  }
+
+  /**
+   * Os arquivos anexados a uma OS — a aba "Arquivos" dela no IXC.
+   *
+   * Só ficam as linhas que dizem ser desta OS: a listagem de outro recurso da
+   * OS já ignorou o filtro (ver `materiaisDaOs`), e uma lista de arquivos de
+   * outras OS faria o assunto que exige foto passar sem foto nenhuma.
+   * **Ainda não lida na base real.**
+   */
+  async arquivosDaOs(osId: number): Promise<ArquivoDaOs[]> {
+    const linhas = await this.ixc.listAll<Record<string, unknown>>(
+      'su_oss_chamado_arquivos',
+      {
+        qtype: 'su_oss_chamado_arquivos.id_oss_chamado',
+        query: String(osId),
+        oper: '=',
+        sortname: 'su_oss_chamado_arquivos.id',
+        sortorder: 'asc',
+      },
+      { pageSize: 200, maxPages: 2 },
+    );
+    return linhas
+      .map(lerArquivoDaOs)
+      .filter((a): a is ArquivoDaOs => a !== null && a.osId === osId);
   }
 
   /**

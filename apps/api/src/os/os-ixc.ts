@@ -17,9 +17,10 @@
  *  - **material gasto** — `su_oss_mov_produto` ("Produtos › Tipo Produto
  *    (inserir)"): o conector e o drop saem do almoxarifado dele pela OS.
  *
- * E duas da finalização: as fotos, em `su_oss_chamado_arquivos` ("Arquivos ›
- * Arquivos (inserir)"), e o fechamento, `su_oss_chamado_fechar` ("Ações ›
- * Finalizar"), com o que o técnico disse no passo a passo do celular.
+ * E duas da finalização: as fotos, na aba "Arquivos" da OS
+ * (`su_oss_chamado_arquivos`, "Arquivos › Arquivos (inserir)"), e o
+ * fechamento, `su_oss_chamado_fechar` ("Ações › Finalizar"), com o que o
+ * técnico disse no passo a passo do celular.
  *
  * Os exemplos da documentação mandam `"ixcsoft": "listar"` também nas
  * inserções. Não se repete isso aqui: o `IxcClient` só põe esse cabeçalho nas
@@ -657,6 +658,29 @@ export const CAMPO_DO_ARQUIVO_DA_OS = 'local_arquivo';
  */
 export function montarFotoNaOs(osId: number, descricao: string): Record<string, string> {
   return { id_oss_chamado: id(osId, 'a OS'), descricao: descricao.trim().slice(0, 100) };
+}
+
+/** Um arquivo na aba "Arquivos" da OS, no IXC. */
+export interface ArquivoDaOs {
+  id: number;
+  /** `id_oss_chamado`: zero quando a linha não diz de que OS é. */
+  osId: number;
+  descricao: string;
+}
+
+/**
+ * Uma linha de `su_oss_chamado_arquivos`. Null quando não tem id. A descrição
+ * vazia cai no nome do arquivo (`local_arquivo` é o caminho no servidor do IXC).
+ */
+export function lerArquivoDaOs(l: Record<string, unknown>): ArquivoDaOs | null {
+  const idDoArquivo = numeroDoIxc(l.id);
+  if (idDoArquivo <= 0) return null;
+  const caminho = texto(l.local_arquivo);
+  return {
+    id: idDoArquivo,
+    osId: numeroDoIxc(l.id_oss_chamado),
+    descricao: texto(l.descricao) ?? caminho?.split(/[\\/]/).pop() ?? `Arquivo ${idDoArquivo}`,
+  };
 }
 
 /**

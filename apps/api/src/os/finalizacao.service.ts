@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma, type FinalizacaoDeOs, type RegistroDeOs, type SituacaoItemDeOs } from '@prisma/client';
-import { createHash } from 'node:crypto';
-import { conferirArquivo, extensaoDoTipo, lerDataUrl, type ArquivoRecebido } from '../arquivos/data-url';
+import { numeroDoIxc } from '../almoxarifado/estoque.mapper';
+import { conferirArquivo, emMegabytes, extensaoDoTipo, lerDataUrl } from '../arquivos/data-url';
 import { IxcClient } from '../ixc/ixc.client';
 import { PrismaService } from '../prisma/prisma.service';
 import { OsDoIxcService } from './os-do-ixc.service';
@@ -12,6 +12,7 @@ import {
   montarFechamento,
   montarFotoNaOs,
   STATUS_DA_OS,
+  type ArquivoDaOs,
   type AssuntoDoIxc,
   type OsDoIxc,
 } from './os-ixc';
@@ -21,7 +22,6 @@ import {
   motivoParaNaoFinalizar,
 } from './os.regras';
 import {
-  FINALIZACAO_PARA_A_TELA,
   finalizacaoNaTela,
   nomeDoTecnico,
   OsService,
@@ -38,7 +38,7 @@ export interface ParaFinalizar {
     diagnosticoObrigatorio: boolean;
     aparelhosExigidos: number;
     produtosExigidos: number;
-    /** Zero = não exige; o técnico põe quantas quiser, até o teto. */
+    /** Zero = não exige; o técnico anexa quantas quiser. */
     fotosExigidas: number;
   };
   /** Por que esta OS não se finaliza pelo celular — mostrado antes de preencher. */
@@ -63,8 +63,14 @@ export interface PedidoDeFinalizacao {
   /** ISO. */
   inicio: string;
   gps?: { latitude: number; longitude: number; precisao?: number; em: string };
-  /** Data URLs. Somam-se às que ficaram guardadas de uma tentativa anterior. */
-  fotos?: string[];
+}
+
+/** Uma foto do técnico, para a aba "Arquivos" da OS no IXC. */
+export interface PedidoDeFoto {
+  /** Data URL, já reduzida no celular. */
+  foto: string;
+  /** O que a foto mostra — é o que a aba lista no IXC. */
+  descricao?: string;
 }
 
 /** O que a finalização fez: o envio dos itens que faltavam, e ela. */
@@ -78,6 +84,8 @@ const GRAVANDO_ESQUECIDO_MS = 10 * 60_000;
 
 /** O que ainda pode ir ao IXC. */
 const PODE_IR: SituacaoItemDeOs[] = ['PENDENTE', 'FALHOU'];
+
+const COM_TECNICO = { tecnico: { select: { nome: true, apelido: true } } } as const;
 
 /** A foto sai do celular com menos de 1 MB; o teto daqui é a folga. */
 const TIPOS_DE_FOTO = new Set(['image/jpeg', 'image/png', 'image/webp']);
@@ -93,11 +101,15 @@ const LIMITE_DA_FOTO = 3 * 1024 * 1024;
  * equipe — se finaliza pelo IXC, e a tela diz isso antes de o técnico
  * preencher.
  *
+ * **As fotos não passam por aqui.** Cada uma vai direto à aba "Arquivos" da
+ * OS no IXC, com a descrição que o técnico escreveu, no toque de anexar — e o
+ * mínimo do assunto conta o que está lá.
+ *
  * **Finalizar é a última escrita da OS.** Primeiro vai o que ficou anotado
  * (`OsService.executar`); se algum item não for, a finalização espera, com o
- * motivo, e a base resolve. Depois as fotos, anexadas na OS. Só com tudo no
- * IXC vai o `su_oss_chamado_fechar`: depois de finalizada, o IXC pode recusar
- * o que faltava, e a troca ficaria pela metade.
+ * motivo, e a base resolve. Só com tudo no IXC vai o `su_oss_chamado_fechar`:
+ * depois de finalizada, o IXC pode recusar o que faltava, e a troca ficaria
+ * pela metade.
  *
  * **À prova de repetição, como os itens.** PENDENTE/FALHOU → GRAVANDO por
  * troca condicional; o IXC que responde erro é relido antes de virar
@@ -130,7 +142,7 @@ export class FinalizacaoService {
         where: { osIxcId: os.id },
         include: {
           itens: { select: { createdAt: true }, orderBy: { createdAt: 'asc' }, take: 1 },
-          finalizacao: { include: FINALIZACAO_PARA_A_TELA },
+          finalizacao: { include: COM_TECNICO },
         },
       }),
     ]);
@@ -157,11 +169,46 @@ export class FinalizacaoService {
     };
   }
 
+  /** O que está na aba "Arquivos" da OS, no IXC. */
+  async arquivos(login: Login, osId: number): Promise<ArquivoDaOs[]> {
+    const { os } = await this.os.contexto(login, osId);
+    return this.doIxc.arquivosDaOs(os.id);
+  }
+
+  /**
+   * Anexa uma foto direto na aba "Arquivos" da OS no IXC, com a descrição que
+   * o técnico escreveu. Nada fica guardado aqui: a foto só passa por esta API
+   * porque o token do IXC não sai do servidor. Uma por pedido — dez de uma vez
+   * pelo sinal da casa do cliente era um envio grande que caía inteiro.
+   */
+  async anexarFoto(login: Login, osId: number, pedido: PedidoDeFoto): Promise<ArquivoDaOs> {
+    const { os } = await this.os.contexto(login, osId);
+    if (os.status === 'F') throw new BadRequestException('A OS já está finalizada no IXC.');
+    const arquivo = lerDataUrl(pedido.foto);
+    conferirArquivo(arquivo, TIPOS_DE_FOTO, LIMITE_DA_FOTO, 'A foto entra como JPEG, PNG ou WebP.');
+    const descricao = (pedido.descricao?.trim() || 'Foto do serviço').slice(0, 100);
+
+    const resposta = await this.ixc.upload(
+      'su_oss_chamado_arquivos',
+      CAMPO_DO_ARQUIVO_DA_OS,
+      {
+        nome: `os-${os.id}-${Date.now()}.${extensaoDoTipo(arquivo.tipo)}`,
+        tipo: arquivo.tipo,
+        conteudo: arquivo.conteudo,
+      },
+      montarFotoNaOs(os.id, descricao),
+    );
+    this.logger.log(
+      `${login.nome} anexou uma foto na OS ${os.id} no IXC: "${descricao}" ` +
+        `(${emMegabytes(arquivo.conteudo.length)}).`,
+    );
+    return { id: numeroDoIxc(resposta.id), osId: os.id, descricao };
+  }
+
   /**
    * Finaliza a OS: confere o pedido contra o assunto e as listas do IXC,
    * guarda, e leva ao IXC. A finalização recusada antes (ou que esperava um
-   * item) é refeita com o que veio agora — e as fotos de agora se somam às
-   * que ficaram guardadas dela.
+   * item) é refeita com o que veio agora.
    */
   async finalizar(
     login: Login,
@@ -177,19 +224,12 @@ export class FinalizacaoService {
       this.doIxc.diagnosticos(),
       this.prisma.registroDeOs.findUnique({
         where: { osIxcId: os.id },
-        include: {
-          itens: { select: { tipo: true, situacao: true } },
-          finalizacao: { include: { fotos: { select: { hash: true } } } },
-        },
+        include: { itens: { select: { tipo: true, situacao: true } }, finalizacao: true },
       }),
     ]);
     const jaComecada = existente?.finalizacao ?? null;
     const naSituacao = motivoDaSituacao(jaComecada);
     if (naSituacao) throw new BadRequestException(naSituacao);
-
-    const guardadas = jaComecada?.fotos ?? [];
-    const jaTem = new Set(guardadas.map((f) => f.hash));
-    const novas = lerFotos(pedido.fotos ?? []).filter((f) => !jaTem.has(f.hash));
 
     const respostaId = pedido.respostaId ?? null;
     const diagnosticoId = pedido.diagnosticoId ?? null;
@@ -202,7 +242,6 @@ export class FinalizacaoService {
       respostas,
       diagnosticos,
       ...contagem,
-      fotos: guardadas.length + novas.length,
       abertura: os.abertura,
       agora: new Date(),
     });
@@ -231,7 +270,6 @@ export class FinalizacaoService {
     };
 
     const registro = await this.os.registroDaOs(os);
-    let finalizacaoId: string;
     if (jaComecada) {
       // Só se refaz a que ainda não foi: a troca condicional é a trava contra
       // o segundo toque, que chegaria com a primeira já em GRAVANDO.
@@ -240,12 +278,9 @@ export class FinalizacaoService {
         data: dados,
       });
       if (count === 0) throw new BadRequestException('A finalização desta OS já está indo ao IXC.');
-      finalizacaoId = jaComecada.id;
     } else {
       try {
-        ({ id: finalizacaoId } = await this.prisma.finalizacaoDeOs.create({
-          data: { registroId: registro.id, ...dados },
-        }));
+        await this.prisma.finalizacaoDeOs.create({ data: { registroId: registro.id, ...dados } });
       } catch (err) {
         if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
           throw new BadRequestException('A finalização desta OS já está indo ao IXC.');
@@ -253,29 +288,7 @@ export class FinalizacaoService {
         throw err;
       }
     }
-    if (novas.length > 0) {
-      await this.prisma.fotoDaFinalizacao.createMany({
-        data: novas.map((f, i) => {
-          const ordem = guardadas.length + i + 1;
-          return {
-            finalizacaoId,
-            ordem,
-            nome: `os-${os.id}-foto-${ordem}.${extensaoDoTipo(f.tipo)}`,
-            tipo: f.tipo,
-            tamanho: f.conteudo.length,
-            hash: f.hash,
-            conteudo: new Uint8Array(f.conteudo),
-          };
-        }),
-        // O toque repetido que passou pela trava acima traz as mesmas fotos.
-        skipDuplicates: true,
-      });
-    }
-    const comFotos = guardadas.length + novas.length;
-    this.logger.log(
-      `${login.nome} finalizou a OS ${os.id} pelo celular` +
-        (comFotos > 0 ? `, com ${comFotos} foto(s).` : '.'),
-    );
+    this.logger.log(`${login.nome} finalizou a OS ${os.id} pelo celular.`);
 
     const finalizacao = await this.prisma.finalizacaoDeOs.findUniqueOrThrow({
       where: { registroId: registro.id },
@@ -334,7 +347,7 @@ export class FinalizacaoService {
             situacao: 'FALHOU',
             aviso: juntar(finalizacao.aviso, `Conferido no IXC por ${quem.nome}: a OS não fechou.`),
           },
-      include: FINALIZACAO_PARA_A_TELA,
+      include: COM_TECNICO,
     });
     this.logger.log(
       `${quem.nome} conferiu no IXC a finalização ${finalizacaoId}: ${fechou ? 'fechou' : 'não fechou'}.`,
@@ -367,10 +380,7 @@ export class FinalizacaoService {
    *    condicional. Quem não pegou devolve o que está lá.
    * 3. **Relê a OS** — já finalizada (pelo atendimento, ou por uma tentativa
    *    que respondeu erro e fechou) não se fecha de novo.
-   * 4. **As fotos**, anexadas na OS. A que não for segura o fechamento: a
-   *    finalização fica recusada, com o motivo, e vai de novo sem repetir as
-   *    que já foram.
-   * 5. **Fecha**, e relê: a OS tem de estar finalizada.
+   * 4. **Fecha**, e relê: a OS tem de estar finalizada.
    */
   private async levar(
     finalizacao: FinalizacaoDeOs,
@@ -408,25 +418,13 @@ export class FinalizacaoService {
         await this.marcar(finalizacao.id, { situacao: 'FALHOU', erro: `A OS ${os.id} não foi achada no IXC.` });
         return { finalizacao: await this.naTela(finalizacao.id), itens };
       }
-      // Também na OS que o atendimento fechou: a foto é do serviço, e é lá
-      // que se vai procurá-la.
-      const fotos = await this.enviarFotos(finalizacao.id, os.id);
       if (atual.status === 'F') {
         await this.marcar(finalizacao.id, {
           situacao: 'GRAVADO',
           gravadoEm: new Date(),
-          aviso: juntar(
+          aviso:
             'A OS já estava finalizada no IXC quando a finalização daqui foi enviada — o relato ' +
-              'daqui não entrou nela.',
-            fotos.erro,
-          ),
-        });
-        return { finalizacao: await this.naTela(finalizacao.id), itens };
-      }
-      if (fotos.erro) {
-        await this.marcar(finalizacao.id, {
-          situacao: 'FALHOU',
-          erro: `A OS não foi finalizada: ${fotos.erro} Mande de novo — as que já foram não vão duas vezes.`,
+            'daqui não entrou nela.',
         });
         return { finalizacao: await this.naTela(finalizacao.id), itens };
       }
@@ -510,66 +508,26 @@ export class FinalizacaoService {
 
   /**
    * O que a OS tem do que o assunto exige: no IXC, e anotado para ir antes do
-   * fechamento. Só lê o IXC quando o assunto exige alguma coisa.
+   * fechamento. As fotos, só no IXC — elas vão para lá no toque de anexar.
+   * Só lê o IXC quando o assunto exige alguma coisa.
    */
   private async contarExigidos(
     os: OsDoIxc,
     assunto: AssuntoDoIxc,
     itens: Array<{ tipo: string; situacao: SituacaoItemDeOs }>,
-  ): Promise<{ aparelhos: number; produtos: number }> {
+  ): Promise<{ aparelhos: number; produtos: number; fotos: number }> {
     const aindaVao = (tipo: string) =>
       itens.filter((i) => i.tipo === tipo && PODE_IR.includes(i.situacao)).length;
-    const [aparelhos, produtos] = await Promise.all([
+    const [aparelhos, produtos, fotos] = await Promise.all([
       assunto.aparelhosExigidos > 0 ? this.doIxc.comodatosDaOs(os.id).then((l) => l.length) : 0,
       assunto.produtosExigidos > 0 ? this.doIxc.materiaisDaOs(os.id).then((l) => l.length) : 0,
+      assunto.fotosExigidas > 0 ? this.doIxc.arquivosDaOs(os.id).then((l) => l.length) : 0,
     ]);
     return {
       aparelhos: aparelhos + aindaVao('INSTALADO'),
       produtos: produtos + aindaVao('MATERIAL'),
+      fotos,
     };
-  }
-
-  /**
-   * As fotos que ainda não foram, uma a uma e na ordem. A que vai deixa o
-   * conteúdo para trás — mora na OS do IXC agora. A primeira que o IXC recusa
-   * para a fila: com o IXC fora do ar, as outras iam esperar o mesmo erro.
-   *
-   * Não há releitura, como nos itens: a lista de arquivos da OS ainda não foi
-   * vista nesta base, e a foto que foi apesar do erro só volta como uma cópia
-   * a mais na OS — nada que mexa em estoque ou em dinheiro.
-   */
-  private async enviarFotos(
-    finalizacaoId: string,
-    osId: number,
-  ): Promise<{ enviadas: number; erro: string | null }> {
-    const fotos = await this.prisma.fotoDaFinalizacao.findMany({
-      where: { finalizacaoId, enviadaEm: null },
-      orderBy: { ordem: 'asc' },
-    });
-    let enviadas = 0;
-    for (const foto of fotos) {
-      if (!foto.conteudo) continue;
-      try {
-        await this.ixc.upload(
-          'su_oss_chamado_arquivos',
-          CAMPO_DO_ARQUIVO_DA_OS,
-          { nome: foto.nome, tipo: foto.tipo, conteudo: Buffer.from(foto.conteudo) },
-          montarFotoNaOs(osId, `Foto ${foto.ordem} — finalização pelo celular`),
-        );
-      } catch (err) {
-        const motivo = err instanceof Error ? err.message : String(err);
-        await this.prisma.fotoDaFinalizacao.update({ where: { id: foto.id }, data: { erro: motivo } });
-        const faltam = fotos.length - enviadas;
-        this.logger.warn(`OS ${osId}: ${faltam} foto(s) não foram ao IXC (${motivo}).`);
-        return { enviadas, erro: `${faltam} foto(s) não foram à OS no IXC (${motivo}).` };
-      }
-      await this.prisma.fotoDaFinalizacao.update({
-        where: { id: foto.id },
-        data: { enviadaEm: new Date(), erro: null, conteudo: null },
-      });
-      enviadas++;
-    }
-    return { enviadas, erro: null };
   }
 
   /** Finalização esquecida em GRAVANDO (a API caiu no meio) vai para conferência. */
@@ -590,7 +548,7 @@ export class FinalizacaoService {
 
   private async naTela(id: string): Promise<FinalizacaoNaTela> {
     return finalizacaoNaTela(
-      await this.prisma.finalizacaoDeOs.findUniqueOrThrow({ where: { id }, include: FINALIZACAO_PARA_A_TELA }),
+      await this.prisma.finalizacaoDeOs.findUniqueOrThrow({ where: { id }, include: COM_TECNICO }),
     );
   }
 }
@@ -604,24 +562,6 @@ function motivoDaSituacao(f: { situacao: SituacaoItemDeOs } | null): string | nu
     return 'A finalização desta OS está esperando a base conferir no IXC se ela fechou.';
   }
   return null;
-}
-
-/**
- * As fotos do pedido, conferidas: imagem, abaixo do teto. A repetida no mesmo
- * pedido entra uma vez só.
- */
-function lerFotos(dataUrls: string[]): Array<ArquivoRecebido & { hash: string }> {
-  const vistas = new Set<string>();
-  const fotos: Array<ArquivoRecebido & { hash: string }> = [];
-  for (const url of dataUrls) {
-    const arquivo = lerDataUrl(url);
-    conferirArquivo(arquivo, TIPOS_DE_FOTO, LIMITE_DA_FOTO, 'A foto entra como JPEG, PNG ou WebP.');
-    const hash = createHash('sha256').update(arquivo.conteudo).digest('hex');
-    if (vistas.has(hash)) continue;
-    vistas.add(hash);
-    fotos.push({ ...arquivo, hash });
-  }
-  return fotos;
 }
 
 /** Junta avisos sem repetir e sem "null" no meio. */
