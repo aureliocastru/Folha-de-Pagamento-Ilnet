@@ -7,10 +7,13 @@ import { PrismaService } from '../prisma/prisma.service';
 import { OsDoIxcService } from './os-do-ixc.service';
 import {
   CAMPO_DO_ARQUIVO_DA_OS,
+  CLASSIFICACAO_DO_ARQUIVO,
+  DESCRICAO_DA_ASSINATURA,
   doSetor,
+  ehAssinatura,
   mensagemDoFechamento,
+  montarArquivoNaOs,
   montarFechamento,
-  montarFotoNaOs,
   STATUS_DA_OS,
   type ArquivoDaOs,
   type AssuntoDoIxc,
@@ -40,6 +43,8 @@ export interface ParaFinalizar {
     produtosExigidos: number;
     /** Zero = não exige; o técnico anexa quantas quiser. */
     fotosExigidas: number;
+    /** Sem ela a OS não fecha; no assunto que não a exige, o técnico diz por que não houve. */
+    assinaturaObrigatoria: boolean;
   };
   /** Por que esta OS não se finaliza pelo celular — mostrado antes de preencher. */
   recusa: string | null;
@@ -63,6 +68,17 @@ export interface PedidoDeFinalizacao {
   /** ISO. */
   inicio: string;
   gps?: { latitude: number; longitude: number; precisao?: number; em: string };
+  /** Quem assinou — a assinatura já está nos arquivos da OS. */
+  assinadaPor?: string;
+  /** Por que o cliente não assinou. */
+  semAssinatura?: string;
+}
+
+/** A assinatura do cliente, para a aba "Arquivos" da OS no IXC. */
+export interface PedidoDeAssinatura {
+  /** Data URL em PNG, com o nome e a hora carimbados no celular. */
+  assinatura: string;
+  nome: string;
 }
 
 /** Uma foto do técnico, para a aba "Arquivos" da OS no IXC. */
@@ -101,9 +117,9 @@ const LIMITE_DA_FOTO = 3 * 1024 * 1024;
  * equipe — se finaliza pelo IXC, e a tela diz isso antes de o técnico
  * preencher.
  *
- * **As fotos não passam por aqui.** Cada uma vai direto à aba "Arquivos" da
- * OS no IXC, com a descrição que o técnico escreveu, no toque de anexar — e o
- * mínimo do assunto conta o que está lá.
+ * **As fotos e a assinatura não passam por aqui.** Cada uma vai direto à aba
+ * "Arquivos" da OS no IXC, no toque de anexar — e o que o assunto exige delas
+ * (quantas fotos, a assinatura) conta o que está lá.
  *
  * **Finalizar é a última escrita da OS.** Primeiro vai o que ficou anotado
  * (`OsService.executar`); se algum item não for, a finalização espera, com o
@@ -154,6 +170,7 @@ export class FinalizacaoService {
         aparelhosExigidos: assunto.aparelhosExigidos,
         produtosExigidos: assunto.produtosExigidos,
         fotosExigidas: assunto.fotosExigidas,
+        assinaturaObrigatoria: assunto.assinaturaObrigatoria,
       },
       recusa:
         os.status === 'F'
@@ -182,27 +199,58 @@ export class FinalizacaoService {
    * pelo sinal da casa do cliente era um envio grande que caía inteiro.
    */
   async anexarFoto(login: Login, osId: number, pedido: PedidoDeFoto): Promise<ArquivoDaOs> {
+    const descricao = (pedido.descricao?.trim() || 'Foto do serviço').slice(0, 100);
+    return this.anexar(login, osId, pedido.foto, descricao, CLASSIFICACAO_DO_ARQUIVO.FOTO);
+  }
+
+  /**
+   * Anexa a assinatura do cliente na aba "Arquivos" da OS, como o app do IXC
+   * faz: um PNG, classificação "A", descrição "Assinatura do Cliente" — aqui
+   * com o nome de quem assinou, que nem sempre é o titular. Nada fica guardado
+   * aqui; o nome volta na finalização e entra na mensagem do fechamento.
+   */
+  async anexarAssinatura(login: Login, osId: number, pedido: PedidoDeAssinatura): Promise<ArquivoDaOs> {
+    const nome = pedido.nome.trim();
+    if (nome.length < 3) throw new BadRequestException('Escreva o nome de quem assinou.');
+    return this.anexar(
+      login,
+      osId,
+      pedido.assinatura,
+      `${DESCRICAO_DA_ASSINATURA} — ${nome}`,
+      CLASSIFICACAO_DO_ARQUIVO.ASSINATURA,
+    );
+  }
+
+  /** Confere o arquivo e o manda à aba "Arquivos" da OS do técnico. */
+  private async anexar(
+    login: Login,
+    osId: number,
+    dataUrl: string,
+    descricao: string,
+    classificacao: (typeof CLASSIFICACAO_DO_ARQUIVO)[keyof typeof CLASSIFICACAO_DO_ARQUIVO],
+  ): Promise<ArquivoDaOs> {
     const { os } = await this.os.contexto(login, osId);
     if (os.status === 'F') throw new BadRequestException('A OS já está finalizada no IXC.');
-    const arquivo = lerDataUrl(pedido.foto);
-    conferirArquivo(arquivo, TIPOS_DE_FOTO, LIMITE_DA_FOTO, 'A foto entra como JPEG, PNG ou WebP.');
-    const descricao = (pedido.descricao?.trim() || 'Foto do serviço').slice(0, 100);
+    const arquivo = lerDataUrl(dataUrl);
+    conferirArquivo(arquivo, TIPOS_DE_FOTO, LIMITE_DA_FOTO, 'A imagem entra como JPEG, PNG ou WebP.');
+    const campos = montarArquivoNaOs(os.id, descricao, classificacao);
+    const assinatura = classificacao === CLASSIFICACAO_DO_ARQUIVO.ASSINATURA;
 
     const resposta = await this.ixc.upload(
       'su_oss_chamado_arquivos',
       CAMPO_DO_ARQUIVO_DA_OS,
       {
-        nome: `os-${os.id}-${Date.now()}.${extensaoDoTipo(arquivo.tipo)}`,
+        nome: `os-${os.id}-${assinatura ? 'assinatura-' : ''}${Date.now()}.${extensaoDoTipo(arquivo.tipo)}`,
         tipo: arquivo.tipo,
         conteudo: arquivo.conteudo,
       },
-      montarFotoNaOs(os.id, descricao),
+      campos,
     );
     this.logger.log(
-      `${login.nome} anexou uma foto na OS ${os.id} no IXC: "${descricao}" ` +
-        `(${emMegabytes(arquivo.conteudo.length)}).`,
+      `${login.nome} anexou ${assinatura ? 'a assinatura' : 'uma foto'} na OS ${os.id} no IXC: ` +
+        `"${campos.descricao}" (${emMegabytes(arquivo.conteudo.length)}).`,
     );
-    return { id: numeroDoIxc(resposta.id), osId: os.id, descricao };
+    return { id: numeroDoIxc(resposta.id), osId: os.id, descricao: campos.descricao, classificacao };
   }
 
   /**
@@ -234,11 +282,13 @@ export class FinalizacaoService {
     const respostaId = pedido.respostaId ?? null;
     const diagnosticoId = pedido.diagnosticoId ?? null;
     const inicio = new Date(pedido.inicio);
-    const contagem = await this.contarExigidos(os, assunto, existente?.itens ?? []);
+    const assinadaPor = pedido.assinadaPor?.trim().slice(0, 100) || null;
+    const semAssinatura = pedido.semAssinatura?.trim().slice(0, 300) || null;
+    const contagem = await this.contarExigidos(os, assunto, existente?.itens ?? [], !!assinadaPor);
     const motivo = motivoParaNaoFinalizar({
       status: os.status,
       assunto,
-      pedido: { respostaId, diagnosticoId, relato: pedido.relato, inicio },
+      pedido: { respostaId, diagnosticoId, relato: pedido.relato, inicio, assinadaPor, semAssinatura },
       respostas,
       diagnosticos,
       ...contagem,
@@ -257,6 +307,9 @@ export class FinalizacaoService {
       diagnosticoId,
       diagnostico: diagnosticos.find((d) => d.id === diagnosticoId)?.nome ?? null,
       relato: pedido.relato.trim().slice(0, 2000),
+      // Com a assinatura nos arquivos da OS, o motivo de não ter havido não vale.
+      assinadaPor,
+      semAssinatura: assinadaPor ? null : semAssinatura,
       inicio,
       fim: new Date(),
       geraComissao: assunto.geraComissao,
@@ -443,6 +496,7 @@ export class FinalizacaoService {
         mensagem: mensagemDoFechamento(
           finalizacao.relato,
           tecnico ? nomeDoTecnico({ tecnico }) : finalizacao.registradoPor,
+          { assinadaPor: finalizacao.assinadaPor, semAssinatura: finalizacao.semAssinatura },
         ),
         geraComissao: finalizacao.geraComissao,
         gps:
@@ -508,25 +562,29 @@ export class FinalizacaoService {
 
   /**
    * O que a OS tem do que o assunto exige: no IXC, e anotado para ir antes do
-   * fechamento. As fotos, só no IXC — elas vão para lá no toque de anexar.
-   * Só lê o IXC quando o assunto exige alguma coisa.
+   * fechamento. As fotos e a assinatura, só no IXC — elas vão para lá no toque
+   * de anexar. Só lê o IXC quando o assunto exige alguma coisa (ou quando o
+   * técnico diz que o cliente assinou, para conferir).
    */
   private async contarExigidos(
     os: OsDoIxc,
     assunto: AssuntoDoIxc,
     itens: Array<{ tipo: string; situacao: SituacaoItemDeOs }>,
-  ): Promise<{ aparelhos: number; produtos: number; fotos: number }> {
+    disseQueAssinou: boolean,
+  ): Promise<{ aparelhos: number; produtos: number; fotos: number; assinaturaNaOs: boolean }> {
     const aindaVao = (tipo: string) =>
       itens.filter((i) => i.tipo === tipo && PODE_IR.includes(i.situacao)).length;
-    const [aparelhos, produtos, fotos] = await Promise.all([
+    const lerArquivos = assunto.fotosExigidas > 0 || assunto.assinaturaObrigatoria || disseQueAssinou;
+    const [aparelhos, produtos, arquivos] = await Promise.all([
       assunto.aparelhosExigidos > 0 ? this.doIxc.comodatosDaOs(os.id).then((l) => l.length) : 0,
       assunto.produtosExigidos > 0 ? this.doIxc.materiaisDaOs(os.id).then((l) => l.length) : 0,
-      assunto.fotosExigidas > 0 ? this.doIxc.arquivosDaOs(os.id).then((l) => l.length) : 0,
+      lerArquivos ? this.doIxc.arquivosDaOs(os.id) : [],
     ]);
     return {
       aparelhos: aparelhos + aindaVao('INSTALADO'),
       produtos: produtos + aindaVao('MATERIAL'),
-      fotos,
+      fotos: arquivos.filter((a) => !ehAssinatura(a)).length,
+      assinaturaNaOs: arquivos.some(ehAssinatura),
     };
   }
 

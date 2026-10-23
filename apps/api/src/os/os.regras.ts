@@ -244,6 +244,10 @@ export interface PedidoDeFinalizar {
   diagnosticoId: number | null;
   relato: string;
   inicio: Date;
+  /** Quem assinou — a assinatura já foi para os arquivos da OS no passo dela. */
+  assinadaPor: string | null;
+  /** Por que o cliente não assinou, quando o assunto deixa. */
+  semAssinatura: string | null;
 }
 
 /**
@@ -281,6 +285,9 @@ function inicioNaTela(d: Date): string {
  *    fechamento — o técnico que esqueceu de anotar fica sabendo agora, e não
  *    pela recusa do IXC depois que ele foi embora. As fotos contam o que está
  *    na aba "Arquivos" da OS no IXC, que é para onde vão no toque de anexar;
+ *  - **a assinatura do cliente está lá?** Quando o assunto a exige, ou quando
+ *    o técnico diz que o cliente assinou. Sem ela, só com o motivo, e só no
+ *    assunto que não a exige;
  *  - **a resposta e o diagnóstico existem?** O diagnóstico, quando o assunto
  *    o exige, é obrigatório;
  *  - **o relato diz alguma coisa?**
@@ -296,8 +303,10 @@ export function motivoParaNaoFinalizar(dados: {
   aparelhos: number;
   /** Produtos gastos na OS, contados do mesmo jeito. */
   produtos: number;
-  /** Os arquivos na aba "Arquivos" da OS, no IXC — é o que o IXC conta. */
+  /** As fotos na aba "Arquivos" da OS, no IXC — tudo lá menos a assinatura. */
   fotos: number;
+  /** A assinatura do cliente está na aba "Arquivos" da OS (ver `ehAssinatura`). */
+  assinaturaNaOs: boolean;
   /** A abertura da OS, "AAAA-MM-DD HH:MM:SS" no fuso daqui. */
   abertura: string | null;
   agora: Date;
@@ -325,6 +334,16 @@ export function motivoParaNaoFinalizar(dados: {
       `O assunto "${assunto.nome}" exige ${pede} para finalizar, e a OS tem ` +
       `${dados.fotos === 0 ? 'nenhuma' : dados.fotos} no IXC. Anexe no passo das fotos.`
     );
+  }
+
+  if (pedido.assinadaPor && pedido.semAssinatura) {
+    return 'Ou o cliente assinou, ou não assinou. Confira o passo da assinatura.';
+  }
+  if (!dados.assinaturaNaOs && (assunto.assinaturaObrigatoria || pedido.assinadaPor)) {
+    return assunto.assinaturaObrigatoria
+      ? `O assunto "${assunto.nome}" exige a assinatura do cliente, e ela não está nos arquivos ` +
+          'da OS no IXC. Colha no passo da assinatura.'
+      : 'A assinatura não está nos arquivos da OS no IXC. Colha de novo no passo da assinatura.';
   }
 
   if (pedido.respostaId !== null && !dados.respostas.some((r) => r.id === pedido.respostaId)) {

@@ -295,8 +295,9 @@ não dá para saber):
 
 1. os itens que ainda não foram ao IXC — se algum não for, a finalização para
    e fica pendente, com o motivo;
-2. a assinatura, em `su_oss_chamado_arquivos` (Fase 2b) — as fotos já estão
-   lá: vão direto para os arquivos da OS no toque de anexar, antes de finalizar;
+2. ~~as fotos e a assinatura~~ — já estão nos arquivos da OS: vão direto para
+   `su_oss_chamado_arquivos` no toque de anexar, antes de finalizar, e o
+   fechamento só confere que estão lá;
 3. os dados da conexão, no login e na ONU (Fase 3);
 4. `su_oss_chamado_fechar`, com o relato, a resposta, o diagnóstico, o início e
    o fim, o técnico e o GPS do celular;
@@ -326,8 +327,19 @@ recusar outras escritas na OS.
       IXC** (`su_oss_chamado_arquivos`) — nada fica guardado aqui. A tela lista
       o que está na aba, e o mínimo do assunto (`exige_fotos_finalizacao_os`)
       conta o que está lá
-- [ ] **Fase 2b — assinatura** do cliente, anexada na OS como as fotos, e o
-      rascunho guardado no celular (o sinal cai na casa do cliente)
+- [x] **Fase 2b — assinatura do cliente** (escrito, falta a prova do anexo):
+      um passo próprio, depois das fotos. O cliente assina no quadro da APR (com
+      tela cheia), com o nome de quem assina; o nome, a hora e a OS saem
+      carimbados embaixo, e o PNG vai direto para os arquivos da OS **como o app
+      do IXC grava a dele** — classificação "A", descrição "Assinatura do
+      Cliente" (aqui com o nome). Nada fica guardado aqui além de quem assinou.
+      **Obrigatória quando o assunto tem `wiz_assinatura_obrig`** (33 dos 60
+      assuntos em 23/10/2026: instalação, mudança de endereço, sem internet…):
+      sem ela nos arquivos da OS, não fecha — e vale a que o app do IXC já pôs
+      lá. No assunto que não exige, o técnico pode dizer por que não houve, e
+      o motivo vai na mensagem do fechamento
+- [ ] **Rascunho guardado no celular** (o sinal cai na casa do cliente): hoje o
+      relato e as fotos não anexadas se perdem se a página recarregar
 - [ ] **Fase 3a — conexão no texto**: MAC/série da ONU, sinal RX, CTO e porta,
       escritos na mensagem do fechamento e guardados aqui
 - [ ] **Fase 3b — conexão no login e na ONU** (`radusuarios`: `onu_mac`,

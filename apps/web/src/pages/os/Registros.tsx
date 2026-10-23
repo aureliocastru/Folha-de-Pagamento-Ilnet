@@ -273,7 +273,16 @@ function LinhaDaFinalizacao({
           </span>
         </div>
         <p className="mt-1 text-[12px] text-tinta-500">
-          {[f.resposta, f.diagnostico, `de ${horaCurta(f.inicio)} a ${horaCurta(f.fim)}`]
+          {[
+            f.resposta,
+            f.diagnostico,
+            `de ${horaCurta(f.inicio)} a ${horaCurta(f.fim)}`,
+            f.assinadaPor
+              ? `assinada por ${f.assinadaPor}`
+              : f.semAssinatura
+                ? `sem assinatura (${f.semAssinatura})`
+                : null,
+          ]
             .filter(Boolean)
             .join(' · ')}
         </p>

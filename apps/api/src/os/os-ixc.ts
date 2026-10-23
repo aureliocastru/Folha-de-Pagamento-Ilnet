@@ -533,6 +533,12 @@ export interface AssuntoDoIxc {
   /** Quantos produtos (material) a OS precisa ter. Zero = não exige. */
   produtosExigidos: number;
   equipeObrigatoria: boolean;
+  /**
+   * `wiz_assinatura_obrig`: a assinatura do cliente é obrigatória ao
+   * finalizar. Em 23/10/2026, 33 dos 60 assuntos da base a exigiam — entre eles
+   * instalação, mudança de endereço e cliente sem internet.
+   */
+  assinaturaObrigatoria: boolean;
   /** O assunto paga comissão (`valor_comissao` acima de zero). */
   geraComissao: boolean;
 }
@@ -560,6 +566,7 @@ export function lerAssunto(l: Record<string, unknown>): AssuntoDoIxc | null {
     aparelhosExigidos: exigidos(l.exige_comodato_finalizar_os, l.quantidade_equipamentos),
     produtosExigidos: exigidos(l.exige_produto_finalizar_os, l.quantidade_produtos),
     equipeObrigatoria: sim(l.equipe_obrigatoria_finalizacao_os),
+    assinaturaObrigatoria: sim(l.wiz_assinatura_obrig),
     geraComissao: numeroDoIxc(l.valor_comissao) > 0,
   };
 }
@@ -652,12 +659,33 @@ export interface Fechamento {
 export const CAMPO_DO_ARQUIVO_DA_OS = 'local_arquivo';
 
 /**
- * Os campos de texto de uma foto anexada à OS (`POST /su_oss_chamado_arquivos`,
- * "Arquivos › Arquivos (inserir)"). O arquivo vai ao lado, no multipart do
- * `IxcClient.upload`. A descrição é o que a aba de arquivos da OS lista.
+ * A `classificacao_arquivo` dos arquivos da OS, como o app do próprio IXC as
+ * grava (lido na base em 23/10/2026): P as fotos, A a assinatura do cliente, O
+ * o PDF da OS que o IXC gera ao finalizar pelo app dele.
  */
-export function montarFotoNaOs(osId: number, descricao: string): Record<string, string> {
-  return { id_oss_chamado: id(osId, 'a OS'), descricao: descricao.trim().slice(0, 100) };
+export const CLASSIFICACAO_DO_ARQUIVO = { FOTO: 'P', ASSINATURA: 'A' } as const;
+
+/** A descrição que o app do IXC dá à assinatura. A daqui começa igual, e leva o nome de quem assinou. */
+export const DESCRICAO_DA_ASSINATURA = 'Assinatura do Cliente';
+
+/**
+ * Os campos de texto de um arquivo anexado à OS (`POST /su_oss_chamado_arquivos`,
+ * "Arquivos › Arquivos (inserir)"). O arquivo vai ao lado, no multipart do
+ * `IxcClient.upload`. A descrição é o que a aba de arquivos da OS lista; a
+ * classificação é a do app do IXC — a coleção só a documenta no anexo do
+ * "Finalizar Wizard", e a assinatura daqui se reconhece também pela descrição
+ * se esta rota a ignorar.
+ */
+export function montarArquivoNaOs(
+  osId: number,
+  descricao: string,
+  classificacao: (typeof CLASSIFICACAO_DO_ARQUIVO)[keyof typeof CLASSIFICACAO_DO_ARQUIVO],
+): Record<string, string> {
+  return {
+    id_oss_chamado: id(osId, 'a OS'),
+    descricao: descricao.trim().slice(0, 100),
+    classificacao_arquivo: classificacao,
+  };
 }
 
 /** Um arquivo na aba "Arquivos" da OS, no IXC. */
@@ -666,11 +694,13 @@ export interface ArquivoDaOs {
   /** `id_oss_chamado`: zero quando a linha não diz de que OS é. */
   osId: number;
   descricao: string;
+  /** `classificacao_arquivo` (ver `CLASSIFICACAO_DO_ARQUIVO`). */
+  classificacao: string | null;
 }
 
 /**
  * Uma linha de `su_oss_chamado_arquivos`. Null quando não tem id. A descrição
- * vazia cai no nome do arquivo (`local_arquivo` é o caminho no servidor do IXC).
+ * vazia cai no nome do arquivo.
  */
 export function lerArquivoDaOs(l: Record<string, unknown>): ArquivoDaOs | null {
   const idDoArquivo = numeroDoIxc(l.id);
@@ -679,16 +709,43 @@ export function lerArquivoDaOs(l: Record<string, unknown>): ArquivoDaOs | null {
   return {
     id: idDoArquivo,
     osId: numeroDoIxc(l.id_oss_chamado),
-    descricao: texto(l.descricao) ?? caminho?.split(/[\\/]/).pop() ?? `Arquivo ${idDoArquivo}`,
+    descricao:
+      texto(l.descricao) ?? texto(l.nome_arquivo) ?? caminho?.split(/[\\/]/).pop() ?? `Arquivo ${idDoArquivo}`,
+    classificacao: texto(l.classificacao_arquivo)?.toUpperCase() ?? null,
   };
+}
+
+/** A assinatura do cliente: a do app do IXC (classificação A) ou a daqui. */
+export function ehAssinatura(a: Pick<ArquivoDaOs, 'descricao' | 'classificacao'>): boolean {
+  return (
+    a.classificacao === CLASSIFICACAO_DO_ARQUIVO.ASSINATURA ||
+    a.descricao.trim().toLowerCase().startsWith(DESCRICAO_DA_ASSINATURA.toLowerCase())
+  );
+}
+
+/** Como ficou a assinatura do cliente: quem assinou, ou por que não assinou. */
+export interface AssinaturaDoFechamento {
+  assinadaPor: string | null;
+  semAssinatura: string | null;
 }
 
 /**
  * A mensagem que fica na OS: o relato do técnico, e de onde veio — quem lê a
- * OS no IXC precisa saber que ela foi finalizada pelo celular, e por quem.
+ * OS no IXC precisa saber que ela foi finalizada pelo celular, e por quem. E a
+ * assinatura: quem assinou (a imagem está nos arquivos da OS), ou por que o
+ * cliente não assinou.
  */
-export function mensagemDoFechamento(relato: string, tecnico: string): string {
-  return `${relato.trim()}\n\n— Finalizada pelo celular por ${tecnico}.`;
+export function mensagemDoFechamento(
+  relato: string,
+  tecnico: string,
+  assinatura: AssinaturaDoFechamento = { assinadaPor: null, semAssinatura: null },
+): string {
+  const linhaDaAssinatura = assinatura.assinadaPor
+    ? `Assinada por ${assinatura.assinadaPor.trim()} — a assinatura está nos arquivos da OS.\n`
+    : assinatura.semAssinatura
+      ? `O cliente não assinou: ${assinatura.semAssinatura.trim()}.\n`
+      : '';
+  return `${relato.trim()}\n\n${linhaDaAssinatura}— Finalizada pelo celular por ${tecnico}.`;
 }
 
 /**

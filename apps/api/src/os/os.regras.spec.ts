@@ -239,6 +239,7 @@ describe('motivoParaNaoFinalizar', () => {
     aparelhosExigidos: 0,
     produtosExigidos: 0,
     equipeObrigatoria: false,
+    assinaturaObrigatoria: false,
     geraComissao: false,
   };
   const agora = new Date('2026-10-22T13:00:00Z'); // 10:00 daqui
@@ -250,12 +251,15 @@ describe('motivoParaNaoFinalizar', () => {
       diagnosticoId: null,
       relato: 'Troquei a ONU, sinal ok.',
       inicio: new Date('2026-10-22T11:30:00Z'),
+      assinadaPor: null as string | null,
+      semAssinatura: null as string | null,
     },
     respostas: [{ id: 12, nome: 'Concluída', texto: null, setorId: 0 }],
     diagnosticos: [{ id: 5, nome: 'ONU queimada', texto: null, setorId: 0 }],
     aparelhos: 0,
     produtos: 0,
     fotos: 0,
+    assinaturaNaOs: false,
     abertura: '2026-10-22 07:00:00',
     agora,
   };
@@ -284,6 +288,34 @@ describe('motivoParaNaoFinalizar', () => {
     expect(motivoParaNaoFinalizar({ ...base, assunto: exige, fotos: 2 })).toBeNull();
     // Não há teto: o técnico anexa quantas quiser.
     expect(motivoParaNaoFinalizar({ ...base, fotos: 25 })).toBeNull();
+  });
+
+  it('o assunto que exige assinatura só fecha com ela nos arquivos da OS', () => {
+    const exige = { ...assunto, assinaturaObrigatoria: true };
+    const assinou = { ...base.pedido, assinadaPor: 'Maria da Silva' };
+    expect(motivoParaNaoFinalizar({ ...base, assunto: exige })).toMatch(/exige a assinatura do cliente/);
+    // Dizer que assinou não basta: ela tem de estar lá.
+    expect(motivoParaNaoFinalizar({ ...base, assunto: exige, pedido: assinou })).toMatch(/exige a assinatura/);
+    // E o motivo de não ter assinado não serve para o assunto que a exige.
+    const semAssinar = { ...base.pedido, semAssinatura: 'Não estava em casa' };
+    expect(motivoParaNaoFinalizar({ ...base, assunto: exige, pedido: semAssinar })).toMatch(/exige a assinatura/);
+    expect(
+      motivoParaNaoFinalizar({ ...base, assunto: exige, pedido: assinou, assinaturaNaOs: true }),
+    ).toBeNull();
+  });
+
+  it('no assunto que não exige, vale o motivo; e quem diz que assinou tem de ter a assinatura lá', () => {
+    expect(motivoParaNaoFinalizar({ ...base, pedido: { ...base.pedido, semAssinatura: 'Não quis' } })).toBeNull();
+    expect(
+      motivoParaNaoFinalizar({ ...base, pedido: { ...base.pedido, assinadaPor: 'Maria da Silva' } }),
+    ).toMatch(/não está nos arquivos da OS/);
+    expect(
+      motivoParaNaoFinalizar({
+        ...base,
+        pedido: { ...base.pedido, assinadaPor: 'Maria', semAssinatura: 'Não quis' },
+        assinaturaNaOs: true,
+      }),
+    ).toMatch(/Ou o cliente assinou, ou não assinou/);
   });
 
   it('o aparelho e o produto que o assunto exige contam o que está no IXC e o que vai antes', () => {

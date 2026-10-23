@@ -1,6 +1,7 @@
 import {
   dataHoraParaIxc,
   doSetor,
+  ehAssinatura,
   finalizadaHoje,
   lerArquivoDaOs,
   lerAssunto,
@@ -12,7 +13,7 @@ import {
   montarBaixaDeComodato,
   montarComodatoNaOs,
   montarFechamento,
-  montarFotoNaOs,
+  montarArquivoNaOs,
   montarMaterialNaOs,
   naOrdemDoTecnico,
   osRecusaMaterial,
@@ -412,6 +413,7 @@ describe('lerAssunto', () => {
         exige_produto_finalizar_os: 'N',
         quantidade_produtos: '5',
         equipe_obrigatoria_finalizacao_os: 'N',
+        wiz_assinatura_obrig: 'S',
         valor_comissao: '15.00',
       }),
     ).toEqual({
@@ -425,6 +427,7 @@ describe('lerAssunto', () => {
       // A quantidade sem o "exige" não vale nada.
       produtosExigidos: 0,
       equipeObrigatoria: false,
+      assinaturaObrigatoria: true,
       geraComissao: true,
     });
   });
@@ -439,6 +442,7 @@ describe('lerAssunto', () => {
       aparelhosExigidos: 0,
       produtosExigidos: 0,
       equipeObrigatoria: false,
+      assinaturaObrigatoria: false,
       geraComissao: false,
     });
     expect(lerAssunto({ id: '0' })).toBeNull();
@@ -471,27 +475,60 @@ describe('lerResposta, lerDiagnostico e doSetor', () => {
   });
 });
 
-describe('montarFotoNaOs e lerArquivoDaOs', () => {
-  it('a foto vai para a OS com a descrição que o técnico escreveu', () => {
-    expect(montarFotoNaOs(3788, '  Caixa CTO, porta 4 ')).toEqual({
+describe('montarArquivoNaOs, lerArquivoDaOs e ehAssinatura', () => {
+  it('a foto vai para a OS com a descrição que o técnico escreveu, como foto (P)', () => {
+    expect(montarArquivoNaOs(3788, '  Caixa CTO, porta 4 ', 'P')).toEqual({
       id_oss_chamado: '3788',
       descricao: 'Caixa CTO, porta 4',
+      classificacao_arquivo: 'P',
     });
-    expect(montarFotoNaOs(3788, 'x'.repeat(150)).descricao).toHaveLength(100);
-    expect(() => montarFotoNaOs(0, 'Foto')).toThrow(/a OS/);
+    expect(montarArquivoNaOs(3788, 'x'.repeat(150), 'P').descricao).toHaveLength(100);
+    expect(() => montarArquivoNaOs(0, 'Foto', 'P')).toThrow(/a OS/);
   });
 
+  // As linhas abaixo são como a base devolveu em 23/10/2026 (OS 92948).
   it('lê a linha da aba "Arquivos", e a descrição vazia cai no nome do arquivo', () => {
-    expect(lerArquivoDaOs({ id: '77', id_oss_chamado: '3788', descricao: 'Sinal na ONU' })).toEqual({
-      id: 77,
-      osId: 3788,
-      descricao: 'Sinal na ONU',
-    });
     expect(
-      lerArquivoDaOs({ id: '78', id_oss_chamado: '3788', descricao: '', local_arquivo: 'arquivos/os/foto-1.jpg' }),
+      lerArquivoDaOs({
+        classificacao_arquivo: 'P',
+        id: '242343',
+        descricao: 'Roteador ',
+        id_oss_chamado: '92948',
+        local_arquivo: 'arquivos/20261023-153615.jpg',
+        nome_arquivo: '20261023_153615.jpg',
+      }),
+    ).toEqual({ id: 242343, osId: 92948, descricao: 'Roteador', classificacao: 'P' });
+    expect(
+      lerArquivoDaOs({ id: '78', id_oss_chamado: '3788', descricao: '', nome_arquivo: 'IMG-WA0030.jpg' }),
+    ).toMatchObject({ descricao: 'IMG-WA0030.jpg', classificacao: null });
+    expect(
+      lerArquivoDaOs({ id: '79', id_oss_chamado: '3788', local_arquivo: 'arquivos/foto-1.jpg' }),
     ).toMatchObject({ descricao: 'foto-1.jpg' });
-    expect(lerArquivoDaOs({ id: '79', id_oss_chamado: '3788' })).toMatchObject({ descricao: 'Arquivo 79' });
+    expect(lerArquivoDaOs({ id: '80', id_oss_chamado: '3788' })).toMatchObject({ descricao: 'Arquivo 80' });
     expect(lerArquivoDaOs({ id: '0' })).toBeNull();
+  });
+
+  it('reconhece a assinatura do app do IXC (A) e a daqui, mesmo que a classificação não tenha pegado', () => {
+    const doIxc = lerArquivoDaOs({
+      classificacao_arquivo: 'A',
+      id: '242347',
+      descricao: 'Assinatura do Cliente',
+      id_oss_chamado: '92948',
+    })!;
+    expect(ehAssinatura(doIxc)).toBe(true);
+    expect(ehAssinatura({ descricao: 'Assinatura do Cliente — Maria da Silva', classificacao: 'P' })).toBe(true);
+    expect(ehAssinatura({ descricao: 'Roteador', classificacao: 'P' })).toBe(false);
+    // O PDF da OS que o IXC gera ao finalizar não é assinatura.
+    expect(ehAssinatura({ descricao: 'Ordem de Serviço', classificacao: 'O' })).toBe(false);
+  });
+
+  it('a mensagem do fechamento diz quem assinou, ou por que o cliente não assinou', () => {
+    expect(mensagemDoFechamento('Troquei a ONU.', 'Cleyson', { assinadaPor: 'Maria', semAssinatura: null })).toBe(
+      'Troquei a ONU.\n\nAssinada por Maria — a assinatura está nos arquivos da OS.\n— Finalizada pelo celular por Cleyson.',
+    );
+    expect(
+      mensagemDoFechamento('Troquei a ONU.', 'Cleyson', { assinadaPor: null, semAssinatura: 'Não estava em casa' }),
+    ).toBe('Troquei a ONU.\n\nO cliente não assinou: Não estava em casa.\n— Finalizada pelo celular por Cleyson.');
   });
 });
 

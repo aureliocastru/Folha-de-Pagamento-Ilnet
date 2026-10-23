@@ -118,6 +118,25 @@ export class FinalizarDto {
   /** Sem permissão ou sem resposta do GPS, a OS se finaliza sem ele. */
   @IsOptional() @ValidateNested() @Type(() => GpsDto)
   gps?: GpsDto;
+
+  /** Quem assinou. A assinatura já foi para os arquivos da OS, no passo dela. */
+  @IsOptional() @Transform(texto) @IsString() @MinLength(3) @MaxLength(100)
+  assinadaPor?: string;
+
+  /** Por que o cliente não assinou — só vale no assunto que não exige assinatura. */
+  @IsOptional() @Transform(texto) @IsString() @MinLength(3) @MaxLength(300)
+  semAssinatura?: string;
+}
+
+/** A assinatura do cliente, direto para a aba "Arquivos" da OS no IXC. */
+export class AnexarAssinaturaDto {
+  /** Data URL em PNG, já com o nome e a hora carimbados embaixo. */
+  @IsString() @MinLength(1)
+  assinatura!: string;
+
+  /** Quem assinou — nem sempre o titular. Vai na descrição do arquivo. */
+  @Transform(texto) @IsString() @MinLength(3) @MaxLength(80)
+  nome!: string;
 }
 
 /** Uma foto, direto para a aba "Arquivos" da OS no IXC. O tipo e o teto estão em `FinalizacaoService.anexarFoto`. */

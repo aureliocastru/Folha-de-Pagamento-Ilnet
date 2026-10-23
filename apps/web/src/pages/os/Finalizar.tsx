@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { useEffect, useRef, useState, type ChangeEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { AssinaturaCanvas, type AssinaturaCanvasRef } from '../../components/AssinaturaCanvas';
 import { Aviso, Carregando, Selo } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { reduzirFoto } from '../../lib/foto';
@@ -10,8 +11,10 @@ import {
   SITUACAO_TOM,
   TIPO_LABEL,
   TIPO_TOM,
+  ehAssinatura,
   identificacaoDaPeca,
   quantidadeComUnidade,
+  quemAssinou,
   type ArquivoDaOs,
   type OsAberta,
   type ParaFinalizar,
@@ -28,11 +31,14 @@ import {
  * 2. **Fotos** — tiradas na hora ou escolhidas da galeria, quantas o técnico
  *    quiser, cada uma com a sua descrição. Vão direto para a aba "Arquivos" da
  *    OS no IXC, uma por vez, no toque de anexar; nada fica guardado aqui.
- * 3. **Conferir e finalizar** — o resumo, com o que ainda não foi ao IXC (vai
+ * 3. **Assinatura do cliente** — no quadro, em tela cheia, com o nome de quem
+ *    assina. Vai direto para os arquivos da OS no IXC, como a do app do IXC.
+ *    No assunto que não a exige, o técnico pode dizer por que não houve.
+ * 4. **Conferir e finalizar** — o resumo, com o que ainda não foi ao IXC (vai
  *    antes do fechamento), e a localização do celular.
  *
  * O que cada OS pede vem do assunto no IXC: o diagnóstico obrigatório, o
- * aparelho ou o produto exigido, quantas fotos. O assunto que exige equipe
+ * aparelho ou o produto exigido, quantas fotos, a assinatura. O assunto que exige equipe
  * ainda se finaliza pelo IXC, e a tela diz isso antes de o técnico preencher
  * nada.
  */
@@ -40,12 +46,14 @@ export function CampoFinalizar() {
   const { osId } = useParams<{ osId: string }>();
   const id = Number(osId);
   const qc = useQueryClient();
-  const [passo, setPasso] = useState<'relato' | 'fotos' | 'conferir'>('relato');
+  const [passo, setPasso] = useState<'relato' | 'fotos' | 'assinatura' | 'conferir'>('relato');
   const [respostaId, setRespostaId] = useState<number | null>(null);
   const [diagnosticoId, setDiagnosticoId] = useState<number | null>(null);
   const [relato, setRelato] = useState('');
   const [inicio, setInicio] = useState('');
   const [fotos, setFotos] = useState<FotoParaAnexar[]>([]);
+  const [assinadaPor, setAssinadaPor] = useState<string | null>(null);
+  const [semAssinatura, setSemAssinatura] = useState<string | null>(null);
   const [resultado, setResultado] = useState<ResultadoDaFinalizacao | null>(null);
   const preenchido = useRef(false);
 
@@ -85,6 +93,8 @@ export function CampoFinalizar() {
       setDiagnosticoId(antes.diagnosticoId);
       setRelato(antes.relato);
       setInicio(paraCampoDeHora(antes.inicio));
+      setAssinadaPor(antes.assinadaPor);
+      setSemAssinatura(antes.semAssinatura);
       return;
     }
     const sugerida = d.respostas.find((r) => r.id === d.sugestao.respostaId);
@@ -105,6 +115,8 @@ export function CampoFinalizar() {
             gps.estado === 'ok' || gps.estado === 'melhorando'
               ? { latitude: gps.latitude, longitude: gps.longitude, precisao: gps.precisao, em: gps.em }
               : undefined,
+          assinadaPor: assinadaPor ?? undefined,
+          semAssinatura: assinadaPor ? undefined : (semAssinatura ?? undefined),
         })
       ).data,
     onSuccess: setResultado,
@@ -158,20 +170,22 @@ export function CampoFinalizar() {
         </>
       ) : d && aberta.data ? (
         <>
-          <ol className="flex gap-2 text-[12px] font-medium">
+          <ol className="grid grid-cols-4 gap-1.5 text-[12px] font-medium leading-tight">
             {[
-              { qual: 'relato', rotulo: '1 · O que foi feito' },
-              { qual: 'fotos', rotulo: '2 · Fotos' },
-              { qual: 'conferir', rotulo: '3 · Conferir' },
-            ].map((p) => (
+              { qual: 'relato', rotulo: 'Relato' },
+              { qual: 'fotos', rotulo: 'Fotos' },
+              { qual: 'assinatura', rotulo: 'Assinatura' },
+              { qual: 'conferir', rotulo: 'Conferir' },
+            ].map((p, i) => (
               <li
                 key={p.qual}
-                className={`flex-1 rounded-lg px-3 py-2 ${
+                className={`rounded-lg px-2 py-1.5 text-center ${
                   passo === p.qual
                     ? 'bg-brand-500/10 text-brand-800 dark:text-brand-200'
                     : 'bg-tinta-100 text-tinta-500'
                 }`}
               >
+                <span className="block text-[10px] opacity-70">{i + 1}</span>
                 {p.rotulo}
               </li>
             ))}
@@ -274,6 +288,25 @@ export function CampoFinalizar() {
               arquivos={arquivos}
               exigidas={d.assunto.fotosExigidas}
               onVoltar={() => setPasso('relato')}
+              onContinuar={() => setPasso('assinatura')}
+            />
+          ) : passo === 'assinatura' ? (
+            <PassoDaAssinatura
+              osId={id}
+              cliente={os?.cliente ?? null}
+              arquivos={arquivos}
+              obrigatoria={d.assunto.assinaturaObrigatoria}
+              assinadaPor={assinadaPor}
+              semAssinatura={semAssinatura}
+              onAssinada={(nome) => {
+                setAssinadaPor(nome);
+                setSemAssinatura(null);
+              }}
+              onSemAssinatura={(motivo) => {
+                setSemAssinatura(motivo);
+                if (motivo) setAssinadaPor(null);
+              }}
+              onVoltar={() => setPasso('fotos')}
               onContinuar={() => setPasso('conferir')}
             />
           ) : (
@@ -285,13 +318,15 @@ export function CampoFinalizar() {
               relato={relato}
               inicio={inicio}
               arquivos={arquivos.data}
+              assinadaPor={assinadaPor}
+              semAssinatura={semAssinatura}
               gps={gps}
               onGpsDeNovo={gpsDeNovo}
               enviando={finalizar.isPending}
               erro={finalizar.error ? mensagemErro(finalizar.error) : null}
               onVoltar={() => {
                 finalizar.reset();
-                setPasso('fotos');
+                setPasso('assinatura');
               }}
               onFinalizar={() => finalizar.mutate()}
             />
@@ -356,7 +391,8 @@ function PassoDasFotos({
 
   const naOs = arquivos.data ?? [];
   // Sem a lista do IXC não dá para contar: quem decide é a API, ao finalizar.
-  const faltam = arquivos.data ? Math.max(0, exigidas - naOs.length) : 0;
+  // A assinatura fica na mesma aba, mas não é foto.
+  const faltam = arquivos.data ? Math.max(0, exigidas - naOs.filter((a) => !ehAssinatura(a)).length) : 0;
   const ocupado = anexando !== null;
 
   /** Muda uma foto da lista (ou a tira, com null). */
@@ -558,6 +594,290 @@ function PassoDasFotos({
 }
 
 // ---------------------------------------------------------------------------
+// A assinatura do cliente
+// ---------------------------------------------------------------------------
+
+/** Os motivos de sempre para o cliente não assinar; "Outro" abre o campo. */
+const MOTIVOS_SEM_ASSINATURA = ['Não estava em casa', 'Não quis assinar'];
+
+/**
+ * O cliente assina no quadro — o mesmo da APR, com a tela cheia para quem
+ * precisa de espaço — e a assinatura vai direto para os arquivos da OS no IXC,
+ * com o nome, a hora e a OS carimbados embaixo. Nada fica guardado aqui.
+ *
+ * A que já está na OS (colhida antes, ou pelo app do IXC) vale: o técnico só
+ * confirma. No assunto que não exige assinatura, ele pode dizer por que não
+ * houve, e o motivo vai na mensagem do fechamento.
+ */
+function PassoDaAssinatura({
+  osId,
+  cliente,
+  arquivos,
+  obrigatoria,
+  assinadaPor,
+  semAssinatura,
+  onAssinada,
+  onSemAssinatura,
+  onVoltar,
+  onContinuar,
+}: {
+  osId: number;
+  cliente: string | null;
+  arquivos: UseQueryResult<ArquivoDaOs[]>;
+  obrigatoria: boolean;
+  assinadaPor: string | null;
+  semAssinatura: string | null;
+  /** Null quando a assinatura da OS não diz de quem é (a do app do IXC). */
+  onAssinada: (nome: string | null) => void;
+  onSemAssinatura: (motivo: string | null) => void;
+  onVoltar: () => void;
+  onContinuar: () => void;
+}) {
+  const qc = useQueryClient();
+  const controle = useRef<AssinaturaCanvasRef>(null);
+  const [nome, setNome] = useState(assinadaPor ?? cliente ?? '');
+  const [temTraco, setTemTraco] = useState(false);
+  const [colherDeNovo, setColherDeNovo] = useState(false);
+  const [modo, setModo] = useState<'assinar' | 'sem'>(semAssinatura && !obrigatoria ? 'sem' : 'assinar');
+  const motivoConhecido = !semAssinatura || MOTIVOS_SEM_ASSINATURA.includes(semAssinatura);
+  const [escolha, setEscolha] = useState(motivoConhecido ? (semAssinatura ?? '') : 'outro');
+  const [outro, setOutro] = useState(motivoConhecido ? '' : (semAssinatura ?? ''));
+
+  const naOs = (arquivos.data ?? []).filter(ehAssinatura);
+  const ultima = naOs[naOs.length - 1] ?? null;
+  const assinada = !!ultima && !colherDeNovo;
+  const quem = assinadaPor ?? (ultima ? quemAssinou(ultima) : null);
+  const motivo = (escolha === 'outro' ? outro : escolha).trim();
+
+  const anexar = useMutation({
+    mutationFn: async () => {
+      const png = controle.current?.exportar();
+      if (!png) throw new Error('O cliente ainda não assinou no quadro.');
+      const quemAssina = nome.trim();
+      const carimbada = await carimbarAssinatura(png, [quemAssina, `${agoraNaTela()} · OS ${osId}`]);
+      return (
+        await api.post<ArquivoDaOs>(`/minhas-os/${osId}/assinatura`, { assinatura: carimbada, nome: quemAssina })
+      ).data;
+    },
+    onSuccess: (arquivo) => {
+      qc.setQueryData<ArquivoDaOs[]>(['minhas-os', osId, 'arquivos'], (lista) => [...(lista ?? []), arquivo]);
+      // Relida do IXC: é a lista de lá que a API confere ao finalizar.
+      void qc.invalidateQueries({ queryKey: ['minhas-os', osId, 'arquivos'] });
+      onAssinada(nome.trim());
+      setColherDeNovo(false);
+    },
+  });
+
+  const podeSeguir = assinada || (!obrigatoria && modo === 'sem' && motivo.length >= 3);
+
+  function continuar() {
+    if (assinada) onAssinada(quem);
+    else onSemAssinatura(motivo);
+    onContinuar();
+  }
+
+  return (
+    <div className="card space-y-4 p-4">
+      <div>
+        <h2 className="text-[15px] font-semibold text-tinta-800">Assinatura do cliente</h2>
+        <p className="mt-0.5 text-[13px] text-tinta-500">
+          {obrigatoria
+            ? 'O assunto exige a assinatura do cliente para finalizar.'
+            : 'Peça para o cliente assinar. Se não der, diga por quê.'}{' '}
+          Ela vai direto para os arquivos da OS no IXC.
+        </p>
+      </div>
+
+      {arquivos.isError && (
+        <p className="text-[13px] text-rose-600 dark:text-rose-300">
+          Não consegui ler os arquivos da OS: {mensagemErro(arquivos.error)}
+        </p>
+      )}
+
+      {assinada ? (
+        <div className="space-y-2 rounded-lg bg-emerald-50 px-3 py-2 text-[13px] text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-200">
+          <p>
+            ✓ Assinada{quem ? ` por ${quem}` : ''} — está nos arquivos da OS no IXC.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setColherDeNovo(true);
+              setModo('assinar');
+            }}
+            className="btn btn-sutil btn-p"
+          >
+            Colher de novo
+          </button>
+        </div>
+      ) : modo === 'assinar' ? (
+        <div className="space-y-3">
+          <div>
+            <label className="rotulo" htmlFor="assinatura-nome">
+              Nome de quem assina
+            </label>
+            <input
+              id="assinatura-nome"
+              value={nome}
+              onChange={(e) => setNome(e.target.value.slice(0, 80))}
+              disabled={anexar.isPending}
+              placeholder="Nem sempre é o titular"
+              className="campo"
+            />
+          </div>
+          <AssinaturaCanvas
+            controle={controle}
+            onMudou={setTemTraco}
+            disabled={anexar.isPending}
+            titulo={nome.trim() || 'Assinatura do cliente'}
+          />
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => controle.current?.limpar()}
+              disabled={!temTraco || anexar.isPending}
+              className="btn btn-sutil"
+            >
+              Limpar
+            </button>
+            <button
+              type="button"
+              onClick={() => anexar.mutate()}
+              disabled={!temTraco || nome.trim().length < 3 || anexar.isPending}
+              className="btn btn-primario flex-1 justify-center py-3"
+            >
+              {anexar.isPending ? 'Anexando na OS…' : 'Anexar a assinatura na OS'}
+            </button>
+          </div>
+          {nome.trim().length < 3 && temTraco && (
+            <p className="text-[12px] text-amber-700 dark:text-amber-300">Escreva o nome de quem assinou.</p>
+          )}
+          {anexar.error && (
+            <p className="text-[12px] text-rose-600 dark:text-rose-300">{mensagemErro(anexar.error)}</p>
+          )}
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {colherDeNovo && (
+              <button
+                type="button"
+                onClick={() => setColherDeNovo(false)}
+                className="text-[13px] font-medium text-tinta-500 underline"
+              >
+                Manter a que já está na OS
+              </button>
+            )}
+            {!obrigatoria && (
+              <button
+                type="button"
+                onClick={() => setModo('sem')}
+                className="text-[13px] font-medium text-tinta-500 underline"
+              >
+                O cliente não vai assinar
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <fieldset className="space-y-2">
+          <legend className="rotulo">Por que o cliente não assinou</legend>
+          {[...MOTIVOS_SEM_ASSINATURA, 'outro'].map((m) => (
+            <label key={m} className="flex items-center gap-2 text-[14px] text-tinta-700">
+              <input
+                type="radio"
+                name="sem-assinatura"
+                checked={escolha === m}
+                onChange={() => setEscolha(m)}
+              />
+              {m === 'outro' ? 'Outro motivo' : m}
+            </label>
+          ))}
+          {escolha === 'outro' && (
+            <input
+              value={outro}
+              onChange={(e) => setOutro(e.target.value.slice(0, 300))}
+              placeholder="Diga o motivo"
+              className="campo"
+              aria-label="Outro motivo"
+            />
+          )}
+          <button
+            type="button"
+            onClick={() => setModo('assinar')}
+            className="text-[13px] font-medium text-tinta-500 underline"
+          >
+            Voltar a assinar
+          </button>
+        </fieldset>
+      )}
+
+      <div className="flex gap-2">
+        <button type="button" onClick={onVoltar} disabled={anexar.isPending} className="btn btn-sutil">
+          Voltar
+        </button>
+        <button
+          type="button"
+          disabled={!podeSeguir || anexar.isPending}
+          onClick={continuar}
+          className="btn btn-primario flex-1 justify-center py-3"
+        >
+          {podeSeguir ? 'Continuar' : obrigatoria ? 'Falta a assinatura' : 'Assine ou diga por quê'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A assinatura com o nome, a hora e a OS embaixo, em fundo branco: quem abre o
+ * arquivo no IXC vê de quem é e quando, sem depender da descrição.
+ */
+function carimbarAssinatura(png: string, linhas: string[]): Promise<string> {
+  return new Promise((ok, erro) => {
+    const img = new Image();
+    img.onerror = () => erro(new Error('Não consegui preparar a assinatura. Tente de novo.'));
+    img.onload = () => {
+      const escala = Math.min(1, 1200 / img.width);
+      const largura = Math.round(img.width * escala);
+      const altura = Math.round(img.height * escala);
+      const fonte = Math.max(16, Math.round(largura / 34));
+      const rodape = Math.round(fonte * (1.5 * linhas.length + 1));
+      const canvas = document.createElement('canvas');
+      canvas.width = largura;
+      canvas.height = altura + rodape;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return ok(png);
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, largura, altura);
+      // A linha da assinatura, e o carimbo embaixo dela.
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = Math.max(1, fonte / 14);
+      ctx.beginPath();
+      ctx.moveTo(largura * 0.08, altura);
+      ctx.lineTo(largura * 0.92, altura);
+      ctx.stroke();
+      ctx.fillStyle = '#0f172a';
+      ctx.font = `${fonte}px system-ui, sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      linhas.forEach((linha, i) => ctx.fillText(linha, largura / 2, altura + fonte * (0.6 + 1.5 * i), largura * 0.92));
+      ok(canvas.toDataURL('image/png'));
+    };
+    img.src = png;
+  });
+}
+
+/** "23/10/2026 14:32", no fuso do celular. */
+function agoraNaTela(): string {
+  return new Date().toLocaleString('pt-BR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Conferir e finalizar
 // ---------------------------------------------------------------------------
 
@@ -570,6 +890,8 @@ function Conferir({
   relato,
   inicio,
   arquivos,
+  assinadaPor,
+  semAssinatura,
   gps,
   onGpsDeNovo,
   enviando,
@@ -585,6 +907,8 @@ function Conferir({
   inicio: string;
   /** A aba "Arquivos" da OS no IXC; indefinida quando não deu para ler. */
   arquivos: ArquivoDaOs[] | undefined;
+  assinadaPor: string | null;
+  semAssinatura: string | null;
   gps: EstadoDoGps;
   onGpsDeNovo: () => void;
   enviando: boolean;
@@ -623,6 +947,17 @@ function Conferir({
         </dl>
         <p className="mt-2 whitespace-pre-line rounded-lg bg-realce px-3 py-2 text-[13px] text-tinta-700">
           {relato}
+        </p>
+      </section>
+
+      <section className="card p-4">
+        <h2 className="eyebrow mb-1">Assinatura do cliente</h2>
+        <p className="text-[13px] text-tinta-700">
+          {arquivos?.some(ehAssinatura)
+            ? `Assinada${assinadaPor ? ` por ${assinadaPor}` : ''} — está nos arquivos da OS.`
+            : semAssinatura
+              ? `O cliente não assinou: ${semAssinatura}. Vai assim na mensagem do fechamento.`
+              : 'Sem assinatura.'}
         </p>
       </section>
 

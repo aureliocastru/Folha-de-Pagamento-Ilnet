@@ -14,7 +14,13 @@ import {
 import { UserRole } from '@prisma/client';
 import type { Request } from 'express';
 import { Roles } from '../auth/roles.decorator';
-import { AnexarFotoDto, AnotarItemDto, AnotarRetiradasDto, FinalizarDto } from './dto/os.dto';
+import {
+  AnexarAssinaturaDto,
+  AnexarFotoDto,
+  AnotarItemDto,
+  AnotarRetiradasDto,
+  FinalizarDto,
+} from './dto/os.dto';
 import { FinalizacaoService } from './finalizacao.service';
 import { OsService, type Login } from './os.service';
 
@@ -119,6 +125,17 @@ export class MinhasOsController {
     @Body() dto: AnexarFotoDto,
   ) {
     return this.finalizacao.anexarFoto(logado(req), osId, dto);
+  }
+
+  /** Anexa a assinatura do cliente direto na aba "Arquivos" da OS no IXC. */
+  @Post(':osId/assinatura')
+  @HttpCode(201)
+  anexarAssinatura(
+    @Req() req: Request,
+    @Param('osId', ParseIntPipe) osId: number,
+    @Body() dto: AnexarAssinaturaDto,
+  ) {
+    return this.finalizacao.anexarAssinatura(logado(req), osId, dto);
   }
 
   /** Finaliza a OS no IXC — depois de levar o que ficou anotado. */

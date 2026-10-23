@@ -78,6 +78,10 @@ export interface FinalizacaoDeOs {
   diagnosticoId: number | null;
   diagnostico: string | null;
   relato: string;
+  /** Quem assinou — a assinatura está nos arquivos da OS no IXC. */
+  assinadaPor: string | null;
+  /** Por que o cliente não assinou. */
+  semAssinatura: string | null;
   inicio: string;
   fim: string;
   geraComissao: boolean;
@@ -97,6 +101,25 @@ export interface FinalizacaoDeOs {
 export interface ArquivoDaOs {
   id: number;
   descricao: string;
+  /** P foto, A assinatura do cliente, O o PDF que o IXC gera ao finalizar pelo app dele. */
+  classificacao: string | null;
+}
+
+/** A descrição que o IXC dá à assinatura; a daqui começa igual e leva o nome de quem assinou. */
+const DESCRICAO_DA_ASSINATURA = 'Assinatura do Cliente';
+
+/** A assinatura do cliente: a do app do IXC (classificação A) ou a daqui. */
+export function ehAssinatura(a: ArquivoDaOs): boolean {
+  return (
+    a.classificacao === 'A' ||
+    a.descricao.trim().toLowerCase().startsWith(DESCRICAO_DA_ASSINATURA.toLowerCase())
+  );
+}
+
+/** Quem assinou, pela descrição "Assinatura do Cliente — Fulano". Null na do IXC, que não diz. */
+export function quemAssinou(a: ArquivoDaOs): string | null {
+  const nome = a.descricao.split(' — ').slice(1).join(' — ').trim();
+  return nome || null;
 }
 
 /** O que o passo a passo de finalizar precisa para abrir. */
@@ -108,6 +131,8 @@ export interface ParaFinalizar {
     produtosExigidos: number;
     /** Zero = não exige; o técnico anexa quantas quiser. */
     fotosExigidas: number;
+    /** Sem ela a OS não fecha; no assunto que não a exige, o técnico diz por que não houve. */
+    assinaturaObrigatoria: boolean;
   };
   /** Por que esta OS não se finaliza pelo celular. */
   recusa: string | null;

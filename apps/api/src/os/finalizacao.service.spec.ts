@@ -55,6 +55,7 @@ const ASSUNTO: AssuntoDoIxc = {
   aparelhosExigidos: 0,
   produtosExigidos: 0,
   equipeObrigatoria: false,
+  assinaturaObrigatoria: false,
   geraComissao: true,
 };
 
@@ -78,7 +79,7 @@ function montar(opcoes: { assunto?: AssuntoDoIxc } = {}) {
   const ixcOs = { status: 'EX', falhaAoReler: false };
   const ordem: string[] = [];
   /** A aba "Arquivos" da OS no IXC. */
-  const arquivosNoIxc: Array<{ id: number; osId: number; descricao: string }> = [];
+  const arquivosNoIxc: Array<{ id: number; osId: number; descricao: string; classificacao: string | null }> = [];
 
   const combina = (f: Linha, where: Record<string, unknown>) =>
     Object.entries(where).every(([campo, cond]) => {
@@ -160,7 +161,12 @@ function montar(opcoes: { assunto?: AssuntoDoIxc } = {}) {
       async (recurso: string, _campo: string, _arquivo: unknown, campos: Record<string, string>) => {
         ordem.push(recurso);
         const id = 500 + arquivosNoIxc.length;
-        arquivosNoIxc.push({ id, osId: Number(campos.id_oss_chamado), descricao: campos.descricao });
+        arquivosNoIxc.push({
+          id,
+          osId: Number(campos.id_oss_chamado),
+          descricao: campos.descricao,
+          classificacao: campos.classificacao_arquivo,
+        });
         return { type: 'success', id: String(id) };
       },
     ),
@@ -338,8 +344,12 @@ describe('FinalizacaoService.anexarFoto', () => {
     expect(recurso).toBe('su_oss_chamado_arquivos');
     expect(campo).toBe('local_arquivo');
     expect(arquivo).toMatchObject({ tipo: 'image/jpeg', nome: expect.stringMatching(/^os-3788-\d+\.jpg$/) });
-    expect(campos).toEqual({ id_oss_chamado: '3788', descricao: 'Sinal -19 dBm na ONU' });
-    expect(r).toEqual({ id: 500, osId: 3788, descricao: 'Sinal -19 dBm na ONU' });
+    expect(campos).toEqual({
+      id_oss_chamado: '3788',
+      descricao: 'Sinal -19 dBm na ONU',
+      classificacao_arquivo: 'P',
+    });
+    expect(r).toEqual({ id: 500, osId: 3788, descricao: 'Sinal -19 dBm na ONU', classificacao: 'P' });
     // Nada no banco daqui: nem finalização, nem foto.
     expect(t.prisma.finalizacaoDeOs.create).not.toHaveBeenCalled();
     expect(t.prisma.finalizacaoDeOs.updateMany).not.toHaveBeenCalled();
@@ -366,6 +376,66 @@ describe('FinalizacaoService.anexarFoto', () => {
     const t = montar();
     t.ixc.upload.mockRejectedValueOnce(new ServiceUnavailableException('IXC (/su_oss_chamado_arquivos): fora'));
     await expect(t.service.anexarFoto(login, OS.id, { foto: FOTO })).rejects.toThrow(/fora/);
+  });
+});
+
+describe('a assinatura do cliente', () => {
+  const ASSINATURA = 'data:image/png;base64,' + Buffer.from([0x89, 0x50, 0x4e, 0x47, 1]).toString('base64');
+
+  it('vai direto à aba "Arquivos" da OS como a do app do IXC: classificação A, com o nome de quem assinou', async () => {
+    const t = montar();
+    const r = await t.service.anexarAssinatura(login, OS.id, { assinatura: ASSINATURA, nome: ' Maria da Silva ' });
+
+    const [recurso, campo, arquivo, campos] = t.ixc.upload.mock.calls[0];
+    expect(recurso).toBe('su_oss_chamado_arquivos');
+    expect(campo).toBe('local_arquivo');
+    expect(arquivo).toMatchObject({ tipo: 'image/png', nome: expect.stringMatching(/^os-3788-assinatura-\d+\.png$/) });
+    expect(campos).toEqual({
+      id_oss_chamado: '3788',
+      descricao: 'Assinatura do Cliente — Maria da Silva',
+      classificacao_arquivo: 'A',
+    });
+    expect(r).toMatchObject({ classificacao: 'A', descricao: 'Assinatura do Cliente — Maria da Silva' });
+    expect(t.prisma.finalizacaoDeOs.create).not.toHaveBeenCalled();
+  });
+
+  it('o assunto que exige assinatura não fecha sem ela nos arquivos da OS', async () => {
+    const t = montar({ assunto: { ...ASSUNTO, assinaturaObrigatoria: true } });
+    await expect(
+      t.service.finalizar(login, OS.id, { ...PEDIDO, semAssinatura: 'Não estava em casa' }),
+    ).rejects.toThrow(/exige a assinatura do cliente/);
+    expect(t.finalizacoes).toHaveLength(0);
+
+    await t.service.anexarAssinatura(login, OS.id, { assinatura: ASSINATURA, nome: 'Maria da Silva' });
+    const r = await t.service.finalizar(login, OS.id, { ...PEDIDO, assinadaPor: 'Maria da Silva' });
+    expect(r.finalizacao).toMatchObject({ situacao: 'GRAVADO', assinadaPor: 'Maria da Silva', semAssinatura: null });
+    expect(t.ixc.action.mock.calls[0][1].mensagem).toBe(
+      'Troquei a ONU queimada, sinal -19 dBm.\n\n' +
+        'Assinada por Maria da Silva — a assinatura está nos arquivos da OS.\n' +
+        '— Finalizada pelo celular por Cleyson.',
+    );
+  });
+
+  it('a assinatura que o app do IXC já pôs na OS vale', async () => {
+    const t = montar({ assunto: { ...ASSUNTO, assinaturaObrigatoria: true } });
+    t.arquivosNoIxc.push({ id: 242347, osId: OS.id, descricao: 'Assinatura do Cliente', classificacao: 'A' });
+    const r = await t.service.finalizar(login, OS.id, { ...PEDIDO, assinadaPor: 'Maria da Silva' });
+    expect(r.finalizacao.situacao).toBe('GRAVADO');
+  });
+
+  it('no assunto que não exige, o motivo de não ter assinado vai na mensagem', async () => {
+    const t = montar();
+    const r = await t.service.finalizar(login, OS.id, { ...PEDIDO, semAssinatura: 'Não estava em casa' });
+    expect(r.finalizacao).toMatchObject({ assinadaPor: null, semAssinatura: 'Não estava em casa' });
+    expect(t.ixc.action.mock.calls[0][1].mensagem).toMatch(/O cliente não assinou: Não estava em casa\.\n— Finalizada/);
+    // Nada a conferir no IXC: o assunto não exige, e ninguém disse que assinou.
+    expect(t.doIxc.arquivosDaOs).not.toHaveBeenCalled();
+  });
+
+  it('a assinatura não conta como foto', async () => {
+    const t = montar({ assunto: { ...ASSUNTO, fotosExigidas: 1 } });
+    await t.service.anexarAssinatura(login, OS.id, { assinatura: ASSINATURA, nome: 'Maria da Silva' });
+    await expect(t.service.finalizar(login, OS.id, PEDIDO)).rejects.toThrow(/exige 1 foto.*tem nenhuma/);
   });
 });
 

@@ -117,6 +117,8 @@ export interface FinalizacaoNaTela {
   diagnosticoId: number | null;
   diagnostico: string | null;
   relato: string;
+  assinadaPor: string | null;
+  semAssinatura: string | null;
   inicio: string;
   fim: string;
   geraComissao: boolean;
@@ -1446,6 +1448,8 @@ export function finalizacaoNaTela(f: FinalizacaoComTecnico): FinalizacaoNaTela {
     diagnosticoId: f.diagnosticoId,
     diagnostico: f.diagnostico,
     relato: f.relato,
+    assinadaPor: f.assinadaPor,
+    semAssinatura: f.semAssinatura,
     inicio: f.inicio.toISOString(),
     fim: f.fim.toISOString(),
     geraComissao: f.geraComissao,

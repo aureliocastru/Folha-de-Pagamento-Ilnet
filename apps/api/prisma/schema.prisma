@@ -3448,6 +3448,11 @@ model FinalizacaoDeOs {
   diagnostico   String?
   /// O que foi feito, na palavra do técnico. Vai como a mensagem do fechamento.
   relato        String
+  /// Quem assinou. A imagem não fica aqui: foi direto para os arquivos da OS
+  /// no IXC, no passo da assinatura.
+  assinadaPor   String? @map("assinada_por")
+  /// Por que o cliente não assinou — só no assunto que não exige assinatura.
+  semAssinatura String? @map("sem_assinatura")
 
   inicio       DateTime
   fim          DateTime
