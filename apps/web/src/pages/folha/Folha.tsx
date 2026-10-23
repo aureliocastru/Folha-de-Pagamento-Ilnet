@@ -800,11 +800,22 @@ function SeloFerias({
   modo: ModoPagamento;
   ferias: FeriasNaFolha;
 }) {
-  if (!ferias.deFerias) return null;
   const periodo = ferias.periodo;
   const quando = periodo
     ? ` (${formatData(periodo.inicio)} a ${formatData(periodo.fim)})`
     : '';
+  if (!ferias.deFerias) {
+    if (modo !== 'DIA_25' || !ferias.voltouAntesDo25 || !periodo) return null;
+    return (
+      <Selo
+        pequeno
+        tom="info"
+        titulo={`Voltou de férias${quando} — o salário deste mês é pouco e pode não cobrir o adiantamento. Marque só se a empresa for adiantar mesmo assim.`}
+      >
+        voltou de férias em {formatData(periodo.fim)} · sem dia 25
+      </Selo>
+    );
+  }
   return (
     <Selo
       pequeno
@@ -911,6 +922,15 @@ function montarAviso(
 
   const avisos: string[] = [];
   const deFerias = pessoas.filter((p) => p.ferias.deFerias).length;
+  const voltaram =
+    modo === 'DIA_25'
+      ? pessoas.filter((p) => !p.ferias.deFerias && p.ferias.voltouAntesDo25).length
+      : 0;
+  if (voltaram > 0) {
+    avisos.push(
+      `${voltaram} pessoa(s) voltaram de férias antes do dia 25 e vieram desmarcadas: o salário do mês pode não cobrir o adiantamento.`,
+    );
+  }
   if (deFerias > 0) {
     avisos.push(
       modo === 'DIA_25'
@@ -1031,8 +1051,10 @@ export function Folha() {
           // Nesta linha, o que já saiu é o pagamento de férias.
           const feriasJaPagas = ehFerias && f.ferias.jaGerado !== null;
           // De férias não se adianta salário: o dia 25 nasce desmarcado, do
-          // mesmo jeito que o pagamento que já saiu.
-          const semDia25 = l.tipo === 'ADIANTAMENTO' && f.ferias.deFerias;
+          // mesmo jeito que o pagamento que já saiu. Quem voltou delas antes do
+          // dia 25 também: o salário do mês é pouco e não cobre o adiantamento.
+          const semDia25 =
+            l.tipo === 'ADIANTAMENTO' && (f.ferias.semDia25 ?? f.ferias.deFerias);
           const item: ItemGerar = {
             ...l,
             funcionarioId: f.funcionarioId,

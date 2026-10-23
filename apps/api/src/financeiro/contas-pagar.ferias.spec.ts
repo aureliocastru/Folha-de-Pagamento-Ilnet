@@ -134,6 +134,18 @@ describe('montarFeriasNaFolha', () => {
     });
   });
 
+  it('quem voltou das férias antes do dia 25 vem sem o dia 25, mas não de férias', () => {
+    const f = montarFeriasNaFolha({
+      ...base,
+      marcada: { inicio: dia('2026-07-20'), fim: dia('2026-08-18'), dias: 30 },
+    });
+    expect(f.noDia25).toBe(false);
+    expect(f.voltouAntesDo25).toBe(true);
+    expect(f.semDia25).toBe(true);
+    // O salário do quinto dia não vira pagamento de férias por isso.
+    expect(f.deFerias).toBe(false);
+  });
+
   it('férias que começam depois do dia 25 aparecem, mas não tiram o adiantamento', () => {
     const f = montarFeriasNaFolha({
       ...base,

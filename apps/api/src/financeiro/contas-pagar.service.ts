@@ -97,6 +97,19 @@ export interface FeriasNaFolha {
    * nascer desmarcado.
    */
   deFerias: boolean;
+  /**
+   * As férias acabaram neste mês, antes do dia 25: a pessoa voltou antes do
+   * adiantamento.
+   */
+  voltouAntesDo25: boolean;
+  /**
+   * O dia 25 nasce desmarcado: de férias, ou de volta delas antes do dia 25.
+   * Quem voltou no meio do mês tem pouco a receber na folha seguinte, e o
+   * adiantamento cheio podia passar do que ela paga — o desconto não cabia
+   * (pedido de 23/10/2026). Só o dia 25: o salário do quinto dia não vira
+   * pagamento de férias por isso.
+   */
+  semDia25: boolean;
   /** Ponto de partida do valor; o certo vem da contabilidade (ver `baseParaFerias`). */
   valorSugerido: number;
   /** Conta contábil e observação com que o lançamento de férias sai no IXC. */
@@ -2113,6 +2126,17 @@ export function pegaODia25(
     ferias.fim.getTime() >= dia25.getTime();
 }
 
+/** As férias terminaram naquele mês, antes do dia 25 — a volta veio antes do adiantamento. */
+export function voltouAntesDoDia25(
+  ferias: { fim: Date },
+  competencia: string,
+): boolean {
+  const [ano, mes] = competencia.split('-').map(Number);
+  const dia25 = Date.UTC(ano, mes - 1, 25);
+  const { primeiroDia } = limitesDoMes(competencia);
+  return ferias.fim.getTime() < dia25 && ferias.fim.getTime() >= primeiroDia.getTime();
+}
+
 /**
  * O que a folha sabe das férias de uma pessoa naquele mês trabalhado.
  *
@@ -2131,6 +2155,8 @@ export function montarFeriasNaFolha(dados: {
 }): FeriasNaFolha {
   const { marcada, jaGerado, mesTrabalhado } = dados;
   const noDia25 = marcada ? pegaODia25(marcada, mesTrabalhado) : false;
+  const voltouAntesDo25 = marcada ? voltouAntesDoDia25(marcada, mesTrabalhado) : false;
+  const deFerias = noDia25 || jaGerado !== null;
 
   return {
     periodo: marcada
@@ -2138,7 +2164,9 @@ export function montarFeriasNaFolha(dados: {
       : null,
     noDia25,
     jaGerado,
-    deFerias: noDia25 || jaGerado !== null,
+    deFerias,
+    voltouAntesDo25,
+    semDia25: deFerias || voltouAntesDo25,
     valorSugerido: baseParaFerias(dados.composicao),
     contaContabil: dados.contaContabil,
     observacao: dados.observacao,

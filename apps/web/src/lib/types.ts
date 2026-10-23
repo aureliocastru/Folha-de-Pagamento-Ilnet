@@ -419,6 +419,10 @@ export interface FeriasNaFolha {
   jaGerado: ContaJaGerada | null;
   /** Pelo que a folha sabe, esta pessoa está de férias neste mês */
   deFerias: boolean;
+  /** As férias acabaram neste mês, antes do dia 25 */
+  voltouAntesDo25?: boolean;
+  /** O dia 25 nasce desmarcado: de férias, ou de volta delas antes do dia 25 */
+  semDia25?: boolean;
   /** Ponto de partida do valor; o certo vem da contabilidade */
   valorSugerido: number;
   /** Conta contábil e observação com que o lançamento de férias sai no IXC */
