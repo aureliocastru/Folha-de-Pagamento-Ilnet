@@ -18,6 +18,9 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
+import { acessosDoUsuario } from '../../lib/modulos';
+import { PainelDaFolha } from '../folha/PainelDaFolha';
 import { estaClassificado } from '../../lib/categorias';
 import { formatBRL, formatData } from '../../lib/format';
 import type {
@@ -54,6 +57,10 @@ const DIAS_NA_AGENDA = 14;
 const TETO_DA_FILA = 8;
 
 export function Dashboard() {
+  const { usuario } = useAuth();
+  // A folha mora aqui desde 23/10/2026: uma dashboard só, com a parte dela
+  // embaixo — para quem abre a folha.
+  const abreFolha = acessosDoUsuario(usuario).includes('folha');
   const consulta = useQuery({
     queryKey: ['contas-abertas'],
     queryFn: async () => (await api.get<ContasAbertas>('/contas-abertas')).data,
@@ -272,6 +279,8 @@ export function Dashboard() {
           </div>
         </div>
       )}
+
+      {abreFolha && <PainelDaFolha />}
 
       {detalhando && (
         <DetalheDaConta

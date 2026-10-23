@@ -69,7 +69,6 @@ const Veiculos = telaSobDemanda(() => import('./pages/contas-pagar/Veiculos').th
 const Avulsos = telaSobDemanda(() => import('./pages/folha/Avulsos').then((m) => m.Avulsos));
 const Configuracoes = telaSobDemanda(() => import('./pages/folha/Configuracoes').then((m) => m.Configuracoes));
 const HistoricoDaFolha = telaSobDemanda(() => import('./pages/folha/HistoricoDaFolha').then((m) => m.HistoricoDaFolha));
-const Dashboard = telaSobDemanda(() => import('./pages/folha/Dashboard').then((m) => m.Dashboard));
 const Diaristas = telaSobDemanda(() => import('./pages/folha/Diaristas').then((m) => m.Diaristas));
 const Ferias = telaSobDemanda(() => import('./pages/folha/Ferias').then((m) => m.Ferias));
 const Folha = telaSobDemanda(() => import('./pages/folha/Folha').then((m) => m.Folha));
@@ -185,7 +184,7 @@ const TELAS_DO_MODULO: Record<string, Array<{ preCarregar: () => void }>> = {
     Recorrentes, ContasContrato, CartoesCredito, Veiculos, ContasPagarCategorias,
     FechamentoCaixa, MinhaConta,
     // A folha, que mora aqui dentro.
-    Dashboard, Funcionarios, FuncionarioDetalhe, Diaristas, Vales, Ferias, Folha, HistoricoDaFolha,
+    Funcionarios, FuncionarioDetalhe, Diaristas, Vales, Ferias, Folha, HistoricoDaFolha,
     Impostos, Configuracoes,
   ],
   almoxarifado: [
@@ -319,8 +318,9 @@ export default function App() {
           path="folha"
           element={<SoQuemAbre acesso="folha" modulo={MODULO_CONTAS_PAGAR} />}
         >
-          <Route index element={<Navigate to="dashboard" replace />} />
-          <Route path="dashboard" element={<Dashboard />} />
+          <Route index element={<Navigate to="gerar-folha" replace />} />
+          {/* A dashboard da folha virou a seção dela na do Contas a Pagar. */}
+          <Route path="dashboard" element={<Navigate to="/contas-pagar/dashboard" replace />} />
           <Route path="funcionarios" element={<Funcionarios />} />
           <Route path="funcionarios/:id" element={<FuncionarioDetalhe />} />
           <Route path="diaristas" element={<Diaristas />} />

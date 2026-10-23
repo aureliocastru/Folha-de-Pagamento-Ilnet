@@ -129,7 +129,6 @@ const folha: Secao = {
   // a folha de pagamento por omissão. Foi o que o TECNICO quase fez.
   papeis: ['ADMIN', 'RH', 'VISUALIZADOR'],
   menu: [
-    { to: 'folha/dashboard', label: 'Dashboard', icone: IconePainel },
     { to: 'folha/funcionarios', label: 'Funcionários', icone: IconePessoas },
     { to: 'folha/diaristas', label: 'Diaristas', icone: IconeDia },
     { to: 'folha/vales', label: 'Vales e Acertos', icone: IconeMoeda },

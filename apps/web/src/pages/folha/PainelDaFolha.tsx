@@ -7,19 +7,11 @@ import {
   PALETA,
   type SerieGrafico,
 } from '../../components/graficos';
-import {
-  Bloco,
-  CabecalhoPagina,
-  Carregando,
-  Indicador,
-  Pagina,
-  Selo,
-  Vazio,
-} from '../../components/ui';
+import { Bloco, Carregando, Indicador, Vazio } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { mesAnterior, mesAtual, nomeDoMes } from '../../lib/folha';
-import { formatBRL, formatData } from '../../lib/format';
-import { STATUS_LABEL, STATUS_TOM, TIPO_LABEL } from '../../lib/status';
+import { formatBRL } from '../../lib/format';
+import { TIPO_LABEL } from '../../lib/status';
 import type { Dashboard as TDashboard, TipoLancamento } from '../../lib/types';
 
 /**
@@ -46,15 +38,6 @@ const SERIES_CUSTO: SerieGrafico[] = [
   { chave: 'folha', rotulo: 'Folha', cor: PALETA[0] },
   { chave: 'diaristas', rotulo: 'Diaristas', cor: PALETA[1] },
   { chave: 'encargos', rotulo: 'Encargos patronais', cor: PALETA[2] },
-];
-
-const SERIES_TIPO: SerieGrafico[] = [
-  { chave: 'salario', rotulo: 'Salário', cor: PALETA[0] },
-  { chave: 'ferias', rotulo: 'Férias', cor: PALETA[5] },
-  { chave: 'adiantamento', rotulo: 'Adiantamento', cor: PALETA[1] },
-  { chave: 'bonus', rotulo: 'Bônus', cor: PALETA[2] },
-  { chave: 'diaria', rotulo: 'Diária', cor: PALETA[3] },
-  { chave: 'avulso', rotulo: 'Avulso', cor: PALETA[4] },
 ];
 
 /**
@@ -84,7 +67,16 @@ const SERIES_IMPOSTO: SerieGrafico[] = [
   { chave: 'faturamento', rotulo: 'Sobre faturamento', cor: PALETA[2] },
 ];
 
-export function Dashboard() {
+/**
+ * A folha dentro da dashboard do Contas a Pagar.
+ *
+ * Era uma dashboard só dela, com quinze blocos; desde 23/10/2026 as duas são
+ * uma (pedido do dono). Ficou o que responde "quanto custa a gente e o que
+ * pede atenção": os cartões do mês, o custo mês a mês, para onde foi, impostos,
+ * vales e os pontos de atenção. O que a folha pagou, um por um, está no
+ * Histórico da folha.
+ */
+export function PainelDaFolha() {
   const [competencia, setCompetencia] = useState(mesTrabalhadoInicial());
   const [meses, setMeses] = useState(12);
   /** Cartão cujo detalhamento está aberto (null = nenhum). */
@@ -253,11 +245,14 @@ export function Dashboard() {
   const cartaoAberto = cartoes.find((c) => c.chave === aberto);
 
   return (
-    <Pagina>
-      <CabecalhoPagina
-        secao="Dashboard"
-        titulo={`Trabalho de ${nomeDoMes(competencia)}`}
-        acoes={
+    <section id="folha" className="mt-10 space-y-4 border-t border-tinta-200 pt-6">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="eyebrow">Folha de pagamento</p>
+          <h2 className="font-display text-xl font-semibold text-tinta-900">
+            Trabalho de {nomeDoMes(competencia)}
+          </h2>
+        </div>
           <div className="flex flex-wrap items-end gap-4">
             <div>
               <label className="rotulo" htmlFor="competencia">
@@ -290,8 +285,7 @@ export function Dashboard() {
               </div>
             </div>
           </div>
-        }
-      />
+      </div>
 
       {isError && (
         <div className="card p-6 text-sm text-rose-600">
@@ -329,7 +323,7 @@ export function Dashboard() {
             />
           )}
 
-          <div className="surgir surgir-2 grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <div className="surgir surgir-2 grid grid-cols-1 gap-4 lg:grid-cols-3">
             <Bloco
               titulo={
                 meses === 1
@@ -343,11 +337,6 @@ export function Dashboard() {
                 series={SERIES_CUSTO}
                 atual={competencia}
               />
-              <p className="mt-3 text-xs leading-relaxed text-tinta-400">
-                O INSS descontado do trabalhador fica fora: é dinheiro dele
-                passando pela conta da empresa, e somar aqui contaria o mesmo
-                salário duas vezes.
-              </p>
             </Bloco>
 
             <Bloco titulo={`Para onde foi em ${formatComp(competencia)}`}>
@@ -363,8 +352,7 @@ export function Dashboard() {
                     }))}
                 />
               ) : (
-                <Vazio titulo="Nada gerado nesta competência">
-                  Quando você calcular a folha, a repartição aparece aqui.{' '}
+                <Vazio titulo="Nada gerado neste mês">
                   <Link
                     to="/contas-pagar/folha/gerar-folha"
                     className="font-semibold text-brand-700 hover:underline"
@@ -376,16 +364,7 @@ export function Dashboard() {
             </Bloco>
           </div>
 
-          <div className="surgir surgir-3 grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <Bloco titulo="O que a folha pagou, mês a mês">
-              <BarrasEmpilhadas
-                meses={data.serieTipos}
-                series={SERIES_TIPO}
-                atual={competencia}
-                altura="h-48"
-              />
-            </Bloco>
-
+          <div className="surgir surgir-3 grid grid-cols-1 gap-4 lg:grid-cols-3">
             <Bloco
               titulo="Impostos"
               acao={
@@ -398,69 +377,14 @@ export function Dashboard() {
               }
             >
               {semGuia ? (
-                <Vazio titulo="Nenhuma guia lançada">
-                  Suba o PDF do DARF, do FGTS, do DAS ou do DARE que a
-                  contabilidade manda e o imposto entra aqui.{' '}
-                  <Link
-                    to="/contas-pagar/folha/impostos"
-                    className="font-semibold text-brand-700 hover:underline"
-                  >
-                    Lançar a primeira
-                  </Link>
-                </Vazio>
+                <Vazio titulo="Nenhuma guia lançada" />
               ) : (
-                <>
-                  <BarrasEmpilhadas
-                    meses={data.impostos.serie}
-                    series={SERIES_IMPOSTO}
-                    atual={competencia}
-                    altura="h-48"
-                  />
-                  <p className="mt-3 text-xs leading-relaxed text-tinta-400">
-                    Só o patronal é custo da empresa. O retido é do trabalhador,
-                    e o de faturamento não tem a ver com gente.
-                  </p>
-                </>
-              )}
-            </Bloco>
-          </div>
-
-          <div className="surgir surgir-3 grid grid-cols-1 gap-6 lg:grid-cols-3">
-            <Bloco titulo="Diaristas">
-              <BarrasEmpilhadas
-                meses={data.diaristas.serie}
-                series={[
-                  { chave: 'valor', rotulo: 'Diárias', cor: PALETA[1] },
-                ]}
-                atual={competencia}
-                altura="h-40"
-              />
-            </Bloco>
-
-            <Bloco titulo={`Situação em ${formatComp(competencia)}`}>
-              {folha && folha.porStatus.length > 0 ? (
-                <div className="space-y-2.5">
-                  {folha.porStatus.map((s) => (
-                    <div
-                      key={s.status}
-                      className="flex items-center justify-between gap-3"
-                    >
-                      <Selo tom={STATUS_TOM[s.status]} ponto>
-                        {STATUS_LABEL[s.status]}
-                      </Selo>
-                      <div className="flex items-baseline gap-3">
-                        <span className="text-xs text-tinta-400">
-                          {s.quantidade}
-                        </span>
-                        <span className="valor text-sm">
-                          {formatBRL(s.valor)}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <Vazio titulo="Nada gerado nesta competência" />
+                <BarrasEmpilhadas
+                  meses={data.impostos.serie}
+                  series={SERIES_IMPOSTO}
+                  atual={competencia}
+                  altura="h-48"
+                />
               )}
             </Bloco>
 
@@ -502,14 +426,12 @@ export function Dashboard() {
                 </div>
               </div>
             </Bloco>
-          </div>
 
-          <div className="surgir surgir-4 grid grid-cols-1 gap-6 lg:grid-cols-3">
             <Bloco titulo="Pontos de atenção">
               <ul className="space-y-3">
                 <Atencao
                   ok={(f?.semPix ?? 0) === 0}
-                  para="/funcionarios"
+                  para="/contas-pagar/folha/funcionarios"
                   texto={
                     (f?.semPix ?? 0) === 0
                       ? 'Todo mundo ativo tem chave PIX.'
@@ -518,7 +440,7 @@ export function Dashboard() {
                 />
                 <Atencao
                   ok={(folha?.comErro ?? 0) === 0}
-                  para="/contas-pagar"
+                  para="/contas-pagar/folha/pagamentos"
                   texto={
                     (folha?.comErro ?? 0) === 0
                       ? 'Nenhuma conta com erro no IXC.'
@@ -527,25 +449,25 @@ export function Dashboard() {
                 />
                 <Atencao
                   ok={(folha?.emAberto ?? 0) === 0}
-                  para="/contas-pagar"
+                  para="/contas-pagar/folha/pagamentos"
                   texto={
                     (folha?.emAberto ?? 0) === 0
-                      ? 'Nada pendente nesta competência.'
-                      : `${formatBRL(folha?.emAberto)} esperando aprovação ou pagamento.`
+                      ? 'Nada da folha esperando pagamento.'
+                      : `${formatBRL(folha?.emAberto)} da folha esperando pagamento.`
                   }
                 />
                 <Atencao
                   ok={(diariasDoMes?.travadas ?? 0) === 0}
-                  para="/diaristas"
+                  para="/contas-pagar/folha/diaristas"
                   texto={
                     (diariasDoMes?.travadas ?? 0) === 0
                       ? 'Nenhuma diária parada no meio do caminho.'
-                      : `${diariasDoMes?.travadas} diária(s) com a conta a pagar reprovada, recusada ou apagada no IXC — fora do gasto do mês.`
+                      : `${diariasDoMes?.travadas} diária(s) com a conta reprovada, recusada ou apagada no IXC.`
                   }
                 />
                 <Atencao
                   ok={!semGuia}
-                  para="/impostos"
+                  para="/contas-pagar/folha/impostos"
                   texto={
                     semGuia
                       ? 'Nenhuma guia de imposto lançada — o custo com pessoal está incompleto.'
@@ -553,66 +475,11 @@ export function Dashboard() {
                   }
                 />
               </ul>
-              {data.ultimoSync && (
-                <p className="mt-5 border-t border-tinta-100 pt-4 text-xs text-tinta-400">
-                  Última sincronização com o IXC em{' '}
-                  {formatData(
-                    data.ultimoSync.concluidoEm ?? data.ultimoSync.iniciadoEm,
-                  )}{' '}
-                  · {data.ultimoSync.recurso} · {data.ultimoSync.totalLidos}{' '}
-                  registro(s)
-                </p>
-              )}
-            </Bloco>
-
-            <Bloco titulo="Últimos lançamentos" className="lg:col-span-2" semPadding>
-              {data.ultimasContas.length === 0 ? (
-                <Vazio titulo="Nenhuma conta a pagar ainda">
-                  Comece pela tela Gerar Folha.
-                </Vazio>
-              ) : (
-                <div className="overflow-x-auto rolagem-fina">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-t border-tinta-200">
-                        <th className="th">Beneficiário</th>
-                        <th className="th">Tipo</th>
-                        <th className="th">Competência</th>
-                        <th className="th">Situação</th>
-                        <th className="th text-right">Valor</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.ultimasContas.map((c) => (
-                        <tr key={c.id} className="linha">
-                          <td className="td font-medium text-tinta-800">
-                            {c.beneficiarioNome}
-                          </td>
-                          <td className="td text-tinta-500">
-                            {TIPO_LABEL[c.tipo]}
-                          </td>
-                          <td className="td num text-tinta-500">
-                            {c.competencia ? formatComp(c.competencia) : '—'}
-                          </td>
-                          <td className="td">
-                            <Selo tom={STATUS_TOM[c.status]}>
-                              {STATUS_LABEL[c.status]}
-                            </Selo>
-                          </td>
-                          <td className="td text-right">
-                            <span className="valor">{formatBRL(c.valor)}</span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
             </Bloco>
           </div>
         </div>
       )}
-    </Pagina>
+    </section>
   );
 }
 
