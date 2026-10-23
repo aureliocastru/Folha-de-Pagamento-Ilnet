@@ -146,7 +146,7 @@ function desenhar(doc: PDFKit.PDFDocument, d: DadosDoReciboDoPagamento): void {
     .text(
       `${d.pagador.nome}${docDoPagador}, pagou a ${d.recebedor.nome}${docDoRecebedor}, ` +
         `a importância de ${formatValorBR(d.valorPago)} (${valorPorExtenso(d.valorPago)}), ` +
-        `referente a ${d.referente.trim().replace(/\.$/, '')}, em ${quandoFoiPago(d)}${forma}.`,
+        `referente a ${frase(d.referente)}, em ${quandoFoiPago(d)}${forma}.`,
       MARGEM,
       doc.y,
       { width: largura, align: 'justify', lineGap: 3 },
@@ -261,6 +261,14 @@ function pessoa(doc: PDFKit.PDFDocument, p: PessoaDoRecibo): void {
   if (p.endereco) campo(doc, 'Endereço', p.endereco);
   if (p.telefone) campo(doc, 'Telefone', p.telefone);
   if (p.email) campo(doc, 'E-mail', p.email);
+}
+
+/**
+ * A observação do título dentro da frase: numa linha só e sem a pontuação do
+ * fim — "…3 almofadas de carimbo," virava ",, em 23/10" (título 37972).
+ */
+export function frase(texto: string): string {
+  return texto.replace(/\s*\n\s*/g, ' ').trim().replace(/[\s.,;:]+$/, '');
 }
 
 /** CPF tem 11 dígitos; o resto que se paga aqui é CNPJ. */

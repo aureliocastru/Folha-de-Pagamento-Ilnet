@@ -1,4 +1,4 @@
-import { gerarReciboDoPagamento, quandoFoiPago } from './recibo-do-pagamento.pdf';
+import { frase, gerarReciboDoPagamento, quandoFoiPago } from './recibo-do-pagamento.pdf';
 
 /** Nomes e documentos inventados: o repositório é público. */
 const pessoa = {
@@ -27,6 +27,10 @@ describe('o recibo de um pagamento sem comprovante de banco', () => {
 
   it('sem a hora, fica o dia', () => {
     expect(quandoFoiPago({ pagoEm: dia(23), registradoEm: dia(23), hora: null })).toBe('23/10/2026');
+  });
+
+  it('a observação entra na frase numa linha só e sem a vírgula do fim', () => {
+    expect(frase('4 lava louças,\n3 almofadas de carimbo, ')).toBe('4 lava louças, 3 almofadas de carimbo');
   });
 
   it('sai um PDF', async () => {
