@@ -1930,6 +1930,10 @@ export interface ReciboDaFolha {
   casouPor: 'cpf' | 'nome' | null;
   /** Este mês já está guardado nesta pasta: entraria repetido. */
   jaGuardado: boolean;
+  /** O "Líquido a Receber" do recibo. Null = não deu para ler. */
+  liquido: number | null;
+  /** O "A receber na folha" de agora do dono da pasta achada. */
+  aReceberAtual: number | null;
 }
 
 export interface AnaliseDosRecibos {
@@ -1938,6 +1942,8 @@ export interface AnaliseDosRecibos {
   totalDePaginas: number;
   /** Páginas que não deram para reconhecer: contadas, não descartadas. */
   paginasSemDono: number[];
+  /** O líquido vira o "A receber na folha" ao guardar: não, se o mês é velho. */
+  atualizaAReceber: boolean;
   itens: ReciboDaFolha[];
 }
 
@@ -1947,6 +1953,9 @@ export interface RecibosGuardados {
   loteId: string | null;
   guardados: Array<{ pasta: string; nome: string }>;
   pulados: Array<{ nome: string; motivo: string }>;
+  /** De quem o "A receber na folha" passou a ser o líquido do recibo. */
+  aReceber: Array<{ nome: string; antes: string | null; depois: string }>;
+  atualizaAReceber: boolean;
 }
 
 /** Uma vez em que o PDF do mês foi separado — e que dá para desfazer. */

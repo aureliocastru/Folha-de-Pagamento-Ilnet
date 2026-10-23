@@ -1,4 +1,4 @@
-import { arrumarNome, chaveDoNome, lerRecibos } from './recibos.parse';
+import { arrumarNome, chaveDoNome, lerLiquido, lerRecibos } from './recibos.parse';
 
 /**
  * O PDF de recibos da contabilidade, como o extrator de texto o entrega.
@@ -15,6 +15,7 @@ function pagina(over: Partial<Record<string, string>> = {}): string {
     nome: 'FULANO DE TAL SOBRENOME',
     cpf: '111.222.333-44',
     cargo: 'INSTALADOR E REPARADOR DE REDES',
+    liquido: '1.627,05',
     ...over,
   };
   return (
@@ -27,7 +28,8 @@ function pagina(over: Partial<Record<string, string>> = {}): string {
     `Banco Agência Conta Tipo de Conta ${d.cpf} CPF: ` +
     'Discriminação das Verbas Desconto Provento Referência Descrição Cod. ' +
     '1.621,00 31 dia(s) Salário-Base 011 Total de Proventos 3.101,20 ' +
-    'Líquido a Receber 1.627,05'
+    `Total de Descontos 1.474,15 Líquido a Receber ${d.liquido} ` +
+    'Salário Contratual 1.621,00 Base de Cálculo do IRRF(S)'
   );
 }
 
@@ -49,6 +51,26 @@ describe('o recibo de pagamento que a contabilidade manda', () => {
       cargo: 'INSTALADOR E REPARADOR DE REDES',
     });
     expect(leitura.recibos[1].nome).toBe('Beltrana da Silva');
+  });
+
+  it('lê o líquido a receber de cada um', () => {
+    const leitura = lerRecibos([
+      pagina(),
+      pagina({ matricula: '000082', liquido: '433,32' }),
+    ]);
+    expect(leitura.recibos.map((r) => r.liquido)).toEqual([1627.05, 433.32]);
+    // O "Salário Contratual" logo depois não é o líquido.
+    expect(lerLiquido('Líquido a Receber 1.874,13 Salário Contratual 1.621,00')).toBe(1874.13);
+    expect(lerLiquido('Total de Proventos 2.034,35')).toBeNull();
+  });
+
+  it('no recibo que transborda, o líquido é o da página do fim', () => {
+    const leitura = lerRecibos([
+      pagina({ liquido: '' }),
+      pagina({ liquido: '2.100,50' }),
+    ]);
+    expect(leitura.recibos).toHaveLength(1);
+    expect(leitura.recibos[0].liquido).toBe(2100.5);
   });
 
   /*

@@ -10,7 +10,7 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
-import { formatData } from '../../lib/format';
+import { formatBRL, formatData } from '../../lib/format';
 import type {
   AnaliseDosRecibos,
   EstanteRh,
@@ -97,7 +97,7 @@ export function RecibosDaFolha() {
   const desfazer = useMutation({
     mutationFn: async (lote: LoteDeRecibos) =>
       (
-        await api.delete<{ competencia: string; apagados: number }>(
+        await api.delete<{ competencia: string; apagados: number; devolvidos?: number }>(
           `/rh/recibos/lotes/${lote.id}`,
         )
       ).data,
@@ -105,8 +105,12 @@ export function RecibosDaFolha() {
       setErro(null);
       setResultado(null);
       setDesfeito(
-        `${r.apagados} recibo(s) de ${mesDaCompetencia(r.competencia)} apagados das pastas.`,
+        `${r.apagados} recibo(s) de ${mesDaCompetencia(r.competencia)} apagados das pastas.` +
+          (r.devolvidos
+            ? ` O A receber na folha de ${r.devolvidos} funcionário(s) voltou ao de antes.`
+            : ''),
       );
+      void qc.invalidateQueries({ queryKey: ['funcionarios'] });
       void qc.invalidateQueries({ queryKey: ['rh'] });
     },
     onError: (e) => setErro(mensagemErro(e)),
@@ -138,6 +142,7 @@ export function RecibosDaFolha() {
       analisar.reset();
       setArquivo(null);
       void qc.invalidateQueries({ queryKey: ['rh'] });
+      void qc.invalidateQueries({ queryKey: ['funcionarios'] });
     },
     onError: (e) => setErro(mensagemErro(e)),
   });
@@ -173,6 +178,13 @@ export function RecibosDaFolha() {
         <Aviso tom="pago">
           {resultado.guardados.length} recibo(s) de{' '}
           {mesDaCompetencia(resultado.competencia)} guardados nas pastas.
+          {resultado.aReceber.length > 0 && (
+            <>
+              {' '}
+              A receber na folha atualizado de {resultado.aReceber.length}{' '}
+              funcionário(s) com o líquido do recibo.
+            </>
+          )}
           {resultado.pulados.length > 0 && (
             <>
               {' '}
@@ -223,6 +235,13 @@ export function RecibosDaFolha() {
                 nenhuma.
               </>
             )}
+            {!analise.atualizaAReceber && (
+              <>
+                {' '}
+                É de um mês anterior ao último separado: o A receber na folha
+                não muda.
+              </>
+            )}
           </Aviso>
 
           <Bloco semPadding className="mb-6">
@@ -232,6 +251,7 @@ export function RecibosDaFolha() {
                   <tr>
                     <th className="th">Guardar</th>
                     <th className="th">Quem</th>
+                    <th className="th text-right">A receber</th>
                     <th className="th">Página</th>
                     <th className="th">Vai para a pasta</th>
                   </tr>
@@ -271,6 +291,28 @@ export function RecibosDaFolha() {
                               já guardado neste mês
                             </Selo>
                           )}
+                        </td>
+                        <td className="td whitespace-nowrap text-right">
+                          {item.liquido !== null ? (
+                            <span
+                              className={`valor ${
+                                analise.atualizaAReceber ? '' : 'text-tinta-400'
+                              }`}
+                            >
+                              {formatBRL(item.liquido)}
+                            </span>
+                          ) : (
+                            <span className="text-tinta-400">—</span>
+                          )}
+                          {analise.atualizaAReceber &&
+                            destino === item.pastaId &&
+                            item.aReceberAtual !== null &&
+                            item.liquido !== null &&
+                            item.aReceberAtual !== item.liquido && (
+                              <div className="num text-xs text-tinta-400">
+                                era {formatBRL(item.aReceberAtual)}
+                              </div>
+                            )}
                         </td>
                         <td className="td num whitespace-nowrap text-tinta-500">
                           {item.paginas.join(', ')}
@@ -415,7 +457,8 @@ export function RecibosDaFolha() {
                         onClick={() => {
                           const ok = confirm(
                             `Desfazer o lançamento de ${mesDaCompetencia(lote.competencia)}?\n\n` +
-                              `Isto apaga ${lote.guardados} recibo(s) das pastas de todo mundo. ` +
+                              `Isto apaga ${lote.guardados} recibo(s) das pastas de todo mundo, ` +
+                              'e o A receber na folha volta ao de antes. ' +
                               'Os arquivos saem daqui e não voltam.',
                           );
                           if (ok) desfazer.mutate(lote);

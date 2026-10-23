@@ -2533,6 +2533,11 @@ model LoteDeRecibos {
   /// documentos, e o histórico continua tendo de dizer o que aquele dia fez.
   quantidade Int
 
+  /// O "A receber na folha" que este lote trocou: [{ funcionarioId, antes,
+  /// depois }]. É o que o desfazer devolve — o líquido do recibo vira o valor
+  /// da folha de quem tem carteira assinada.
+  aReceberTrocado Json? @map("a_receber_trocado")
+
   documentos DocumentoRh[]
 
   criadoPor String?  @map("criado_por")

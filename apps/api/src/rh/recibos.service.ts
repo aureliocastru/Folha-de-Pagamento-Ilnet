@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PDFDocument } from 'pdf-lib';
 import { extrairPaginasPdf } from '../pdf/pdf';
 import { PrismaService } from '../prisma/prisma.service';
@@ -81,12 +82,19 @@ export class RecibosDaFolhaService {
     const jaTem = new Set(
       jaGuardados.map((d) => d.pasta.paiId ?? d.pastaId),
     );
+    const atualizaAReceber = await this.eDoMesMaisNovo(leitura.competencia);
 
     return {
       competencia: leitura.competencia,
       competenciaEscrita: leitura.competenciaEscrita,
       totalDePaginas: paginas.length,
       paginasSemDono: leitura.paginasSemDono,
+      /**
+       * O líquido vira o "A receber na folha" ao guardar. Recibo de um mês
+       * mais velho que o último separado não troca: o valor de agora é o do
+       * mês mais novo.
+       */
+      atualizaAReceber,
       itens: leitura.recibos.map((r) => {
         const pasta = casar(r, pastas);
         return {
@@ -97,6 +105,8 @@ export class RecibosDaFolhaService {
           casouPor: pasta?.por ?? null,
           /** Este mês já está guardado nesta pasta: entraria repetido. */
           jaGuardado: pasta ? jaTem.has(pasta.id) : false,
+          /** O "A receber na folha" de agora do dono da pasta achada. */
+          aReceberAtual: pasta?.aReceber ?? null,
         };
       }),
     };
@@ -144,6 +154,21 @@ export class RecibosDaFolhaService {
 
     const guardados: Array<{ pasta: string; nome: string }> = [];
     const pulados: Array<{ nome: string; motivo: string }> = [];
+    /*
+     * O líquido de cada recibo é relido do próprio PDF, e não aceito da tela:
+     * é dinheiro que vai para a folha, e quem diz quanto é o papel.
+     */
+    const liquidos = new Map<number, number | null>();
+    for (const r of lerRecibos(await extrairPaginasPdf(new Uint8Array(conteudo))).recibos) {
+      for (const p of r.paginas) liquidos.set(p, r.liquido);
+    }
+    const atualizaAReceber = await this.eDoMesMaisNovo(competencia, lote.id);
+    const trocados: Array<{
+      funcionarioId: string;
+      nome: string;
+      antes: string | null;
+      depois: string;
+    }> = [];
 
     for (const item of itens) {
       const paginas = [...new Set(item.paginas)].sort((a, b) => a - b);
@@ -154,7 +179,11 @@ export class RecibosDaFolhaService {
 
       const pasta = await this.prisma.pastaRh.findUnique({
         where: { id: item.pastaId },
-        select: { id: true, nome: true },
+        select: {
+          id: true,
+          nome: true,
+          funcionario: { select: { id: true, valorAReceberFolha: true } },
+        },
       });
       if (!pasta) {
         pulados.push({ nome: item.nome, motivo: 'a pasta não existe mais' });
@@ -223,6 +252,29 @@ export class RecibosDaFolhaService {
             : 'o banco recusou',
         });
         if (!repetido) this.logger.warn(`Recibo de ${item.nome}: ${err}`);
+        continue;
+      }
+
+      // O recibo entrou na pasta: o líquido dele é o "A receber na folha" do
+      // dono, como era digitado à mão a partir deste papel.
+      const liquido = liquidos.get(paginas[0]) ?? null;
+      const funcionario = pasta.funcionario;
+      if (!atualizaAReceber || !funcionario || liquido === null || liquido <= 0) continue;
+      const antes = funcionario.valorAReceberFolha;
+      if (antes !== null && antes.equals(liquido)) continue;
+      try {
+        await this.prisma.funcionario.update({
+          where: { id: funcionario.id },
+          data: { valorAReceberFolha: new Prisma.Decimal(liquido) },
+        });
+        trocados.push({
+          funcionarioId: funcionario.id,
+          nome: item.nome,
+          antes: antes?.toFixed(2) ?? null,
+          depois: liquido.toFixed(2),
+        });
+      } catch (err) {
+        this.logger.warn(`A receber de ${item.nome}: ${err}`);
       }
     }
 
@@ -235,19 +287,29 @@ export class RecibosDaFolhaService {
     } else {
       await this.prisma.loteDeRecibos.update({
         where: { id: lote.id },
-        data: { quantidade: guardados.length },
+        data: {
+          quantidade: guardados.length,
+          aReceberTrocado: trocados.map(({ funcionarioId, antes, depois }) => ({
+            funcionarioId,
+            antes,
+            depois,
+          })),
+        },
       });
     }
 
     this.logger.log(
       `Recibos de ${competencia}: ${guardados.length} guardado(s), ` +
-        `${pulados.length} pulado(s).`,
+        `${pulados.length} pulado(s), ${trocados.length} "a receber" trocado(s).`,
     );
     return {
       competencia,
       loteId: guardados.length > 0 ? lote.id : null,
       guardados,
       pulados,
+      /** De quem o "A receber na folha" passou a ser o líquido do recibo. */
+      aReceber: trocados.map(({ nome, antes, depois }) => ({ nome, antes, depois })),
+      atualizaAReceber,
     };
   }
 
@@ -298,12 +360,51 @@ export class RecibosDaFolhaService {
     const { count } = await this.prisma.documentoRh.deleteMany({
       where: { loteId },
     });
+
+    /*
+     * O "A receber na folha" volta ao que era, de quem ainda está com o valor
+     * que este lote pôs. Quem foi mexido à mão depois fica como está: desfazer
+     * o lote não pode apagar a correção de alguém.
+     */
+    let devolvidos = 0;
+    const trocados = Array.isArray(lote.aReceberTrocado)
+      ? (lote.aReceberTrocado as Array<{
+          funcionarioId: string;
+          antes: string | null;
+          depois: string;
+        }>)
+      : [];
+    for (const t of trocados) {
+      const { count: mudou } = await this.prisma.funcionario.updateMany({
+        where: { id: t.funcionarioId, valorAReceberFolha: new Prisma.Decimal(t.depois) },
+        data: {
+          valorAReceberFolha: t.antes === null ? null : new Prisma.Decimal(t.antes),
+        },
+      });
+      devolvidos += mudou;
+    }
+
     await this.prisma.loteDeRecibos.delete({ where: { id: loteId } });
 
     this.logger.log(
-      `Lote de recibos de ${lote.competencia} desfeito: ${count} documento(s) apagados.`,
+      `Lote de recibos de ${lote.competencia} desfeito: ${count} documento(s) apagados, ` +
+        `${devolvidos} "a receber" devolvido(s).`,
     );
-    return { competencia: lote.competencia, apagados: count };
+    return { competencia: lote.competencia, apagados: count, devolvidos };
+  }
+
+  /**
+   * Este mês é o mais novo já separado — ou mais novo que todos? Só aí o
+   * líquido troca o "A receber na folha": guardar agora o PDF de julho, que
+   * ficou esquecido, não pode desfazer o valor de setembro.
+   */
+  private async eDoMesMaisNovo(competencia: string, foraDoLote?: string): Promise<boolean> {
+    const maisNovo = await this.prisma.loteDeRecibos.findFirst({
+      where: foraDoLote ? { id: { not: foraDoLote } } : {},
+      orderBy: { competencia: 'desc' },
+      select: { competencia: true },
+    });
+    return !maisNovo || competencia >= maisNovo.competencia;
   }
 
   /** As pastas com o que serve para reconhecer o dono de um recibo. */
@@ -311,13 +412,19 @@ export class RecibosDaFolhaService {
     const pastas = await this.prisma.pastaRh.findMany({
       where: { daEmpresa: false },
       include: {
-        funcionario: { select: { nome: true, apelido: true, cpfCnpj: true } },
+        funcionario: {
+          select: { nome: true, apelido: true, cpfCnpj: true, valorAReceberFolha: true },
+        },
       },
     });
 
     return pastas.map((p) => ({
       id: p.id,
       nome: p.funcionario?.nome ?? p.nome,
+      aReceber:
+        p.funcionario?.valorAReceberFolha != null
+          ? Number(p.funcionario.valorAReceberFolha)
+          : null,
       cpf: p.cpf || soDigitos(p.funcionario?.cpfCnpj),
       nomes: [p.nome, p.funcionario?.nome, p.funcionario?.apelido]
         .filter((n): n is string => !!n)
@@ -329,6 +436,8 @@ export class RecibosDaFolhaService {
 interface PastaParaCasar {
   id: string;
   nome: string;
+  /** O "A receber na folha" do funcionário da pasta, quando ela é de um. */
+  aReceber: number | null;
   cpf: string;
   nomes: string[];
 }
@@ -343,17 +452,17 @@ interface PastaParaCasar {
 function casar(
   recibo: ReciboLido,
   pastas: PastaParaCasar[],
-): { id: string; nome: string; por: 'cpf' | 'nome' } | null {
+): (PastaParaCasar & { por: 'cpf' | 'nome' }) | null {
   if (recibo.cpf) {
     const porCpf = pastas.find((p) => p.cpf && p.cpf === recibo.cpf);
-    if (porCpf) return { id: porCpf.id, nome: porCpf.nome, por: 'cpf' };
+    if (porCpf) return { ...porCpf, por: 'cpf' };
   }
 
   const chave = chaveDoNome(recibo.nome);
   const iguais = pastas.filter((p) => p.nomes.includes(chave));
   // Dois homônimos: quem decide é quem está olhando, não o desempate.
   if (iguais.length === 1) {
-    return { id: iguais[0].id, nome: iguais[0].nome, por: 'nome' };
+    return { ...iguais[0], por: 'nome' };
   }
   return null;
 }

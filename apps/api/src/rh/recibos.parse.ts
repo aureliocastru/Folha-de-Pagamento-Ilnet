@@ -7,9 +7,10 @@
  * para achar a do Fulano, e é exatamente a pergunta que a pasta de RH existe
  * para responder.
  *
- * O que se lê aqui é o cabeçalho de cada página: quem é o dono daquele recibo.
- * As verbas não interessam — a folha desta casa é calculada em outro lugar, e
- * ler valores daqui criaria uma segunda verdade sobre o mesmo mês.
+ * O que se lê aqui é o cabeçalho de cada página — quem é o dono daquele
+ * recibo — e o líquido. As verbas não: a folha desta casa é calculada em outro
+ * lugar. O líquido é o "A receber na folha" de quem tem carteira assinada, que
+ * era digitado à mão a partir deste papel todo mês (pedido de 23/10/2026).
  *
  * A âncora é o rótulo impresso ("Empregado", "Competência"), e não a posição na
  * página: a extração de texto embaralha colunas, e é por isso que o CPF aparece
@@ -26,6 +27,8 @@ export interface ReciboLido {
   /** Só os dígitos, ou vazio quando a página não trouxe. */
   cpf: string;
   cargo: string | null;
+  /** O "Líquido a Receber", em reais. Null = o recibo não o trouxe legível. */
+  liquido: number | null;
 }
 
 /** O que o arquivo inteiro diz. */
@@ -79,9 +82,12 @@ export function lerRecibos(paginas: string[]): LeituraDosRecibos {
     }
 
     const matricula = dono[1];
+    const liquido = lerLiquido(limpo);
     const anterior = recibos[recibos.length - 1];
     if (anterior?.matricula === matricula) {
       anterior.paginas.push(pagina);
+      // No recibo que transborda, o líquido sai na página do fim.
+      anterior.liquido = liquido ?? anterior.liquido;
       return;
     }
 
@@ -94,6 +100,7 @@ export function lerRecibos(paginas: string[]): LeituraDosRecibos {
         '',
       ),
       cargo: /Cargo\s+(.{3,60}?)\s+Empregado\b/.exec(limpo)?.[1].trim() ?? null,
+      liquido,
     });
   });
 
@@ -103,6 +110,12 @@ export function lerRecibos(paginas: string[]): LeituraDosRecibos {
     recibos,
     paginasSemDono,
   };
+}
+
+/** O "Líquido a Receber 1.874,13" da página, em reais. Null = não está nela. */
+export function lerLiquido(texto: string): number | null {
+  const m = /L[íi]quido\s+a\s+Receber\s+(\d{1,3}(?:\.\d{3})*,\d{2})\b/i.exec(texto);
+  return m ? Number(m[1].replace(/\./g, '').replace(',', '.')) : null;
 }
 
 /** "Julho de 2026", como está impresso. */
