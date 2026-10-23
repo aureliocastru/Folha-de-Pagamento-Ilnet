@@ -2,10 +2,10 @@ import { Suspense, useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { useAvisosDoMenu, type AvisoDoMenu } from '../lib/avisos';
-import { itemDoMenuAparece, type ItemMenu, type Modulo } from '../lib/modulos';
+import { menuDoUsuario, secaoAberta, type ItemMenu, type Modulo } from '../lib/modulos';
 import { travarRolagem } from '../lib/rolagem';
 import { useTema } from '../lib/tema';
-import { IconeGrade, IconeLua, IconeSol } from './icones';
+import { IconeGrade, IconeLua, IconeSetinha, IconeSol } from './icones';
 import { Carregando, PontoDeAviso } from './ui';
 import { TelaProtegida } from './TelaProtegida';
 
@@ -33,9 +33,9 @@ export function LayoutCelular({ modulo }: { modulo: Modulo }) {
   const { escuro, trocar } = useTema();
   const avisos = useAvisosDoMenu(modulo);
 
-  const itens = modulo.menu.filter((item) => itemDoMenuAparece(item, usuario));
+  const menu = menuDoUsuario(modulo, usuario);
   /** O que há para ver lá dentro: é isto que acende o ponto na logo. */
-  const avisoGuardado = itens.reduce(
+  const avisoGuardado = [...menu.itens, ...menu.secoes.flatMap((s) => s.itens)].reduce(
     (total, item) => total + (avisos[item.to]?.quantos ?? 0),
     0,
   );
@@ -129,7 +129,8 @@ export function LayoutCelular({ modulo }: { modulo: Modulo }) {
       {aberta && (
         <GavetaDoModulo
           modulo={modulo}
-          itens={itens}
+          menu={menu}
+          caminho={local.pathname}
           avisos={avisos}
           escuro={escuro}
           onTema={() => trocar(escuro ? 'claro' : 'escuro')}
@@ -154,7 +155,8 @@ export function LayoutCelular({ modulo }: { modulo: Modulo }) {
  */
 function GavetaDoModulo({
   modulo,
-  itens,
+  menu,
+  caminho,
   avisos,
   escuro,
   onTema,
@@ -162,7 +164,8 @@ function GavetaDoModulo({
   onFechar,
 }: {
   modulo: Modulo;
-  itens: ItemMenu[];
+  menu: ReturnType<typeof menuDoUsuario>;
+  caminho: string;
   avisos: Record<string, AvisoDoMenu>;
   escuro: boolean;
   onTema: () => void;
@@ -170,6 +173,9 @@ function GavetaDoModulo({
   onFechar: () => void;
 }) {
   const { usuario } = useAuth();
+  // O grupo que se abre à mão: a gaveta nasce de novo a cada vez que se abre,
+  // e então volta a mandar a tela em que se está.
+  const [aMao, setAMao] = useState<Record<string, boolean>>({});
 
   // Esc fecha, como em toda janela desta casa.
   useEffect(() => {
@@ -211,34 +217,48 @@ function GavetaDoModulo({
         </div>
 
         <nav className="flex-1 space-y-0.5 px-3" aria-label={`Menu de ${modulo.nome}`}>
-          {itens.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                `relative flex min-h-[52px] items-center gap-3 rounded-xl px-3 text-[15px] font-medium transition ${
-                  isActive ? 'bg-white/[0.07] text-white' : 'text-white/70'
-                }`
-              }
-            >
-              {({ isActive }) => (
-                <>
-                  <span
-                    className={`absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-400 ${
-                      isActive ? 'opacity-100' : 'opacity-0'
+          {menu.itens.map((item) => (
+            <ItemDaGaveta key={item.to} item={item} aviso={avisos[item.to]} />
+          ))}
+
+          {/* A folha, dentro do Contas a Pagar: o mesmo grupo da barra do
+              computador. Tocar no título abre ali mesmo, sem sair da gaveta. */}
+          {menu.secoes.map(({ secao, itens }) => {
+            const aberta =
+              aMao[secao.id] ?? secaoAberta(modulo, secao, caminho, menu.itens.length === 0);
+            return (
+              <div
+                key={secao.id}
+                className={menu.itens.length > 0 ? 'mt-2 border-t border-white/[0.08] pt-2' : ''}
+              >
+                <button
+                  type="button"
+                  onClick={() => setAMao((a) => ({ ...a, [secao.id]: !aberta }))}
+                  aria-expanded={aberta}
+                  className={`flex min-h-[52px] w-full items-center gap-3 rounded-xl px-3 text-left text-[15px] font-semibold transition ${
+                    aberta ? 'text-white' : 'text-white/70'
+                  }`}
+                >
+                  <secao.icone
+                    className={`h-4 w-4 shrink-0 ${aberta ? 'text-brand-400' : 'text-white/40'}`}
+                  />
+                  {secao.nome}
+                  <IconeSetinha
+                    className={`ml-auto h-4 w-4 shrink-0 text-white/40 transition-transform ${
+                      aberta ? 'rotate-90' : ''
                     }`}
                   />
-                  <item.icone
-                    className={`h-4 w-4 shrink-0 ${isActive ? 'text-brand-400' : 'text-white/40'}`}
-                  />
-                  {item.label}
-                  {avisos[item.to] && (
-                    <PontoDeAviso {...avisos[item.to]} className="ml-auto" />
-                  )}
-                </>
-              )}
-            </NavLink>
-          ))}
+                </button>
+                {aberta && (
+                  <div className="ml-5 space-y-0.5 border-l border-white/10 pl-2">
+                    {itens.map((item) => (
+                      <ItemDaGaveta key={item.to} item={item} aviso={avisos[item.to]} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </nav>
 
         <div className="m-3 rounded-xl bg-white/[0.04] p-3.5">
@@ -284,6 +304,35 @@ function GavetaDoModulo({
         </div>
       </div>
     </div>
+  );
+}
+
+/** Uma linha da gaveta: o item do módulo, ou de um grupo dele. */
+function ItemDaGaveta({ item, aviso }: { item: ItemMenu; aviso?: AvisoDoMenu }) {
+  return (
+    <NavLink
+      to={item.to}
+      className={({ isActive }) =>
+        `relative flex min-h-[52px] items-center gap-3 rounded-xl px-3 text-[15px] font-medium transition ${
+          isActive ? 'bg-white/[0.07] text-white' : 'text-white/70'
+        }`
+      }
+    >
+      {({ isActive }) => (
+        <>
+          <span
+            className={`absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-400 ${
+              isActive ? 'opacity-100' : 'opacity-0'
+            }`}
+          />
+          <item.icone
+            className={`h-4 w-4 shrink-0 ${isActive ? 'text-brand-400' : 'text-white/40'}`}
+          />
+          {item.label}
+          {aviso && <PontoDeAviso {...aviso} className="ml-auto" />}
+        </>
+      )}
+    </NavLink>
   );
 }
 

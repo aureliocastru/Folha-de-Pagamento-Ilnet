@@ -1,17 +1,19 @@
-import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { useAuth } from './lib/auth';
 import {
   MODULO_CONTABILIDADE,
   MODULO_CONTAS_PAGAR,
   MODULO_ALMOXARIFADO,
-  MODULO_FOLHA,
   MODULO_OS,
   MODULO_PATROCINIO,
   MODULO_PONTUACAO,
   MODULO_RH,
   MODULO_SEGURANCA,
+  acessosDoUsuario,
+  caminhoInicial,
   destinoDepoisDoLogin,
+  type Modulo,
 } from './lib/modulos';
 import { useTabelasNoCelular } from './lib/tabela-no-celular';
 import { Login } from './pages/Login';
@@ -121,6 +123,47 @@ function SomenteAdmin({ children }: { children: ReactNode }) {
 }
 
 /**
+ * A primeira tela do módulo, que para quem abre só a folha é a da folha (ver
+ * `caminhoInicial`).
+ */
+function InicioDoModulo({ modulo }: { modulo: Modulo }) {
+  const { usuario } = useAuth();
+  return <Navigate to={caminhoInicial(modulo, usuario)} replace />;
+}
+
+/**
+ * As telas de uma seção (a folha), só para quem a abre. Quem paga as contas
+ * e não faz a folha entra no Contas a Pagar, mas não aqui: de volta à primeira
+ * tela dele. A API recusa do mesmo jeito.
+ */
+function SoQuemAbre({ acesso, modulo }: { acesso: string; modulo: Modulo }) {
+  const { usuario } = useAuth();
+  return acessosDoUsuario(usuario).includes(acesso) ? (
+    <Outlet />
+  ) : (
+    <Navigate to={caminhoInicial(modulo, usuario)} replace />
+  );
+}
+
+/**
+ * O endereço antigo da folha, de quando ela era módulo: leva à mesma tela, no
+ * lugar novo, com o que vier depois (`/folha/funcionarios/12?aba=faltas`).
+ * Quem tem a tela no favorito não pode cair num "não encontrado" por causa de
+ * uma troca nossa — a regra do `/contas-pagar/painel`.
+ */
+function FolhaDeAntes() {
+  const { pathname, search } = useLocation();
+  const resto = pathname.replace(/^\/folha\/?/, '');
+  const destino =
+    resto === 'minha-conta'
+      ? '/contas-pagar/minha-conta'
+      : resto === 'usuarios'
+        ? '/usuarios'
+        : `/contas-pagar/folha/${resto}`;
+  return <Navigate to={`${destino}${search}`} replace />;
+}
+
+/**
  * Endereço que não existe: de volta para onde este login trabalha.
  *
  * Era sempre `/modulos`, e para o técnico de campo isso é uma tela que ele não
@@ -137,14 +180,13 @@ function ParaOnde() {
  * próxima tela aberta já está no aparelho. Ver `telaSobDemanda`.
  */
 const TELAS_DO_MODULO: Record<string, Array<{ preCarregar: () => void }>> = {
-  folha: [
-    Dashboard, Funcionarios, FuncionarioDetalhe, Diaristas, Vales, Ferias, Folha, ContasPagar,
-    Avulsos, Impostos, Configuracoes, MinhaConta,
-  ],
   'contas-pagar': [
     ContasPagarInicio, HistoricoDePagamentos, Controle, ContasPagarDashboard, Avulsos,
     Recorrentes, ContasContrato, CartoesCredito, Veiculos, ContasPagarCategorias,
     FechamentoCaixa, MinhaConta,
+    // A folha, que mora aqui dentro.
+    Dashboard, Funcionarios, FuncionarioDetalhe, Diaristas, Vales, Ferias, Folha, ContasPagar,
+    Impostos, Configuracoes,
   ],
   almoxarifado: [
     Estoque, Conferencia, Almoxarifados, AlmoxarifadoDetalhe, PecasDoProduto, Transferir,
@@ -222,30 +264,8 @@ export default function App() {
         }
       />
 
-      <Route
-        path="/folha"
-        element={
-          <Protegida>
-            <Layout modulo={MODULO_FOLHA} />
-          </Protegida>
-        }
-      >
-        <Route index element={<Navigate to="dashboard" replace />} />
-        <Route path="dashboard" element={<Dashboard />} />
-        <Route path="funcionarios" element={<Funcionarios />} />
-        <Route path="funcionarios/:id" element={<FuncionarioDetalhe />} />
-        <Route path="diaristas" element={<Diaristas />} />
-        <Route path="vales" element={<Vales />} />
-        <Route path="ferias" element={<Ferias />} />
-        <Route path="gerar-folha" element={<Folha />} />
-        <Route path="pagamentos" element={<ContasPagar />} />
-        <Route path="avulsos" element={<Avulsos />} />
-        <Route path="impostos" element={<Impostos />} />
-        <Route path="configuracoes" element={<Configuracoes />} />
-        <Route path="minha-conta" element={<MinhaConta />} />
-        {/* O caminho antigo continua valendo: Usuários agora é de fora. */}
-        <Route path="usuarios" element={<Navigate to="/usuarios" replace />} />
-      </Route>
+      {/* A folha foi módulo até 23/10/2026; hoje mora no Contas a Pagar. */}
+      <Route path="/folha/*" element={<FolhaDeAntes />} />
 
       <Route
         path="/contas-pagar"
@@ -255,7 +275,7 @@ export default function App() {
           </Protegida>
         }
       >
-        <Route index element={<Navigate to="inicio" replace />} />
+        <Route index element={<InicioDoModulo modulo={MODULO_CONTAS_PAGAR} />} />
         <Route path="inicio" element={<ContasPagarInicio />} />
         {/* A outra metade da mesma tabela do IXC: o que já saiu. */}
         <Route path="pagos" element={<HistoricoDePagamentos />} />
@@ -269,13 +289,9 @@ export default function App() {
           path="painel"
           element={<Navigate to="/contas-pagar/dashboard" replace />}
         />
-        {/* A mesma tela de avulsos da folha: é pagamento da empresa e é
-            lançamento da folha, e obrigar a trocar de módulo no meio do
-            trabalho custaria mais que o caminho repetido.
-
-            Aqui ela abre pelo cadastro de fornecedores do IXC: neste módulo se
-            paga qualquer um deles, e não só quem esta casa já cadastrou. Na
-            folha continua sendo a lista de cá. */}
+        {/* A mesma tela de avulsos da folha, aberta pelo cadastro de
+            fornecedores do IXC: deste lado se paga qualquer um deles, e não só
+            quem esta casa já cadastrou. Na folha continua sendo a lista de cá. */}
         <Route path="avulsos" element={<Avulsos modulo="contas-pagar" />} />
         <Route path="recorrentes" element={<Recorrentes />} />
         {/* A conta de luz de cada endereço: o cadastro das contas contrato e
@@ -296,6 +312,26 @@ export default function App() {
             contas sem haver nota nenhuma para conferir depois. O servidor é
             quem recusa de verdade — aqui a rota só some do menu. */}
         <Route path="transferencias" element={<Transferencias />} />
+
+        {/* A folha de pagamento: foi módulo próprio até 23/10/2026. O acesso
+            continua o dela — ver `Secao`, em `lib/modulos.ts`. */}
+        <Route
+          path="folha"
+          element={<SoQuemAbre acesso="folha" modulo={MODULO_CONTAS_PAGAR} />}
+        >
+          <Route index element={<Navigate to="dashboard" replace />} />
+          <Route path="dashboard" element={<Dashboard />} />
+          <Route path="funcionarios" element={<Funcionarios />} />
+          <Route path="funcionarios/:id" element={<FuncionarioDetalhe />} />
+          <Route path="diaristas" element={<Diaristas />} />
+          <Route path="vales" element={<Vales />} />
+          <Route path="ferias" element={<Ferias />} />
+          <Route path="gerar-folha" element={<Folha />} />
+          <Route path="pagamentos" element={<ContasPagar />} />
+          <Route path="avulsos" element={<Avulsos />} />
+          <Route path="impostos" element={<Impostos />} />
+          <Route path="configuracoes" element={<Configuracoes />} />
+        </Route>
       </Route>
 
       {/* Almoxarifado — o material, as ferramentas e o que cada coisa custa.

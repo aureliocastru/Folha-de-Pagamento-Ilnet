@@ -706,7 +706,7 @@ function Linha({
             <Selo
               pequeno
               tom="marca"
-              titulo="Esta conta nasceu no módulo Folha de Pagamento — é a mesma dívida, não uma a mais"
+              titulo="Esta conta nasceu na Folha de Pagamento — é a mesma dívida, não uma a mais"
             >
               Folha · {TIPO_LABEL[conta.origem.tipo] ?? conta.origem.tipo}
               {conta.origem.beneficiario ? ` · ${conta.origem.beneficiario}` : ''}

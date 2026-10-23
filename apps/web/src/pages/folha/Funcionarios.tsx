@@ -191,7 +191,7 @@ export function Funcionarios() {
                 <tr key={f.id} className="linha group">
                   <td className="td">
                     <Link
-                      to={`/folha/funcionarios/${f.id}`}
+                      to={`/contas-pagar/folha/funcionarios/${f.id}`}
                       className="font-medium text-tinta-900 decoration-brand-300 underline-offset-4 group-hover:underline"
                     >
                       {f.nome}

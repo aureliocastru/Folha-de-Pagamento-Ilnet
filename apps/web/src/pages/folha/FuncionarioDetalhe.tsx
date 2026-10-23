@@ -84,7 +84,7 @@ export function FuncionarioDetalhe() {
     <Pagina>
       <header className="surgir mb-8">
         <Link
-          to="/folha/funcionarios"
+          to="/contas-pagar/folha/funcionarios"
           className="eyebrow inline-flex items-center gap-1.5 transition hover:text-tinta-700"
         >
           ← Funcionários
@@ -727,7 +727,7 @@ function ValesBloco({ funcionarioId }: { funcionarioId: string }) {
       className="surgir surgir-4"
       acao={
         <Link
-          to="/folha/vales"
+          to="/contas-pagar/folha/vales"
           className="text-xs font-semibold text-brand-700 hover:underline"
         >
           Registrar

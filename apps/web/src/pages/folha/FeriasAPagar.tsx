@@ -98,7 +98,7 @@ export function FeriasAPagar() {
       <div className="card">
         <Vazio titulo="Ninguém com férias programadas">
           Marque as férias na tela de{' '}
-          <Link to="/folha/ferias" className="underline">
+          <Link to="/contas-pagar/folha/ferias" className="underline">
             Férias
           </Link>
           .

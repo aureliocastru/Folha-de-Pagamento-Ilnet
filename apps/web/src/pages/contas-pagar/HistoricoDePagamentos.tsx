@@ -395,7 +395,7 @@ function Linha({
             <Selo
               pequeno
               tom="marca"
-              titulo="Este pagamento nasceu no módulo Folha de Pagamento — é a mesma saída, não uma a mais"
+              titulo="Este pagamento nasceu na Folha de Pagamento — é a mesma saída, não uma a mais"
             >
               Folha · {TIPO_LABEL[pagamento.origem.tipo] ?? pagamento.origem.tipo}
               {pagamento.origem.beneficiario

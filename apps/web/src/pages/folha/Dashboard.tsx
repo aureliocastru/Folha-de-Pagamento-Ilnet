@@ -366,7 +366,7 @@ export function Dashboard() {
                 <Vazio titulo="Nada gerado nesta competência">
                   Quando você calcular a folha, a repartição aparece aqui.{' '}
                   <Link
-                    to="/folha/gerar-folha"
+                    to="/contas-pagar/folha/gerar-folha"
                     className="font-semibold text-brand-700 hover:underline"
                   >
                     Gerar folha
@@ -390,7 +390,7 @@ export function Dashboard() {
               titulo="Impostos"
               acao={
                 <Link
-                  to="/folha/impostos"
+                  to="/contas-pagar/folha/impostos"
                   className="text-xs font-semibold text-brand-700 hover:underline"
                 >
                   Lançar guia
@@ -402,7 +402,7 @@ export function Dashboard() {
                   Suba o PDF do DARF, do FGTS, do DAS ou do DARE que a
                   contabilidade manda e o imposto entra aqui.{' '}
                   <Link
-                    to="/folha/impostos"
+                    to="/contas-pagar/folha/impostos"
                     className="font-semibold text-brand-700 hover:underline"
                   >
                     Lançar a primeira
@@ -468,7 +468,7 @@ export function Dashboard() {
               titulo="Vales e acertos"
               acao={
                 <Link
-                  to="/folha/vales"
+                  to="/contas-pagar/folha/vales"
                   className="text-xs font-semibold text-brand-700 hover:underline"
                 >
                   Ver todos

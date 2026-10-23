@@ -240,7 +240,7 @@ export function Vales() {
                         ▸
                       </span>
                       <Link
-                        to={`/folha/funcionarios/${v.vale.funcionarioId}`}
+                        to={`/contas-pagar/folha/funcionarios/${v.vale.funcionarioId}`}
                         onClick={(e) => e.stopPropagation()}
                         className="font-medium text-tinta-900 decoration-brand-300 underline-offset-4 hover:underline"
                       >

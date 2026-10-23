@@ -36,8 +36,8 @@ import type { PerfilUsuario } from './types';
 
 /**
  * O caminho é relativo à base do módulo: dentro de uma rota aninhada o
- * NavLink resolve `dashboard` como `/folha/dashboard` sozinho. Assim a base
- * aparece uma vez só, no módulo.
+ * NavLink resolve `dashboard` como `/contas-pagar/dashboard` sozinho. Assim a
+ * base aparece uma vez só, no módulo.
  */
 export interface ItemMenu {
   to: string;
@@ -91,31 +91,53 @@ export interface Modulo {
    */
   papeis?: PerfilUsuario[];
   menu: ItemMenu[];
+  /** As partes de dentro com acesso próprio — ver `Secao`. */
+  secoes?: Secao[];
 }
 
-const folha: Modulo = {
+/**
+ * Uma parte de um módulo que se libera à parte, por login.
+ *
+ * É a folha de pagamento: foi módulo até 23/10/2026, quando passou a morar
+ * dentro do Contas a Pagar — pedido do dono, um lugar só para tudo o que a
+ * empresa paga. O acesso, porém, continuou o dela, com o mesmo `id` que os
+ * logins e os perfis já guardam e que a API confere (`ModulosGuard`): quem
+ * paga as contas não passa a ver salário por causa de uma troca de menu, e
+ * quem fazia a folha não a perde.
+ *
+ * No menu ela é um grupo com o nome dela, aberto enquanto se está numa das
+ * telas dele. Os caminhos do `menu` são relativos à base do módulo, como os
+ * outros, e começam por `to`.
+ */
+export interface Secao {
+  id: string;
+  nome: string;
+  /** O pedaço do caminho, dentro do módulo, em que moram as telas dela. */
+  to: string;
+  icone: Icone;
+  papeis?: PerfilUsuario[];
+  menu: ItemMenu[];
+}
+
+const folha: Secao = {
   id: 'folha',
   nome: 'Folha de Pagamento',
-  descricao:
-    'Funcionários, diaristas, vales, férias, impostos e a folha do mês',
-  base: '/folha',
-  inicio: 'dashboard',
+  to: 'folha',
   icone: IconePessoas,
-  tom: 'bg-brand-500/15 text-brand-300',
   // Exaustivo de propósito: sem esta lista, um perfil novo passaria a enxergar
   // a folha de pagamento por omissão. Foi o que o TECNICO quase fez.
   papeis: ['ADMIN', 'RH', 'VISUALIZADOR'],
   menu: [
-    { to: 'dashboard', label: 'Dashboard', icone: IconePainel },
-    { to: 'funcionarios', label: 'Funcionários', icone: IconePessoas },
-    { to: 'diaristas', label: 'Diaristas', icone: IconeDia },
-    { to: 'vales', label: 'Vales e Acertos', icone: IconeMoeda },
-    { to: 'ferias', label: 'Férias', icone: IconeSol },
-    { to: 'gerar-folha', label: 'Gerar Folha', icone: IconeCalculo },
-    { to: 'pagamentos', label: 'Pagamentos da Folha', icone: IconeSaida },
-    { to: 'avulsos', label: 'Pagamentos Avulsos', icone: IconeRecibo },
-    { to: 'impostos', label: 'Impostos', icone: IconeGuia },
-    { to: 'configuracoes', label: 'Configurações', icone: IconeEngrenagem },
+    { to: 'folha/dashboard', label: 'Dashboard', icone: IconePainel },
+    { to: 'folha/funcionarios', label: 'Funcionários', icone: IconePessoas },
+    { to: 'folha/diaristas', label: 'Diaristas', icone: IconeDia },
+    { to: 'folha/vales', label: 'Vales e Acertos', icone: IconeMoeda },
+    { to: 'folha/ferias', label: 'Férias', icone: IconeSol },
+    { to: 'folha/gerar-folha', label: 'Gerar Folha', icone: IconeCalculo },
+    { to: 'folha/pagamentos', label: 'Pagamentos da Folha', icone: IconeSaida },
+    { to: 'folha/avulsos', label: 'Pagamentos Avulsos', icone: IconeRecibo },
+    { to: 'folha/impostos', label: 'Impostos', icone: IconeGuia },
+    { to: 'folha/configuracoes', label: 'Configurações', icone: IconeEngrenagem },
     // Usuários saiu daqui: é de fora dos módulos (`/usuarios`), com botão no
     // alto da tela de módulos. Gerenciar logins não é assunto da folha.
   ],
@@ -125,12 +147,13 @@ const contasPagar: Modulo = {
   id: 'contas-pagar',
   nome: 'Contas a Pagar',
   descricao:
-    'O que a empresa deve e o que já pagou, direto do IXC: vencidas, a vencer e o histórico',
+    'O que a empresa deve e o que já pagou, direto do IXC, e a folha de pagamento',
   base: '/contas-pagar',
   inicio: 'inicio',
   icone: IconeSaida,
   tom: 'bg-emerald-500/15 text-emerald-300',
   papeis: ['ADMIN', 'RH', 'VISUALIZADOR'],
+  secoes: [folha],
   menu: [
     { to: 'inicio', label: 'Em aberto', icone: IconeSaida },
     // As duas metades da mesma tabela do IXC, uma ao lado da outra: o que a
@@ -419,7 +442,6 @@ const patrocinio: Modulo = {
 
 /** A ordem daqui é a ordem dos cartões na tela de módulos. */
 export const MODULOS: Modulo[] = [
-  folha,
   contasPagar,
   almoxarifado,
   os,
@@ -430,18 +452,28 @@ export const MODULOS: Modulo[] = [
   contabilidade,
 ];
 
+/** O que se libera por login: um módulo, ou uma seção de dentro dele. */
+export interface Acesso {
+  id: string;
+  nome: string;
+  papeis?: PerfilUsuario[];
+}
+
+/** Cada módulo, seguido das seções dele — a folha logo depois do Contas a Pagar. */
+const ACESSOS: Acesso[] = MODULOS.flatMap((m) => [m, ...(m.secoes ?? [])]);
+
 /**
- * Os módulos que se distribuem por login na tela de Usuários.
+ * Os módulos que se distribuem por login na tela de Usuários — e a folha, que
+ * mora dentro do Contas a Pagar mas continua se dando à parte (ver `Secao`).
  *
  * O que é só do ADMIN fica de fora: ele não se dá a ninguém — quem é ADMIN já
  * abre, e quem não é não abriria nem marcado. Mandá-lo na lista também seria
  * recusado pela API, que só conhece os módulos que se distribuem.
  */
-export const MODULOS_DISTRIBUIVEIS: Modulo[] = MODULOS.filter(
+export const MODULOS_DISTRIBUIVEIS: Acesso[] = ACESSOS.filter(
   (m) => !(m.papeis?.length === 1 && m.papeis[0] === 'ADMIN'),
 );
 
-export const MODULO_FOLHA = folha;
 export const MODULO_CONTAS_PAGAR = contasPagar;
 export const MODULO_ALMOXARIFADO = almoxarifado;
 export const MODULO_OS = os;
@@ -462,8 +494,15 @@ export const MODULO_PATROCINIO = patrocinio;
  */
 export const TELA_DO_CAMPO = '/campo';
 
+type QuemEntrou = {
+  role: PerfilUsuario;
+  modulos?: string[];
+  permissoes?: Record<string, string> | null;
+  minhaArea?: string[];
+} | null;
+
 /**
- * Os módulos que este login abre.
+ * O que este login abre: os `id` dos módulos e das seções (ver `Acesso`).
  *
  * Duas perguntas se somam aqui. O **perfil** diz o que a pessoa pode fazer, e
  * alguns módulos só existem para certos perfis (o RH guarda contrato e exame
@@ -474,11 +513,7 @@ export const TELA_DO_CAMPO = '/campo';
  * acesso, e trancar a si mesmo não teria conserto pela tela. A API repete a
  * mesma conta — aqui o módulo só some do menu.
  */
-export function modulosDoUsuario(usuario?: {
-  role: PerfilUsuario;
-  modulos?: string[];
-  permissoes?: Record<string, string> | null;
-} | null): Modulo[] {
+export function acessosDoUsuario(usuario?: QuemEntrou): string[] {
   if (!usuario) return [];
   // O técnico não tem módulo nenhum: ele tem a tela do campo, e é para lá que
   // o login o manda. Devolver a Segurança do Trabalho aqui lhe daria a barra
@@ -491,19 +526,77 @@ export function modulosDoUsuario(usuario?: {
     const permissoes = usuario.permissoes;
     return MODULOS_DISTRIBUIVEIS.filter(
       (m) => permissoes[m.id] === 'ver' || permissoes[m.id] === 'mexer',
-    );
+    ).map((m) => m.id);
   }
 
   const lista = usuario.modulos ?? [];
   const semRestricao = usuario.role === 'ADMIN' || lista.length === 0;
 
-  return MODULOS.filter((m) => {
+  return ACESSOS.filter((m) => {
     if (m.papeis && !m.papeis.includes(usuario.role)) return false;
     return semRestricao || lista.includes(m.id);
-  });
+  }).map((m) => m.id);
 }
 
-export function caminhoInicial(modulo: Modulo): string {
+/**
+ * Os módulos que este login abre — os cartões da tela de módulos.
+ *
+ * Basta abrir uma parte: quem só faz a folha entra no Contas a Pagar e
+ * encontra lá a folha, e nada mais (ver `menuDoUsuario`).
+ */
+export function modulosDoUsuario(usuario?: QuemEntrou): Modulo[] {
+  const abertos = acessosDoUsuario(usuario);
+  return MODULOS.filter((m) =>
+    [m, ...(m.secoes ?? [])].some((a) => abertos.includes(a.id)),
+  );
+}
+
+/**
+ * O menu de um módulo para este login: os itens dele e, abaixo, cada seção
+ * que o login abre, com os itens dela.
+ *
+ * Os itens do próprio módulo só aparecem para quem abre o módulo: quem entrou
+ * só pela folha não vê as contas da empresa.
+ */
+export function menuDoUsuario(
+  modulo: Modulo,
+  usuario?: QuemEntrou,
+): { itens: ItemMenu[]; secoes: Array<{ secao: Secao; itens: ItemMenu[] }> } {
+  const abertos = acessosDoUsuario(usuario);
+  const aparece = (item: ItemMenu) => itemDoMenuAparece(item, usuario);
+  return {
+    itens: abertos.includes(modulo.id) ? modulo.menu.filter(aparece) : [],
+    secoes: (modulo.secoes ?? [])
+      .filter((s) => abertos.includes(s.id))
+      .map((secao) => ({ secao, itens: secao.menu.filter(aparece) })),
+  };
+}
+
+/**
+ * O grupo de uma seção no menu fica aberto enquanto se está numa tela dela: o
+ * menu do Contas a Pagar não dobra de tamanho para quem só paga conta. Quando
+ * ela é tudo o que o login abre no módulo, fica aberto sempre.
+ */
+export function secaoAberta(
+  modulo: Modulo,
+  secao: Secao,
+  caminho: string,
+  sozinha: boolean,
+): boolean {
+  const raiz = `${modulo.base}/${secao.to}`;
+  return sozinha || caminho === raiz || caminho.startsWith(`${raiz}/`);
+}
+
+/**
+ * A primeira tela do módulo. Para quem abre só uma seção dele, é a primeira
+ * tela dela — a do módulo seria só recusa.
+ */
+export function caminhoInicial(modulo: Modulo, usuario?: QuemEntrou): string {
+  if (usuario) {
+    const { itens, secoes } = menuDoUsuario(modulo, usuario);
+    const primeira = itens.length === 0 ? secoes[0]?.itens[0] : undefined;
+    if (primeira) return `${modulo.base}/${primeira.to}`;
+  }
   return `${modulo.base}/${modulo.inicio}`;
 }
 
@@ -519,16 +612,15 @@ export function caminhoInicial(modulo: Modulo): string {
  * um veículo no nome, ia direto para o estoque e nunca via onde abastecer.
  */
 export function destinoDepoisDoLogin(
-  usuario?: {
-    role: PerfilUsuario;
-    modulos?: string[];
-  } | null,
+  usuario?: QuemEntrou,
   temMinhaArea = false,
 ): string {
   if (usuario?.role === 'TECNICO') return TELA_DO_CAMPO;
 
   const abertos = modulosDoUsuario(usuario);
-  return abertos.length === 1 && !temMinhaArea ? caminhoInicial(abertos[0]) : '/modulos';
+  return abertos.length === 1 && !temMinhaArea
+    ? caminhoInicial(abertos[0], usuario)
+    : '/modulos';
 }
 
 /**
@@ -539,13 +631,10 @@ export function destinoDepoisDoLogin(
  * nome levava a um módulo trancado. Cada módulo tem a sua cópia da rota, e a
  * daqui é a do primeiro que a pessoa abre.
  */
-export function caminhoDaConta(usuario?: {
-  role: PerfilUsuario;
-  modulos?: string[];
-} | null): string {
+export function caminhoDaConta(usuario?: QuemEntrou): string {
   if (usuario?.role === 'TECNICO') return `${TELA_DO_CAMPO}/minha-conta`;
 
   const abertos = modulosDoUsuario(usuario);
-  const base = abertos[0]?.base ?? folha.base;
+  const base = abertos[0]?.base ?? contasPagar.base;
   return `${base}/minha-conta`;
 }

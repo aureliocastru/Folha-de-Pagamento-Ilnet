@@ -1,12 +1,18 @@
-import { Suspense } from 'react';
-import { Navigate, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { useAvisosDoMenu } from '../lib/avisos';
+import { Suspense, useEffect, useRef, useState } from 'react';
+import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useAvisosDoMenu, type AvisoDoMenu } from '../lib/avisos';
 import { useAuth } from '../lib/auth';
 import { useCelular } from '../lib/celular';
-import { itemDoMenuAparece, modulosDoUsuario, type Modulo } from '../lib/modulos';
+import {
+  menuDoUsuario,
+  modulosDoUsuario,
+  secaoAberta,
+  type ItemMenu,
+  type Modulo,
+} from '../lib/modulos';
 import { useTema } from '../lib/tema';
 import { LayoutCelular } from './LayoutCelular';
-import { IconeGrade, IconeLua, IconeSol } from './icones';
+import { IconeGrade, IconeLua, IconeSetinha, IconeSol } from './icones';
 import { Carregando, PontoDeAviso } from './ui';
 import { TelaProtegida } from './TelaProtegida';
 
@@ -64,8 +70,23 @@ export function Layout({ modulo }: { modulo: Modulo }) {
 function LayoutComputador({ modulo }: { modulo: Modulo }) {
   const { usuario, logout } = useAuth();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const { escuro, trocar } = useTema();
   const avisos = useAvisosDoMenu(modulo);
+  const menu = menuDoUsuario(modulo, usuario);
+  // O grupo aberto ou fechado à mão vale até a próxima troca de tela; dali em
+  // diante quem manda é a tela em que se está.
+  const [aMao, setAMao] = useState<Record<string, boolean>>({});
+  useEffect(() => setAMao({}), [pathname]);
+
+  // A folha fica no pé do menu, abaixo da dobra de uma tela de notebook:
+  // entrando numa tela dela, a barra rola até o item marcado.
+  const barra = useRef<HTMLElement>(null);
+  useEffect(() => {
+    barra.current
+      ?.querySelector('[aria-current="page"]')
+      ?.scrollIntoView({ block: 'nearest' });
+  }, [pathname]);
 
   function sair() {
     logout();
@@ -98,43 +119,51 @@ function LayoutComputador({ modulo }: { modulo: Modulo }) {
           Trocar de módulo
         </NavLink>
 
-        <nav className="flex-1 space-y-px overflow-y-auto px-3">
-          {modulo.menu
-            .filter((item) => itemDoMenuAparece(item, usuario))
-            .map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                className={({ isActive }) =>
-                  `group relative flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-medium leading-5 transition-colors duration-150 ${
-                    isActive
-                      ? 'bg-white/[0.08] text-white'
-                      : 'text-white/60 hover:bg-white/[0.04] hover:text-white/90'
-                  }`
-                }
+        <nav ref={barra} className="flex-1 space-y-px overflow-y-auto px-3 pb-3">
+          {menu.itens.map((item) => (
+            <ItemDaBarra key={item.to} item={item} aviso={avisos[item.to]} />
+          ))}
+
+          {/* A folha, dentro do Contas a Pagar: um grupo que o título abre e
+              fecha, e que já vem aberto numa tela dela. */}
+          {menu.secoes.map(({ secao, itens }) => {
+            const aberta =
+              aMao[secao.id] ?? secaoAberta(modulo, secao, pathname, menu.itens.length === 0);
+            return (
+              <div
+                key={secao.id}
+                className={menu.itens.length > 0 ? 'mt-2 border-t border-white/[0.06] pt-2' : ''}
               >
-                {({ isActive }) => (
-                  <>
-                    <span
-                      className={`absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-400 transition-all duration-200 ${
-                        isActive ? 'opacity-100' : 'scale-y-0 opacity-0'
-                      }`}
-                    />
-                    <item.icone
-                      className={`h-4 w-4 shrink-0 ${
-                        isActive
-                          ? 'text-brand-400'
-                          : 'text-white/35 group-hover:text-white/60'
-                      }`}
-                    />
-                    {item.label}
-                    {avisos[item.to] && (
-                      <PontoDeAviso {...avisos[item.to]} className="ml-auto" />
-                    )}
-                  </>
+                <button
+                  type="button"
+                  onClick={() => setAMao((a) => ({ ...a, [secao.id]: !aberta }))}
+                  aria-expanded={aberta}
+                  className={`group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-left text-[13px] font-semibold leading-5 transition-colors duration-150 hover:bg-white/[0.04] ${
+                    aberta ? 'text-white' : 'text-white/60 hover:text-white/90'
+                  }`}
+                >
+                  <secao.icone
+                    className={`h-4 w-4 shrink-0 ${
+                      aberta ? 'text-brand-400' : 'text-white/35 group-hover:text-white/60'
+                    }`}
+                  />
+                  {secao.nome}
+                  <IconeSetinha
+                    className={`ml-auto h-3.5 w-3.5 shrink-0 text-white/35 transition-transform duration-150 ${
+                      aberta ? 'rotate-90' : ''
+                    }`}
+                  />
+                </button>
+                {aberta && (
+                  <div className="ml-[17px] mt-px space-y-px border-l border-white/[0.08] pl-1.5">
+                    {itens.map((item) => (
+                      <ItemDaBarra key={item.to} item={item} aviso={avisos[item.to]} />
+                    ))}
+                  </div>
                 )}
-              </NavLink>
-            ))}
+              </div>
+            );
+          })}
         </nav>
 
         <div className="mt-2 border-t border-white/[0.06] p-3">
@@ -200,5 +229,38 @@ function LayoutComputador({ modulo }: { modulo: Modulo }) {
         </TelaProtegida>
       </main>
     </div>
+  );
+}
+
+/** Uma linha da barra lateral: o item do módulo, ou de um grupo dele. */
+function ItemDaBarra({ item, aviso }: { item: ItemMenu; aviso?: AvisoDoMenu }) {
+  return (
+    <NavLink
+      to={item.to}
+      className={({ isActive }) =>
+        `group relative flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[13px] font-medium leading-5 transition-colors duration-150 ${
+          isActive
+            ? 'bg-white/[0.08] text-white'
+            : 'text-white/60 hover:bg-white/[0.04] hover:text-white/90'
+        }`
+      }
+    >
+      {({ isActive }) => (
+        <>
+          <span
+            className={`absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-brand-400 transition-all duration-200 ${
+              isActive ? 'opacity-100' : 'scale-y-0 opacity-0'
+            }`}
+          />
+          <item.icone
+            className={`h-4 w-4 shrink-0 ${
+              isActive ? 'text-brand-400' : 'text-white/35 group-hover:text-white/60'
+            }`}
+          />
+          {item.label}
+          {aviso && <PontoDeAviso {...aviso} className="ml-auto" />}
+        </>
+      )}
+    </NavLink>
   );
 }

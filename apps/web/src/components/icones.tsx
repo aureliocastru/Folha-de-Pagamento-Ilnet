@@ -602,3 +602,12 @@ export function IconeMegafone({ className }: IconeProps) {
     </svg>
   );
 }
+
+/** A setinha de um grupo do menu: para o lado fechado, para baixo aberto. */
+export function IconeSetinha({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M9.5 6 15.5 12l-6 6" />
+    </svg>
+  );
+}

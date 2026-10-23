@@ -1086,7 +1086,7 @@ export function Folha() {
           comErro ? `, ${comErro} com erro` : ''
         }. Abrindo Contas a Pagar…`,
       );
-      setTimeout(() => navigate('/folha/pagamentos'), 1200);
+      setTimeout(() => navigate('/contas-pagar/folha/pagamentos'), 1200);
     },
     onError: (err) => setFeedback(`Não deu para gerar: ${mensagemErro(err)}`),
   });

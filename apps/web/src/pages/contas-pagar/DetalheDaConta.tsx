@@ -205,7 +205,7 @@ export function DetalheDaConta({
 
         {conta.origem && (
           <div className="mt-4 rounded-xl bg-tinta-100 px-4 py-3 text-sm text-tinta-700">
-            Esta conta nasceu no módulo Folha de Pagamento —{' '}
+            Esta conta nasceu na Folha de Pagamento —{' '}
             {TIPO_LABEL[conta.origem.tipo] ?? conta.origem.tipo}
             {conta.origem.beneficiario ? ` de ${conta.origem.beneficiario}` : ''}
             . É a mesma dívida, não uma a mais.

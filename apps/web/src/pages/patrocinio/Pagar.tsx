@@ -3,7 +3,7 @@ import { Carregando, Janela } from '../../components/ui';
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { mesAtual } from '../../lib/folha';
-import { modulosDoUsuario } from '../../lib/modulos';
+import { acessosDoUsuario } from '../../lib/modulos';
 import type { CategoriaDespesa, Patrocinado } from '../../lib/types';
 import { NovaDespesa } from '../contas-pagar/NovaDespesa';
 import { mesPorExtenso } from './comum';
@@ -15,7 +15,9 @@ import { mesPorExtenso } from './comum';
  */
 export function usePodePagar(): boolean {
   const { usuario } = useAuth();
-  return modulosDoUsuario(usuario).some((m) => m.id === 'contas-pagar');
+  // O acesso, e não o módulo: quem só faz a folha também entra no Contas a
+  // Pagar, mas não lança conta.
+  return acessosDoUsuario(usuario).includes('contas-pagar');
 }
 
 /**

@@ -146,7 +146,7 @@ export function PastasRh() {
         >
           {termo
             ? 'A busca olha a estante inteira, inclusive dentro de Funcionários. Procure por outro pedaço do nome, ou crie a pasta.'
-            : 'As pastas dos funcionários nascem do cadastro. Sem nenhuma aqui, sincronize os funcionários no módulo da folha.'}
+            : 'As pastas dos funcionários nascem do cadastro. Sem nenhuma aqui, sincronize os funcionários na Folha de Pagamento, dentro do Contas a Pagar.'}
         </Vazio>
       ) : (
         <div className="surgir grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">

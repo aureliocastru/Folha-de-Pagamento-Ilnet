@@ -291,7 +291,7 @@ export function DetalheDoPagamento({
 
         {pagamento.origem && (
           <div className="mt-4 rounded-xl bg-tinta-100 px-4 py-3 text-sm text-tinta-700">
-            Este pagamento nasceu no módulo Folha de Pagamento —{' '}
+            Este pagamento nasceu na Folha de Pagamento —{' '}
             {TIPO_LABEL[pagamento.origem.tipo] ?? pagamento.origem.tipo}
             {pagamento.origem.beneficiario
               ? ` de ${pagamento.origem.beneficiario}`

@@ -424,7 +424,7 @@ function ProximoDaFila({
           <h2 className="mt-2 font-display text-2xl font-semibold tracking-tight text-tinta-900">
             {pessoa.funcionarioId ? (
               <Link
-                to={`/folha/funcionarios/${pessoa.funcionarioId}`}
+                to={`/contas-pagar/folha/funcionarios/${pessoa.funcionarioId}`}
                 className="hover:text-brand-700 hover:underline"
               >
                 {pessoa.nome}
@@ -543,7 +543,7 @@ function TabelaDaFila({
                 <div className="font-medium text-tinta-800">
                   {p.funcionarioId ? (
                     <Link
-                      to={`/folha/funcionarios/${p.funcionarioId}`}
+                      to={`/contas-pagar/folha/funcionarios/${p.funcionarioId}`}
                       className="hover:text-brand-700 hover:underline"
                     >
                       {p.nome}

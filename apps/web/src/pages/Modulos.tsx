@@ -95,7 +95,7 @@ export function Modulos() {
           {modulosDoUsuario(usuario).map((modulo) => (
             <CartaoDeArea
               key={modulo.id}
-              para={caminhoInicial(modulo)}
+              para={caminhoInicial(modulo, usuario)}
               nome={modulo.nome}
               descricao={modulo.descricao}
               icone={modulo.icone}
