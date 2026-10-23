@@ -373,11 +373,17 @@ export class DiaristasService {
    * pagamento, ou apaga o registro.
    */
   listarTravadas() {
+    /*
+     * A mesma régua da dashboard (`situacaoDoPagamento`): pelo banco sem conta
+     * nenhuma, ou de qualquer forma com a conta reprovada, cancelada ou com
+     * erro. Só olhava as pelo banco — e a de R$ 90 do Walderlan (11/09/2026),
+     * em mãos e com a conta cancelada no IXC, acendia "1 diária travada" na
+     * dashboard sem aparecer aqui para ser apagada.
+     */
     return this.prisma.diaria.findMany({
       where: {
-        forma: FormaPagamento.IXC,
         OR: [
-          { contaPagarId: null },
+          { forma: FormaPagamento.IXC, contaPagarId: null },
           { contaPagar: { status: { in: SEM_SAIDA } } },
         ],
       },

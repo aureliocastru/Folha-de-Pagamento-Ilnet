@@ -40,6 +40,15 @@ const CONTAS: Record<string, Record<string, unknown>> = {
     funcionarioId: 'f3',
     idFnApagarIxc: 3003,
   },
+  cancelada: {
+    id: 'cancelada',
+    beneficiarioNome: 'Diária Cancelada',
+    status: StatusContaPagar.CANCELADO,
+    tipo: TipoLancamento.DIARIA,
+    competencia: '2026-09',
+    funcionarioId: null,
+    idFnApagarIxc: 3004,
+  },
   semIxc: {
     id: 'semIxc',
     beneficiarioNome: 'Ana Rascunho',
@@ -189,6 +198,18 @@ describe('apagar a conta a pagar leva junto o que ela pagava', () => {
     });
     expect(prisma.pagamentoAvulso.deleteMany).toHaveBeenCalledWith({
       where: { contaPagarId: 'ok1' },
+    });
+    expect(prisma.contaPagar.delete).toHaveBeenCalled();
+  });
+
+  it('conta cancelada no IXC sai só daqui: o cancelamento fica lá', async () => {
+    const { service, prisma, ixc } = montarServico();
+
+    await service.remover('cancelada');
+
+    expect(ixc.remove).not.toHaveBeenCalled();
+    expect(prisma.diaria.deleteMany).toHaveBeenCalledWith({
+      where: { contaPagarId: 'cancelada' },
     });
     expect(prisma.contaPagar.delete).toHaveBeenCalled();
   });

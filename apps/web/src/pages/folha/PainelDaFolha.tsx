@@ -462,7 +462,7 @@ export function PainelDaFolha() {
                   texto={
                     (diariasDoMes?.travadas ?? 0) === 0
                       ? 'Nenhuma diária parada no meio do caminho.'
-                      : `${diariasDoMes?.travadas} diária(s) com a conta reprovada, recusada ou apagada no IXC.`
+                      : `${diariasDoMes?.travadas} diária(s) com a conta reprovada, cancelada ou apagada no IXC — apague em Diaristas.`
                   }
                 />
                 <Atencao

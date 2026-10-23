@@ -1094,7 +1094,7 @@ function DiariasTravadas({
       semPadding
     >
       <p className="px-5 pb-3 text-xs leading-relaxed text-tinta-500 sm:px-6">
-        A conta a pagar destas foi reprovada, recusada ou apagada no IXC — elas
+        A conta a pagar destas foi reprovada, cancelada, recusada ou apagada no IXC — elas
         já não entram no gasto do mês. Apague as que foram teste; para as que
         eram de verdade, pague de novo pela pessoa na lista abaixo.
       </p>

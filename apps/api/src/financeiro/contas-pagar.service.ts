@@ -1650,7 +1650,12 @@ export class ContasPagarService {
           '"Verificar" para ela sair daqui.',
       );
     }
-    if (conta.idFnApagarIxc) await this.apagarNoIxc(conta.idFnApagarIxc);
+    // Cancelada no IXC já é "não aconteceu" lá, e o cancelamento é o registro
+    // disso: apaga só daqui. Pedir ao IXC para apagar um título cancelado
+    // podia ser recusado e deixar a conta presa aqui.
+    if (conta.idFnApagarIxc && conta.status !== StatusContaPagar.CANCELADO) {
+      await this.apagarNoIxc(conta.idFnApagarIxc);
+    }
     await this.apagarLocal(id);
   }
 
