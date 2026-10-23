@@ -133,7 +133,7 @@ function montarServico(
     parteDaConta: { count: jest.fn().mockResolvedValue(0) },
   };
   // O quarto: quem sabe o que cai junto ao apagar uma conta a pagar daqui.
-  const contasPagar = { apagarLocalPorTituloIxc: jest.fn() };
+  const contasPagar = { apagarLocalPorTituloIxc: jest.fn(), acompanharTitulo: jest.fn() };
   const service = new PagamentosService(
     ixc as never,
     config as never,
@@ -246,6 +246,19 @@ describe('PagamentosService.pagar', () => {
       documento: 'NF 123',
       valor_total_pago: '1500,00',
     });
+    expect(r.paga).toBe(true);
+  });
+
+  it('a conta da folha acompanha o pagamento, sem ninguém clicar em Verificar', async () => {
+    const { service, contasPagar } = montarServico();
+    await service.pagar(4242, { contaPagamento: CFG.contaPagamentoCaixaId, data: '2026-08-15' });
+    expect(contasPagar.acompanharTitulo).toHaveBeenCalledWith(4242);
+  });
+
+  it('se a conta da folha não acompanhar, o pagamento continua valendo', async () => {
+    const { service, contasPagar } = montarServico();
+    contasPagar.acompanharTitulo.mockRejectedValueOnce(new Error('IXC fora do ar'));
+    const r = await service.pagar(4242, { contaPagamento: CFG.contaPagamentoCaixaId, data: '2026-08-15' });
     expect(r.paga).toBe(true);
   });
 

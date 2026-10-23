@@ -56,6 +56,7 @@ import {
 import type { FaltasDoMes } from './faltas.calc';
 import { CriarContasPagarDto, ItemContaPagarDto } from './dto/criar-contas.dto';
 import { PrepararFolhaDto } from './dto/preparar-folha.dto';
+import type { GrupoDeSituacao } from './dto/query-contas.dto';
 import { QueryContasPagarDto } from './dto/query-contas.dto';
 
 /** Situação do adiantamento do dia 25 na competência da prévia. */
@@ -235,6 +236,23 @@ const ESPERA_APRENDER_PIX_MS = 60_000;
  * que o usuário quiser.
  */
 const NOMES_DA_FOLHA = ['Salários', 'Salarios', 'Salário', 'Salario'];
+
+/**
+ * O que cada grupo da tela de Pagamentos da Folha junta.
+ *
+ * Eram sete situações para escolher; quem paga a folha só quer saber o que
+ * falta pagar, o que já saiu e o que deu errado (pedido de 23/10/2026).
+ */
+const STATUS_DO_GRUPO: Record<GrupoDeSituacao, StatusContaPagar[]> = {
+  'a-pagar': [
+    StatusContaPagar.RASCUNHO,
+    StatusContaPagar.AGUARDANDO_APROVACAO,
+    StatusContaPagar.APROVADO,
+    StatusContaPagar.AGUARDANDO_PAGAMENTO,
+  ],
+  pagas: [StatusContaPagar.PAGO],
+  problema: [StatusContaPagar.REPROVADO, StatusContaPagar.CANCELADO, StatusContaPagar.ERRO],
+};
 
 @Injectable()
 export class ContasPagarService {
@@ -1475,6 +1493,30 @@ export class ContasPagarService {
    * podem ter sido liberadas ou apagadas por lá — e as pagas recentes, para
    * pegar exclusão e estorno enquanto o mês ainda está fresco.
    */
+  /**
+   * Traz para a conta da folha a situação nova do título, logo depois de
+   * pagá-lo — pela janela de pagar ou pela baixa que o ModoBank dispara.
+   *
+   * Era o botão "Verificar" que fazia isto, e quem pagava ficava sem saber se a
+   * folha estava paga (pedido de 23/10/2026). Título que não é da folha não tem
+   * conta daqui, e passa direto. Falha para dentro: a conta fica como estava, e
+   * o Verificar continua lá.
+   */
+  async acompanharTitulo(idFnApagar: number): Promise<void> {
+    const local = await this.prisma.contaPagar.findFirst({
+      where: { idFnApagarIxc: idFnApagar },
+      select: { id: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!local) return;
+    try {
+      await this.sincronizarStatus(local.id);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`Título ${idFnApagar} pago, mas a conta da folha não acompanhou: ${message}`);
+    }
+  }
+
   async sincronizarPendentes(): Promise<ResumoSincronizacao> {
     const contas = await this.prisma.contaPagar.findMany({
       where: {
@@ -1531,6 +1573,7 @@ export class ContasPagarService {
       tipo: { not: TipoLancamento.DESPESA },
     };
     if (q.status) where.status = q.status;
+    else if (q.grupo) where.status = { in: STATUS_DO_GRUPO[q.grupo] };
     if (q.competencia) where.competencia = q.competencia;
     if (q.funcionarioId) where.funcionarioId = q.funcionarioId;
     // Pedir tipo DESPESA aqui não reabre a porta: esta tela é da folha, e o

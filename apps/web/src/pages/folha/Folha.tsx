@@ -1,5 +1,5 @@
-import { useMutation } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Aviso,
@@ -11,13 +11,18 @@ import {
   type Tom,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
 import { semAcento } from '../../lib/busca';
 import { mesAnterior, mesAtual, mesSeguinte, nomeDoMes } from '../../lib/folha';
 import { formatBRL, formatData } from '../../lib/format';
+import { acessosDoUsuario } from '../../lib/modulos';
 import { STATUS_LABEL, TIPO_LABEL } from '../../lib/status';
+import { PagarEmMaos } from '../contas-pagar/AcoesDaConta';
 import { FeriasAPagar } from './FeriasAPagar';
 import type {
   ComposicaoSalario,
+  ContaAberta,
+  ContasAbertas,
   ContaJaGerada,
   ContaPagar,
   DetalheDaFolha,
@@ -920,36 +925,19 @@ function montarAviso(
       : 'Nenhum salário ou bônus a gerar neste mês trabalhado.';
   }
 
-  const avisos: string[] = [];
+  // Curto, e só o que pede atenção: quem já foi gerado desce para o grupo do
+  // fim da lista, e o selo de cada um diz o resto (pedido de 23/10/2026 — a
+  // folha tinha informação demais).
   const deFerias = pessoas.filter((p) => p.ferias.deFerias).length;
-  const voltaram =
-    modo === 'DIA_25'
-      ? pessoas.filter((p) => !p.ferias.deFerias && p.ferias.voltouAntesDo25).length
-      : 0;
-  if (voltaram > 0) {
-    avisos.push(
-      `${voltaram} pessoa(s) voltaram de férias antes do dia 25 e vieram desmarcadas: o salário do mês pode não cobrir o adiantamento.`,
-    );
+  if (modo === 'DIA_25') {
+    const semDia25 = pessoas.filter((p) => p.ferias.semDia25 ?? p.ferias.deFerias).length;
+    return semDia25 > 0
+      ? `${semDia25} pessoa(s) de férias ou de volta delas vieram sem o dia 25.`
+      : null;
   }
-  if (deFerias > 0) {
-    avisos.push(
-      modo === 'DIA_25'
-        ? `${deFerias} pessoa(s) de férias vieram desmarcadas: quem está de férias não recebe adiantamento.`
-        : `${deFerias} pessoa(s) de férias — o salário delas já veio como pagamento de férias. Confira o valor com a contabilidade antes de gerar.`,
-    );
-  }
-
-  // Fora as de férias, que o aviso acima já explica.
-  const jaGerados = itens.filter(
-    (i) => !i.selecionado && (jaGeradoDoItem(i) || tambemJaGerado(i)),
-  ).length;
-  if (jaGerados > 0) {
-    avisos.push(
-      `${jaGerados} pagamento(s) já existem nesta folha e vieram desmarcados — marque só se quiser mesmo gerar de novo.`,
-    );
-  }
-
-  return avisos.length > 0 ? avisos.join(' ') : null;
+  return deFerias > 0
+    ? `${deFerias} pessoa(s) de férias: o salário sai como férias — confira o valor com a contabilidade.`
+    : null;
 }
 
 /** Perto do dia 25 a folha provável é a do adiantamento. */
@@ -990,6 +978,18 @@ export function Folha() {
   );
   const competencia = mesDoPagamento(mesTrabalhado, modo);
   const [itens, setItens] = useState<ItemGerar[]>([]);
+  const qc = useQueryClient();
+  const { usuario } = useAuth();
+  /**
+   * Gerar e pagar no mesmo botão: quem abre o Contas a Pagar paga daqui, pela
+   * mesma janela do Em aberto. Quem só faz a folha gera, e o pagamento fica
+   * com quem paga — a API exige aquele acesso para pagar.
+   */
+  const podePagar = acessosDoUsuario(usuario).includes('contas-pagar');
+  /** Os títulos que acabaram de ser gerados, na janela de pagar. */
+  const [pagando, setPagando] = useState<ContaAberta[] | null>(null);
+  /** O grupo de quem já foi gerado neste mês, recolhido no fim da lista. */
+  const [verJaGerados, setVerJaGerados] = useState(false);
   /** Filtra as linhas da prévia por nome ou apelido. */
   const [buscaPessoa, setBuscaPessoa] = useState('');
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -1083,6 +1083,13 @@ export function Folha() {
     onError: (err) => setFeedback(mensagemErro(err)),
   });
 
+  // A prévia sai sozinha ao abrir e a cada troca de pagamento ou de mês: o
+  // "Calcular prévia" era um clique a mais antes de ver qualquer coisa.
+  useEffect(() => {
+    if (!verFerias) preview.mutate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modo, mesTrabalhado, verFerias]);
+
   const gerar = useMutation({
     mutationFn: async () => {
       const selecionados = itens.filter(vaiGerar);
@@ -1101,14 +1108,39 @@ export function Folha() {
       };
       return (await api.post<ContaPagar[]>('/contas-pagar', body)).data;
     },
-    onSuccess: (data) => {
-      const comErro = data.filter((c) => c.status === 'ERRO').length;
-      setFeedback(
-        `${data.length} conta(s) criada(s) no IXC${
-          comErro ? `, ${comErro} com erro` : ''
-        }. Abrindo Contas a Pagar…`,
-      );
-      setTimeout(() => navigate('/contas-pagar/folha/pagamentos'), 1200);
+    onSuccess: async (data) => {
+      const criadas = data.filter((c) => c.status !== 'ERRO' && c.idFnApagarIxc !== null);
+      const comErro = data.length - criadas.length;
+      const resumo = `${criadas.length} conta(s) criada(s) no IXC${
+        comErro ? `, ${comErro} com erro` : ''
+      }`;
+      if (!podePagar || criadas.length === 0) {
+        setFeedback(`${resumo}. Abrindo os pagamentos da folha…`);
+        setTimeout(() => navigate('/contas-pagar/folha/pagamentos'), 1200);
+        return;
+      }
+
+      /*
+       * Gerado, já se paga: a mesma janela do Em aberto, com os títulos que
+       * acabaram de nascer e a prévia do banco de para quem vai cada Pix.
+       * Pagar já aprova no IXC — a etapa "Aprovar" saiu do caminho.
+       */
+      setFeedback(`${resumo}. Abrindo o pagamento…`);
+      try {
+        const abertas = await qc.fetchQuery({
+          queryKey: ['contas-abertas'],
+          queryFn: async () => (await api.get<ContasAbertas>('/contas-abertas')).data,
+          staleTime: 0,
+        });
+        const ids = new Set(criadas.map((c) => c.idFnApagarIxc));
+        const titulos = abertas.contas.filter((t) => ids.has(t.idFnApagar));
+        if (titulos.length === 0) throw new Error('os títulos novos ainda não aparecem no IXC');
+        setFeedback(resumo + '.');
+        setPagando(titulos);
+      } catch (err) {
+        setFeedback(`${resumo}, mas não deu para abrir o pagamento (${mensagemErro(err)}). Pague em Pagamentos da Folha.`);
+        setTimeout(() => navigate('/contas-pagar/folha/pagamentos'), 2500);
+      }
     },
     onError: (err) => setFeedback(`Não deu para gerar: ${mensagemErro(err)}`),
   });
@@ -1168,6 +1200,15 @@ export function Folha() {
         semAcento(`${g.nome} ${g.apelido ?? ''}`).includes(procurado),
       )
     : grupos;
+  /*
+   * Quem já tem tudo gerado neste mês desce para um grupo recolhido no fim: a
+   * lista de cima é só o que falta pagar. Com a busca ligada, tudo à vista.
+   */
+  const jaResolvidos = gruposVisiveis.filter((g) => resolvido(g, itens));
+  const gruposDaLista =
+    procurado || verJaGerados
+      ? gruposVisiveis
+      : gruposVisiveis.filter((g) => !resolvido(g, itens));
 
   /**
    * O que a caixa do cabeçalho manda: as linhas à vista que viram conta. As
@@ -1369,26 +1410,27 @@ export function Folha() {
               className="campo"
             />
           </div>
-          <button
-            onClick={() => preview.mutate()}
-            disabled={preview.isPending}
-            className="btn btn-primario"
-          >
-            {preview.isPending ? 'Calculando…' : 'Calcular prévia'}
-          </button>
+          <QuandoSai modo={modo} mesTrabalhado={mesTrabalhado} />
         </div>
-
-        <QuandoSai modo={modo} mesTrabalhado={mesTrabalhado} />
       </div>
 
       {feedback && <Aviso tom="marca">{feedback}</Aviso>}
 
-      {itens.length === 0 && !preview.isPending && (
+      {itens.length === 0 && (
         <div className="card">
-          <Vazio titulo="Nada calculado ainda">
-            Escolha o pagamento e o mês trabalhado e clique em “Calcular prévia”.
-            Nada é enviado ao IXC até você conferir.
-          </Vazio>
+          {preview.isPending ? (
+            <Vazio titulo="Calculando a folha…" />
+          ) : (
+            <Vazio titulo="Ninguém para pagar neste mês">
+              <button
+                type="button"
+                onClick={() => preview.mutate()}
+                className="btn btn-neutro mt-3"
+              >
+                Calcular de novo
+              </button>
+            </Vazio>
+          )}
         </div>
       )}
 
@@ -1403,9 +1445,7 @@ export function Folha() {
           />
           {procurado && (
             <span className="text-xs text-tinta-400">
-              A busca só esconde linhas — quem está fora dela continua marcado
-              como estava, e vai ser gerado do mesmo jeito. A caixa do cabeçalho
-              marca só {gruposVisiveis.length} à vista.
+              Quem está fora da busca continua marcado.
             </span>
           )}
         </div>
@@ -1444,7 +1484,7 @@ export function Folha() {
                   <th className="th text-right">Total a pagar</th>
                 </tr>
               </thead>
-              {gruposVisiveis.map((g, iGrupo) => {
+              {gruposDaLista.map((g, iGrupo) => {
                 // Linha zerada pelo dia 25 não conta: não há o que gerar nela.
                 const geraveis = g.indices.filter((i) => itens[i].valor > 0);
                 const marcadosGrupo = geraveis.filter(
@@ -1501,59 +1541,19 @@ export function Folha() {
                               {g.apelido}
                             </span>
                           )}
-                          {/* Com mais de um pagamento, cada um mostra o seu
-                              valor: o total sozinho esconde de que é feito. */}
-                          {g.indices.map((i) => {
-                            const it = itens[i];
-                            return (
-                              <span
-                                key={i}
-                                className={`text-[11px] uppercase tracking-wider text-tinta-400 ${
-                                  vaiGerar(it) ? '' : 'opacity-50'
-                                }`}
-                              >
-                                {TIPO_LABEL[tipoGerado(it)]}
-                                {g.indices.length > 1 && (
-                                  <span className="num ml-1.5 font-semibold normal-case tracking-normal text-tinta-600">
-                                    {formatBRL(it.valor)}
-                                  </span>
-                                )}
-                              </span>
-                            );
-                          })}
+                          {/* Um selo só por pessoa: o que já saiu, ou as férias.
+                              O resto (dia 25, composição) mora no detalhe. */}
+                          <SeloDaPessoa grupo={g} itens={itens} />
                           <SeloFerias modo={modo} ferias={g.feriasInfo} />
-                          <SeloAdiantamento
-                            modo={modo}
-                            adiantamento={g.adiantamento}
-                            abatido={abatidoDia25(g.reparto)}
-                          />
-                          {/* O dia 25 já tem o selo acima; aqui ficam salário,
-                              férias e bônus que já saíram nesta competência. */}
-                          {g.indices
-                            .filter(
-                              (i) =>
-                                itens[i].tipo !== 'ADIANTAMENTO' &&
-                                jaGeradoDoItem(itens[i]),
-                            )
-                            .map((i) => (
-                              <SeloJaGerado
-                                key={i}
-                                tipo={tipoGerado(itens[i])}
-                                conta={jaGeradoDoItem(itens[i])}
-                              />
-                            ))}
-                          {/* De férias, o salário já pago continua aparecendo:
-                              os dois pagam o mesmo mês. */}
-                          {g.indices
-                            .filter((i) => tambemJaGerado(itens[i]))
-                            .map((i) => (
-                              <SeloJaGerado
-                                key={`tambem-${i}`}
-                                tipo={itens[i].tipo}
-                                conta={tambemJaGerado(itens[i])}
-                              />
-                            ))}
                         </div>
+                        {/* Mais de um pagamento: de que o total é feito. */}
+                        {g.indices.length > 1 && (
+                          <div className="mt-0.5 pl-5 text-xs text-tinta-400">
+                            {g.indices
+                              .map((i) => `${TIPO_LABEL[tipoGerado(itens[i])]} ${formatBRL(itens[i].valor)}`)
+                              .join(' · ')}
+                          </div>
+                        )}
                       </td>
                       <td className="td text-right">
                         <span className="valor text-[15px]">
@@ -1567,6 +1567,22 @@ export function Folha() {
                         <td colSpan={3} className="bg-tinta-50/80 px-5 pb-5 pt-4">
                           {/* O que muda o valor (férias, dia 25) vem antes dos
                               pagamentos, que mostram o resultado. */}
+                          <div className="mb-3 flex flex-wrap gap-1.5">
+                            <SeloAdiantamento
+                              modo={modo}
+                              adiantamento={g.adiantamento}
+                              abatido={abatidoDia25(g.reparto)}
+                            />
+                            {g.indices
+                              .filter((i) => jaGeradoDoItem(itens[i]) || tambemJaGerado(itens[i]))
+                              .map((i) => (
+                                <SeloJaGerado
+                                  key={i}
+                                  tipo={tipoGerado(itens[i])}
+                                  conta={jaGeradoDoItem(itens[i]) ?? tambemJaGerado(itens[i])}
+                                />
+                              ))}
+                          </div>
                           {(g.salarioIdx !== null || g.temOpcaoDia25) && (
                             <div className="mb-4 max-w-2xl divide-y divide-tinta-100 rounded-xl bg-papel ring-1 ring-tinta-100">
                               <OpcaoFerias
@@ -1603,6 +1619,27 @@ export function Folha() {
                   </tbody>
                 );
               })}
+              {!procurado && jaResolvidos.length > 0 && (
+                <tbody>
+                  <tr
+                    onClick={() => setVerJaGerados((v) => !v)}
+                    className="cursor-pointer border-t border-tinta-100"
+                  >
+                    <td className="td" />
+                    <td className="td text-tinta-500" colSpan={2}>
+                      <span
+                        className={`mr-2 inline-block text-tinta-300 transition-transform ${
+                          verJaGerados ? 'rotate-90' : ''
+                        }`}
+                      >
+                        ▸
+                      </span>
+                      {verJaGerados ? 'Esconder' : 'Ver'} quem já foi gerado neste mês (
+                      {jaResolvidos.length})
+                    </td>
+                  </tr>
+                </tbody>
+              )}
             </table>
           </div>
 
@@ -1619,14 +1656,71 @@ export function Folha() {
             <button
               onClick={() => gerar.mutate()}
               disabled={gerar.isPending || totalSelecionado <= 0}
-              className="btn btn-primario"
+              className={`btn ${podePagar ? 'btn-pagar' : 'btn-primario'}`}
             >
-              {gerar.isPending ? 'Gerando…' : 'Gerar contas a pagar no IXC'}
+              {gerar.isPending
+                ? 'Gerando…'
+                : podePagar
+                  ? `Gerar e pagar ${formatBRL(totalSelecionado)}`
+                  : 'Gerar contas a pagar'}
             </button>
           </div>
         </div>
       )}
+
+      {pagando && (
+        <PagarEmMaos
+          contas={pagando}
+          onFechar={() => {
+            setPagando(null);
+            navigate('/contas-pagar/folha/pagamentos');
+          }}
+        />
+      )}
     </Pagina>
+  );
+}
+
+/**
+ * Esta pessoa já tem tudo gerado neste mês: nada marcado, e cada pagamento ou
+ * já existe ou está zerado. É quem desce para o grupo recolhido do fim.
+ */
+function resolvido(g: Grupo, itens: ItemGerar[]): boolean {
+  const comValor = g.indices.filter((i) => itens[i].valor > 0 || jaGeradoDoItem(itens[i]));
+  return (
+    comValor.length > 0 &&
+    g.indices.every((i) => !itens[i].selecionado) &&
+    comValor.every((i) => jaGeradoDoItem(itens[i]) || tambemJaGerado(itens[i]))
+  );
+}
+
+/**
+ * O que já saiu desta pessoa no mês, num selo só: "pago em 02/10" quando
+ * tudo foi pago, "gerado · a pagar" quando falta o banco. O detalhe de cada
+ * pagamento fica ao abrir a linha.
+ */
+function SeloDaPessoa({ grupo, itens }: { grupo: Grupo; itens: ItemGerar[] }) {
+  const contas = grupo.indices
+    .map((i) => jaGeradoDoItem(itens[i]) ?? tambemJaGerado(itens[i]))
+    .filter((c): c is ContaJaGerada => c !== null);
+  if (contas.length === 0) return null;
+  const pagas = contas.filter((c) => c.situacao === 'PAGO');
+  if (pagas.length === contas.length) {
+    const ultimo = pagas
+      .map((c) => c.pagoEm)
+      .filter((d): d is string => !!d)
+      .sort()
+      .pop();
+    return (
+      <Selo pequeno tom="pago">
+        pago{ultimo ? ` em ${formatData(ultimo)}` : ''}
+      </Selo>
+    );
+  }
+  return (
+    <Selo pequeno tom="atencao" titulo="Já existe conta a pagar deste mês — falta o pagamento sair.">
+      gerado · a pagar
+    </Selo>
   );
 }
 
@@ -1645,25 +1739,13 @@ function QuandoSai({
 }) {
   const trabalho = nomeDoMes(mesTrabalhado);
   return (
-    <p className="mt-4 border-t border-tinta-100 pt-4 text-sm leading-relaxed text-tinta-600">
-      {modo === 'DIA_25' ? (
-        <>
-          Adiantamento sobre o trabalho de{' '}
-          <strong className="text-tinta-900">{trabalho}</strong>, pago no{' '}
-          <strong className="text-tinta-900">dia 25 de {trabalho}</strong> — no
-          meio do próprio mês.
-        </>
-      ) : (
-        <>
-          Salário e bônus de{' '}
-          <strong className="text-tinta-900">{trabalho}</strong>, pagos no
-          começo de{' '}
-          <strong className="text-tinta-900">
-            {nomeDoMes(mesSeguinte(mesTrabalhado))}
-          </strong>{' '}
-          — o mês trabalhado sempre sai no mês seguinte.
-        </>
-      )}
+    <p className="pb-2.5 text-sm text-tinta-500">
+      sai{' '}
+      <strong className="text-tinta-900">
+        {modo === 'DIA_25'
+          ? `no dia 25 de ${trabalho}`
+          : `no começo de ${nomeDoMes(mesSeguinte(mesTrabalhado))}`}
+      </strong>
     </p>
   );
 }

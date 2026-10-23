@@ -68,7 +68,7 @@ const Recorrentes = telaSobDemanda(() => import('./pages/contas-pagar/Recorrente
 const Veiculos = telaSobDemanda(() => import('./pages/contas-pagar/Veiculos').then((m) => m.Veiculos));
 const Avulsos = telaSobDemanda(() => import('./pages/folha/Avulsos').then((m) => m.Avulsos));
 const Configuracoes = telaSobDemanda(() => import('./pages/folha/Configuracoes').then((m) => m.Configuracoes));
-const ContasPagar = telaSobDemanda(() => import('./pages/folha/ContasPagar').then((m) => m.ContasPagar));
+const HistoricoDaFolha = telaSobDemanda(() => import('./pages/folha/HistoricoDaFolha').then((m) => m.HistoricoDaFolha));
 const Dashboard = telaSobDemanda(() => import('./pages/folha/Dashboard').then((m) => m.Dashboard));
 const Diaristas = telaSobDemanda(() => import('./pages/folha/Diaristas').then((m) => m.Diaristas));
 const Ferias = telaSobDemanda(() => import('./pages/folha/Ferias').then((m) => m.Ferias));
@@ -185,7 +185,7 @@ const TELAS_DO_MODULO: Record<string, Array<{ preCarregar: () => void }>> = {
     Recorrentes, ContasContrato, CartoesCredito, Veiculos, ContasPagarCategorias,
     FechamentoCaixa, MinhaConta,
     // A folha, que mora aqui dentro.
-    Dashboard, Funcionarios, FuncionarioDetalhe, Diaristas, Vales, Ferias, Folha, ContasPagar,
+    Dashboard, Funcionarios, FuncionarioDetalhe, Diaristas, Vales, Ferias, Folha, HistoricoDaFolha,
     Impostos, Configuracoes,
   ],
   almoxarifado: [
@@ -327,8 +327,10 @@ export default function App() {
           <Route path="vales" element={<Vales />} />
           <Route path="ferias" element={<Ferias />} />
           <Route path="gerar-folha" element={<Folha />} />
-          <Route path="pagamentos" element={<ContasPagar />} />
-          <Route path="avulsos" element={<Avulsos />} />
+          <Route path="pagamentos" element={<HistoricoDaFolha />} />
+          {/* Os avulsos da folha saíram (23/10/2026): são os Fornecedores
+              daqui. O caminho antigo leva para lá. */}
+          <Route path="avulsos" element={<Navigate to="/contas-pagar/avulsos" replace />} />
           <Route path="impostos" element={<Impostos />} />
           <Route path="configuracoes" element={<Configuracoes />} />
         </Route>

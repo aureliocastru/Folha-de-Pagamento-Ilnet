@@ -26,6 +26,7 @@ import {
   IconePredio,
   IconeRecibo,
   IconeRecolhido,
+  IconeRelogio,
   IconeSaida,
   IconeSol,
   IconeTransferencia,
@@ -134,8 +135,8 @@ const folha: Secao = {
     { to: 'folha/vales', label: 'Vales e Acertos', icone: IconeMoeda },
     { to: 'folha/ferias', label: 'Férias', icone: IconeSol },
     { to: 'folha/gerar-folha', label: 'Gerar Folha', icone: IconeCalculo },
-    { to: 'folha/pagamentos', label: 'Pagamentos da Folha', icone: IconeSaida },
-    { to: 'folha/avulsos', label: 'Pagamentos Avulsos', icone: IconeRecibo },
+    // O que a folha já pagou, por mês. Pagar é na Gerar Folha, no mesmo botão.
+    { to: 'folha/pagamentos', label: 'Histórico', icone: IconeRelogio },
     { to: 'folha/impostos', label: 'Impostos', icone: IconeGuia },
     { to: 'folha/configuracoes', label: 'Configurações', icone: IconeEngrenagem },
     // Usuários saiu daqui: é de fora dos módulos (`/usuarios`), com botão no
@@ -160,13 +161,10 @@ const contasPagar: Modulo = {
     // empresa deve e o que ela já pagou.
     { to: 'pagos', label: 'Já pagos', icone: IconeMoeda },
     { to: 'dashboard', label: 'Dashboard', icone: IconePainel },
-    // A mesma tela dos avulsos da folha, com o nome que ela tem deste lado.
-    //
-    // Aqui ela lista o cadastro de fornecedores do IXC inteiro — três mil e
-    // duzentos —, e o que se faz nela é achar um deles e pagar. "Pagamentos
-    // Avulsos" é o nome do que ela faz na folha, onde a lista é a de cá e o
-    // pagamento se divide em serviço, venda e extra. Deste lado o nome é o do
-    // que se procura.
+    // Os pagamentos avulsos: o cadastro de fornecedores do IXC inteiro — três
+    // mil e duzentos —, e o que se faz nela é achar um deles e pagar. A folha
+    // tinha a sua cópia ("Pagamentos Avulsos"), que saiu em 23/10/2026: este
+    // lado já faz o mesmo.
     { to: 'avulsos', label: 'Fornecedores', icone: IconeRecibo },
     { to: 'recorrentes', label: 'Recorrentes', icone: IconeCalendarioVolta },
     // A conta de luz de cada endereço. Fica ao lado das recorrentes porque é

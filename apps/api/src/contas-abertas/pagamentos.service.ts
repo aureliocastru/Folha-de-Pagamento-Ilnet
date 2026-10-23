@@ -150,7 +150,26 @@ export class PagamentosService {
     @Optional() private readonly noBanco?: PagamentosNoBancoService,
   ) {}
 
+  /**
+   * Paga o título (ver `pagarNoIxc`) e traz a situação nova para a conta da
+   * folha, quando ele é dela: a folha paga aparece paga sem ninguém clicar em
+   * "Verificar".
+   */
   async pagar(
+    idFnApagar: number,
+    opcoes: Parameters<PagamentosService['pagarNoIxc']>[1],
+    usuarioNome?: string,
+  ): Promise<ResultadoDoPagamento> {
+    const r = await this.pagarNoIxc(idFnApagar, opcoes, usuarioNome);
+    try {
+      await this.contasPagar.acompanharTitulo(idFnApagar);
+    } catch (err) {
+      this.logger.warn(`Título ${idFnApagar}: a conta da folha não acompanhou o pagamento: ${err}`);
+    }
+    return r;
+  }
+
+  private async pagarNoIxc(
     idFnApagar: number,
     opcoes: {
       /**
