@@ -219,6 +219,7 @@ export class HistoricoPagamentosService implements OnModuleInit, OnModuleDestroy
       this.marcarConferidos(pagamentos),
       this.aplicarClassificacoes(pagamentos),
       this.marcarOrigemNaFolha(pagamentos),
+      this.marcarComprovantes(pagamentos),
     ]);
 
     return {
@@ -986,6 +987,21 @@ export class HistoricoPagamentosService implements OnModuleInit, OnModuleDestroy
       const rateio = rateios.get(p.idFnApagar);
       if (rateio) p.rateio = rateio;
     }
+  }
+
+  /**
+   * Marca os pagamentos que saíram pelo ModoBank daqui e têm o comprovante do
+   * banco — o mesmo PDF da ficha, que a linha compartilha direto.
+   */
+  private async marcarComprovantes(pagamentos: PagamentoFeito[]): Promise<void> {
+    const ids = pagamentos.map((p) => p.idFnApagar);
+    if (ids.length === 0) return;
+    const comComprovante = await this.prisma.pagamentoNoBanco.findMany({
+      where: { idFnApagar: { in: ids }, situacao: 'PAGO', idNoBanco: { not: null } },
+      select: { idFnApagar: true },
+    });
+    const tem = new Set(comComprovante.map((c) => c.idFnApagar));
+    for (const p of pagamentos) p.comprovanteDoBanco = tem.has(p.idFnApagar);
   }
 
   /**

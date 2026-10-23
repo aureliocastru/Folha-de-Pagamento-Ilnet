@@ -10,6 +10,8 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { abrirArquivo, motivoDoErroEmArquivo } from '../../lib/arquivo';
+import { IconeCompartilhar } from '../../components/icones';
 import { combina, semAcento } from '../../lib/busca';
 import { formatBRL, formatData } from '../../lib/format';
 import { TIPO_LABEL } from '../../lib/status';
@@ -425,8 +427,92 @@ function Linha({
             título de {formatBRL(pagamento.valor)}
           </div>
         )}
+        {pagamento.comprovanteDoBanco && <CompartilharComprovante pagamento={pagamento} />}
       </td>
     </tr>
+  );
+}
+
+/** O aparelho manda PDF pelo Compartilhar? No celular quase sempre; no computador, depende. */
+function compartilhaPdf(): boolean {
+  if (typeof navigator.canShare !== 'function') return false;
+  const teste = new File([''], 'comprovante.pdf', { type: 'application/pdf' });
+  return navigator.canShare({ files: [teste] });
+}
+
+/**
+ * O comprovante do ModoBank, mandado direto da linha — sem abrir a ficha.
+ *
+ * Onde o aparelho compartilha PDF, abre o Compartilhar (WhatsApp, e-mail). O
+ * iPhone só aceita o Compartilhar colado no toque, e o arquivo chega depois:
+ * recusado, o botão vira "Compartilhar" com o arquivo já baixado, e o segundo
+ * toque vai na hora — o mesmo das notas do título. Onde não compartilha, o PDF
+ * abre numa aba.
+ */
+function CompartilharComprovante({ pagamento }: { pagamento: PagamentoFeito }) {
+  const [pronto, setPronto] = useState<File | null>(null);
+  const [baixando, setBaixando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const caminho = `/contas-abertas/${pagamento.idFnApagar}/banco/comprovante`;
+  // "Comprovante Construcenter 23-10-2026.pdf": a barra da data não cabe em nome de arquivo.
+  const nome =
+    `Comprovante ${pagamento.fornecedor.nome || pagamento.idFnApagar} ${formatData(pagamento.pagoEm)}`
+      .replace(/[\\/:*?"<>|]+/g, '-')
+      .trim() + '.pdf';
+
+  function compartilhar(arquivo: File) {
+    navigator.share({ files: [arquivo], title: arquivo.name }).catch((e: unknown) => {
+      // Fechar a janela sem escolher ninguém não é erro.
+      if (e instanceof DOMException && e.name === 'AbortError') return;
+      // O toque já passou: o arquivo fica pronto para o próximo.
+      if (e instanceof DOMException && e.name === 'NotAllowedError') {
+        setPronto(arquivo);
+        return;
+      }
+      setErro('O aparelho não deixou compartilhar. Abra a ficha e salve o PDF.');
+    });
+  }
+
+  async function aoTocar(e: React.MouseEvent) {
+    // A linha inteira abre a ficha: o botão não.
+    e.stopPropagation();
+    setErro(null);
+    if (pronto) {
+      compartilhar(pronto);
+      return;
+    }
+    if (!compartilhaPdf()) {
+      abrirArquivo(caminho, nome).catch((err: unknown) => setErro(mensagemErro(err)));
+      return;
+    }
+    setBaixando(true);
+    try {
+      const res = await api.get(caminho, { responseType: 'blob' });
+      compartilhar(new File([res.data as BlobPart], nome, { type: 'application/pdf' }));
+    } catch (err) {
+      setErro(await motivoDoErroEmArquivo(err));
+    } finally {
+      setBaixando(false);
+    }
+  }
+
+  return (
+    <div className="mt-1 flex flex-col items-end gap-0.5">
+      <button
+        type="button"
+        onClick={(e) => void aoTocar(e)}
+        onKeyDown={(e) => e.stopPropagation()}
+        disabled={baixando}
+        title="Mandar o comprovante do banco (WhatsApp, e-mail)"
+        className={`btn btn-p inline-flex items-center gap-1.5 ${
+          pronto ? 'btn-pagar' : 'btn-neutro'
+        }`}
+      >
+        <IconeCompartilhar className="h-3.5 w-3.5" />
+        {baixando ? 'Baixando…' : pronto ? 'Compartilhar' : 'Comprovante'}
+      </button>
+      {erro && <span className="max-w-[220px] text-xs text-rose-600">{erro}</span>}
+    </div>
   );
 }
 

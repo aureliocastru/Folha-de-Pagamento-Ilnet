@@ -1489,6 +1489,8 @@ export interface ConferenciaDoPagamento {
 
 export interface PagamentoFeito {
   idFnApagar: number;
+  /** Saiu pelo ModoBank daqui e tem o comprovante do banco. */
+  comprovanteDoBanco?: boolean;
   documento: string | null;
   fornecedor: { id: number | null; nome: string };
   /** Valor do título, como ele foi lançado */

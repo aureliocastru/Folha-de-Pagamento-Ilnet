@@ -155,6 +155,11 @@ export interface PagamentoFeito {
   }>;
   /** Preenchido depois, cruzando com o que a folha lançou */
   origem: OrigemNaFolha | null;
+  /**
+   * Saiu pelo ModoBank daqui e o banco deu o comprovante: a linha ganha o
+   * botão de compartilhar, sem abrir a ficha.
+   */
+  comprovanteDoBanco: boolean;
   /** O que o registro do IXC confirma — e o que nele não fecha */
   conferencia: ConferenciaDoPagamento;
 }
@@ -375,6 +380,7 @@ export function mapPagamento(
     },
     classificacao: null,
     origem: null,
+    comprovanteDoBanco: false,
     conferencia: conferir({
       status,
       statusDizPago: statusDizPago(raw),
