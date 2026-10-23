@@ -10,10 +10,14 @@ import {
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
 import { useTermoAdiado } from '../../lib/busca';
 import { formatBRL, formatData } from '../../lib/format';
+import { acessosDoUsuario } from '../../lib/modulos';
 import { STATUS_LABEL, STATUS_TOM, TIPO_LABEL } from '../../lib/status';
 import type {
+  ContaAberta,
+  ContasAbertas,
   ContaPagar,
   Paginado,
   ResultadoLote,
@@ -21,6 +25,7 @@ import type {
   ResumoSincronizacao,
   StatusContaPagar,
 } from '../../lib/types';
+import { PagarEmMaos, SeloNoBanco } from '../contas-pagar/AcoesDaConta';
 
 const STATUS_FILTROS: (StatusContaPagar | 'todos')[] = [
   'todos',
@@ -36,8 +41,8 @@ const STATUS_FILTROS: (StatusContaPagar | 'todos')[] = [
 const ETAPAS = [
   ['Salvar', 'a conta nasce no IXC'],
   ['Aprovar', 'auditoria libera'],
-  ['Pagar', 'ModoBank, na tela do IXC'],
-  ['Conferir', 'o banco confirma aqui'],
+  ['Pagar', 'o Pix sai daqui pelo ModoBank'],
+  ['Conferir', 'o banco confirma e dá a baixa'],
 ];
 
 /**
@@ -97,9 +102,12 @@ function resumoDoLote(r: ResultadoLote, verbo: string): string {
 
 export function ContasPagar() {
   const qc = useQueryClient();
+  const { usuario } = useAuth();
   const [status, setStatus] = useState<StatusContaPagar | 'todos'>('todos');
   const [feedback, setFeedback] = useState<string | null>(null);
   const [selecao, setSelecao] = useState<string[]>([]);
+  /** Os títulos na janela de pagar — a mesma do Em aberto. */
+  const [pagando, setPagando] = useState<ContaAberta[] | null>(null);
   /** O que está digitado; a consulta sai sozinha quando a mão para. */
   const [busca, setBusca] = useState('');
   // Some da seleção quem sumiu da lista: aprovar em massa o resultado de uma
@@ -121,6 +129,34 @@ export function ContasPagar() {
   // A seleção vive presa ao que está na tela: mudou o filtro ou a lista, o que
   // não aparece mais sai da seleção — ninguém aprova em massa às cegas.
   const selecionadas = itens.filter((c) => selecao.includes(c.id));
+
+  /*
+   * Pagar pelo banco, sem ir ao IXC: cada conta da folha é um título em aberto
+   * lá, e a janela é a mesma do Em aberto — com a prévia de para quem vai cada
+   * Pix. Pagar é do Contas a Pagar (a API exige aquele acesso): quem só faz a
+   * folha aprova, mas não paga.
+   */
+  const podePagar = acessosDoUsuario(usuario).includes('contas-pagar');
+  const abertas = useQuery({
+    queryKey: ['contas-abertas'],
+    queryFn: async () => (await api.get<ContasAbertas>('/contas-abertas')).data,
+    enabled: podePagar,
+    // Como no Em aberto: o IXC que não responde não responde por 30 s.
+    retry: 0,
+  });
+  const titulos = new Map((abertas.data?.contas ?? []).map((t) => [t.idFnApagar, t]));
+  const tituloDe = (c: ContaPagar) =>
+    c.idFnApagarIxc === null ? undefined : titulos.get(c.idFnApagarIxc);
+
+  /** Em aberto no IXC, não reprovada, e sem pagamento dela já no banco. */
+  function podePagarNoBanco(c: ContaPagar): boolean {
+    const titulo = tituloDe(c);
+    if (!podePagar || !titulo) return false;
+    if (c.status === 'PAGO' || c.status === 'REPROVADO' || c.status === 'CANCELADO') {
+      return false;
+    }
+    return !titulo.noBanco || titulo.noBanco.situacao === 'RECUSADO';
+  }
 
   function alternar(id: string) {
     setSelecao((s) =>
@@ -242,6 +278,14 @@ export function ContasPagar() {
   }
 
   // --- Em massa: age só sobre as selecionadas que aceitam aquela ação ---
+  function pagarSelecionadas() {
+    const alvos = selecionadas
+      .filter(podePagarNoBanco)
+      .map(tituloDe)
+      .filter((t): t is ContaAberta => !!t);
+    if (alvos.length > 0) setPagando(alvos);
+  }
+
   function aprovarSelecionadas() {
     const alvos = selecionadas.filter(podeAprovar);
     if (alvos.length === 0) return;
@@ -294,6 +338,7 @@ export function ContasPagar() {
   const todasMarcadas = itens.length > 0 && selecionadas.length === itens.length;
   // Cada ação vale para um pedaço da seleção: dá para marcar tudo e ainda
   // assim ver quantas realmente aceitam aprovar, reprovar ou sumir.
+  const podemPagar = selecionadas.filter(podePagarNoBanco).length;
   const podemAprovar = selecionadas.filter(podeAprovar).length;
   const podemReprovar = selecionadas.filter(podeReprovar).length;
   const podemExcluir = selecionadas.filter(podeExcluir).length;
@@ -396,6 +441,16 @@ export function ContasPagar() {
             </span>
           </span>
           <div className="ml-auto flex flex-wrap items-center gap-2">
+            {podePagar && (
+              <BotaoLote
+                onClick={pagarSelecionadas}
+                quantidade={podemPagar}
+                ocupado={lote.isPending}
+                className="bg-emerald-600 text-white hover:bg-emerald-500"
+              >
+                Pagar
+              </BotaoLote>
+            )}
             <BotaoLote
               onClick={aprovarSelecionadas}
               quantidade={podemAprovar}
@@ -519,13 +574,30 @@ export function ContasPagar() {
                     <Selo tom={STATUS_TOM[c.status]} ponto>
                       {STATUS_LABEL[c.status]}
                     </Selo>
+                    {c.idFnApagarIxc !== null && tituloDe(c)?.noBanco && (
+                      <div className="mt-1 flex flex-wrap items-center justify-center gap-1.5">
+                        <SeloNoBanco
+                          noBanco={tituloDe(c)!.noBanco!}
+                          idFnApagar={c.idFnApagarIxc}
+                        />
+                      </div>
+                    )}
                   </td>
                   <td className="td text-right">
                     <div className="flex flex-wrap justify-end gap-1.5">
+                      {podePagarNoBanco(c) && (
+                        <button
+                          onClick={() => setPagando([tituloDe(c)!])}
+                          title="Escolher de onde sai e pagar — aprova no IXC junto"
+                          className="btn btn-pagar btn-p"
+                        >
+                          Pagar
+                        </button>
+                      )}
                       {podeAprovar(c) && (
                         <button
                           onClick={() => aprovar(c)}
-                          className="btn btn-pagar btn-p"
+                          className="btn btn-neutro btn-p"
                         >
                           Aprovar
                         </button>
@@ -589,6 +661,18 @@ export function ContasPagar() {
           </div>
         )}
       </Bloco>
+
+      {pagando && (
+        <PagarEmMaos
+          contas={pagando}
+          // O que o banco levou muda a situação no IXC: traz para cá.
+          onPagas={() => sincronizarTudo.mutate()}
+          onFechar={() => {
+            setPagando(null);
+            setSelecao([]);
+          }}
+        />
+      )}
     </Pagina>
   );
 }

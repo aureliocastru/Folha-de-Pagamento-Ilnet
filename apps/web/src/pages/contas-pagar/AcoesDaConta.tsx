@@ -152,9 +152,12 @@ function hojeISO(): string {
 export function PagarEmMaos({
   contas,
   onFechar,
+  onPagas,
 }: {
   contas: ContaAberta[];
   onFechar: () => void;
+  /** Saiu ao menos uma — a folha usa para trazer do IXC a situação nova. */
+  onPagas?: () => void;
 }) {
   const queryClient = useQueryClient();
   const [data, setData] = useState(hojeISO);
@@ -413,6 +416,7 @@ export function PagarEmMaos({
       // O "Já pago" guarda a leitura por alguns minutos: a conta paga agora
       // tem de aparecer lá sem esperar.
       void queryClient.invalidateQueries({ queryKey: ['pagamentos-feitos'] });
+      if (r.pagas.length > 0) onPagas?.();
     },
   });
 
