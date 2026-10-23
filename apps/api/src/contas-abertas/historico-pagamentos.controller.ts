@@ -10,8 +10,10 @@ import {
   Post,
   Query,
   Req,
+  Res,
+  StreamableFile,
 } from '@nestjs/common';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { ConferirPagamentoDto, PeriodoPagamentosDto } from './dto/historico-pagamentos.dto';
 import {
   HistoricoPagamentosService,
@@ -55,6 +57,25 @@ export class HistoricoPagamentosController {
   ) {
     const quem = (req.user as { nome?: string } | undefined)?.nome ?? 'Alguém';
     return this.service.conferir(idFnApagar, dto.ressalvas ?? [], quem);
+  }
+
+  /**
+   * O recibo do pagamento em PDF, para mandar ou imprimir — o papel de quem
+   * não tem comprovante de banco.
+   */
+  @Get(':idFnApagar/recibo')
+  async recibo(
+    @Param('idFnApagar', ParseIntPipe) idFnApagar: number,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const { pdf, nome } = await this.service.recibo(idFnApagar);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Length': String(pdf.length),
+      'Content-Disposition': `inline; filename="${nome}"`,
+      'Cache-Control': 'private, no-store',
+    });
+    return new StreamableFile(pdf);
   }
 
   /** Desfaz: a ressalva volta a pedir atenção. */

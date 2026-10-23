@@ -427,7 +427,23 @@ function Linha({
             título de {formatBRL(pagamento.valor)}
           </div>
         )}
-        {pagamento.comprovanteDoBanco && <CompartilharComprovante pagamento={pagamento} />}
+        {/* O comprovante do banco, quando saiu pelo ModoBank daqui; nos outros,
+            o recibo que esta casa emite do registro do IXC. */}
+        {pagamento.comprovanteDoBanco ? (
+          <CompartilharPdf
+            pagamento={pagamento}
+            caminho={`/contas-abertas/${pagamento.idFnApagar}/banco/comprovante`}
+            rotulo="Comprovante"
+            titulo="Mandar o comprovante do banco (WhatsApp, e-mail)"
+          />
+        ) : (
+          <CompartilharPdf
+            pagamento={pagamento}
+            caminho={`/pagamentos-feitos/${pagamento.idFnApagar}/recibo`}
+            rotulo="Recibo"
+            titulo="Mandar o recibo deste pagamento (WhatsApp, e-mail)"
+          />
+        )}
       </td>
     </tr>
   );
@@ -441,7 +457,8 @@ function compartilhaPdf(): boolean {
 }
 
 /**
- * O comprovante do ModoBank, mandado direto da linha — sem abrir a ficha.
+ * O comprovante do ModoBank, ou o recibo, mandado direto da linha — sem abrir
+ * a ficha.
  *
  * Onde o aparelho compartilha PDF, abre o Compartilhar (WhatsApp, e-mail). O
  * iPhone só aceita o Compartilhar colado no toque, e o arquivo chega depois:
@@ -449,14 +466,23 @@ function compartilhaPdf(): boolean {
  * toque vai na hora — o mesmo das notas do título. Onde não compartilha, o PDF
  * abre numa aba.
  */
-function CompartilharComprovante({ pagamento }: { pagamento: PagamentoFeito }) {
+function CompartilharPdf({
+  pagamento,
+  caminho,
+  rotulo,
+  titulo,
+}: {
+  pagamento: PagamentoFeito;
+  caminho: string;
+  rotulo: string;
+  titulo: string;
+}) {
   const [pronto, setPronto] = useState<File | null>(null);
   const [baixando, setBaixando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
-  const caminho = `/contas-abertas/${pagamento.idFnApagar}/banco/comprovante`;
   // "Comprovante Construcenter 23-10-2026.pdf": a barra da data não cabe em nome de arquivo.
   const nome =
-    `Comprovante ${pagamento.fornecedor.nome || pagamento.idFnApagar} ${formatData(pagamento.pagoEm)}`
+    `${rotulo} ${pagamento.fornecedor.nome || pagamento.idFnApagar} ${formatData(pagamento.pagoEm)}`
       .replace(/[\\/:*?"<>|]+/g, '-')
       .trim() + '.pdf';
 
@@ -503,13 +529,13 @@ function CompartilharComprovante({ pagamento }: { pagamento: PagamentoFeito }) {
         onClick={(e) => void aoTocar(e)}
         onKeyDown={(e) => e.stopPropagation()}
         disabled={baixando}
-        title="Mandar o comprovante do banco (WhatsApp, e-mail)"
+        title={titulo}
         className={`btn btn-p inline-flex items-center gap-1.5 ${
           pronto ? 'btn-pagar' : 'btn-neutro'
         }`}
       >
         <IconeCompartilhar className="h-3.5 w-3.5" />
-        {baixando ? 'Baixando…' : pronto ? 'Compartilhar' : 'Comprovante'}
+        {baixando ? 'Baixando…' : pronto ? 'Compartilhar' : rotulo}
       </button>
       {erro && <span className="max-w-[220px] text-xs text-rose-600">{erro}</span>}
     </div>

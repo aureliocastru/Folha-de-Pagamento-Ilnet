@@ -1,6 +1,8 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
+  NotFoundException,
   OnModuleDestroy,
   OnModuleInit,
   Optional,
@@ -8,7 +10,9 @@ import {
 import { ConfigService } from '@nestjs/config';
 import type { AppConfig } from '../config/configuration';
 import { emParalelo } from '../almoxarifado/mover-tudo';
+import { EMPRESA_DO_PAPEL } from '../apr/modelo-ilnet';
 import { IxcClient } from '../ixc/ixc.client';
+import { parseIxcId } from '../ixc/ixc.parse';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   BaixasDoIxcService,
@@ -27,6 +31,10 @@ import {
   type PagamentoFeito,
   type ResumoPagamentos,
 } from './historico-pagamentos.mapper';
+import {
+  gerarReciboDoPagamento,
+  type PessoaDoRecibo,
+} from './recibo-do-pagamento.pdf';
 
 /** O período pedido, já em datas. */
 export interface Periodo {
@@ -990,6 +998,155 @@ export class HistoricoPagamentosService implements OnModuleInit, OnModuleDestroy
   }
 
   /**
+   * O recibo de um pagamento, em PDF — para o que não tem comprovante de banco
+   * (a gaveta, o boleto pago no aplicativo de outro banco).
+   *
+   * Lido do IXC na hora: o título dá o valor, o dia, a hora do registro, a
+   * forma e a conta; o fornecedor dá o recebedor; a filial do título dá o
+   * pagador. O que o IXC não tiver (endereço, telefone) fica de fora do papel,
+   * em vez de sair em branco.
+   */
+  async recibo(idFnApagar: number): Promise<{ pdf: Buffer; nome: string }> {
+    const raw = await this.ixc.getById<Record<string, unknown>>(
+      'fn_apagar',
+      'fn_apagar.id',
+      idFnApagar,
+    );
+    if (!raw) {
+      throw new NotFoundException(`O título ${idFnApagar} não existe no IXC.`);
+    }
+    const pagamento = mapPagamento(raw);
+    if (!pagamento) {
+      throw new BadRequestException(
+        `O título ${idFnApagar} não está pago no IXC: não há pagamento para o recibo.`,
+      );
+    }
+
+    const idFornecedor = parseIxcId(raw.id_fornecedor ?? raw.fornecedor_id);
+    const [fornecedor, filial, caixas] = await Promise.all([
+      idFornecedor ? this.registroDoIxc('fornecedor', idFornecedor) : null,
+      this.registroDoIxc('filial', parseIxcId(raw.filial_id) ?? 1),
+      this.nomesDosCaixas(),
+    ]);
+
+    const recebedor: PessoaDoRecibo = fornecedor
+      ? await this.pessoaDoIxc(fornecedor)
+      : {
+          nome: pagamento.fornecedor.nome || `Fornecedor ${idFornecedor ?? '?'}`,
+          fantasia: null,
+          documento: null,
+          endereco: null,
+          telefone: null,
+          email: null,
+        };
+    const pagador: PessoaDoRecibo = filial
+      ? await this.pessoaDoIxc(filial)
+      : {
+          nome: EMPRESA_DO_PAPEL.nome,
+          fantasia: null,
+          documento: EMPRESA_DO_PAPEL.cnpj,
+          endereco: null,
+          telefone: null,
+          email: null,
+        };
+    // A filial sem CNPJ no cadastro ainda é esta empresa: o do papel completa.
+    pagador.documento ??= EMPRESA_DO_PAPEL.cnpj;
+
+    const forma = pagamento.formaPagamento;
+    const chavePix = /pix/i.test(forma ?? '') ? textoDoIxc(raw.chave_pix) : null;
+    const pdf = await gerarReciboDoPagamento({
+      numero: idFnApagar,
+      pagador,
+      recebedor,
+      valorPago: pagamento.valorPago,
+      valorDoTitulo: pagamento.valor,
+      juros: pagamento.juros,
+      multa: pagamento.multa,
+      desconto: pagamento.desconto,
+      pagoEm: pagamento.pagoEm,
+      registradoEm: pagamento.registradoEm,
+      hora: pagamento.horaDoRegistro,
+      forma,
+      saiuDe:
+        pagamento.caixa.id !== null
+          ? (caixas.get(pagamento.caixa.id) ?? `conta ${pagamento.caixa.id}`)
+          : null,
+      chavePix,
+      vencimento: pagamento.vencimento,
+      documento: pagamento.documento,
+      referente: pagamento.observacao || `pagamento do título nº ${idFnApagar}`,
+      emitidoEm: new Date(),
+    });
+
+    const nome = `recibo-${idFnApagar}-${recebedor.nome}`
+      .normalize('NFD')
+      .replace(/\p{M}/gu, '')
+      .replace(/[^A-Za-z0-9]+/g, '-')
+      .replace(/-+$/, '')
+      .toLowerCase()
+      .slice(0, 80);
+    return { pdf, nome: `${nome}.pdf` };
+  }
+
+  /** Um registro do IXC pelo código, ou null — o recibo sai com o que houver. */
+  private async registroDoIxc(
+    tabela: string,
+    id: number,
+  ): Promise<Record<string, unknown> | null> {
+    try {
+      return await this.ixc.getById<Record<string, unknown>>(tabela, `${tabela}.id`, id);
+    } catch (err) {
+      this.logger.warn(`Recibo: não deu para ler ${tabela} ${id}: ${err}`);
+      return null;
+    }
+  }
+
+  /** O fornecedor ou a filial, como o recibo os mostra. */
+  private async pessoaDoIxc(raw: Record<string, unknown>): Promise<PessoaDoRecibo> {
+    const rua = textoDoIxc(raw.endereco);
+    const numero = textoDoIxc(raw.numero);
+    const complemento = textoDoIxc(raw.complemento);
+    const cep = textoDoIxc(raw.cep);
+    const cidade = await this.nomeDaCidade(parseIxcId(raw.cidade ?? raw.id_cidade));
+    const endereco = [
+      rua ? [rua, numero, complemento].filter(Boolean).join(', ') : null,
+      textoDoIxc(raw.bairro),
+      cidade,
+      cep ? `CEP ${cep}` : null,
+    ]
+      .filter(Boolean)
+      .join(' — ');
+    return {
+      nome:
+        textoDoIxc(raw.razao) ??
+        textoDoIxc(raw.razao_social) ??
+        textoDoIxc(raw.fantasia) ??
+        textoDoIxc(raw.nome) ??
+        `Cadastro ${String(raw.id ?? '?')}`,
+      fantasia: textoDoIxc(raw.fantasia),
+      documento: comMascara(
+        textoDoIxc(raw.cnpj_cpf) ?? textoDoIxc(raw.cpf_cnpj) ?? textoDoIxc(raw.cnpj),
+      ),
+      endereco: endereco || null,
+      telefone: textoDoIxc(raw.celular) ?? textoDoIxc(raw.telefone) ?? textoDoIxc(raw.fone),
+      email: textoDoIxc(raw.email),
+    };
+  }
+
+  /** "Juazeiro do Norte/CE", pelo código da cidade no IXC. Null = não achei. */
+  private async nomeDaCidade(id: number | null): Promise<string | null> {
+    if (!id) return null;
+    const cidade = await this.registroDoIxc('cidade', id);
+    const nome = textoDoIxc(cidade?.nome);
+    if (!nome) return null;
+    const uf = textoDoIxc(cidade?.uf);
+    if (uf && /^[A-Za-z]{2}$/.test(uf)) return `${nome}/${uf.toUpperCase()}`;
+    const idUf = parseIxcId(uf);
+    const sigla = idUf ? textoDoIxc((await this.registroDoIxc('uf', idUf))?.sigla) : null;
+    return sigla ? `${nome}/${sigla}` : nome;
+  }
+
+  /**
    * Marca os pagamentos que saíram pelo ModoBank daqui e têm o comprovante do
    * banco — o mesmo PDF da ficha, que a linha compartilha direto.
    */
@@ -1061,6 +1218,21 @@ interface Leitura {
  * verdade lido como cancelado desaparece do histórico sem deixar rastro, e é
  * exatamente o tipo de sumiço que já custou caro na tela de contas em aberto.
  */
+/** O texto de um campo do IXC, ou null quando ele vem vazio ou zerado. */
+function textoDoIxc(valor: unknown): string | null {
+  const s = String(valor ?? '').trim();
+  return s && s !== '0' && !/^0+[-./]?0*$/.test(s) ? s : null;
+}
+
+/** CPF e CNPJ com a máscara de sempre — o IXC às vezes guarda só os dígitos. */
+function comMascara(documento: string | null): string | null {
+  if (!documento) return null;
+  const d = documento.replace(/\D/g, '');
+  if (d.length === 11) return d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4');
+  if (d.length === 14) return d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5');
+  return documento;
+}
+
 function explicarExclusoes(excluidos: Map<string, number>): string[] {
   const avisos: string[] = [];
 
