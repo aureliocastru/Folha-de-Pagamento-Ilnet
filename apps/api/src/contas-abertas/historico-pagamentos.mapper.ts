@@ -68,6 +68,12 @@ export interface PagamentoFeito {
    */
   registradoEm: Date;
   /**
+   * A hora em que a baixa foi registrada ("11:45:31"), quando a coluna dela a
+   * traz — nesta base `data_pagamento` é data e hora. Serve à ordem: no mesmo
+   * dia, quem foi pago por último vem primeiro.
+   */
+  horaDoRegistro: string | null;
+  /**
    * De onde `pagoEm` saiu:
    *
    * - `debito` = a coluna do próprio título com o dia do débito, que é o dia
@@ -334,6 +340,7 @@ export function mapPagamento(
     // parecer que é o dia do dinheiro.
     pagoEm,
     registradoEm,
+    horaDoRegistro: horaDe(raw[campoDaBaixa]),
     fonteDaData: doDebito ? 'debito' : 'titulo',
     baixaNoIxc: null,
     campoDaBaixa,
@@ -631,9 +638,26 @@ export function ordenarPorPagamento(
   return [...pagamentos].sort((a, b) => {
     const dia = b.pagoEm.getTime() - a.pagoEm.getTime();
     if (dia !== 0) return dia;
-    // Mesmo dia: o valor maior primeiro, que é o que pesa no caixa.
-    return b.valorPago - a.valorPago;
+    /*
+     * Mesmo dia: quem foi pago por último vem primeiro, pelo registro da baixa
+     * — dia e hora. Ia o valor maior primeiro, e a lista do dia parecia
+     * embaralhada para quem acabou de pagar (pedido de 23/10/2026).
+     */
+    const registro = b.registradoEm.getTime() - a.registradoEm.getTime();
+    if (registro !== 0) return registro;
+    const hora = (b.horaDoRegistro ?? '').localeCompare(a.horaDoRegistro ?? '');
+    if (hora !== 0) return hora;
+    return b.idFnApagar - a.idFnApagar;
   });
+}
+
+/**
+ * A hora de uma coluna de data e hora do IXC — "2026-10-23 11:45:31" dá
+ * "11:45:31". Meia-noite em ponto é a coluna sem hora, e não um pagamento.
+ */
+function horaDe(valor: unknown): string | null {
+  const hora = /\s(\d{2}:\d{2}(?::\d{2})?)/.exec(String(valor ?? ''))?.[1];
+  return hora && !/^00:00(:00)?$/.test(hora) ? hora : null;
 }
 
 /**

@@ -489,4 +489,27 @@ describe('o apanhado do período', () => {
     const ordenado = ordenarPorPagamento(lista());
     expect(ordenado.map((p) => p.idFnApagar)).toEqual([2, 1, 3]);
   });
+
+  it('no mesmo dia, o último pago vem primeiro, e não o maior valor', () => {
+    // As horas de 23/10/2026 nesta base: o boleto grande foi das 10:50, e o
+    // lote das 11:45 veio depois.
+    const dia = [
+      pago({ id: '37970', debito_data: '2026-10-23', data_pagamento: '2026-10-23 10:04:39', valor_total_pago: '2.238,83' }),
+      pago({ id: '37868', debito_data: '2026-10-23', data_pagamento: '2026-10-23 10:50:14', valor_total_pago: '5.120,35' }),
+      pago({ id: '37975', debito_data: '2026-10-23', data_pagamento: '2026-10-23 11:45:31', valor_total_pago: '105,00' }),
+      pago({ id: '37972', debito_data: '2026-10-23', data_pagamento: '2026-10-23 10:36:22', valor_total_pago: '111,00' }),
+    ].map((raw) => mapPagamento(raw)!);
+    expect(dia[2].horaDoRegistro).toBe('11:45:31');
+    expect(ordenarPorPagamento(dia).map((p) => p.idFnApagar)).toEqual([
+      37975, 37868, 37972, 37970,
+    ]);
+  });
+
+  it('pago no mesmo dia e lançado depois fica acima de quem foi lançado antes', () => {
+    const dia = [
+      pago({ id: '1', debito_data: '2026-10-15', data_pagamento: '2026-10-15 17:00:00' }),
+      pago({ id: '2', debito_data: '2026-10-15', data_pagamento: '2026-10-16 09:00:00' }),
+    ].map((raw) => mapPagamento(raw)!);
+    expect(ordenarPorPagamento(dia).map((p) => p.idFnApagar)).toEqual([2, 1]);
+  });
 });
