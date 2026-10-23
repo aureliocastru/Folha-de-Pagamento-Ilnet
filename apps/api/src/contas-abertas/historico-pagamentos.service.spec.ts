@@ -65,6 +65,8 @@ function montarServico(opts: {
     conferidoPor: string;
     conferidoEm: Date;
   }>;
+  /** Os títulos pagos pelo ModoBank daqui, com o comprovante do banco. */
+  comComprovante?: number[];
 }) {
   const brutos = opts.brutos ?? [];
   const porId = new Map(
@@ -113,6 +115,11 @@ function montarServico(opts: {
 
   const prisma = {
     contaPagar: { findMany: jest.fn().mockResolvedValue([]) },
+    pagamentoNoBanco: {
+      findMany: jest
+        .fn()
+        .mockResolvedValue((opts.comComprovante ?? []).map((idFnApagar) => ({ idFnApagar }))),
+    },
     // As ressalvas que alguém já deu por conferidas.
     pagamentoConferido: {
       findMany: jest.fn().mockResolvedValue(opts.conferidos ?? []),
@@ -265,6 +272,20 @@ describe('a data que o histórico mostra', () => {
     expect(r.pagamentos[0].fonteDaData).toBe('titulo');
     expect(r.pagamentos[0].pagoEm.toISOString().slice(0, 10)).toBe('2026-08-16');
     expect(r.avisos.join(' ')).not.toContain('dia em que o dinheiro saiu');
+  });
+
+  it('marca o pagamento que tem o comprovante do banco', async () => {
+    const semComprovante = await montarServico({ brutos: [titulo()], semBaixas: true })
+      .service.listar(agosto());
+    expect(semComprovante.pagamentos[0].comprovanteDoBanco).toBe(false);
+
+    const { service } = montarServico({
+      brutos: [titulo()],
+      semBaixas: true,
+      comComprovante: [Number(titulo().id)],
+    });
+    const r = await service.listar(agosto());
+    expect(r.pagamentos[0].comprovanteDoBanco).toBe(true);
   });
 
   /*
