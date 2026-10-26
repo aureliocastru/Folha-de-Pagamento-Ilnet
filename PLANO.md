@@ -354,6 +354,44 @@ recusar outras escritas na OS.
 Fica de fora, de propósito, e continua no IXC: reagendar, deslocamento e
 execução, processos e tarefas, equipe e evento.
 
+## 🚧 Ordens de Serviço — a conferência do almoxarifado
+
+O chefe do almoxarifado confere, dia a dia, as OS que os técnicos de campo
+fecharam, e diz se cada uma está certa. Aba "Conferência" do módulo Ordens de
+Serviço — quem confere precisa do módulo no login e de um perfil que grave.
+
+**A fila vem do IXC**, e não só do que passou pelo celular daqui: toda OS
+fechada no dia por um técnico com van, do jeito que fechou (app do IXC,
+atendimento ou aqui). Em 23/10/2026 foram 37, das quais só 19 tinham foto e só
+13 tinham aparelho em comodato na própria OS.
+
+- [x] **Fase 1 — conferir** (escrito; a leitura foi rodada contra a base real
+      em 26/10/2026, só leitura): os últimos 7 dias, abrindo no mais antigo
+      que falta; por técnico, com os avisos no topo — sem foto, sem a
+      assinatura que o assunto exige, instalação sem aparelho em comodato
+      (pelo nome do assunto: nenhum marca "exige comodato" no IXC), aparelho
+      que foi para outro contrato, retirada com aparelho ainda emprestado,
+      item do celular fora do IXC. A OS aberta mostra as fotos e a assinatura
+      (lidas do IXC por `visualizar_arquivo_os`), os aparelhos da OS com série
+      e patrimônio, o comodato do contrato, o material, o relatório e onde a OS
+      fechou. "Conferida e próxima" ou "Com problema" (motivo de lista +
+      observação); só o veredito fica aqui, nada é escrito no IXC
+- [x] **Fase 2 — o problema volta ao técnico**: a OS com problema aparece no
+      topo da lista do celular dele ("Voltaram da conferência"), com o motivo,
+      e ele responde dali; quem conferiu marca resolvida. No Relatório do mês,
+      por técnico, quantas passaram de primeira e os problemas que mais se
+      repetem
+- [ ] **Fase 3 (opcional) — a etiqueta lida da foto**: IA lê o MAC/série na
+      foto da etiqueta e diz sozinha se bate com o aparelho em comodato. Custo
+      por foto
+- [ ] **Liberar para o chefe do almoxarifado**: marcar o módulo "Ordens de
+      Serviço" no login dele, com perfil que grave (o Visualizador só olha)
+
+Ficou de fora, de propósito: o aviso de "fechada longe do cliente". O app do
+IXC grava o GPS do fechamento na própria OS, no login e quase sempre no
+cadastro do cliente (visto em 26/10/2026) — não há endereço independente para
+medir, e a distância daria sempre zero. A tela mostra onde a OS fechou, no mapa.
+
 ## Notas técnicas / decisões
 
 - **PostgreSQL + Prisma**: valores monetários em `Decimal(14,2)`; migrations

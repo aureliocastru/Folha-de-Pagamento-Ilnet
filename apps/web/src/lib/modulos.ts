@@ -340,8 +340,8 @@ const os: Modulo = {
   id: 'os',
   nome: 'Ordens de Serviço',
   descricao:
-    'O que cada técnico instala, retira e gasta nas OS, os aparelhos que voltam ' +
-    'de cliente e o relatório de material do mês',
+    'O que cada técnico instala, retira e gasta nas OS, a conferência das OS ' +
+    'fechadas, os aparelhos que voltam de cliente e o relatório do mês',
   base: '/os',
   inicio: 'registros',
   icone: IconeOs,
@@ -349,6 +349,9 @@ const os: Modulo = {
   papeis: ['ADMIN', 'RH', 'VISUALIZADOR'],
   menu: [
     { to: 'registros', label: 'OS registradas', icone: IconeOs },
+    // O chefe do almoxarifado confere, dia a dia, as OS que os técnicos de
+    // campo fecharam: fotos, assinatura, aparelhos e o comodato do contrato.
+    { to: 'conferencia', label: 'Conferência', icone: IconeChecklist },
     // O aparelho que o técnico trouxe do cliente e ainda está na van: a base
     // confirma que recebeu, e ele vai para a triagem.
     { to: 'recolhidos', label: 'Recolhidos', icone: IconeRecolhido },

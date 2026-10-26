@@ -145,6 +145,26 @@ export class AnexarFotoDto {
   descricao?: string;
 }
 
+/** O veredito do chefe do almoxarifado sobre uma OS fechada. O resto confere `motivoParaRecusarVeredito`. */
+export class ConferirOsDto {
+  @IsIn(['CONFERIDA', 'PROBLEMA'])
+  situacao!: 'CONFERIDA' | 'PROBLEMA';
+
+  /** O código do motivo (`MOTIVOS_DE_PROBLEMA`), quando é problema. */
+  @IsOptional() @IsString() @MaxLength(40)
+  motivo?: string;
+
+  /** No problema, o que está errado; na conferida, uma nota; no problema resolvido, como se resolveu. */
+  @IsOptional() @Transform(texto) @IsString() @MaxLength(1000)
+  observacao?: string;
+}
+
+/** O técnico responde, do celular, a OS que voltou da conferência. */
+export class ResponderConferenciaDto {
+  @Transform(texto) @IsString() @MinLength(3) @MaxLength(1000)
+  texto!: string;
+}
+
 /** A base diz o que viu no IXC sobre um item que ficou em conferência. */
 export class ConferidoDto {
   @IsBoolean()

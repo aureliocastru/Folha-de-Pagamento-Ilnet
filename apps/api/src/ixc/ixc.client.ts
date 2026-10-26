@@ -150,18 +150,21 @@ export class IxcClient {
   async baixar(
     endpoint: string,
     body: Record<string, unknown>,
+    /** O arquivo da OS (`visualizar_arquivo_os`) vem por GET; o do pagar, por POST. */
+    metodo: 'get' | 'post' = 'post',
   ): Promise<{ tipo: string; conteudo: Buffer }> {
+    const verbo = metodo.toUpperCase();
     let res;
     try {
       res = await this.http.request<ArrayBuffer>({
         url: `/${endpoint}`,
-        method: 'post',
+        method: metodo,
         data: body,
         responseType: 'arraybuffer',
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      this.logger.error(`Falha de rede em POST /${endpoint}: ${message}`);
+      this.logger.error(`Falha de rede em ${verbo} /${endpoint}: ${message}`);
       throw new ServiceUnavailableException(
         `Não foi possível contatar o IXC (/${endpoint}): ${message}`,
       );
@@ -169,7 +172,7 @@ export class IxcClient {
     const conteudo = Buffer.from(res.data ?? new ArrayBuffer(0));
     if (res.status >= 400) {
       const msg = motivoDaRecusa(res.status, conteudo.toString('utf8').slice(0, 300));
-      this.logger.error(`IXC erro em POST /${endpoint}: ${msg}`);
+      this.logger.error(`IXC erro em ${verbo} /${endpoint}: ${msg}`);
       throw new ServiceUnavailableException(`IXC (/${endpoint}): ${msg}`);
     }
     const tipo = String(res.headers?.['content-type'] ?? '').toLowerCase();

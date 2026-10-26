@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { AlmoxarifadoModule } from '../almoxarifado/almoxarifado.module';
 import { IxcModule } from '../ixc/ixc.module';
 import { UsuariosModule } from '../usuarios/usuarios.module';
+import { ConferenciaController } from './conferencia.controller';
+import { ConferenciaService } from './conferencia.service';
 import { FinalizacaoService } from './finalizacao.service';
 import { MateriaisDeOsService } from './materiais.service';
 import { MinhasOsController } from './minhas-os.controller';
@@ -23,10 +25,11 @@ import { TecnicosService } from './tecnicos.service';
  */
 @Module({
   imports: [IxcModule, AlmoxarifadoModule, UsuariosModule],
-  controllers: [MinhasOsController, OsController],
+  controllers: [MinhasOsController, ConferenciaController, OsController],
   providers: [
     OsDoIxcService,
     TecnicosService,
+    ConferenciaService,
     OsService,
     FinalizacaoService,
     RecolhidosService,

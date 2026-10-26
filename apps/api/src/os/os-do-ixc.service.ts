@@ -4,6 +4,15 @@ import { identidadeDaPeca } from '../almoxarifado/mover-tudo';
 import { ProdutosService } from '../almoxarifado/produtos.service';
 import { IxcClient } from '../ixc/ixc.client';
 import {
+  lerAparelhoDaOs,
+  lerMaterialDaOs,
+  lerOsFechada,
+  somarDias,
+  type AparelhoDaOs,
+  type MaterialDaOs,
+  type OsFechada,
+} from './conferencia';
+import {
   finalizadaHoje,
   hojeNaData,
   lerArquivoDaOs,
@@ -319,6 +328,105 @@ export class OsDoIxcService {
     return linhas
       .map(lerArquivoDaOs)
       .filter((a): a is ArquivoDaOs => a !== null && a.osId === osId);
+  }
+
+  // -------------------------------------------------------------------------
+  // A conferência das OS fechadas
+  // -------------------------------------------------------------------------
+
+  /**
+   * As OS fechadas entre dois dias ("AAAA-MM-DD", os dois inclusive), de todos
+   * os técnicos. A data vai no formato que filtra ("AAAA-MM-DD HH:MM:SS", ver
+   * `doTecnico`), e o intervalo é conferido aqui também: se o IXC ignorar o
+   * segundo limite, vêm dias a mais, nunca de menos.
+   */
+  async fechadasEntre(inicio: string, fim: string): Promise<OsFechada[]> {
+    const linhas = await this.ixc.listAll<Record<string, unknown>>(
+      'su_oss_chamado',
+      {
+        qtype: 'su_oss_chamado.data_fechamento',
+        query: `${somarDias(inicio, -1)} 23:59:59`,
+        oper: '>',
+        sortname: 'su_oss_chamado.data_fechamento',
+        sortorder: 'asc',
+        gridParam: [
+          { TB: 'su_oss_chamado.status', OP: '=', P: 'F' },
+          { TB: 'su_oss_chamado.data_fechamento', OP: '<', P: `${somarDias(fim, 1)} 00:00:00` },
+        ],
+      },
+      { pageSize: 500, maxPages: 6 },
+    );
+    return linhas
+      .map(lerOsFechada)
+      .filter((os): os is OsFechada => {
+        const dia = os?.fechamento?.slice(0, 10);
+        return !!os && os.status === 'F' && !!dia && dia >= inicio && dia <= fim;
+      });
+  }
+
+  /** Uma OS fechada pelo número, com o relatório e o local do cliente. */
+  async osFechada(osId: number): Promise<OsFechada | null> {
+    const linha = await this.ixc.getById<Record<string, unknown>>('su_oss_chamado', 'su_oss_chamado.id', osId);
+    return linha ? lerOsFechada(linha) : null;
+  }
+
+  /** Os aparelhos que a OS pôs em comodato, com a peça e o contrato de cada um. */
+  async aparelhosDaOs(osId: number): Promise<AparelhoDaOs[]> {
+    const linhas = await this.ixc.listAll<Record<string, unknown>>(
+      'su_oss_mov_comodato_wiz',
+      {
+        qtype: 'movimento_produtos.id_oss_chamado',
+        query: String(osId),
+        oper: '=',
+        sortname: 'movimento_produtos.id',
+        sortorder: 'asc',
+      },
+      { pageSize: 200, maxPages: 2 },
+    );
+    return linhas
+      .filter((l) => numeroDoIxc(l.id_oss_chamado) === osId)
+      .map(lerAparelhoDaOs)
+      .filter((a): a is AparelhoDaOs => a !== null);
+  }
+
+  /** O material gasto na OS, com o nome do produto (ver `materiaisDaOs` sobre o recurso). */
+  async materiaisDetalhadosDaOs(osId: number): Promise<MaterialDaOs[]> {
+    const linhas = await this.ixc.listAll<Record<string, unknown>>(
+      'movimento_produtos',
+      {
+        qtype: 'movimento_produtos.id_oss_chamado',
+        query: String(osId),
+        oper: '=',
+        sortname: 'movimento_produtos.id',
+        sortorder: 'asc',
+      },
+      { pageSize: 200, maxPages: 2 },
+    );
+    return linhas.map(lerMaterialDaOs).filter((m): m is MaterialDaOs => m !== null);
+  }
+
+  /** As mensagens da OS (`su_oss_chamado_mensagem`) — a de status F traz o GPS do fechamento. */
+  async mensagensDaOs(osId: number): Promise<Array<Record<string, unknown>>> {
+    const linhas = await this.ixc.listAll<Record<string, unknown>>(
+      'su_oss_chamado_mensagem',
+      {
+        qtype: 'su_oss_chamado_mensagem.id_chamado',
+        query: String(osId),
+        oper: '=',
+        sortname: 'su_oss_chamado_mensagem.id',
+        sortorder: 'asc',
+      },
+      { pageSize: 200, maxPages: 2 },
+    );
+    return linhas.filter((l) => numeroDoIxc(l.id_chamado) === osId);
+  }
+
+  /**
+   * O conteúdo de um arquivo da OS (`visualizar_arquivo_os`, GET com o id) —
+   * devolve a própria imagem (visto em 26/10/2026: um JPEG de 1,1 MB).
+   */
+  async conteudoDoArquivo(arquivoId: number): Promise<{ tipo: string; conteudo: Buffer }> {
+    return this.ixc.baixar('visualizar_arquivo_os', { id: String(arquivoId) }, 'get');
   }
 
   /**

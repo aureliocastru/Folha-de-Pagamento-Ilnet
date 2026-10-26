@@ -20,7 +20,9 @@ import {
   AnotarItemDto,
   AnotarRetiradasDto,
   FinalizarDto,
+  ResponderConferenciaDto,
 } from './dto/os.dto';
+import { ConferenciaService } from './conferencia.service';
 import { FinalizacaoService } from './finalizacao.service';
 import { OsService, type Login } from './os.service';
 
@@ -45,11 +47,32 @@ export class MinhasOsController {
   constructor(
     private readonly os: OsService,
     private readonly finalizacao: FinalizacaoService,
+    private readonly conferencia: ConferenciaService,
   ) {}
 
   @Get()
   minhas(@Req() req: Request) {
     return this.os.minhas(logado(req));
+  }
+
+  // A conferência vem antes de `:osId`: o Express casa as rotas na ordem, e
+  // "conferencia" iria parar no número da OS.
+
+  /** As OS deste técnico que voltaram da conferência do almoxarifado com problema. */
+  @Get('conferencia')
+  voltaramDaConferencia(@Req() req: Request) {
+    return this.conferencia.doTecnico(logado(req));
+  }
+
+  /** O técnico responde o problema da conferência. */
+  @Post('conferencia/:osId/resposta')
+  @HttpCode(200)
+  responderConferencia(
+    @Req() req: Request,
+    @Param('osId', ParseIntPipe) osId: number,
+    @Body() dto: ResponderConferenciaDto,
+  ) {
+    return this.conferencia.responder(logado(req), osId, dto.texto);
   }
 
   @Get(':osId')

@@ -11,6 +11,7 @@ import {
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { formatBRL, hojeEmBrasilia } from '../../lib/format';
+import type { ConferenciaDoMes } from '../../lib/conferencia';
 import { quantidadeComUnidade, type RelatorioDoMes } from '../../lib/os';
 
 const BOM_UTF8 = String.fromCharCode(0xfeff);
@@ -199,7 +200,80 @@ export function Relatorio() {
           )}
         </>
       )}
+
+      {/^d{4}-d{2}$/.test(competencia) && <ConferenciaNoMes competencia={competencia} />}
     </Pagina>
+  );
+}
+
+/**
+ * A conferência do almoxarifado no mês, pelo dia em que a OS fechou: quantas
+ * de cada técnico passaram de primeira, quantas voltaram com problema (e
+ * quantas ainda estão abertas), e os motivos que mais se repetem.
+ */
+function ConferenciaNoMes({ competencia }: { competencia: string }) {
+  const conferencia = useQuery({
+    queryKey: ['os', 'conferencia', 'relatorio', competencia],
+    queryFn: async () =>
+      (await api.get<ConferenciaDoMes>('/os/conferencia/relatorio', { params: { competencia } })).data,
+  });
+  const c = conferencia.data;
+
+  return (
+    <div className="mt-6 space-y-4">
+      <h2 className="eyebrow">Conferência do almoxarifado</h2>
+      {conferencia.isError && <Aviso tom="erro">{mensagemErro(conferencia.error)}</Aviso>}
+      {conferencia.isLoading && <Carregando />}
+      {c && c.conferidas === 0 && (
+        <Bloco>
+          <Vazio titulo="Nenhuma OS conferida neste mês">
+            As OS aparecem aqui quando o almoxarifado as confere, na aba Conferência.
+          </Vazio>
+        </Bloco>
+      )}
+      {c && c.conferidas > 0 && (
+        <>
+          <Bloco titulo="Por técnico" semPadding>
+            <table className="w-full text-sm">
+              <thead>
+                <tr>
+                  <th className="th">Técnico</th>
+                  <th className="th text-right">Conferidas</th>
+                  <th className="th text-right">De primeira</th>
+                  <th className="th text-right">Com problema</th>
+                  <th className="th text-right">Abertas</th>
+                </tr>
+              </thead>
+              <tbody>
+                {c.porTecnico.map((t) => (
+                  <tr key={t.tecnicoIxcId} className="linha">
+                    <td className="td font-medium text-tinta-900">{t.tecnico}</td>
+                    <td className="td num text-right">{t.conferidas}</td>
+                    <td className="td num text-right">
+                      {t.dePrimeira} <span className="text-tinta-400">({t.pctDePrimeira}%)</span>
+                    </td>
+                    <td className="td num text-right">{t.comProblema}</td>
+                    <td className={`td num text-right ${t.abertas ? 'text-rose-600' : ''}`}>{t.abertas}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Bloco>
+          {c.motivos.length > 0 && (
+            <Bloco titulo="Os problemas que mais se repetem">
+              <ul className="space-y-1 text-[13px] text-tinta-700">
+                {c.motivos.map((m) => (
+                  <li key={m.motivo} className="flex justify-between gap-3">
+                    <span>{m.texto}</span>
+                    <span className="num text-tinta-500">{m.vezes}</span>
+                  </li>
+                ))}
+              </ul>
+            </Bloco>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 

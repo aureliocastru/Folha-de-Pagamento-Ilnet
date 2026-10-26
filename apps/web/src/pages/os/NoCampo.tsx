@@ -6,6 +6,7 @@ import { LeitorDeCodigo, leitorDeCodigoSuportado } from '../../components/Leitor
 import { Aviso, Carregando, Janela, Selo } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { semAcento, useBuscaNaTela, useFiltrados } from '../../lib/busca';
+import { diaNaTela, type ProblemaNaTela } from '../../lib/conferencia';
 import {
   CONDICAO_LABEL,
   FINALIZACAO_LABEL,
@@ -106,6 +107,8 @@ export function CampoMinhasOs() {
         </p>
       )}
 
+      <VoltaramDaConferencia />
+
       {lista.isLoading && <Carregando texto="Lendo suas OS no IXC…" />}
       {lista.isError && <Aviso tom="erro">{mensagemErro(lista.error)}</Aviso>}
 
@@ -158,6 +161,103 @@ export function CampoMinhasOs() {
             ))}
           </div>
         </section>
+      )}
+    </div>
+  );
+}
+
+/**
+ * As OS que o chefe do almoxarifado devolveu da conferência: o motivo, o que
+ * ele escreveu, e onde o técnico responde o que fez — vinculou o aparelho,
+ * mandou a foto, ou por que está certo. Some quando a base marca resolvida.
+ */
+function VoltaramDaConferencia() {
+  const problemas = useQuery({
+    queryKey: ['minhas-os', 'conferencia'],
+    queryFn: async () => (await api.get<ProblemaNaTela[]>('/minhas-os/conferencia')).data,
+    retry: 0,
+  });
+  const lista = problemas.data ?? [];
+  if (lista.length === 0) return null;
+  return (
+    <section>
+      <h2 className="eyebrow mb-2 text-rose-700 dark:text-rose-300">Voltaram da conferência · {lista.length}</h2>
+      <div className="space-y-2">
+        {lista.map((p) => (
+          <CartaoDoProblema key={p.osIxcId} problema={p} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function CartaoDoProblema({ problema: p }: { problema: ProblemaNaTela }) {
+  const qc = useQueryClient();
+  const [respondendo, setRespondendo] = useState(false);
+  const [texto, setTexto] = useState(p.respostaDoTecnico ?? '');
+  const responder = useMutation({
+    mutationFn: async () => {
+      await api.post(`/minhas-os/conferencia/${p.osIxcId}/resposta`, { texto });
+    },
+    onSuccess: () => {
+      setRespondendo(false);
+      void qc.invalidateQueries({ queryKey: ['minhas-os', 'conferencia'] });
+    },
+  });
+
+  return (
+    <div className="card border-rose-200 p-4 dark:border-rose-500/30">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-[15px] font-semibold text-tinta-800">OS {p.osIxcId}</span>
+        <span className="text-[12px] capitalize text-tinta-400">fechada {diaNaTela(p.dia)}</span>
+      </div>
+      <p className="text-[13px] text-tinta-500">{[p.cliente, p.assunto].filter(Boolean).join(' · ')}</p>
+      <p className="mt-2 text-[14px] font-medium text-rose-700 dark:text-rose-300">{p.motivoTexto}</p>
+      {p.observacao && (
+        <p className="mt-0.5 text-[13px] text-tinta-700">
+          “{p.observacao}” — {p.conferidaPor}
+        </p>
+      )}
+
+      {respondendo ? (
+        <div className="mt-3 space-y-2">
+          <textarea
+            value={texto}
+            onChange={(e) => setTexto(e.target.value.slice(0, 1000))}
+            rows={3}
+            className="campo"
+            placeholder="O que você fez: vinculei a ONU no IXC, a foto está na OS…"
+            aria-label="Sua resposta"
+          />
+          {responder.error && <p className="text-[12px] text-rose-600">{mensagemErro(responder.error)}</p>}
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setRespondendo(false)} className="btn btn-sutil">
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => responder.mutate()}
+              disabled={texto.trim().length < 3 || responder.isPending}
+              className="btn btn-primario flex-1 justify-center"
+            >
+              {responder.isPending ? 'Enviando…' : 'Enviar resposta'}
+            </button>
+          </div>
+        </div>
+      ) : p.respostaDoTecnico ? (
+        <div className="mt-3 rounded-lg bg-realce px-3 py-2 text-[13px] text-tinta-700">
+          <p>
+            <strong>Você respondeu:</strong> {p.respostaDoTecnico}
+          </p>
+          <p className="mt-0.5 text-[12px] text-tinta-500">A base confere e marca resolvida.</p>
+          <button type="button" onClick={() => setRespondendo(true)} className="mt-1 text-[13px] font-medium underline">
+            Mudar a resposta
+          </button>
+        </div>
+      ) : (
+        <button type="button" onClick={() => setRespondendo(true)} className="btn btn-neutro mt-3 w-full justify-center">
+          Responder
+        </button>
       )}
     </div>
   );

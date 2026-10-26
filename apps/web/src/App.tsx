@@ -42,6 +42,7 @@ const CampoFinalizar = telaSobDemanda(() => import('./pages/os/Finalizar').then(
 const MateriaisDeOs = telaSobDemanda(() => import('./pages/os/Materiais').then((m) => m.Materiais));
 const Recolhidos = telaSobDemanda(() => import('./pages/os/Recolhidos').then((m) => m.Recolhidos));
 const RegistrosDeOs = telaSobDemanda(() => import('./pages/os/Registros').then((m) => m.Registros));
+const ConferenciaDeOs = telaSobDemanda(() => import('./pages/os/Conferencia').then((m) => m.Conferencia));
 const RelatorioDeOs = telaSobDemanda(() => import('./pages/os/Relatorio').then((m) => m.Relatorio));
 const TecnicosDeOs = telaSobDemanda(() => import('./pages/os/Tecnicos').then((m) => m.Tecnicos));
 const Modulos = telaSobDemanda(() => import('./pages/Modulos').then((m) => m.Modulos));
@@ -191,7 +192,7 @@ const TELAS_DO_MODULO: Record<string, Array<{ preCarregar: () => void }>> = {
     Estoque, Conferencia, Almoxarifados, AlmoxarifadoDetalhe, PecasDoProduto, Transferir,
     Ferramentas, Comodato, Precos, FornecedoresDeCotacao, MinhaConta,
   ],
-  os: [RegistrosDeOs, Recolhidos, TecnicosDeOs, MateriaisDeOs, RelatorioDeOs, MinhaConta],
+  os: [RegistrosDeOs, ConferenciaDeOs, Recolhidos, TecnicosDeOs, MateriaisDeOs, RelatorioDeOs, MinhaConta],
   rh: [PastasRh, PastaDaEmpresa, RecibosDaFolha, Licitacoes, NotasFiscais, MinhaConta],
   seguranca: [Aprs, Formularios, MinhaConta],
   campo: [CampoMinhasOs, MinhaConta],
@@ -377,6 +378,7 @@ export default function App() {
       >
         <Route index element={<Navigate to="registros" replace />} />
         <Route path="registros" element={<RegistrosDeOs />} />
+        <Route path="conferencia" element={<ConferenciaDeOs />} />
         <Route path="recolhidos" element={<Recolhidos />} />
         <Route path="tecnicos" element={<TecnicosDeOs />} />
         <Route path="materiais" element={<MateriaisDeOs />} />

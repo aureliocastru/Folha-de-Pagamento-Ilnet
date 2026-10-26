@@ -3481,6 +3481,69 @@ model FinalizacaoDeOs {
   @@map("finalizacoes_de_os")
 }
 
+/// Como ficou a conferência de uma OS fechada.
+///
+/// CONFERIDA: o chefe do almoxarifado olhou e está certa. PROBLEMA: não está,
+/// com o motivo — volta para o técnico ver no celular. RESOLVIDA: teve problema
+/// e alguém acertou.
+enum SituacaoDaConferencia {
+  CONFERIDA
+  PROBLEMA
+  RESOLVIDA
+}
+
+/// A conferência de uma OS fechada no IXC, pelo chefe do almoxarifado: as
+/// fotos, a assinatura, os aparelhos que a OS pôs ou tirou do comodato e o
+/// material, contra o que o contrato tem.
+///
+/// A OS em si é do IXC e é lida de lá; aqui fica só o veredito, de quem, e o
+/// retrato do que se viu — o cliente, o assunto e o técnico com o nome
+/// escrito, para a lista de problemas e o relatório não dependerem de reler o
+/// IXC. Uma por OS.
+model ConferenciaDeOs {
+  id String @id @default(uuid())
+
+  /// `su_oss_chamado.id`.
+  osIxcId      Int     @unique @map("os_ixc_id")
+  /// O dia em que a OS fechou no IXC, "AAAA-MM-DD" — é por ele que a fila anda.
+  dia          String
+  /// `id_tecnico` da OS — é por ele que o problema volta ao técnico certo.
+  tecnicoIxcId Int     @map("tecnico_ixc_id")
+  tecnico      String?
+  cliente      String?
+  assunto      String?
+
+  situacao     SituacaoDaConferencia
+  /// Teve problema alguma vez — o "de primeira" do relatório não se perde
+  /// quando o problema é resolvido.
+  teveProblema Boolean @default(false) @map("teve_problema")
+  /// O código do motivo (ver `MOTIVOS_DE_PROBLEMA`), quando teve problema.
+  motivo       String?
+  observacao   String?
+  /// Os avisos que o sistema mostrava na hora de conferir.
+  sinais       Json?
+
+  conferidaPor String   @map("conferida_por")
+  conferidaEm  DateTime @map("conferida_em")
+
+  /// O que o técnico respondeu do celular sobre o problema.
+  respostaDoTecnico String?   @map("resposta_do_tecnico")
+  respondidaEm      DateTime? @map("respondida_em")
+
+  /// Como o problema foi resolvido, e por quem.
+  resolucao    String?
+  resolvidaPor String?   @map("resolvida_por")
+  resolvidaEm  DateTime? @map("resolvida_em")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([dia])
+  @@index([situacao])
+  @@index([tecnicoIxcId, situacao])
+  @@map("conferencias_de_os")
+}
+
 /// Um aparelho ou um material dentro da OS.
 model ItemDeOs {
   id String @id @default(uuid())
