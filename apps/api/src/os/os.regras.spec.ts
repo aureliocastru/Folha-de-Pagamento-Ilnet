@@ -233,7 +233,6 @@ describe('motivoParaNaoFinalizar', () => {
   const assunto: AssuntoDoIxc = {
     id: 4,
     nome: 'Troca de equipamento',
-    respostaPadraoId: 12,
     diagnosticoObrigatorio: false,
     fotosExigidas: 0,
     aparelhosExigidos: 0,
@@ -247,15 +246,11 @@ describe('motivoParaNaoFinalizar', () => {
     status: 'EX',
     assunto,
     pedido: {
-      respostaId: 12,
-      diagnosticoId: null,
       relato: 'Troquei a ONU, sinal ok.',
-      inicio: new Date('2026-10-22T11:30:00Z'),
+      inicio: new Date('2026-10-22T11:30:00Z') as Date | null,
       assinadaPor: null as string | null,
       semAssinatura: null as string | null,
     },
-    respostas: [{ id: 12, nome: 'Concluída', texto: null, setorId: 0 }],
-    diagnosticos: [{ id: 5, nome: 'ONU queimada', texto: null, setorId: 0 }],
     aparelhos: 0,
     produtos: 0,
     fotos: 0,
@@ -329,24 +324,20 @@ describe('motivoParaNaoFinalizar', () => {
     expect(motivoParaNaoFinalizar({ ...base, assunto: exige, aparelhos: 1, produtos: 2 })).toBeNull();
   });
 
-  it('a resposta e o diagnóstico têm de existir, e o diagnóstico obrigatório tem de vir', () => {
-    expect(motivoParaNaoFinalizar({ ...base, pedido: { ...base.pedido, respostaId: 99 } })).toMatch(/resposta/);
-    expect(motivoParaNaoFinalizar({ ...base, pedido: { ...base.pedido, diagnosticoId: 99 } })).toMatch(
-      /diagnóstico/,
-    );
-    const exigeDiagnostico = { ...base, assunto: { ...assunto, diagnosticoObrigatorio: true } };
-    expect(motivoParaNaoFinalizar(exigeDiagnostico)).toMatch(/exige o diagnóstico/);
-    expect(
-      motivoParaNaoFinalizar({ ...exigeDiagnostico, pedido: { ...base.pedido, diagnosticoId: 5 } }),
-    ).toBeNull();
-    // Sem resposta pode: no IXC ela é opcional.
-    expect(motivoParaNaoFinalizar({ ...base, pedido: { ...base.pedido, respostaId: null } })).toBeNull();
+  it('o celular não pergunta o diagnóstico: o assunto que o exige se finaliza pelo IXC', () => {
+    const exige = { ...assunto, diagnosticoObrigatorio: true };
+    expect(motivoDoAssunto(exige)).toMatch(/exige o diagnóstico.*Finalize esta OS pelo IXC/);
+    expect(motivoParaNaoFinalizar({ ...base, assunto: exige })).toMatch(/exige o diagnóstico/);
   });
 
-  it('o relato vazio não passa', () => {
+  it('o relatório vazio não passa', () => {
     expect(motivoParaNaoFinalizar({ ...base, pedido: { ...base.pedido, relato: '  ok ' } })).toMatch(
-      /o que foi feito/,
+      /relatório/,
     );
+  });
+
+  it('a hora em que o serviço começou é opcional', () => {
+    expect(motivoParaNaoFinalizar({ ...base, pedido: { ...base.pedido, inicio: null } })).toBeNull();
   });
 
   it('o início não pode estar no futuro, nem antes da abertura da OS', () => {
@@ -355,7 +346,7 @@ describe('motivoParaNaoFinalizar', () => {
     // Cinco minutos de folga para o relógio do celular.
     expect(motivoParaNaoFinalizar(em('2026-10-22T13:04:00Z'))).toBeNull();
     expect(motivoParaNaoFinalizar(em('2026-10-22T09:59:00Z'))).toMatch(/antes da abertura da OS \(22\/10, 07:00\)/);
-    expect(motivoParaNaoFinalizar(em('invalido'))).toMatch(/hora/);
+    expect(motivoParaNaoFinalizar(em('invalido'))).toMatch(/hora.*não está certa/);
   });
 });
 

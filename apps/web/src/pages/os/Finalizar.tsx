@@ -25,9 +25,9 @@ import {
  * Finalizar a OS pelo celular: um passo a passo curto, inspirado no
  * "finalizar wizard" do IXC.
  *
- * 1. **O que foi feito** — a resposta padrão (a do assunto já vem escolhida, e
- *    o texto dela vai para o relato, como no IXC), o diagnóstico, o relato e a
- *    hora em que o serviço começou.
+ * 1. **Relato** — o relatório do que foi feito e, se o técnico quiser, a hora
+ *    em que o serviço começou (sem ela, vale a da primeira anotação na OS).
+ *    Resposta padrão e diagnóstico não se perguntam aqui.
  * 2. **Fotos** — tiradas na hora ou escolhidas da galeria, quantas o técnico
  *    quiser, cada uma com a sua descrição. Vão direto para a aba "Arquivos" da
  *    OS no IXC, uma por vez, no toque de anexar; nada fica guardado aqui.
@@ -37,18 +37,15 @@ import {
  * 4. **Conferir e finalizar** — o resumo, com o que ainda não foi ao IXC (vai
  *    antes do fechamento), e a localização do celular.
  *
- * O que cada OS pede vem do assunto no IXC: o diagnóstico obrigatório, o
- * aparelho ou o produto exigido, quantas fotos, a assinatura. O assunto que exige equipe
- * ainda se finaliza pelo IXC, e a tela diz isso antes de o técnico preencher
- * nada.
+ * O que cada OS pede vem do assunto no IXC: o aparelho ou o produto exigido,
+ * quantas fotos, a assinatura. O assunto que exige equipe ou diagnóstico se
+ * finaliza pelo IXC, e a tela diz isso antes de o técnico preencher nada.
  */
 export function CampoFinalizar() {
   const { osId } = useParams<{ osId: string }>();
   const id = Number(osId);
   const qc = useQueryClient();
   const [passo, setPasso] = useState<'relato' | 'fotos' | 'assinatura' | 'conferir'>('relato');
-  const [respostaId, setRespostaId] = useState<number | null>(null);
-  const [diagnosticoId, setDiagnosticoId] = useState<number | null>(null);
   const [relato, setRelato] = useState('');
   const [inicio, setInicio] = useState('');
   const [fotos, setFotos] = useState<FotoParaAnexar[]>([]);
@@ -82,35 +79,24 @@ export function CampoFinalizar() {
   const [gps, gpsDeNovo] = useGps(podeFinalizar && !resultado);
 
   // Uma vez só, quando chega: a finalização que voltou (recusada, esperando um
-  // item) volta como estava; a nova começa com o que o assunto sugere.
+  // item) volta como estava; a nova começa em branco.
   useEffect(() => {
-    const d = dados.data;
-    if (!d || preenchido.current) return;
+    const antes = dados.data?.finalizacao;
+    if (!dados.data || preenchido.current) return;
     preenchido.current = true;
-    const antes = d.finalizacao;
-    if (antes) {
-      setRespostaId(antes.respostaId);
-      setDiagnosticoId(antes.diagnosticoId);
-      setRelato(antes.relato);
-      setInicio(paraCampoDeHora(antes.inicio));
-      setAssinadaPor(antes.assinadaPor);
-      setSemAssinatura(antes.semAssinatura);
-      return;
-    }
-    const sugerida = d.respostas.find((r) => r.id === d.sugestao.respostaId);
-    setRespostaId(sugerida?.id ?? null);
-    setRelato(sugerida?.texto ?? '');
-    setInicio(d.sugestao.inicio ? paraCampoDeHora(d.sugestao.inicio) : '');
+    if (!antes) return;
+    setRelato(antes.relato);
+    setInicio(paraCampoDeHora(antes.inicio));
+    setAssinadaPor(antes.assinadaPor);
+    setSemAssinatura(antes.semAssinatura);
   }, [dados.data]);
 
   const finalizar = useMutation({
     mutationFn: async () =>
       (
         await api.post<ResultadoDaFinalizacao>(`/minhas-os/${id}/finalizar`, {
-          respostaId: respostaId ?? undefined,
-          diagnosticoId: diagnosticoId ?? undefined,
           relato,
-          inicio: new Date(inicio).toISOString(),
+          inicio: inicio ? new Date(inicio).toISOString() : undefined,
           gps:
             gps.estado === 'ok' || gps.estado === 'melhorando'
               ? { latitude: gps.latitude, longitude: gps.longitude, precisao: gps.precisao, em: gps.em }
@@ -126,19 +112,9 @@ export function CampoFinalizar() {
   if (!(id > 0)) return null;
   const os = aberta.data?.os;
   const d = dados.data;
-  const respostas = d?.respostas ?? [];
-
-  /** Trocar a resposta troca o texto — só se o relato ainda é o texto da anterior. */
-  function escolherResposta(novaId: number | null) {
-    const anterior = respostas.find((r) => r.id === respostaId)?.texto ?? '';
-    const nova = respostas.find((r) => r.id === novaId)?.texto ?? '';
-    if (!relato.trim() || relato.trim() === anterior.trim()) setRelato(nova);
-    setRespostaId(novaId);
-  }
-
-  const faltaDiagnostico = !!d?.assunto.diagnosticoObrigatorio && diagnosticoId === null;
-  const inicioValido = !!inicio && !Number.isNaN(new Date(inicio).getTime());
-  const podeContinuar = relato.trim().length >= 5 && inicioValido && !faltaDiagnostico;
+  // A hora do começo é opcional; dita, tem de ser uma hora de verdade.
+  const inicioValido = !inicio || !Number.isNaN(new Date(inicio).getTime());
+  const podeContinuar = relato.trim().length >= 5 && inicioValido;
 
   return (
     <div className="space-y-5 pb-10">
@@ -200,46 +176,8 @@ export function CampoFinalizar() {
           {passo === 'relato' ? (
             <div className="card space-y-4 p-4">
               <div>
-                <label className="rotulo" htmlFor="fin-resposta">
-                  Resposta padrão
-                </label>
-                <select
-                  id="fin-resposta"
-                  value={respostaId ?? ''}
-                  onChange={(e) => escolherResposta(e.target.value ? Number(e.target.value) : null)}
-                  className="campo"
-                >
-                  <option value="">Nenhuma</option>
-                  {respostas.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.nome}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="rotulo" htmlFor="fin-diagnostico">
-                  Diagnóstico {d.assunto.diagnosticoObrigatorio ? '(obrigatório)' : '(opcional)'}
-                </label>
-                <select
-                  id="fin-diagnostico"
-                  value={diagnosticoId ?? ''}
-                  onChange={(e) => setDiagnosticoId(e.target.value ? Number(e.target.value) : null)}
-                  className="campo"
-                >
-                  <option value="">{d.assunto.diagnosticoObrigatorio ? 'Escolha…' : 'Nenhum'}</option>
-                  {d.diagnosticos.map((x) => (
-                    <option key={x.id} value={x.id}>
-                      {x.nome}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
                 <label className="rotulo" htmlFor="fin-relato">
-                  O que foi feito
+                  Relatório
                 </label>
                 <textarea
                   id="fin-relato"
@@ -253,7 +191,7 @@ export function CampoFinalizar() {
 
               <div>
                 <label className="rotulo" htmlFor="fin-inicio">
-                  O serviço começou em
+                  O serviço começou em (opcional)
                 </label>
                 <input
                   id="fin-inicio"
@@ -264,11 +202,9 @@ export function CampoFinalizar() {
                   max={paraCampoDeHora(new Date().toISOString())}
                   className="campo"
                 />
-                {d.sugestao.inicio && !d.finalizacao && (
-                  <p className="mt-1 text-[12px] text-tinta-400">
-                    Já vem com a hora da primeira anotação nesta OS. Corrija se começou antes.
-                  </p>
-                )}
+                <p className="mt-1 text-[12px] text-tinta-400">
+                  Em branco, vale a hora da primeira anotação nesta OS — ou a de agora.
+                </p>
               </div>
 
               <button
@@ -313,8 +249,6 @@ export function CampoFinalizar() {
             <Conferir
               aberta={aberta.data}
               para={d}
-              resposta={respostas.find((r) => r.id === respostaId)?.nome ?? null}
-              diagnostico={d.diagnosticos.find((x) => x.id === diagnosticoId)?.nome ?? null}
               relato={relato}
               inicio={inicio}
               arquivos={arquivos.data}
@@ -453,16 +387,7 @@ function PassoDasFotos({
 
   return (
     <div className="card space-y-4 p-4">
-      <div>
-        <h2 className="text-[15px] font-semibold text-tinta-800">Fotos do serviço</h2>
-        <p className="mt-0.5 text-[13px] text-tinta-500">
-          {exigidas > 0
-            ? `O assunto pede ${exigidas > 1 ? `${exigidas} fotos` : '1 foto'}. Pode pôr mais, se quiser.`
-            : 'Ponha as que quiser: a instalação, a caixa, o sinal no medidor, a etiqueta do aparelho.'}{' '}
-          Escreva o que cada uma mostra e toque em anexar: elas vão direto para os arquivos da OS no
-          IXC.
-        </p>
-      </div>
+      <h2 className="text-[15px] font-semibold text-tinta-800">Fotos do serviço</h2>
 
       {(fotos.length > 0 || preparando > 0) && (
         <ul className="space-y-2">
@@ -885,8 +810,6 @@ function agoraNaTela(): string {
 function Conferir({
   aberta,
   para,
-  resposta,
-  diagnostico,
   relato,
   inicio,
   arquivos,
@@ -901,8 +824,6 @@ function Conferir({
 }: {
   aberta: OsAberta;
   para: ParaFinalizar;
-  resposta: string | null;
-  diagnostico: string | null;
   relato: string;
   inicio: string;
   /** A aba "Arquivos" da OS no IXC; indefinida quando não deu para ler. */
@@ -926,26 +847,11 @@ function Conferir({
   return (
     <div className="space-y-4">
       <section className="card p-4">
-        <h2 className="eyebrow mb-2">Relato</h2>
-        <dl className="space-y-1 text-[13px]">
-          {resposta && (
-            <div className="flex gap-2">
-              <dt className="text-tinta-400">Resposta</dt>
-              <dd className="text-tinta-800">{resposta}</dd>
-            </div>
-          )}
-          {diagnostico && (
-            <div className="flex gap-2">
-              <dt className="text-tinta-400">Diagnóstico</dt>
-              <dd className="text-tinta-800">{diagnostico}</dd>
-            </div>
-          )}
-          <div className="flex gap-2">
-            <dt className="text-tinta-400">Serviço</dt>
-            <dd className="text-tinta-800">de {horaNaTela(inicio)} até agora</dd>
-          </div>
-        </dl>
-        <p className="mt-2 whitespace-pre-line rounded-lg bg-realce px-3 py-2 text-[13px] text-tinta-700">
+        <h2 className="eyebrow mb-2">Relatório</h2>
+        {inicio && (
+          <p className="mb-2 text-[13px] text-tinta-600">Serviço de {horaNaTela(inicio)} até agora</p>
+        )}
+        <p className="whitespace-pre-line rounded-lg bg-realce px-3 py-2 text-[13px] text-tinta-700">
           {relato}
         </p>
       </section>

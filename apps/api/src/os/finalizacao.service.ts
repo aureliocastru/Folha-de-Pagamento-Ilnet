@@ -9,7 +9,6 @@ import {
   CAMPO_DO_ARQUIVO_DA_OS,
   CLASSIFICACAO_DO_ARQUIVO,
   DESCRICAO_DA_ASSINATURA,
-  doSetor,
   ehAssinatura,
   mensagemDoFechamento,
   montarArquivoNaOs,
@@ -38,7 +37,6 @@ export interface ParaFinalizar {
   /** O que o assunto da OS pede, do cadastro do IXC. */
   assunto: {
     nome: string;
-    diagnosticoObrigatorio: boolean;
     aparelhosExigidos: number;
     produtosExigidos: number;
     /** Zero = não exige; o técnico anexa quantas quiser. */
@@ -48,25 +46,15 @@ export interface ParaFinalizar {
   };
   /** Por que esta OS não se finaliza pelo celular — mostrado antes de preencher. */
   recusa: string | null;
-  respostas: Array<{ id: number; nome: string; texto: string | null }>;
-  diagnosticos: Array<{ id: number; nome: string }>;
-  sugestao: {
-    /** A resposta padrão de finalização do assunto. */
-    respostaId: number | null;
-    /** A hora da primeira anotação na OS, quando houve. ISO. */
-    inicio: string | null;
-  };
   /** A finalização já começada (pendente ou recusada), para preencher de novo. */
   finalizacao: FinalizacaoNaTela | null;
 }
 
 /** O que o técnico mandou. */
 export interface PedidoDeFinalizacao {
-  respostaId?: number;
-  diagnosticoId?: number;
   relato: string;
-  /** ISO. */
-  inicio: string;
+  /** ISO. Sem ele, vale a hora da primeira anotação na OS — ou a do fechamento. */
+  inicio?: string;
   gps?: { latitude: number; longitude: number; precisao?: number; em: string };
   /** Quem assinou — a assinatura já está nos arquivos da OS. */
   assinadaPor?: string;
@@ -147,26 +135,20 @@ export class FinalizacaoService {
   // O técnico
   // -------------------------------------------------------------------------
 
-  /** As listas e o que o assunto pede — o que o passo a passo mostra. */
+  /** O que o assunto pede — o que o passo a passo mostra. */
   async paraFinalizar(login: Login, osId: number): Promise<ParaFinalizar> {
     const { os } = await this.os.contexto(login, osId);
-    const [assunto, respostas, diagnosticos, registro] = await Promise.all([
+    const [assunto, registro] = await Promise.all([
       this.doIxc.assunto(os.assuntoId),
-      this.doIxc.respostas(),
-      this.doIxc.diagnosticos(),
       this.prisma.registroDeOs.findUnique({
         where: { osIxcId: os.id },
-        include: {
-          itens: { select: { createdAt: true }, orderBy: { createdAt: 'asc' }, take: 1 },
-          finalizacao: { include: COM_TECNICO },
-        },
+        include: { finalizacao: { include: COM_TECNICO } },
       }),
     ]);
     const finalizacao = registro?.finalizacao ?? null;
     return {
       assunto: {
         nome: assunto.nome,
-        diagnosticoObrigatorio: assunto.diagnosticoObrigatorio,
         aparelhosExigidos: assunto.aparelhosExigidos,
         produtosExigidos: assunto.produtosExigidos,
         fotosExigidas: assunto.fotosExigidas,
@@ -176,12 +158,6 @@ export class FinalizacaoService {
         os.status === 'F'
           ? 'A OS já está finalizada no IXC.'
           : (motivoDaSituacao(finalizacao) ?? motivoDoAssunto(assunto)),
-      respostas: doSetor(respostas, os.setorId).map(({ id, nome, texto }) => ({ id, nome, texto })),
-      diagnosticos: doSetor(diagnosticos, os.setorId).map(({ id, nome }) => ({ id, nome })),
-      sugestao: {
-        respostaId: assunto.respostaPadraoId,
-        inicio: registro?.itens[0]?.createdAt.toISOString() ?? null,
-      },
       finalizacao: finalizacao ? finalizacaoNaTela(finalizacao) : null,
     };
   }
@@ -254,9 +230,13 @@ export class FinalizacaoService {
   }
 
   /**
-   * Finaliza a OS: confere o pedido contra o assunto e as listas do IXC,
-   * guarda, e leva ao IXC. A finalização recusada antes (ou que esperava um
-   * item) é refeita com o que veio agora.
+   * Finaliza a OS: confere o pedido contra o assunto no IXC, guarda, e leva ao
+   * IXC. A finalização recusada antes (ou que esperava um item) é refeita com o
+   * que veio agora.
+   *
+   * O celular não manda resposta padrão nem diagnóstico: o fechamento vai sem
+   * eles (nenhum assunto ativo tinha resposta padrão de finalização em
+   * 26/10/2026), e o assunto que exige diagnóstico se finaliza pelo IXC.
    */
   async finalizar(
     login: Login,
@@ -266,52 +246,55 @@ export class FinalizacaoService {
     const { tecnico, os } = await this.os.contexto(login, osId);
     if (os.status === 'F') throw new BadRequestException('A OS já está finalizada no IXC.');
 
-    const [assunto, respostas, diagnosticos, existente] = await Promise.all([
+    const [assunto, existente] = await Promise.all([
       this.doIxc.assunto(os.assuntoId),
-      this.doIxc.respostas(),
-      this.doIxc.diagnosticos(),
       this.prisma.registroDeOs.findUnique({
         where: { osIxcId: os.id },
-        include: { itens: { select: { tipo: true, situacao: true } }, finalizacao: true },
+        include: {
+          itens: { select: { tipo: true, situacao: true, createdAt: true }, orderBy: { createdAt: 'asc' } },
+          finalizacao: true,
+        },
       }),
     ]);
     const jaComecada = existente?.finalizacao ?? null;
     const naSituacao = motivoDaSituacao(jaComecada);
     if (naSituacao) throw new BadRequestException(naSituacao);
 
-    const respostaId = pedido.respostaId ?? null;
-    const diagnosticoId = pedido.diagnosticoId ?? null;
-    const inicio = new Date(pedido.inicio);
+    const agora = new Date();
+    const inicioDito = pedido.inicio ? new Date(pedido.inicio) : null;
     const assinadaPor = pedido.assinadaPor?.trim().slice(0, 100) || null;
     const semAssinatura = pedido.semAssinatura?.trim().slice(0, 300) || null;
     const contagem = await this.contarExigidos(os, assunto, existente?.itens ?? [], !!assinadaPor);
     const motivo = motivoParaNaoFinalizar({
       status: os.status,
       assunto,
-      pedido: { respostaId, diagnosticoId, relato: pedido.relato, inicio, assinadaPor, semAssinatura },
-      respostas,
-      diagnosticos,
+      pedido: { relato: pedido.relato, inicio: inicioDito, assinadaPor, semAssinatura },
       ...contagem,
       abertura: os.abertura,
-      agora: new Date(),
+      agora,
     });
     if (motivo) throw new BadRequestException(motivo);
+
+    // Sem a hora dita, vale a da primeira anotação na OS — o técnico estava lá
+    // — e, sem anotação, a do fechamento. O IXC pede um início.
+    const primeiraAnotacao = existente?.itens[0]?.createdAt ?? null;
+    const inicio = inicioDito ?? (primeiraAnotacao && primeiraAnotacao < agora ? primeiraAnotacao : agora);
 
     const gps = pedido.gps;
     const dados = {
       situacao: 'PENDENTE' as const,
       tecnicoId: tecnico.funcionarioId,
       tecnicoIxcId: tecnico.ixcId,
-      respostaId,
-      resposta: respostas.find((r) => r.id === respostaId)?.nome ?? null,
-      diagnosticoId,
-      diagnostico: diagnosticos.find((d) => d.id === diagnosticoId)?.nome ?? null,
+      respostaId: null,
+      resposta: null,
+      diagnosticoId: null,
+      diagnostico: null,
       relato: pedido.relato.trim().slice(0, 2000),
       // Com a assinatura nos arquivos da OS, o motivo de não ter havido não vale.
       assinadaPor,
       semAssinatura: assinadaPor ? null : semAssinatura,
       inicio,
-      fim: new Date(),
+      fim: agora,
       geraComissao: assunto.geraComissao,
       latitude: gps ? new Prisma.Decimal(gps.latitude.toFixed(7)) : null,
       longitude: gps ? new Prisma.Decimal(gps.longitude.toFixed(7)) : null,

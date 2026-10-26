@@ -49,7 +49,6 @@ const OS: OsDoIxc = {
 const ASSUNTO: AssuntoDoIxc = {
   id: 4,
   nome: 'Troca de equipamento',
-  respostaPadraoId: 12,
   diagnosticoObrigatorio: false,
   fotosExigidas: 0,
   aparelhosExigidos: 0,
@@ -60,7 +59,6 @@ const ASSUNTO: AssuntoDoIxc = {
 };
 
 const PEDIDO = {
-  respostaId: 12,
   relato: 'Troquei a ONU queimada, sinal -19 dBm.',
   inicio: new Date(Date.now() - 60 * 60_000).toISOString(),
   gps: { latitude: -12.9714, longitude: -38.5014, precisao: 8, em: new Date().toISOString() },
@@ -106,7 +104,11 @@ function montar(opcoes: { assunto?: AssuntoDoIxc } = {}) {
     registroDeOs: {
       findUnique: jest.fn(async () => {
         const f = finalizacoes[0];
-        return { ...registro, itens: [], finalizacao: f ? comTecnico(f) : null };
+        return {
+          ...registro,
+          itens: [] as Array<{ tipo: string; situacao: string; createdAt: Date }>,
+          finalizacao: f ? comTecnico(f) : null,
+        };
       }),
     },
     finalizacaoDeOs: {
@@ -177,8 +179,6 @@ function montar(opcoes: { assunto?: AssuntoDoIxc } = {}) {
       return { ...OS, status: ixcOs.status };
     }),
     assunto: jest.fn(async () => opcoes.assunto ?? ASSUNTO),
-    respostas: jest.fn(async () => [{ id: 12, nome: 'Concluída', texto: 'Serviço concluído.', setorId: 0 }]),
-    diagnosticos: jest.fn(async () => [{ id: 5, nome: 'ONU queimada', texto: null, setorId: 0 }]),
     comodatosDaOs: jest.fn(async () => [{ id: 7001, patrimonioId: 9 }]),
     materiaisDaOs: jest.fn(async () => []),
     arquivosDaOs: jest.fn(async () => [...arquivosNoIxc]),
@@ -202,7 +202,7 @@ function montar(opcoes: { assunto?: AssuntoDoIxc } = {}) {
 }
 
 describe('FinalizacaoService.finalizar', () => {
-  it('leva os itens antes e fecha a OS com o técnico, o relato e a comissão do assunto', async () => {
+  it('leva os itens antes e fecha a OS com o técnico, o relatório e a comissão do assunto', async () => {
     const t = montar();
     const r = await t.service.finalizar(login, OS.id, PEDIDO);
 
@@ -218,13 +218,32 @@ describe('FinalizacaoService.finalizar', () => {
       id_chamado: '3788',
       id_tecnico: '17',
       status: 'F',
-      id_resposta: '12',
+      // O celular não manda resposta padrão nem diagnóstico.
+      id_resposta: '',
+      id_su_diagnostico: '',
       gera_comissao: 'S',
       mensagem: 'Troquei a ONU queimada, sinal -19 dBm.\n\n— Finalizada pelo celular por Cleyson.',
       latitude: '-12.9714000',
     });
-    expect(r.finalizacao).toMatchObject({ situacao: 'GRAVADO', resposta: 'Concluída', aviso: null, tentativas: 1 });
+    expect(r.finalizacao).toMatchObject({ situacao: 'GRAVADO', resposta: null, diagnostico: null, aviso: null, tentativas: 1 });
     expect(r.itens.gravados).toBe(2);
+  });
+
+  it('sem a hora do começo, vale a da primeira anotação na OS — e, sem anotação, a do fechamento', async () => {
+    const semAnotacao = montar();
+    const r = await semAnotacao.service.finalizar(login, OS.id, { ...PEDIDO, inicio: undefined });
+    expect(r.finalizacao.inicio).toBe(r.finalizacao.fim);
+
+    const comAnotacao = montar();
+    const anotadoEm = new Date(Date.now() - 40 * 60_000);
+    comAnotacao.prisma.registroDeOs.findUnique.mockImplementationOnce(async () => ({
+      id: 'r1',
+      osIxcId: OS.id,
+      itens: [{ tipo: 'MATERIAL', situacao: 'GRAVADO', createdAt: anotadoEm }],
+      finalizacao: null,
+    }));
+    const r2 = await comAnotacao.service.finalizar(login, OS.id, { ...PEDIDO, inicio: undefined });
+    expect(r2.finalizacao.inicio).toBe(anotadoEm.toISOString());
   });
 
   it('o item que não foi ao IXC segura o fechamento: a finalização espera, com o motivo', async () => {
@@ -440,11 +459,9 @@ describe('a assinatura do cliente', () => {
 });
 
 describe('FinalizacaoService.paraFinalizar', () => {
-  it('sugere a resposta padrão do assunto e diz quantas fotos ele exige', async () => {
+  it('diz quantas fotos o assunto exige', async () => {
     const t = montar({ assunto: { ...ASSUNTO, fotosExigidas: 1 } });
     const para = await t.service.paraFinalizar(login, OS.id);
-    expect(para.sugestao.respostaId).toBe(12);
-    expect(para.respostas).toEqual([{ id: 12, nome: 'Concluída', texto: 'Serviço concluído.' }]);
     expect(para.assunto.fotosExigidas).toBe(1);
     expect(para.recusa).toBeNull();
   });

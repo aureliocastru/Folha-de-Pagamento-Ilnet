@@ -8,7 +8,7 @@
  * recusa vira erro na tela ou aviso na lista é quem chamou.
  */
 
-import type { AssuntoDoIxc, ComodatoDoContrato, OpcaoDoIxc } from './os-ixc';
+import type { AssuntoDoIxc, ComodatoDoContrato } from './os-ixc';
 
 /** A peça como `TransferenciasService.acharPeca` a devolve — só o que se confere. */
 export interface PecaLida {
@@ -240,10 +240,9 @@ export function naOrdemDeGravar<T extends { tipo: ItemJaAnotado['tipo']; created
 
 /** O que o técnico mandou no passo a passo de finalizar. */
 export interface PedidoDeFinalizar {
-  respostaId: number | null;
-  diagnosticoId: number | null;
   relato: string;
-  inicio: Date;
+  /** A hora em que o serviço começou, quando o técnico disse. */
+  inicio: Date | null;
   /** Quem assinou — a assinatura já foi para os arquivos da OS no passo dela. */
   assinadaPor: string | null;
   /** Por que o cliente não assinou, quando o assunto deixa. */
@@ -255,6 +254,14 @@ export interface PedidoDeFinalizar {
  * se finaliza pelo IXC, e a tela diz isso antes de o técnico preencher nada.
  */
 export function motivoDoAssunto(assunto: AssuntoDoIxc): string | null {
+  // O celular não pergunta o diagnóstico. Nenhum assunto ativo o exigia em
+  // 26/10/2026; o que passar a exigir se finaliza pelo IXC.
+  if (assunto.diagnosticoObrigatorio) {
+    return (
+      `No IXC, o assunto "${assunto.nome}" exige o diagnóstico para finalizar, e o diagnóstico ` +
+      'não vai pelo celular. Finalize esta OS pelo IXC.'
+    );
+  }
   if (assunto.equipeObrigatoria) {
     return (
       `No IXC, o assunto "${assunto.nome}" exige a equipe para finalizar, e a equipe não vai ` +
@@ -288,17 +295,14 @@ function inicioNaTela(d: Date): string {
  *  - **a assinatura do cliente está lá?** Quando o assunto a exige, ou quando
  *    o técnico diz que o cliente assinou. Sem ela, só com o motivo, e só no
  *    assunto que não a exige;
- *  - **a resposta e o diagnóstico existem?** O diagnóstico, quando o assunto
- *    o exige, é obrigatório;
- *  - **o relato diz alguma coisa?**
- *  - **o início faz sentido?** Nem no futuro, nem antes de a OS existir.
+ *  - **o relatório diz alguma coisa?**
+ *  - **o início, quando o técnico disse, faz sentido?** Nem no futuro, nem
+ *    antes de a OS existir.
  */
 export function motivoParaNaoFinalizar(dados: {
   status: string;
   assunto: AssuntoDoIxc;
   pedido: PedidoDeFinalizar;
-  respostas: OpcaoDoIxc[];
-  diagnosticos: OpcaoDoIxc[];
   /** Aparelhos em comodato na OS: os que estão no IXC e os anotados que ainda vão. */
   aparelhos: number;
   /** Produtos gastos na OS, contados do mesmo jeito. */
@@ -346,20 +350,11 @@ export function motivoParaNaoFinalizar(dados: {
       : 'A assinatura não está nos arquivos da OS no IXC. Colha de novo no passo da assinatura.';
   }
 
-  if (pedido.respostaId !== null && !dados.respostas.some((r) => r.id === pedido.respostaId)) {
-    return 'A resposta escolhida não está mais no IXC. Escolha de novo.';
-  }
-  if (pedido.diagnosticoId !== null && !dados.diagnosticos.some((d) => d.id === pedido.diagnosticoId)) {
-    return 'O diagnóstico escolhido não está mais no IXC. Escolha de novo.';
-  }
-  if (pedido.diagnosticoId === null && assunto.diagnosticoObrigatorio) {
-    return `O assunto "${assunto.nome}" exige o diagnóstico. Escolha um.`;
-  }
+  if (pedido.relato.trim().length < 5) return 'Escreva o relatório do serviço.';
 
-  if (pedido.relato.trim().length < 5) return 'Escreva o que foi feito no serviço.';
-
+  if (!pedido.inicio) return null;
   const inicio = pedido.inicio.getTime();
-  if (Number.isNaN(inicio)) return 'Diga a hora em que o serviço começou.';
+  if (Number.isNaN(inicio)) return 'A hora em que o serviço começou não está certa. Confira.';
   // Cinco minutos de folga: o relógio do celular nem sempre bate com o do servidor.
   if (inicio > dados.agora.getTime() + 5 * 60_000) {
     return 'O início do serviço está no futuro. Confira a hora.';

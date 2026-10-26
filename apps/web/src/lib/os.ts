@@ -126,7 +126,6 @@ export function quemAssinou(a: ArquivoDaOs): string | null {
 export interface ParaFinalizar {
   assunto: {
     nome: string;
-    diagnosticoObrigatorio: boolean;
     aparelhosExigidos: number;
     produtosExigidos: number;
     /** Zero = não exige; o técnico anexa quantas quiser. */
@@ -136,9 +135,6 @@ export interface ParaFinalizar {
   };
   /** Por que esta OS não se finaliza pelo celular. */
   recusa: string | null;
-  respostas: Array<{ id: number; nome: string; texto: string | null }>;
-  diagnosticos: Array<{ id: number; nome: string }>;
-  sugestao: { respostaId: number | null; inicio: string | null };
   finalizacao: FinalizacaoDeOs | null;
 }
 

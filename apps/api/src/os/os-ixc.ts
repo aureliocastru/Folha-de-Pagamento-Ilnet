@@ -523,8 +523,6 @@ export function montarMaterialNaOs(
 export interface AssuntoDoIxc {
   id: number;
   nome: string;
-  /** `id_resposta_padrao_finalizacao`: a resposta que já vem escolhida. */
-  respostaPadraoId: number | null;
   diagnosticoObrigatorio: boolean;
   /** Quantas fotos o assunto exige na finalização. Zero = não exige. */
   fotosExigidas: number;
@@ -556,11 +554,9 @@ function exigidos(exige: unknown, quantidade: unknown): number {
 export function lerAssunto(l: Record<string, unknown>): AssuntoDoIxc | null {
   const id = numeroDoIxc(l.id);
   if (id <= 0) return null;
-  const respostaPadraoId = numeroDoIxc(l.id_resposta_padrao_finalizacao);
   return {
     id,
     nome: texto(l.assunto) ?? texto(l.descricao) ?? `Assunto ${id}`,
-    respostaPadraoId: respostaPadraoId > 0 ? respostaPadraoId : null,
     diagnosticoObrigatorio: sim(l.diagnostico_obrigatorio_finalizacao_os),
     fotosExigidas: exigidos(l.exige_fotos_finalizacao_os, l.quantidade_fotos_finalizacao_os),
     aparelhosExigidos: exigidos(l.exige_comodato_finalizar_os, l.quantidade_equipamentos),
@@ -569,55 +565,6 @@ export function lerAssunto(l: Record<string, unknown>): AssuntoDoIxc | null {
     assinaturaObrigatoria: sim(l.wiz_assinatura_obrig),
     geraComissao: numeroDoIxc(l.valor_comissao) > 0,
   };
-}
-
-/**
- * Uma resposta padrão (`su_oss_respostas`) ou um diagnóstico
- * (`su_diagnostico`): o que o técnico escolhe numa lista ao finalizar.
- */
-export interface OpcaoDoIxc {
-  id: number;
-  nome: string;
-  /** O texto da resposta — no IXC, escolher a resposta escreve isto na mensagem. */
-  texto: string | null;
-  /** Zero = de todos os setores. */
-  setorId: number;
-}
-
-/** Uma linha de `su_oss_respostas`. Null quando não tem id ou está inativa. */
-export function lerResposta(l: Record<string, unknown>): OpcaoDoIxc | null {
-  const id = numeroDoIxc(l.id);
-  if (id <= 0 || String(l.ativo ?? 'S').trim().toUpperCase() === 'N') return null;
-  const corpo = texto(l.resposta);
-  return {
-    id,
-    nome: texto(l.titulo) ?? corpo?.slice(0, 60) ?? `Resposta ${id}`,
-    texto: corpo,
-    setorId: numeroDoIxc(l.setor),
-  };
-}
-
-/** Uma linha de `su_diagnostico`. Null quando não tem id ou está inativo. */
-export function lerDiagnostico(l: Record<string, unknown>): OpcaoDoIxc | null {
-  const id = numeroDoIxc(l.id);
-  if (id <= 0 || String(l.ativo ?? 'S').trim().toUpperCase() === 'N') return null;
-  return {
-    id,
-    nome: texto(l.descricao) ?? `Diagnóstico ${id}`,
-    texto: null,
-    setorId: numeroDoIxc(l.id_setor),
-  };
-}
-
-/**
- * As opções do setor da OS, e as de todos os setores. Quando o filtro não
- * deixa nada, valem todas: uma lista vazia trava o técnico, e escolher uma
- * resposta de outro setor não estraga nada.
- */
-export function doSetor(opcoes: OpcaoDoIxc[], setorId: number): OpcaoDoIxc[] {
-  if (setorId <= 0) return opcoes;
-  const doSetor = opcoes.filter((o) => o.setorId <= 0 || o.setorId === setorId);
-  return doSetor.length > 0 ? doSetor : opcoes;
 }
 
 /**

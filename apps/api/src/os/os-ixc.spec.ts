@@ -1,14 +1,11 @@
 import {
   dataHoraParaIxc,
-  doSetor,
   ehAssinatura,
   finalizadaHoje,
   lerArquivoDaOs,
   lerAssunto,
   lerComodato,
-  lerDiagnostico,
   lerOs,
-  lerResposta,
   mensagemDoFechamento,
   montarBaixaDeComodato,
   montarComodatoNaOs,
@@ -419,7 +416,6 @@ describe('lerAssunto', () => {
     ).toEqual({
       id: 4,
       nome: 'Instalação FTTH',
-      respostaPadraoId: 12,
       diagnosticoObrigatorio: true,
       fotosExigidas: 3,
       // "Exige" sem quantidade vale um.
@@ -436,7 +432,6 @@ describe('lerAssunto', () => {
     expect(lerAssunto({ id: '7', assunto: 'Visita técnica', id_resposta_padrao_finalizacao: '0' })).toEqual({
       id: 7,
       nome: 'Visita técnica',
-      respostaPadraoId: null,
       diagnosticoObrigatorio: false,
       fotosExigidas: 0,
       aparelhosExigidos: 0,
@@ -446,32 +441,6 @@ describe('lerAssunto', () => {
       geraComissao: false,
     });
     expect(lerAssunto({ id: '0' })).toBeNull();
-  });
-});
-
-describe('lerResposta, lerDiagnostico e doSetor', () => {
-  it('a resposta traz o título e o texto; a inativa não entra', () => {
-    expect(
-      lerResposta({ id: '12', titulo: 'Instalação concluída', resposta: 'Cliente navegando.', setor: '3', ativo: 'S' }),
-    ).toEqual({ id: 12, nome: 'Instalação concluída', texto: 'Cliente navegando.', setorId: 3 });
-    expect(lerResposta({ id: '13', titulo: 'Velha', ativo: 'N' })).toBeNull();
-    expect(lerDiagnostico({ id: '5', descricao: 'Conector danificado', id_setor: '0', ativo: 'S' })).toEqual({
-      id: 5,
-      nome: 'Conector danificado',
-      texto: null,
-      setorId: 0,
-    });
-  });
-
-  it('do setor da OS e de todos; sem nenhuma do setor, valem todas', () => {
-    const opcoes = [
-      { id: 1, nome: 'De todos', texto: null, setorId: 0 },
-      { id: 2, nome: 'Do suporte', texto: null, setorId: 3 },
-      { id: 3, nome: 'Do comercial', texto: null, setorId: 8 },
-    ];
-    expect(doSetor(opcoes, 3).map((o) => o.id)).toEqual([1, 2]);
-    expect(doSetor(opcoes, 0).map((o) => o.id)).toEqual([1, 2, 3]);
-    expect(doSetor(opcoes.slice(1), 5).map((o) => o.id)).toEqual([2, 3]);
   });
 });
 

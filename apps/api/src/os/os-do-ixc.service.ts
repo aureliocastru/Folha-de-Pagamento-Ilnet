@@ -9,19 +9,16 @@ import {
   lerArquivoDaOs,
   lerAssunto,
   lerComodato,
-  lerDiagnostico,
   lerOs,
-  lerResposta,
   produtoParaOs,
   type ArquivoDaOs,
   type AssuntoDoIxc,
   type ComodatoDoContrato,
-  type OpcaoDoIxc,
   type OsDoIxc,
   type ProdutoParaOs,
 } from './os-ixc';
 
-/** Quanto valem os cadastros que quase não mudam (assuntos, respostas, filiais). */
+/** Quanto valem os cadastros que quase não mudam (assuntos, filiais). */
 const CADASTRO_VALE_MS = 30 * 60_000;
 
 /** Uma peça de patrimônio na prateleira de um almoxarifado. */
@@ -49,8 +46,6 @@ export interface AparelhoNoAlmox {
 export class OsDoIxcService {
   private readonly logger = new Logger(OsDoIxcService.name);
   private assuntos: { em: number; porId: Map<number, AssuntoDoIxc> } | null = null;
-  private respostasLidas: { em: number; opcoes: OpcaoDoIxc[] } | null = null;
-  private diagnosticosLidos: { em: number; opcoes: OpcaoDoIxc[] } | null = null;
   private filiais: { em: number; nomes: Map<number, string> } | null = null;
 
   constructor(
@@ -174,44 +169,6 @@ export class OsDoIxcService {
     }
     this.assuntos = { em: Date.now(), porId };
     return porId;
-  }
-
-  /** As respostas padrão de OS, ativas (`su_oss_respostas`). */
-  async respostas(): Promise<OpcaoDoIxc[]> {
-    if (!this.respostasLidas || Date.now() - this.respostasLidas.em >= CADASTRO_VALE_MS) {
-      const linhas = await this.ixc.listAll<Record<string, unknown>>(
-        'su_oss_respostas',
-        {
-          qtype: 'su_oss_respostas.id',
-          query: '0',
-          oper: '>',
-          sortname: 'su_oss_respostas.id',
-          sortorder: 'asc',
-        },
-        { pageSize: 500, maxPages: 4 },
-      );
-      this.respostasLidas = { em: Date.now(), opcoes: emOrdem(linhas.map(lerResposta)) };
-    }
-    return this.respostasLidas.opcoes;
-  }
-
-  /** Os diagnósticos, ativos (`su_diagnostico`). */
-  async diagnosticos(): Promise<OpcaoDoIxc[]> {
-    if (!this.diagnosticosLidos || Date.now() - this.diagnosticosLidos.em >= CADASTRO_VALE_MS) {
-      const linhas = await this.ixc.listAll<Record<string, unknown>>(
-        'su_diagnostico',
-        {
-          qtype: 'su_diagnostico.id',
-          query: '0',
-          oper: '>',
-          sortname: 'su_diagnostico.id',
-          sortorder: 'asc',
-        },
-        { pageSize: 500, maxPages: 4 },
-      );
-      this.diagnosticosLidos = { em: Date.now(), opcoes: emOrdem(linhas.map(lerDiagnostico)) };
-    }
-    return this.diagnosticosLidos.opcoes;
   }
 
   /** id → nome da filial. É o rótulo que a baixa de comodato leva junto. */
@@ -456,11 +413,4 @@ export class OsDoIxcService {
 
 function motivo(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
-}
-
-/** As opções lidas, sem as vazias, em ordem de nome. */
-function emOrdem(opcoes: Array<OpcaoDoIxc | null>): OpcaoDoIxc[] {
-  return opcoes
-    .filter((o): o is OpcaoDoIxc => o !== null)
-    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 }

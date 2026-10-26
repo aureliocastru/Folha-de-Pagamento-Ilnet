@@ -102,18 +102,13 @@ export class GpsDto {
 
 /** O passo a passo de finalizar. O que cada assunto exige está em `FinalizacaoService.finalizar`. */
 export class FinalizarDto {
-  @IsOptional() @Transform(inteiro) @IsInt() @Min(1)
-  respostaId?: number;
-
-  @IsOptional() @Transform(inteiro) @IsInt() @Min(1)
-  diagnosticoId?: number;
-
+  /** O relatório do técnico: o que foi feito. */
   @Transform(texto) @IsString() @MinLength(5) @MaxLength(2000)
   relato!: string;
 
-  /** A hora em que o serviço começou. */
-  @IsISO8601()
-  inicio!: string;
+  /** A hora em que o serviço começou. Opcional: sem ela, vale a da primeira anotação na OS. */
+  @IsOptional() @IsISO8601()
+  inicio?: string;
 
   /** Sem permissão ou sem resposta do GPS, a OS se finaliza sem ele. */
   @IsOptional() @ValidateNested() @Type(() => GpsDto)

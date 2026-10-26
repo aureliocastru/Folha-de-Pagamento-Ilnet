@@ -315,11 +315,13 @@ recusar outras escritas na OS.
       do "Finalizar com tarefa"
 - [x] **Fase 1 — finalizar básico** (escrito, falta a prova da Fase 0): o
       botão "Finalizar OS" no celular, o
-      relato (resposta padrão do assunto já escolhida, o texto dela no relato,
-      diagnóstico), a hora de início, o GPS, o resumo para conferir, a fila do
-      fechamento e, na base, a finalização dentro de "OS registradas" (enviar
-      de novo, conferir, descartar). O assunto que exige equipe ainda se
-      finaliza pelo IXC
+      relatório, a hora de início (opcional: sem ela, vale a da primeira
+      anotação na OS), o GPS, o resumo para conferir, a fila do fechamento e,
+      na base, a finalização dentro de "OS registradas" (enviar de novo,
+      conferir, descartar). **Resposta padrão e diagnóstico não se perguntam**
+      no celular (26/10/2026): nenhum assunto ativo tinha resposta padrão de
+      finalização nem exigia diagnóstico. O assunto que exige equipe ou
+      diagnóstico se finaliza pelo IXC
 - [x] **Fase 2a — fotos** (escrito, falta a prova da Fase 0): um passo no
       meio do passo a passo, tirar na hora ou escolher da galeria, quantas o
       técnico quiser, **cada uma com a sua descrição**. No toque de anexar,
