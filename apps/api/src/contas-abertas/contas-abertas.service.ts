@@ -198,8 +198,9 @@ const TIPOS_DE_CONTA_NO_INDICE = ['D', 'P', 'R'] as const;
 /**
  * Conta em texto o que ficou de fora, por motivo e por coluna.
  *
- * "Pago" não vira aviso: título quitado sair da lista de contas em aberto é o
- * esperado, e dizer isso a cada leitura seria ruído. Cancelamento e quitação
+ * "Pago" e "não liberado" não viram aviso: título quitado sair da lista de
+ * contas em aberto é o esperado, o não liberado o próprio IXC esconde, e dizer
+ * isso a cada leitura seria ruído. Cancelamento e quitação
  * por saldo viram, porque é neles que um filtro errado se esconde — foi um
  * deles que engoliu quatrocentos títulos de uma vez sem ninguém perceber.
  */
@@ -211,7 +212,7 @@ function explicarExclusoes(
 
   for (const [chave, quantidade] of excluidos) {
     const [motivo, campo] = chave.split('|');
-    if (motivo === 'pago') continue;
+    if (motivo === 'pago' || motivo === 'nao-liberado') continue;
 
     const parte = ((quantidade / Math.max(totalLido, 1)) * 100).toFixed(0);
     if (motivo === 'cancelado') {
@@ -220,14 +221,6 @@ function explicarExclusoes(
           `cancelados no IXC (coluna "${campo}"). Se essas contas ainda são ` +
           `devidas, é essa coluna que está sendo lida errado — ela responde ` +
           `por ${parte}% do que o IXC devolveu.`,
-      );
-    } else if (motivo === 'nao-liberado') {
-      avisos.push(
-        `${quantidade} de ${totalLido} título(s) ficaram de fora por não terem ` +
-          `sido liberados no IXC (coluna "liberado" = N) — são lançamentos que ` +
-          `a entrada de nota criou e ninguém liberou. Eles também não aparecem ` +
-          `na tela de contas a pagar do IXC. Se esse número crescer muito, é ` +
-          `sinal de que esta regra está pegando conta demais.`,
       );
     } else if (motivo === 'quitado') {
       avisos.push(
