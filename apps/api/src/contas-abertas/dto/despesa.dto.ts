@@ -202,6 +202,9 @@ export class EditarTituloDto {
   @IsString()
   @MaxLength(40)
   veiculoId?: string | null;
+
+  /** Levar a mesma mudança às outras parcelas da compra, as ainda em aberto. */
+  @IsOptional() @IsBoolean() aplicarNasParcelas?: boolean;
 }
 
 /**

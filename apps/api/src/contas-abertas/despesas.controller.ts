@@ -17,6 +17,7 @@ import {
 import type { Request, Response } from 'express';
 import { FornecedorService } from '../financeiro/fornecedor.service';
 import { DespesasService } from './despesas.service';
+import { EdicaoNasParcelasService } from './edicao-nas-parcelas.service';
 import {
   AnexarNotaDto,
   LerQrDto,
@@ -51,6 +52,7 @@ export class DespesasController {
     private readonly historico: HistoricoPagamentosService,
     private readonly notasFiscais: NotasFiscaisService,
     private readonly noBanco: PagamentosNoBancoService,
+    private readonly nasParcelas: EdicaoNasParcelasService,
   ) {}
 
   /** O número da nota fiscal do título — a Contabilidade o lê daqui. */
@@ -226,14 +228,26 @@ export class DespesasController {
     return new StreamableFile(pdf);
   }
 
-  /** Muda o que dá para mudar num título ainda em aberto. */
+  /**
+   * Muda o que dá para mudar num título ainda em aberto — e, pedindo, nas
+   * outras parcelas da mesma compra.
+   */
   @Patch('contas-abertas/:idFnApagar')
   @HttpCode(200)
   editar(
     @Param('idFnApagar', ParseIntPipe) idFnApagar: number,
     @Body() dto: EditarTituloDto,
   ) {
-    return this.pagamentos.editar(idFnApagar, dto);
+    const { aplicarNasParcelas, ...mudancas } = dto;
+    return aplicarNasParcelas
+      ? this.nasParcelas.editar(idFnApagar, mudancas)
+      : this.pagamentos.editar(idFnApagar, mudancas);
+  }
+
+  /** As outras parcelas da compra ainda em aberto — as que a edição alcança. */
+  @Get('contas-abertas/:idFnApagar/parcelas-da-compra')
+  async parcelasDaCompra(@Param('idFnApagar', ParseIntPipe) idFnApagar: number) {
+    return { abertas: await this.nasParcelas.abertasDaCompra(idFnApagar) };
   }
 
   /** Apaga vários títulos de uma vez — só os que não foram pagos. */

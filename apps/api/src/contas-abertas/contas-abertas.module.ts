@@ -22,6 +22,7 @@ import { PagamentosService } from './pagamentos.service';
 import { PagamentosNoBancoPoller } from './pagamentos-no-banco.poller';
 import { PagamentosNoBancoService } from './pagamentos-no-banco.service';
 import { NotasFiscaisService } from './notas-fiscais.service';
+import { EdicaoNasParcelasService } from './edicao-nas-parcelas.service';
 import { ParcelasService } from './parcelas.service';
 import { RecorrentesPollerService } from './recorrentes-poller.service';
 import { RecorrentesController } from './recorrentes.controller';
@@ -80,6 +81,8 @@ import { ManutencaoService } from './manutencao.service';
     // Que títulos são parcelas da mesma compra. O IXC não guarda esse vínculo:
     // aqui ele é inferido, e a tela diz que é inferência.
     ParcelasService,
+    // Editar uma parcela e levar a mudança às outras da compra.
+    EdicaoNasParcelasService,
     // O número da nota fiscal de cada título, que o IXC desta base não guarda.
     NotasFiscaisService,
     RecorrentesService,

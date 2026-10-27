@@ -138,6 +138,11 @@ export class ParcelasService {
    * é parcela marcada de nada (ver `irmasNaCompra`).
    */
   async irmasDe(idFnApagar: number): Promise<number[]> {
+    return (await this.irmasComSituacao(idFnApagar)).map((t) => t.idFnApagar);
+  }
+
+  /** As irmãs, cada uma dizendo se já foi paga — a paga não se edita mais. */
+  async irmasComSituacao(idFnApagar: number): Promise<TituloParaAgrupar[]> {
     const res = await this.ixc.list<Record<string, unknown>>('fn_apagar', {
       qtype: 'fn_apagar.id',
       query: String(idFnApagar),
@@ -148,7 +153,8 @@ export class ParcelasService {
     const idFornecedor = raw ? parseIxcId(raw.id_fornecedor ?? raw.fornecedor_id) : null;
     if (idFornecedor === null) return [];
     const titulos = await this.lerDoFornecedor(idFornecedor, []);
-    return irmasNaCompra(titulos, idFnApagar);
+    const irmas = new Set(irmasNaCompra(titulos, idFnApagar));
+    return titulos.filter((t) => irmas.has(t.idFnApagar));
   }
 
   /**

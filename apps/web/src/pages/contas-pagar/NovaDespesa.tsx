@@ -475,6 +475,20 @@ export function NovaDespesa({
     enabled: !!edicao,
     retry: 0,
   });
+  /** Na edição, as outras parcelas da mesma compra ainda em aberto. */
+  const parcelasDaCompra = useQuery({
+    queryKey: ['parcelas-da-compra', edicao?.conta.idFnApagar],
+    queryFn: async () =>
+      (
+        await api.get<{ abertas: number[] }>(
+          `/contas-abertas/${edicao!.conta.idFnApagar}/parcelas-da-compra`,
+        )
+      ).data,
+    enabled: !!edicao,
+    retry: 0,
+  });
+  const irmasAbertas = parcelasDaCompra.data?.abertas ?? [];
+  const [aplicarNasParcelas, setAplicarNasParcelas] = useState(false);
   const numeroNfAntes = notaFiscal.data?.numero ?? '';
   useEffect(() => {
     if (numeroNfAntes) setNumeroNf((atual) => atual || numeroNfAntes);
@@ -716,13 +730,33 @@ export function NovaDespesa({
         mudancas.veiculoId = depois.veiculoId || null;
       }
 
+      const nasParcelas = aplicarNasParcelas && irmasAbertas.length > 0;
+      let falhasNasParcelas: Array<{ idFnApagar: number; erro: string }> = [];
       if (Object.keys(mudancas).length > 0) {
-        await api.patch(`/contas-abertas/${id}`, mudancas);
+        const r = await api.patch<{
+          parcelas?: { falhas: Array<{ idFnApagar: number; erro: string }> };
+        }>(`/contas-abertas/${id}`, {
+          ...mudancas,
+          ...(nasParcelas ? { aplicarNasParcelas: true } : {}),
+        });
+        falhasNasParcelas = r.data.parcelas?.falhas ?? [];
       }
       if (depois.categoriaId !== antes.categoriaId) {
         await api.put(`/contas-abertas/${id}/categoria`, {
           categoriaId: depois.categoriaId || null,
         });
+        if (nasParcelas) {
+          await api.put('/contas-abertas/categoria-lote', {
+            idsFnApagar: irmasAbertas,
+            categoriaId: depois.categoriaId || null,
+          });
+        }
+      }
+      if (falhasNasParcelas.length > 0) {
+        setAvisoDaNota(
+          `A conta foi salva, mas ${falhasNasParcelas.length} das outras parcelas não: ` +
+            falhasNasParcelas.map((f) => `nº ${f.idFnApagar} (${f.erro})`).join('; '),
+        );
       }
       // A API leva o número às outras parcelas da mesma compra.
       if (numeroNf.trim() !== numeroNfAntes.trim()) {
@@ -750,7 +784,8 @@ export function NovaDespesa({
           return false;
         }
       }
-      return true;
+      // Parcela que não foi junto fica escrita na janela, que não fecha.
+      return falhasNasParcelas.length === 0;
     },
     onSuccess: (tudoCerto) => {
       void queryClient.invalidateQueries({ queryKey: ['contas-abertas'] });
@@ -1913,6 +1948,22 @@ export function NovaDespesa({
                       Só em dia útil
                     </label>
                   )}
+                </div>
+              )}
+              {/* --- A mesma edição nas outras parcelas da compra --- */}
+              {edicao && irmasAbertas.length > 0 && (
+                <div className="min-w-0 basis-full">
+                  <label className="opcao">
+                    <input
+                      type="checkbox"
+                      className="marcador"
+                      checked={aplicarNasParcelas}
+                      onChange={(e) => setAplicarNasParcelas(e.target.checked)}
+                    />
+                    {irmasAbertas.length === 1
+                      ? 'Aplicar também na outra parcela desta compra'
+                      : `Aplicar também nas outras ${irmasAbertas.length} parcelas desta compra`}
+                  </label>
                 </div>
               )}
               {/* --- Parcelamento --- */}
