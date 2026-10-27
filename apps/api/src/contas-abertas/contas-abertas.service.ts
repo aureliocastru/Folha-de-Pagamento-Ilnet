@@ -113,6 +113,14 @@ const TETO_DE_TITULOS = 3000;
 const TETO_DE_PAGINAS_PAGAS = 8;
 
 /**
+ * Páginas a mais por mês de distância. A leitura começa no pagamento mais
+ * recente: para chegar num mês de um ano atrás ela atravessa os onze do meio,
+ * e o teto fixo cortava esse mês pela metade. Um mês de pagamentos aqui cabe
+ * numa página; duas dão folga para o mês cheio.
+ */
+const PAGINAS_POR_MES_ATRAS = 2;
+
+/**
  * O nome de uma conta do plano, seja qual for a coluna que a base usa. No
  * `planejamento_analitico` a coluna tem o mesmo nome da tabela; nas outras
  * versões conhecidas é `descricao` ou `nome`.
@@ -127,6 +135,13 @@ function nomeDaConta(raw: Record<string, unknown>, tabela: string): string {
 function mesAtual(): string {
   const agora = new Date();
   return `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** Quantos meses vão de `de` até `ate` ("AAAA-MM"); negativo se `de` vem depois. */
+function mesesEntre(de: string, ate: string): number {
+  const [anoDe, mesDe] = de.split('-').map(Number);
+  const [anoAte, mesAte] = ate.split('-').map(Number);
+  return (anoAte - anoDe) * 12 + (mesAte - mesDe);
 }
 
 /** "AAAA-MM" de uma data, lida em UTC como o resto das datas do IXC. */
@@ -318,6 +333,9 @@ export class ContasAbertasService {
    */
   async pagasNoMes(mes?: string): Promise<PagamentosDoMes> {
     const alvo = mes ?? mesAtual();
+    const teto =
+      TETO_DE_PAGINAS_PAGAS +
+      PAGINAS_POR_MES_ATRAS * Math.max(0, mesesEntre(alvo, mesAtual()));
     const lidoEm = new Date();
     let total = 0;
     let economia = 0;
@@ -336,7 +354,7 @@ export class ContasAbertasService {
      * o total do mês no painel bater com uma tela e não com a outra.
      */
     for (const status of STATUS_DE_PAGO) {
-      for (let pagina = 1; pagina <= TETO_DE_PAGINAS_PAGAS; pagina++) {
+      for (let pagina = 1; pagina <= teto; pagina++) {
         const res = await this.ixc.list<Record<string, unknown>>('fn_apagar', {
           qtype: 'fn_apagar.status',
           query: status,
@@ -376,9 +394,9 @@ export class ContasAbertasService {
       }
     }
 
-    if (paginasLidas >= TETO_DE_PAGINAS_PAGAS) {
+    if (paginasLidas >= teto) {
       this.logger.warn(
-        `A leitura de pagamentos de ${alvo} parou em ${TETO_DE_PAGINAS_PAGAS} ` +
+        `A leitura de pagamentos de ${alvo} parou em ${teto} ` +
           'páginas — o total do mês pode estar incompleto.',
       );
     }
@@ -389,7 +407,7 @@ export class ContasAbertasService {
       economia: Math.round(economia * 100) / 100,
       quantidade,
       lidoEm,
-      completo: paginasLidas < TETO_DE_PAGINAS_PAGAS,
+      completo: paginasLidas < teto,
     };
   }
 
