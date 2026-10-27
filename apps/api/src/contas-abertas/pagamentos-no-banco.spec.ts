@@ -438,7 +438,7 @@ describe('PagamentosService.pagar — enviar ao banco', () => {
     const service = new PagamentosService(
       ixc as never,
       config as never,
-      {} as never,
+      { diaria: { findFirst: jest.fn().mockResolvedValue(null) } } as never,
       {} as never,
       noBanco as never,
     );

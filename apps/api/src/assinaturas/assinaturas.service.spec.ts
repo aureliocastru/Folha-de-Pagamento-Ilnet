@@ -78,12 +78,14 @@ function montarServico(
   };
 
   const config = { obter: jest.fn().mockResolvedValue(CFG) };
+  const diaristas = { quitarAposAssinatura: jest.fn().mockResolvedValue({}) };
 
   const service = new AssinaturasService(
     prisma as never,
     config as never,
+    diaristas as never,
   );
-  return { service, prisma, guardado };
+  return { service, prisma, guardado, diaristas };
 }
 
 /** Uma assinatura já gravada, do jeito que o banco a devolve. */
@@ -269,14 +271,43 @@ describe('assinar', () => {
     expect(guardado[0].nomeAssinante).toBe('João da Silva');
   });
 
+  it('assinado, a diária sai do caixa', async () => {
+    const { service, prisma, diaristas } = montarServico({
+      assinatura: assinaturaGravada(),
+    });
+    prisma.assinaturaDiaria.findUnique
+      .mockResolvedValueOnce(assinaturaGravada())
+      .mockResolvedValueOnce(assinaturaGravada({ assinadoEm: new Date() }));
+
+    await service.assinar('tok', { assinatura: PNG }, {});
+
+    expect(diaristas.quitarAposAssinatura).toHaveBeenCalledWith('dia1');
+  });
+
+  it('a baixa que falha não desfaz a assinatura', async () => {
+    const { service, prisma, diaristas, guardado } = montarServico({
+      assinatura: assinaturaGravada(),
+    });
+    prisma.assinaturaDiaria.findUnique
+      .mockResolvedValueOnce(assinaturaGravada())
+      .mockResolvedValueOnce(assinaturaGravada({ assinadoEm: new Date() }));
+    diaristas.quitarAposAssinatura.mockRejectedValueOnce(new Error('IXC fora do ar'));
+
+    const recibo = await service.assinar('tok', { assinatura: PNG }, {});
+
+    expect(guardado[0].assinadoEm).toBeInstanceOf(Date);
+    expect(recibo.assinado).toBe(true);
+  });
+
   it('não deixa assinar duas vezes', async () => {
-    const { service } = montarServico({
+    const { service, diaristas } = montarServico({
       assinatura: assinaturaGravada({ assinadoEm: new Date() }),
     });
 
     await expect(
       service.assinar('tok', { assinatura: PNG }, {}),
     ).rejects.toThrow(BadRequestException);
+    expect(diaristas.quitarAposAssinatura).not.toHaveBeenCalled();
   });
 
   it('não deixa assinar com o link vencido', async () => {

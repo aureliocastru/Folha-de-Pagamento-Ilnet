@@ -332,6 +332,10 @@ export function Diaristas() {
       setAberto(d.diaristaId);
       avisar(resumoDoPagamento(d), !!d.erroIxc || d.contaPagar?.status === 'ERRO');
       invalidar();
+      // Em mãos, o pagamento termina na assinatura: a coleta já abre.
+      if (d.forma === 'EM_MAOS' && d.contaPagar && d.contaPagar.status !== 'ERRO') {
+        setColetando(d);
+      }
     },
     onError: (err) => avisar(mensagemErro(err), true),
   });
@@ -339,7 +343,7 @@ export function Diaristas() {
   const acaoDiaria = useMutation({
     mutationFn: async (args: {
       id: string;
-      op: 'lancar-caixa' | 'marcar-lancado';
+      op: 'lancar-caixa' | 'marcar-lancado' | 'quitar';
     }) =>
       (await api.post<Diaria>(`/diaristas/diarias/${args.id}/${args.op}`)).data,
     onSuccess: (d, args) => {
@@ -841,13 +845,26 @@ export function Diaristas() {
                         <div className="flex flex-wrap justify-end gap-1.5">
                           {d.forma === 'EM_MAOS' &&
                             (d.assinatura?.assinadoEm ? (
-                              <button
-                                onClick={() => setColetando(d)}
-                                title="Ver a assinatura e o recibo em PDF"
-                                className="btn btn-neutro btn-p"
-                              >
-                                Ver recibo
-                              </button>
+                              <>
+                                {esperaBaixa(d) && (
+                                  <button
+                                    onClick={() =>
+                                      acaoDiaria.mutate({ id: d.id, op: 'quitar' })
+                                    }
+                                    disabled={acaoDiaria.isPending}
+                                    className="btn btn-p bg-amber-500 text-white hover:bg-amber-600"
+                                  >
+                                    Dar baixa no caixa
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => setColetando(d)}
+                                  title="Ver a assinatura e o recibo em PDF"
+                                  className="btn btn-neutro btn-p"
+                                >
+                                  Ver recibo
+                                </button>
+                              </>
                             ) : (
                               <button
                                 onClick={() => setColetando(d)}
@@ -1235,9 +1252,15 @@ function SituacaoDiaria({ diaria }: { diaria: Diaria }) {
         >
           {emMaos ? 'caixa' : 'IXC'}
         </Selo>
-        <Selo pequeno tom={STATUS_TOM[conta.status]} ponto>
-          {STATUS_LABEL[conta.status]}
-        </Selo>
+        {emMaos && !diaria.assinatura?.assinadoEm && contaEmAberto(conta.status) ? (
+          <Selo pequeno tom="atencao" ponto>
+            aguardando assinatura
+          </Selo>
+        ) : (
+          <Selo pequeno tom={STATUS_TOM[conta.status]} ponto>
+            {STATUS_LABEL[conta.status]}
+          </Selo>
+        )}
       </div>
     );
   }
@@ -1273,14 +1296,31 @@ function SituacaoDiaria({ diaria }: { diaria: Diaria }) {
 }
 
 /** O que dizer depois de pagar (ou de tentar lançar no caixa de novo). */
+/** A conta ainda não saiu, nem foi recusada: dá para pagar. */
+function contaEmAberto(status: NonNullable<Diaria['contaPagar']>['status']): boolean {
+  return !['PAGO', 'REPROVADO', 'CANCELADO', 'ERRO'].includes(status);
+}
+
+/** Em mãos, assinada, e a baixa no caixa ainda não saiu. */
+function esperaBaixa(d: Diaria): boolean {
+  return (
+    d.forma === 'EM_MAOS' &&
+    !!d.assinatura?.assinadoEm &&
+    !!d.contaPagar &&
+    contaEmAberto(d.contaPagar.status)
+  );
+}
+
 function resumoDoPagamento(d: Diaria): string {
   if (d.contaPagar) {
     if (d.contaPagar.status === 'ERRO') {
       return `O IXC recusou: ${d.contaPagar.erro ?? 'erro desconhecido'} — corrija e reenvie em Contas a Pagar.`;
     }
-    return d.forma === 'EM_MAOS'
-      ? 'Diária lançada como conta a pagar no IXC, saindo do caixa — aprove em Contas a Pagar.'
-      : 'Diária lançada como conta a pagar no IXC — aprove em Contas a Pagar.';
+    if (d.forma === 'EM_MAOS') {
+      if (d.contaPagar.status === 'PAGO') return 'Diária baixada no caixa.';
+      return d.erroIxc ?? 'Diária lançada. Sai do caixa quando a pessoa assinar o recibo.';
+    }
+    return 'Diária lançada como conta a pagar no IXC — aprove em Contas a Pagar.';
   }
   if (d.erroIxc) return d.erroIxc;
   if (d.idLancamentoIxc) {
@@ -1488,7 +1528,7 @@ function FormularioDiaria({
       <p className="mt-4 text-xs leading-relaxed text-tinta-500">
         {forma === 'IXC'
           ? 'Vai virar uma conta a pagar só no IXC: o diarista é cadastrado como fornecedor, e o pagamento passa pela auditoria como o da folha. A chave e o tipo ficam gravados no cadastro para o próximo pagamento.'
-          : 'Vira a mesma conta a pagar no IXC, mudando só de onde o dinheiro sai: a conta do caixa em vez da do banco, em dinheiro. Sem chave PIX, e passando pela auditoria como as outras.'}
+          : 'Sai do caixa quando a pessoa assinar o recibo.'}
       </p>
 
       <div className="mt-5 flex flex-wrap items-center gap-4 border-t border-tinta-100 pt-4">

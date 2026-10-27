@@ -131,6 +131,8 @@ function montarServico(
     },
     // A conta lançada com várias notas não tem o valor editável.
     parteDaConta: { count: jest.fn().mockResolvedValue(0) },
+    // A diária em mãos ainda sem recibo assinado, quando o título é dela.
+    diaria: { findFirst: jest.fn().mockResolvedValue(null) },
   };
   // O quarto: quem sabe o que cai junto ao apagar uma conta a pagar daqui.
   const contasPagar = { apagarLocalPorTituloIxc: jest.fn(), acompanharTitulo: jest.fn() };
@@ -427,6 +429,16 @@ describe('PagamentosService.pagar', () => {
 
     await expect(service.pagar(4242, { contaPagamento: CFG.contaPagamentoCaixaId })).rejects.toBeInstanceOf(
       BadRequestException,
+    );
+    expect(criados).toHaveLength(0);
+  });
+
+  it('diária em mãos sem recibo assinado não é paga por aqui', async () => {
+    const { service, criados, prisma } = montarServico();
+    prisma.diaria.findFirst.mockResolvedValueOnce({ id: 'dia1' });
+
+    await expect(service.pagar(4242, { contaPagamento: CFG.contaPagamentoCaixaId })).rejects.toThrow(
+      'assinar o recibo',
     );
     expect(criados).toHaveLength(0);
   });

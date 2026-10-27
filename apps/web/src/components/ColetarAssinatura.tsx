@@ -129,10 +129,12 @@ export function ColetarAssinatura({
   }, [assinatura.isSuccess, atual, gerar]);
 
   // Assinou: as listas lá atrás precisam saber, para a linha ganhar o selo e
-  // sair da fila de recibos sem depender de alguém recarregar a página.
+  // sair da fila de recibos sem depender de alguém recarregar a página. E a
+  // assinatura deu a baixa no caixa, que muda os totais de quem recebeu.
   useEffect(() => {
     if (assinado) {
       void queryClient.invalidateQueries({ queryKey: ['diarias'] });
+      void queryClient.invalidateQueries({ queryKey: ['diaristas'] });
       void queryClient.invalidateQueries({
         queryKey: ['diarias-aguardando-assinatura'],
       });

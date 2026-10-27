@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { AssinaturaDiaria, FormaPagamento, ModoAssinatura } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
+import { DiaristasService } from '../diaristas/diaristas.service';
 import { ConfigFinanceiraService } from '../financeiro/config-financeira.service';
 import { descreverPartes } from '../financeiro/pagamento.calc';
 import { PrismaService } from '../prisma/prisma.service';
@@ -52,6 +53,8 @@ export class AssinaturasService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigFinanceiraService,
+    // A assinatura é o que solta a baixa da diária no caixa.
+    private readonly diaristas: DiaristasService,
   ) {}
 
   /**
@@ -195,6 +198,9 @@ export class AssinaturasService {
    *
    * O IP e o aparelho ficam junto. Não provam quem segurava o celular, mas são
    * o que existe para responder "de onde veio isso" se alguém contestar.
+   *
+   * Assinado, o dinheiro sai do caixa: a baixa da diária vem daqui. Se ela
+   * falhar, a assinatura fica do mesmo jeito — o motivo vai para a diária.
    */
   async assinar(
     token: string,
@@ -233,6 +239,14 @@ export class AssinaturasService {
           ? ` — assinatura substituída (${a.recoletas + 1}ª recoleta)`
           : ''),
     );
+    try {
+      await this.diaristas.quitarAposAssinatura(a.diariaId);
+    } catch (err) {
+      this.logger.warn(
+        `Diária ${a.diariaId}: assinada, mas a baixa no caixa não saiu: ` +
+          (err instanceof Error ? err.message : String(err)),
+      );
+    }
     return this.abrirPorToken(token);
   }
 

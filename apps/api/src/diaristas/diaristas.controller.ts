@@ -63,6 +63,13 @@ export class DiaristasController {
     return this.service.lancarNoCaixa(id);
   }
 
+  /** Recibo assinado e a baixa não saiu: tenta de novo. */
+  @Post('diarias/:id/quitar')
+  @HttpCode(200)
+  quitar(@Param('id') id: string) {
+    return this.service.quitarAposAssinatura(id);
+  }
+
   /** Alguém lançou no IXC à mão: fecha a pendência. */
   @Post('diarias/:id/marcar-lancado')
   @HttpCode(200)

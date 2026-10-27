@@ -571,6 +571,9 @@ export class DiaristasService {
    * conta de pagamento do caixa em vez da do banco, e em dinheiro em vez de
    * PIX — quem entrega na mão não precisa de chave, e o `enviarIxc` já deixa a
    * chave de fora quando o tipo não é PIX.
+   *
+   * E nasce em aberto: a baixa no caixa espera o recibo assinado
+   * (`quitarAposAssinatura`).
    */
   private async pagarPeloIxc(
     diarista: Diarista,
@@ -616,7 +619,7 @@ export class DiaristasService {
 
     await this.etiquetar(conta, categoriaId ?? null, usuarioId);
 
-    return emMaos ? this.quitarNoAto(diaria, conta) : diaria;
+    return diaria;
   }
 
   /**
@@ -664,42 +667,78 @@ export class DiaristasService {
   }
 
   /**
-   * Em mãos, a conta nasce e morre no mesmo gesto.
+   * Em mãos, o dinheiro sai do caixa quando quem recebeu assina o recibo.
    *
-   * Pagar pelo banco tem três tempos que são três decisões: lança-se o título,
-   * alguém aprova, o banco paga. Em mãos não tem nenhum — o dinheiro saiu da
-   * gaveta antes de o título existir, e o diarista foi embora com ele. Deixar a
-   * conta em aberto no IXC depois disso não guarda decisão nenhuma: guarda uma
-   * tarefa que alguém vai ter de lembrar de fazer, num lugar onde ela se parece
-   * com as contas que ainda esperam dinheiro de verdade.
+   * Antes a baixa saía no ato de pagar e a assinatura vinha depois — quando
+   * vinha. Mas é na mão de quem assina que o dinheiro deixa a gaveta, então a
+   * conta espera em aberto no IXC e a baixa sai aqui, com o dia da assinatura,
+   * pela mesma porta da despesa lançada como "já paga" (`jaSaiu`).
    *
-   * Então aprova e baixa aqui mesmo, pela mesma porta da despesa lançada como
-   * "já paga" (`jaSaiu`): não há banco a esperar quando o pagamento aconteceu
-   * antes do lançamento.
+   * Chamar de novo não paga duas vezes: conta já paga, recusada ou cancelada
+   * passa direto, e a em mãos antiga (sem conta a pagar) também. É o que deixa
+   * a recoleta da assinatura e o botão de tentar de novo usarem esta porta.
    *
-   * O que falhar não derruba a diária. O dinheiro já saiu — negar o registro
-   * seria negar o fato —, então a diária fica gravada e a conta fica em aberto
-   * no IXC, que é onde a tela já mostra "aguardando" e onde dá para terminar à
-   * mão. O log diz o motivo, que é o que permite consertar sem adivinhar.
+   * O que falhar fica escrito na diária (`erroIxc`), que é onde a tela mostra
+   * o motivo e o botão de dar a baixa de novo.
    */
-  private async quitarNoAto(
+  async quitarAposAssinatura(diariaId: string): Promise<Diaria> {
+    const diaria = await this.prisma.diaria.findUnique({
+      where: { id: diariaId },
+      include: {
+        contaPagar: true,
+        assinatura: { select: { assinadoEm: true } },
+      },
+    });
+    if (!diaria) throw new NotFoundException('Diária não encontrada');
+
+    const conta = diaria.contaPagar;
+    if (diaria.forma !== FormaPagamento.EM_MAOS || !conta) return diaria;
+    if (!diaria.assinatura?.assinadoEm) {
+      throw new BadRequestException(
+        'O recibo ainda não foi assinado. A diária sai do caixa quando quem ' +
+          'recebeu assinar.',
+      );
+    }
+    if (conta.status === StatusContaPagar.PAGO || SEM_SAIDA.includes(conta.status)) {
+      return diaria;
+    }
+
+    await this.quitarNoCaixa(diaria, conta, diaNoBrasil(diaria.assinatura.assinadoEm));
+    return this.prisma.diaria.findUniqueOrThrow({
+      where: { id: diaria.id },
+      include: {
+        contaPagar: {
+          select: { id: true, status: true, erro: true, idFnApagarIxc: true },
+        },
+      },
+    });
+  }
+
+  /**
+   * Aprova e baixa a conta da diária na conta do caixa, no dia dado.
+   *
+   * Não lança: a falha vai para `erroIxc` da diária e o log, e a conta fica
+   * em aberto no IXC. Quem assinou já assinou — negar o registro seria negar
+   * o fato.
+   */
+  private async quitarNoCaixa(
     diaria: Diaria,
     conta: ContaPagar,
-  ): Promise<Diaria> {
+    dia: string,
+  ): Promise<void> {
     if (!conta.idFnApagarIxc) {
-      this.logger.warn(
-        `Diária ${diaria.id}: a conta ${conta.id} não recebeu número do IXC, ` +
-          'então não deu para baixá-la. Ela fica em aberto lá.',
+      await this.marcarErro(
+        diaria.id,
+        'A conta a pagar não recebeu número do IXC, então a baixa no caixa não saiu.',
       );
-      return diaria;
+      return;
     }
 
     try {
       const r = await this.pagamentos.pagar(conta.idFnApagarIxc, {
         // A conta de onde o dinheiro saiu é a do caixa, que o título já traz.
         contaPagamento: conta.contaPagamento ?? undefined,
-        // O dia da diária, e não o de hoje: é quando a gaveta abriu.
-        data: diaISO(diaria.data),
+        data: dia,
         jaSaiu: true,
       });
       if (!r.paga) {
@@ -714,23 +753,19 @@ export class DiaristasService {
     } catch (err) {
       const motivo = err instanceof Error ? err.message : String(err);
       this.logger.warn(
-        `Diária ${diaria.id}: a conta foi lançada mas a baixa não saiu ` +
-          `(${motivo}). Ela fica em aberto no IXC.`,
+        `Diária ${diaria.id}: o recibo foi assinado mas a baixa não saiu ` +
+          `(${motivo}). A conta fica em aberto no IXC.`,
       );
-      return diaria;
+      await this.marcarErro(diaria.id, `A baixa no caixa não saiu: ${motivo}`);
+      return;
     }
 
+    if (diaria.erroIxc) {
+      await this.prisma.diaria.update({ where: { id: diaria.id }, data: { erroIxc: null } });
+    }
     // O status daqui vem de lá, e não de uma suposição nossa: quem diz que a
     // conta está paga é o IXC, relido depois da baixa.
     await this.contasPagar.sincronizarStatus(conta.id);
-    return this.prisma.diaria.findUniqueOrThrow({
-      where: { id: diaria.id },
-      include: {
-        contaPagar: {
-          select: { id: true, status: true, erro: true, idFnApagarIxc: true },
-        },
-      },
-    });
   }
 
   /**
@@ -923,11 +958,11 @@ function pendenteNoCaixa(d: {
 }
 
 /**
- * O dia de calendário de uma data guardada, no formato que o IXC espera na
- * baixa. Sem hora e sem fuso: a diária é de um dia, não de um instante.
+ * O dia da assinatura, no formato que o IXC espera na baixa, pelo relógio
+ * daqui: assinado às 22h é deste dia, e não do seguinte, como o UTC diria.
  */
-function diaISO(d: Date): string {
-  return d.toISOString().slice(0, 10);
+function diaNoBrasil(d: Date): string {
+  return d.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
 }
 
 function hojeUtc(): Date {

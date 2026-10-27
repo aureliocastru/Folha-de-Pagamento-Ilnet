@@ -5,6 +5,7 @@ import {
   Optional,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { FormaPagamento } from '@prisma/client';
 import { ConfigFinanceiraService } from '../financeiro/config-financeira.service';
 import { ContasPagarService } from '../financeiro/contas-pagar.service';
 import { IxcClient } from '../ixc/ixc.client';
@@ -160,6 +161,26 @@ export class PagamentosService {
     opcoes: Parameters<PagamentosService['pagarNoIxc']>[1],
     usuarioNome?: string,
   ): Promise<ResultadoDoPagamento> {
+    /*
+     * A diária paga em mãos sai do caixa quando quem recebeu assina o recibo
+     * (`DiaristasService.quitarAposAssinatura`). Pagá-la por aqui antes disso
+     * daria por entregue um dinheiro que ninguém confirmou ter recebido.
+     */
+    const diariaSemRecibo = await this.prisma.diaria.findFirst({
+      where: {
+        forma: FormaPagamento.EM_MAOS,
+        contaPagar: { idFnApagarIxc: idFnApagar },
+        OR: [{ assinatura: { is: null } }, { assinatura: { assinadoEm: null } }],
+      },
+      select: { id: true },
+    });
+    if (diariaSemRecibo) {
+      throw new BadRequestException(
+        'Esta conta é de uma diária paga em mãos: ela sai do caixa quando quem ' +
+          'recebeu assinar o recibo, em Diaristas.',
+      );
+    }
+
     const r = await this.pagarNoIxc(idFnApagar, opcoes, usuarioNome);
     try {
       await this.contasPagar.acompanharTitulo(idFnApagar);

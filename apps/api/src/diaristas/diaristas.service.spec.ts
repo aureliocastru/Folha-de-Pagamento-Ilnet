@@ -176,6 +176,38 @@ function montarServico(
     return id as string;
   }
 
+  /** Uma diária em mãos de agora: conta a pagar no caixa, esperando o recibo. */
+  function diariaEmMaos(
+    over: {
+      assinadoEm?: Date | null;
+      status?: StatusContaPagar;
+      idFnApagarIxc?: number | null;
+      semConta?: boolean;
+    } = {},
+  ): string {
+    const id = `di${++seq}`;
+    diarias.set(id, {
+      id,
+      diaristaId: 'd1',
+      forma: FormaPagamento.EM_MAOS,
+      valor: 120,
+      erroIxc: null,
+      contaPagarId: over.semConta ? null : 'conta-1',
+      contaPagar: over.semConta
+        ? null
+        : {
+            id: 'conta-1',
+            status: over.status ?? StatusContaPagar.AGUARDANDO_APROVACAO,
+            idFnApagarIxc:
+              over.idFnApagarIxc === undefined ? 9001 : over.idFnApagarIxc,
+            contaPagamento: CFG.contaPagamentoCaixaId,
+          },
+      assinatura:
+        over.assinadoEm === null ? null : { assinadoEm: over.assinadoEm ?? new Date() },
+    });
+    return id;
+  }
+
   const vincularDiarista = jest.fn(async () => {
     if (opts.erroFornecedor) throw new Error(opts.erroFornecedor);
     return {
@@ -202,45 +234,116 @@ function montarServico(
     pagar,
     lancarSaida,
     prisma,
+    diarias,
     diariaAntigaEmMaos,
+    diariaEmMaos,
     vincularDiarista,
     espelharPixNoIxc,
   };
 }
 
 /**
- * Em mãos, a conta nasce e morre no mesmo gesto.
+ * Em mãos, o dinheiro sai do caixa quando quem recebeu assina o recibo.
  *
- * O dinheiro saiu da gaveta antes de o título existir e o diarista foi embora
- * com ele: não há banco a esperar, nem decisão a tomar. Uma conta em aberto no
- * IXC depois disso não guarda decisão nenhuma — guarda uma tarefa que alguém
- * vai ter de lembrar de fazer, no meio das contas que ainda esperam dinheiro
- * de verdade.
+ * Pagar só lança a conta, no caixa, em aberto. A baixa vem com a assinatura,
+ * no dia dela — é na mão de quem assina que o dinheiro deixa a gaveta.
  */
-describe('diária paga em mãos quita no ato', () => {
-  it('aprova e dá baixa na conta, no dia da diária', async () => {
+describe('diária paga em mãos sai do caixa com a assinatura', () => {
+  it('pagar lança a conta no caixa e não dá baixa', async () => {
     const { service, pagar, contasPagar } = montarServico();
 
-    await service.pagar(
+    const diaria = await service.pagar(
       'd1',
-      {
-        data: '2026-08-14',
-        quantidade: 1,
-        descricao: 'Roçada',
-        forma: FormaPagamento.EM_MAOS,
-      },
+      { quantidade: 1, descricao: 'Roçada', forma: FormaPagamento.EM_MAOS },
       'user-1',
     );
 
+    expect(contasPagar.criar.mock.calls[0][0].itens[0]).toMatchObject({
+      contaPagamento: CFG.contaPagamentoCaixaId,
+    });
+    expect(pagar).not.toHaveBeenCalled();
+    expect(diaria).toMatchObject({ contaPagarId: 'conta-1' });
+  });
+
+  it('assinado, aprova e dá baixa no caixa, no dia da assinatura', async () => {
+    const { service, pagar, contasPagar, diariaEmMaos } = montarServico();
+    // 22h30 do dia 14 aqui, já dia 15 no UTC.
+    const id = diariaEmMaos({ assinadoEm: new Date('2026-08-15T01:30:00Z') });
+
+    await service.quitarAposAssinatura(id);
+
     expect(pagar).toHaveBeenCalledWith(9001, {
       contaPagamento: CFG.contaPagamentoCaixaId,
-      // O dia da diária, e não o de hoje: é quando a gaveta abriu.
       data: '2026-08-14',
-      // Não há banco a esperar quando o pagamento aconteceu antes do título.
       jaSaiu: true,
     });
     // O status daqui vem de lá, relido depois da baixa.
     expect(contasPagar.sincronizarStatus).toHaveBeenCalledWith('conta-1');
+  });
+
+  it('sem assinatura, não sai do caixa', async () => {
+    const { service, pagar, diariaEmMaos } = montarServico();
+    const id = diariaEmMaos({ assinadoEm: null });
+
+    await expect(service.quitarAposAssinatura(id)).rejects.toThrow(
+      'ainda não foi assinado',
+    );
+    expect(pagar).not.toHaveBeenCalled();
+  });
+
+  it('já paga, recusada ou cancelada não é baixada de novo', async () => {
+    for (const status of [
+      StatusContaPagar.PAGO,
+      StatusContaPagar.REPROVADO,
+      StatusContaPagar.CANCELADO,
+    ]) {
+      const { service, pagar, diariaEmMaos } = montarServico();
+      await service.quitarAposAssinatura(diariaEmMaos({ status }));
+      expect(pagar).not.toHaveBeenCalled();
+    }
+  });
+
+  it('em mãos antiga, sem conta a pagar, passa direto', async () => {
+    const { service, pagar, diariaEmMaos } = montarServico();
+
+    await service.quitarAposAssinatura(diariaEmMaos({ semConta: true }));
+
+    expect(pagar).not.toHaveBeenCalled();
+  });
+
+  /*
+   * Quem assinou já assinou. A baixa que falha não desfaz nada: o motivo fica
+   * na diária, que é onde a tela mostra o botão de tentar de novo.
+   */
+  it('baixa que falha fica escrita na diária', async () => {
+    const { service, diarias, diariaEmMaos } = montarServico({
+      erroDaBaixa: 'IXC fora do ar',
+    });
+    const id = diariaEmMaos();
+
+    await service.quitarAposAssinatura(id);
+
+    expect(diarias.get(id)?.erroIxc).toContain('IXC fora do ar');
+  });
+
+  it('a baixa que sai depois apaga o erro da anterior', async () => {
+    const { service, diarias, diariaEmMaos } = montarServico();
+    const id = diariaEmMaos();
+    diarias.set(id, { ...diarias.get(id), erroIxc: 'A baixa no caixa não saiu: x' });
+
+    await service.quitarAposAssinatura(id);
+
+    expect(diarias.get(id)?.erroIxc).toBeNull();
+  });
+
+  it('conta sem número do IXC não tenta baixa nenhuma', async () => {
+    const { service, pagar, diarias, diariaEmMaos } = montarServico();
+    const id = diariaEmMaos({ idFnApagarIxc: null });
+
+    await service.quitarAposAssinatura(id);
+
+    expect(pagar).not.toHaveBeenCalled();
+    expect(diarias.get(id)?.erroIxc).toContain('número do IXC');
   });
 
   it('paga pelo banco não é baixada aqui: o banco ainda tem de pagar', async () => {
@@ -254,36 +357,6 @@ describe('diária paga em mãos quita no ato', () => {
 
     expect(pagar).not.toHaveBeenCalled();
     expect(contasPagar.sincronizarStatus).not.toHaveBeenCalled();
-  });
-
-  /*
-   * O dinheiro já saiu. Negar o registro seria negar o fato — então a diária
-   * fica gravada de todo jeito, e a conta fica em aberto no IXC, que é onde a
-   * tela mostra "aguardando" e onde dá para terminar à mão.
-   */
-  it('baixa que falha não derruba a diária', async () => {
-    const { service } = montarServico({ erroDaBaixa: 'IXC fora do ar' });
-
-    const diaria = await service.pagar(
-      'd1',
-      { quantidade: 1, descricao: 'Roçada', forma: FormaPagamento.EM_MAOS },
-      'user-1',
-    );
-
-    expect(diaria).toMatchObject({ contaPagarId: 'conta-1' });
-  });
-
-  it('conta sem número do IXC não tenta baixa nenhuma', async () => {
-    const { service, pagar } = montarServico({ contaSemNumeroIxc: true });
-
-    const diaria = await service.pagar(
-      'd1',
-      { quantidade: 1, descricao: 'Roçada', forma: FormaPagamento.EM_MAOS },
-      'user-1',
-    );
-
-    expect(pagar).not.toHaveBeenCalled();
-    expect(diaria).toMatchObject({ contaPagarId: 'conta-1' });
   });
 });
 
