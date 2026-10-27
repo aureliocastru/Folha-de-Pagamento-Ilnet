@@ -20,13 +20,14 @@ import {
 import { api, mensagemErro } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { acessosDoUsuario } from '../../lib/modulos';
-import { mesAnterior, mesAtual, mesSeguinte, nomeDoMes } from '../../lib/folha';
+import { mesAtual } from '../../lib/folha';
 import { PainelDaFolha } from '../folha/PainelDaFolha';
 import { estaClassificado } from '../../lib/categorias';
 import { formatBRL, formatData } from '../../lib/format';
 import type {
   ContaAberta,
   ContasAbertas,
+  PagamentosDoAno,
   PagamentosDoMes,
 } from '../../lib/types';
 import { DetalheDaConta } from './DetalheDaConta';
@@ -71,9 +72,8 @@ export function Dashboard() {
   /** Conta cuja ficha está aberta — a fila daqui abre o mesmo detalhe da lista. */
   const [detalhando, setDetalhando] = useState<ContaAberta | null>(null);
 
-  /** O mês do bloco "O mês" — o corrente, até alguém escolher outro. */
-  const [mes, setMes] = useState(mesAtual);
-  const ehOMesAtual = mes === mesAtual();
+  const mes = mesAtual();
+  const ano = Number(mes.slice(0, 4));
 
   /**
    * Quanto já saiu no mês. É outra leitura do IXC porque a lista de abertas,
@@ -81,14 +81,29 @@ export function Dashboard() {
    * dashboard só conta metade do mês.
    */
   const pagas = useQuery({
-    queryKey: ['pagas-no-mes', mes],
+    queryKey: ['pagas-no-mes'],
+    queryFn: async () =>
+      (await api.get<PagamentosDoMes>('/contas-abertas/pagas-no-mes')).data,
+    retry: 0,
+  });
+
+  /**
+   * O pago de cada mês do ano, para as colunas ao lado. A chave começa por
+   * "pagas-no-mes" de propósito: quem paga uma conta já invalida essa chave,
+   * e a coluna do mês sobe junto com o número do lado.
+   */
+  const pagasNoAno = useQuery({
+    queryKey: ['pagas-no-mes', 'ano', ano],
     queryFn: async () =>
       (
-        await api.get<PagamentosDoMes>('/contas-abertas/pagas-no-mes', {
-          params: { mes },
+        await api.get<PagamentosDoAno>('/contas-abertas/pagas-no-ano', {
+          params: { ano },
         })
       ).data,
     retry: 0,
+    // Os meses fechados não mudam: reabrir o dashboard não precisa reler o
+    // ano inteiro do IXC a cada vez.
+    staleTime: 5 * 60 * 1000,
   });
 
   // A lista vazia sai de um `useMemo` para ser sempre o mesmo array: um `[]`
@@ -117,19 +132,25 @@ export function Dashboard() {
   const fila = useMemo(() => filaDePagamento(contas), [contas]);
 
   /**
-   * O que ainda tem de sair no mês. No mês corrente inclui o que já venceu:
-   * atraso não deixa de ser dívida por ter passado da data, e é dinheiro que o
-   * caixa deste mês precisa cobrir do mesmo jeito. Em outro mês é só o que
-   * vence nele — o atraso já está na conta do mês corrente.
+   * O que ainda tem de sair até o dia 31. Inclui o que já venceu: atraso não
+   * deixa de ser dívida por ter passado da data, e é dinheiro que o caixa deste
+   * mês precisa cobrir do mesmo jeito.
    */
   const aPagarNoMes = useMemo(
     () =>
-      contas.filter((c) => {
-        if (c.vencimento === null) return false;
-        const doVencimento = String(c.vencimento).slice(0, 7);
-        return ehOMesAtual ? doVencimento <= mes : doVencimento === mes;
-      }),
-    [contas, mes, ehOMesAtual],
+      contas.filter(
+        (c) =>
+          c.vencimento !== null && String(c.vencimento).slice(0, 7) <= mes,
+      ),
+    [contas, mes],
+  );
+
+  const colunasDoAno = useMemo(
+    () =>
+      pagasNoAno.data
+        ? colunasMesAMes(pagasNoAno.data, contas, mes, somar(aPagarNoMes))
+        : null,
+    [pagasNoAno.data, contas, mes, aPagarNoMes],
   );
 
   const resumo = consulta.data?.resumo;
@@ -225,20 +246,48 @@ export function Dashboard() {
               responde isso de longe; os números embaixo dela dão a conferência.
               Os dois lados saem do contas a pagar do IXC, que é por onde passa
               todo o dinheiro da empresa — a folha inclusive. */}
-          <Bloco
-            titulo="O mês"
-            className="surgir surgir-1"
-            acao={<EscolherMes mes={mes} onMudar={setMes} />}
-          >
-            <FechamentoDoMes
-              atual={ehOMesAtual}
-              aPagar={somar(aPagarNoMes)}
-              quantidadeAPagar={aPagarNoMes.length}
-              pagas={pagas.data ?? null}
-              carregando={pagas.isLoading}
-              erro={!!pagas.error}
-            />
-          </Bloco>
+          {/* Lado a lado: o mês corrente, e o ano em colunas — o mesmo verde
+              e azul dos dois lados, para a coluna de agora se ler como a
+              barra ao lado dela. */}
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <Bloco titulo="O mês" className="surgir surgir-1" esticado>
+              <div className="my-auto">
+                <FechamentoDoMes
+                  aPagar={somar(aPagarNoMes)}
+                  quantidadeAPagar={aPagarNoMes.length}
+                  pagas={pagas.data ?? null}
+                  carregando={pagas.isLoading}
+                  erro={!!pagas.error}
+                />
+              </div>
+            </Bloco>
+
+            <Bloco
+              titulo={`Mês a mês em ${ano}`}
+              className="surgir surgir-1"
+              esticado
+            >
+              {colunasDoAno ? (
+                <>
+                  <BarrasEmpilhadas
+                    meses={colunasDoAno}
+                    series={SERIES_DO_ANO}
+                    atual={mes}
+                    altura="h-44"
+                  />
+                  {!pagasNoAno.data?.completo && (
+                    <p className="ajuda">Leitura parcial do IXC.</p>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-tinta-400">
+                  {pagasNoAno.error
+                    ? 'Não deu para ler do IXC o que saiu em cada mês.'
+                    : 'Lendo do IXC o que saiu em cada mês…'}
+                </p>
+              )}
+            </Bloco>
+          </div>
 
           {/* --- O dia de trabalho: o que sai nos próximos dias --- */}
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
@@ -381,15 +430,12 @@ function BarraDeFatias({ fatias }: { fatias: Fatia[] }) {
  * dívida por ter passado da data, e é dinheiro que este mês precisa cobrir.
  */
 function FechamentoDoMes({
-  atual,
   aPagar,
   quantidadeAPagar,
   pagas,
   carregando,
   erro,
 }: {
-  /** É o mês corrente — o único em que o atraso entra no "a pagar". */
-  atual: boolean;
   aPagar: number;
   quantidadeAPagar: number;
   pagas: PagamentosDoMes | null;
@@ -403,9 +449,8 @@ function FechamentoDoMes({
       <div>
         <p className="valor text-[22px] text-tinta-900">{formatBRL(aPagar)}</p>
         <p className="ajuda">
-          {atual
-            ? `ainda a pagar até o fim do mês, em ${quantidadeAPagar} título(s), o atraso incluído.`
-            : `ainda a pagar no mês, em ${quantidadeAPagar} título(s).`}{' '}
+          ainda a pagar até o fim do mês, em {quantidadeAPagar} título(s), o
+          atraso incluído.{' '}
           {erro
             ? 'Não deu para ler do IXC quanto já saiu neste mês.'
             : carregando
@@ -436,7 +481,7 @@ function FechamentoDoMes({
       <BarraDeFatias
         fatias={[
           {
-            rotulo: atual ? 'Já pago neste mês' : 'Já pago no mês',
+            rotulo: 'Já pago neste mês',
             cor: CORES_DE_ESTADO.prazo,
             total: pagas.total,
             quantidade: pagas.quantidade,
@@ -449,12 +494,10 @@ function FechamentoDoMes({
           },
         ]}
       />
-      {atual && (
-        <p className="ajuda">
-          O que ainda tem de sair inclui o atraso: conta vencida continua sendo
-          dinheiro que este mês precisa cobrir.
-        </p>
-      )}
+      <p className="ajuda">
+        O que ainda tem de sair inclui o atraso: conta vencida continua sendo
+        dinheiro que este mês precisa cobrir.
+      </p>
 
       {/* A economia não entra na barra: ela não é uma fatia do mês, é dinheiro
           que não saiu. Somá-la ao pago inflaria o mês com uma despesa que não
@@ -472,49 +515,41 @@ function FechamentoDoMes({
   );
 }
 
+/** As duas partes de cada coluna do ano, nas cores da barra do mês. */
+const SERIES_DO_ANO: SerieGrafico[] = [
+  { chave: 'pago', rotulo: 'Já pago', cor: CORES_DE_ESTADO.prazo },
+  { chave: 'aPagar', rotulo: 'A pagar', cor: PALETA[0] },
+];
+
 /**
- * Anda de mês em mês no bloco "O mês" — o mesmo ‹ mês › dos pagamentos do
- * patrocínio. "Este mês" só aparece quando se saiu dele.
+ * Uma coluna por mês do ano: o que saiu nele e o que ainda tem de sair.
+ *
+ * Mês passado é só o pago — o que ficou sem pagar dele é atraso, e atraso é
+ * dinheiro que o mês corrente precisa cobrir: entra na coluna de agora, que
+ * assim mostra o mesmo total da barra ao lado. Mês que vem é o que vence nele.
  */
-function EscolherMes({
-  mes,
-  onMudar,
-}: {
-  mes: string;
-  onMudar: (mes: string) => void;
-}) {
-  return (
-    <div className="flex items-center gap-1">
-      <button
-        type="button"
-        onClick={() => onMudar(mesAnterior(mes))}
-        className="btn btn-neutro btn-p"
-        aria-label="Mês anterior"
-      >
-        ‹
-      </button>
-      <span className="inline-block min-w-[118px] text-center text-sm font-semibold text-tinta-800 first-letter:uppercase">
-        {nomeDoMes(mes)}
-      </span>
-      <button
-        type="button"
-        onClick={() => onMudar(mesSeguinte(mes))}
-        className="btn btn-neutro btn-p"
-        aria-label="Próximo mês"
-      >
-        ›
-      </button>
-      {mes !== mesAtual() && (
-        <button
-          type="button"
-          onClick={() => onMudar(mesAtual())}
-          className="btn btn-neutro btn-p ml-1"
-        >
-          Este mês
-        </button>
-      )}
-    </div>
-  );
+function colunasMesAMes(
+  ano: PagamentosDoAno,
+  contas: ContaAberta[],
+  mesCorrente: string,
+  aPagarAgora: number,
+) {
+  const aVencer = new Map<string, number>();
+  for (const c of contas) {
+    if (c.vencimento === null) continue;
+    const m = String(c.vencimento).slice(0, 7);
+    if (m > mesCorrente) aVencer.set(m, (aVencer.get(m) ?? 0) + c.valorAberto);
+  }
+  return ano.meses.map((m) => ({
+    competencia: m.mes,
+    pago: m.total,
+    aPagar:
+      m.mes === mesCorrente
+        ? aPagarAgora
+        : m.mes > mesCorrente
+          ? (aVencer.get(m.mes) ?? 0)
+          : 0,
+  }));
 }
 
 interface DiaDaAgenda {

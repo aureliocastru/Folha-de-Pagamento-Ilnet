@@ -58,6 +58,14 @@ export class ContasAbertasController {
     );
   }
 
+  /** Quanto saiu em cada mês do ano — as colunas do dashboard. */
+  @Get('pagas-no-ano')
+  pagasNoAno(@Query('ano') ano?: string) {
+    return this.service.pagasNoAno(
+      /^\d{4}$/.test(ano ?? '') ? Number(ano) : undefined,
+    );
+  }
+
   /**
    * De que sequência de parcelas cada título faz parte — quantas já foram
    * pagas e quantas faltam.

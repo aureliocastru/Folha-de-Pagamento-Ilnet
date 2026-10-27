@@ -97,6 +97,20 @@ export interface PagamentosDoMes {
   completo: boolean;
 }
 
+/** O que se soma de cada mês pago. */
+type SomaDoMes = Pick<PagamentosDoMes, 'total' | 'economia' | 'quantidade'>;
+
+const SOMA_VAZIA: SomaDoMes = { total: 0, economia: 0, quantidade: 0 };
+
+/** O pago de cada mês de um ano, de janeiro a dezembro. */
+export interface PagamentosDoAno {
+  ano: number;
+  meses: ({ mes: string } & SomaDoMes)[];
+  lidoEm: Date;
+  /** false = a leitura bateu no teto de páginas e janeiro pode faltar coisa. */
+  completo: boolean;
+}
+
 /**
  * Quantos títulos a lista aceita puxar de uma vez. Um provedor com anos de
  * histórico tem muita conta; o teto existe para uma base grande não travar a
@@ -325,21 +339,50 @@ export class ContasAbertasService {
    * folha, porque salário, diária e avulso viram `fn_apagar` como qualquer
    * outra despesa. Sem isto o painel só sabe dizer o que falta pagar, e "quanto
    * saiu este mês" é metade da pergunta de quem cuida do caixa.
-   *
-   * A busca vai por páginas, da mais recente para a mais antiga, e para assim
-   * que uma página inteira cai antes do mês pedido: o histórico de pagas cresce
-   * para sempre, e lê-lo todo a cada abertura de tela seria pedir ao IXC anos
-   * de dados para somar trinta dias.
    */
   async pagasNoMes(mes?: string): Promise<PagamentosDoMes> {
     const alvo = mes ?? mesAtual();
+    const lido = await this.somarPagas(alvo, alvo);
+    const soma = lido.porMes.get(alvo) ?? SOMA_VAZIA;
+    return { mes: alvo, ...soma, lidoEm: lido.lidoEm, completo: lido.completo };
+  }
+
+  /**
+   * Quanto a empresa pagou em cada mês do ano — o gráfico de colunas do
+   * dashboard. Uma leitura só para os doze: perguntar mês a mês faria o IXC
+   * reler, a cada coluna, todas as páginas dos meses mais novos.
+   */
+  async pagasNoAno(ano?: number): Promise<PagamentosDoAno> {
+    const alvo = ano ?? Number(mesAtual().slice(0, 4));
+    const meses = Array.from(
+      { length: 12 },
+      (_, i) => `${alvo}-${String(i + 1).padStart(2, '0')}`,
+    );
+    const lido = await this.somarPagas(meses[0], meses[11]);
+    return {
+      ano: alvo,
+      meses: meses.map((m) => ({ mes: m, ...(lido.porMes.get(m) ?? SOMA_VAZIA) })),
+      lidoEm: lido.lidoEm,
+      completo: lido.completo,
+    };
+  }
+
+  /**
+   * O que foi pago em cada mês de `de` a `ate` ("AAAA-MM"), lido do IXC.
+   *
+   * A busca vai por páginas, da mais recente para a mais antiga, e para assim
+   * que uma página inteira cai antes de `de`: o histórico de pagas cresce para
+   * sempre, e lê-lo todo seria pedir ao IXC anos de dados para somar meses.
+   */
+  private async somarPagas(
+    de: string,
+    ate: string,
+  ): Promise<{ porMes: Map<string, SomaDoMes>; lidoEm: Date; completo: boolean }> {
     const teto =
       TETO_DE_PAGINAS_PAGAS +
-      PAGINAS_POR_MES_ATRAS * Math.max(0, mesesEntre(alvo, mesAtual()));
+      PAGINAS_POR_MES_ATRAS * Math.max(0, mesesEntre(de, mesAtual()));
     const lidoEm = new Date();
-    let total = 0;
-    let economia = 0;
-    let quantidade = 0;
+    const porMes = new Map<string, SomaDoMes>();
     let paginasLidas = 0;
 
     /*
@@ -367,8 +410,9 @@ export class ContasAbertasService {
         paginasLidas = Math.max(paginasLidas, pagina);
         if (res.registros.length === 0) break;
 
-        let algumaDoMes = false;
-        let algumaMaisNova = false;
+        // Algum registro da página é do período ou mais novo que ele: ainda
+        // não passamos do começo do período.
+        let aindaNoPeriodo = false;
 
         for (const raw of res.registros) {
           // A situação é conferida registro a registro: base que ignore o
@@ -377,38 +421,34 @@ export class ContasAbertasService {
           if (!situacao.pago || !situacao.dataPagamento) continue;
 
           const mesDoPagamento = mesDaData(situacao.dataPagamento);
-          if (mesDoPagamento === alvo) {
-            algumaDoMes = true;
-            total += situacao.valorPago;
-            economia += descontoDoTitulo(raw);
-            quantidade += 1;
-          } else if (mesDoPagamento > alvo) {
-            // Pagamento posterior ao mês pedido: ainda não chegamos nele.
-            algumaMaisNova = true;
-          }
+          if (mesDoPagamento >= de) aindaNoPeriodo = true;
+          if (mesDoPagamento < de || mesDoPagamento > ate) continue;
+
+          const soma = porMes.get(mesDoPagamento) ?? { ...SOMA_VAZIA };
+          soma.total += situacao.valorPago;
+          soma.economia += descontoDoTitulo(raw);
+          soma.quantidade += 1;
+          porMes.set(mesDoPagamento, soma);
         }
 
-        // A página inteira ficou antes do mês pedido: como a ordem é da mais
+        // A página inteira ficou antes do período: como a ordem é da mais
         // recente para a mais antiga, o que vem depois é mais antigo ainda.
-        if (!algumaDoMes && !algumaMaisNova) break;
+        if (!aindaNoPeriodo) break;
       }
     }
 
     if (paginasLidas >= teto) {
       this.logger.warn(
-        `A leitura de pagamentos de ${alvo} parou em ${teto} ` +
-          'páginas — o total do mês pode estar incompleto.',
+        `A leitura de pagamentos de ${de} a ${ate} parou em ${teto} ` +
+          'páginas — o total pode estar incompleto.',
       );
     }
 
-    return {
-      mes: alvo,
-      total: Math.round(total * 100) / 100,
-      economia: Math.round(economia * 100) / 100,
-      quantidade,
-      lidoEm,
-      completo: paginasLidas < teto,
-    };
+    for (const soma of porMes.values()) {
+      soma.total = Math.round(soma.total * 100) / 100;
+      soma.economia = Math.round(soma.economia * 100) / 100;
+    }
+    return { porMes, lidoEm, completo: paginasLidas < teto };
   }
 
   /**

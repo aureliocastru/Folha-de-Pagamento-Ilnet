@@ -921,6 +921,15 @@ export interface PagamentosDoMes {
   completo: boolean;
 }
 
+/** O pago de cada mês de um ano, de janeiro a dezembro. */
+export interface PagamentosDoAno {
+  ano: number;
+  meses: Pick<PagamentosDoMes, 'mes' | 'total' | 'quantidade' | 'economia'>[];
+  lidoEm: string;
+  /** false = a leitura bateu no teto e janeiro pode faltar coisa. */
+  completo: boolean;
+}
+
 /** Uma categoria de despesa do cadastro daqui. */
 export interface CategoriaDespesa {
   id: string;
