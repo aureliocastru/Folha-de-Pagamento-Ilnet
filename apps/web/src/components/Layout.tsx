@@ -124,8 +124,9 @@ function LayoutComputador({ modulo }: { modulo: Modulo }) {
             <ItemDaBarra key={item.to} item={item} aviso={avisos[item.to]} />
           ))}
 
-          {/* A folha, dentro do Contas a Pagar: um grupo que o título abre e
-              fecha, e que já vem aberto numa tela dela. */}
+          {/* A folha e a contabilidade, dentro do Contas a Pagar: cada uma é
+              um grupo que o título abre e fecha, e que já vem aberto numa tela
+              dela. */}
           {menu.secoes.map(({ secao, itens }) => {
             const aberta =
               aMao[secao.id] ?? secaoAberta(modulo, secao, pathname, menu.itens.length === 0);

@@ -2,7 +2,6 @@ import { Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { useAuth } from './lib/auth';
 import {
-  MODULO_CONTABILIDADE,
   MODULO_CONTAS_PAGAR,
   MODULO_ALMOXARIFADO,
   MODULO_OS,
@@ -165,6 +164,18 @@ function FolhaDeAntes() {
 }
 
 /**
+ * O endereço antigo da contabilidade, de quando ela era módulo — a mesma regra
+ * da `FolhaDeAntes`. O `#` vai junto: é ele que leva ao ajuste certo.
+ */
+function ContabilidadeDeAntes() {
+  const { pathname, search, hash } = useLocation();
+  const resto = pathname.replace(/^\/contabilidade\/?/, '');
+  const destino =
+    resto === 'minha-conta' ? '/contas-pagar/minha-conta' : `/contas-pagar/contabilidade/${resto}`;
+  return <Navigate to={`${destino}${search}${hash}`} replace />;
+}
+
+/**
  * Endereço que não existe: de volta para onde este login trabalha.
  *
  * Era sempre `/modulos`, e para o técnico de campo isso é uma tela que ele não
@@ -185,9 +196,10 @@ const TELAS_DO_MODULO: Record<string, Array<{ preCarregar: () => void }>> = {
     ContasPagarInicio, HistoricoDePagamentos, Controle, ContasPagarDashboard, Avulsos,
     Recorrentes, ContasContrato, CartoesCredito, Veiculos, ContasPagarCategorias,
     FechamentoCaixa, MinhaConta,
-    // A folha, que mora aqui dentro.
+    // A folha e a contabilidade, que moram aqui dentro.
     Funcionarios, FuncionarioDetalhe, Diaristas, Vales, Ferias, Folha, HistoricoDaFolha,
     Impostos, Configuracoes,
+    MesesDaContabilidade, MesDaContabilidade, AjustesDaContabilidade,
   ],
   almoxarifado: [
     Estoque, Conferencia, Almoxarifados, AlmoxarifadoDetalhe, PecasDoProduto, Transferir,
@@ -198,7 +210,6 @@ const TELAS_DO_MODULO: Record<string, Array<{ preCarregar: () => void }>> = {
   seguranca: [Aprs, Formularios, MinhaConta],
   campo: [CampoMinhasOs, MinhaConta],
   pontuacao: [Pontuar, Motivos, Coordenadores, MinhaConta],
-  contabilidade: [MesesDaContabilidade, MesDaContabilidade, AjustesDaContabilidade, MinhaConta],
   patrocinio: [Patrocinados, PatrocinadoAberto, ContratoPadrao, PagamentosDoPatrocinio, MinhaConta],
 };
 
@@ -265,8 +276,10 @@ export default function App() {
         }
       />
 
-      {/* A folha foi módulo até 23/10/2026; hoje mora no Contas a Pagar. */}
+      {/* A folha foi módulo até 23/10/2026, e a contabilidade até 29/10/2026;
+          hoje as duas moram no Contas a Pagar. */}
       <Route path="/folha/*" element={<FolhaDeAntes />} />
+      <Route path="/contabilidade/*" element={<ContabilidadeDeAntes />} />
 
       <Route
         path="/contas-pagar"
@@ -335,6 +348,19 @@ export default function App() {
           <Route path="avulsos" element={<Navigate to="/contas-pagar/avulsos" replace />} />
           <Route path="impostos" element={<Impostos />} />
           <Route path="configuracoes" element={<Configuracoes />} />
+        </Route>
+
+        {/* A contabilidade: foi módulo próprio até 29/10/2026. Só ADMIN — o
+            extrato de todas as contas e o que os sócios retiraram não são
+            assunto de outro perfil. */}
+        <Route
+          path="contabilidade"
+          element={<SoQuemAbre acesso="contabilidade" modulo={MODULO_CONTAS_PAGAR} />}
+        >
+          <Route index element={<Navigate to="meses" replace />} />
+          <Route path="meses" element={<MesesDaContabilidade />} />
+          <Route path="meses/:id" element={<MesDaContabilidade />} />
+          <Route path="ajustes" element={<AjustesDaContabilidade />} />
         </Route>
       </Route>
 
@@ -503,25 +529,6 @@ export default function App() {
         <Route path="pontuar" element={<Pontuar />} />
         <Route path="motivos" element={<Motivos />} />
         <Route path="coordenadores" element={<Coordenadores />} />
-        <Route path="minha-conta" element={<MinhaConta />} />
-      </Route>
-
-      {/* Contabilidade — só ADMIN: o extrato de todas as contas e o que os
-          sócios retiraram não são assunto de outro perfil. */}
-      <Route
-        path="/contabilidade"
-        element={
-          <Protegida>
-            <SomenteAdmin>
-              <Layout modulo={MODULO_CONTABILIDADE} />
-            </SomenteAdmin>
-          </Protegida>
-        }
-      >
-        <Route index element={<Navigate to="meses" replace />} />
-        <Route path="meses" element={<MesesDaContabilidade />} />
-        <Route path="meses/:id" element={<MesDaContabilidade />} />
-        <Route path="ajustes" element={<AjustesDaContabilidade />} />
         <Route path="minha-conta" element={<MinhaConta />} />
       </Route>
 

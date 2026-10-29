@@ -102,7 +102,7 @@ export function MesDaContabilidade() {
     mutationFn: async () => api.delete(`/contabilidade/pacotes/${id}`),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['contabilidade', 'pacotes'] });
-      navigate('/contabilidade/meses');
+      navigate('/contas-pagar/contabilidade/meses');
     },
     onError: (e) => setErro(mensagemErro(e)),
   });
@@ -142,7 +142,7 @@ export function MesDaContabilidade() {
       <CabecalhoPagina
         secao="Contabilidade"
         titulo={nomeDoPeriodo(p.de, p.ate)}
-        voltar={() => navigate('/contabilidade/meses')}
+        voltar={() => navigate('/contas-pagar/contabilidade/meses')}
         acoes={
           <>
             <button
@@ -404,7 +404,7 @@ function CartaoDoItem({
               </button>
             ))}
           {item.ajuste && (
-            <Link to={`/contabilidade/ajustes#${item.ajuste}`} className="btn btn-p btn-sutil">
+            <Link to={`/contas-pagar/contabilidade/ajustes#${item.ajuste}`} className="btn btn-p btn-sutil">
               Ajustar
             </Link>
           )}

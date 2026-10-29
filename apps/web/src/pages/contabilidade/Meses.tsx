@@ -29,7 +29,7 @@ export function MesesDaContabilidade() {
       (await api.post<{ id: string; novo: boolean }>('/contabilidade/pacotes', periodo)).data,
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: ['contabilidade', 'pacotes'] });
-      navigate(`/contabilidade/meses/${r.id}`);
+      navigate(`/contas-pagar/contabilidade/meses/${r.id}`);
     },
     onError: (e) => setErro(mensagemErro(e)),
   });
@@ -83,7 +83,7 @@ export function MesesDaContabilidade() {
               <li key={p.id}>
                 <button
                   type="button"
-                  onClick={() => navigate(`/contabilidade/meses/${p.id}`)}
+                  onClick={() => navigate(`/contas-pagar/contabilidade/meses/${p.id}`)}
                   className="flex w-full flex-wrap items-center justify-between gap-2 px-4 py-3 text-left transition hover:bg-tinta-50 md:px-5"
                 >
                   <span className="min-w-0">

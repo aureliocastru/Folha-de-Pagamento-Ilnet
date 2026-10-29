@@ -221,8 +221,9 @@ function GavetaDoModulo({
             <ItemDaGaveta key={item.to} item={item} aviso={avisos[item.to]} />
           ))}
 
-          {/* A folha, dentro do Contas a Pagar: o mesmo grupo da barra do
-              computador. Tocar no título abre ali mesmo, sem sair da gaveta. */}
+          {/* A folha e a contabilidade, dentro do Contas a Pagar: os mesmos
+              grupos da barra do computador. Tocar no título abre ali mesmo,
+              sem sair da gaveta. */}
           {menu.secoes.map(({ secao, itens }) => {
             const aberta =
               aMao[secao.id] ?? secaoAberta(modulo, secao, caminho, menu.itens.length === 0);

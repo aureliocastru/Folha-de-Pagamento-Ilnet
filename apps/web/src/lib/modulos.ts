@@ -104,7 +104,8 @@ export interface Modulo {
  * empresa paga. O acesso, porém, continuou o dela, com o mesmo `id` que os
  * logins e os perfis já guardam e que a API confere (`ModulosGuard`): quem
  * paga as contas não passa a ver salário por causa de uma troca de menu, e
- * quem fazia a folha não a perde.
+ * quem fazia a folha não a perde. A contabilidade veio pelo mesmo caminho em
+ * 29/10/2026.
  *
  * No menu ela é um grupo com o nome dela, aberto enquanto se está numa das
  * telas dele. Os caminhos do `menu` são relativos à base do módulo, como os
@@ -143,6 +144,29 @@ const folha: Secao = {
   ],
 };
 
+/**
+ * Contabilidade — o que o escritório de contabilidade pede todo mês.
+ *
+ * Os vinte itens do papel deles num lugar só: o que sai do IXC já vem lido,
+ * o que só existe fora (extrato do banco, contrato, maquininha) entra pela
+ * tela, e o mês sai num zip. Só ADMIN: é o extrato de todas as contas e o que
+ * os sócios retiraram.
+ *
+ * Foi módulo até 29/10/2026, quando passou a morar dentro do Contas a Pagar,
+ * como a folha. O `id` continua o mesmo.
+ */
+const contabilidade: Secao = {
+  id: 'contabilidade',
+  nome: 'Contabilidade',
+  to: 'contabilidade',
+  icone: IconeCalculo,
+  papeis: ['ADMIN'],
+  menu: [
+    { to: 'contabilidade/meses', label: 'Meses', icone: IconeChecklist },
+    { to: 'contabilidade/ajustes', label: 'Ajustes', icone: IconeEngrenagem },
+  ],
+};
+
 const contasPagar: Modulo = {
   id: 'contas-pagar',
   nome: 'Contas a Pagar',
@@ -153,7 +177,7 @@ const contasPagar: Modulo = {
   icone: IconeSaida,
   tom: 'bg-emerald-500/15 text-emerald-300',
   papeis: ['ADMIN', 'RH', 'VISUALIZADOR'],
-  secoes: [folha],
+  secoes: [folha, contabilidade],
   menu: [
     { to: 'inicio', label: 'Em aberto', icone: IconeSaida },
     // As duas metades da mesma tabela do IXC, uma ao lado da outra: o que a
@@ -389,31 +413,6 @@ const pontuacao: Modulo = {
 };
 
 /**
- * Contabilidade — o que o escritório de contabilidade pede todo mês.
- *
- * Os vinte itens do papel deles num lugar só: o que sai do IXC já vem lido,
- * o que só existe fora (extrato do banco, contrato, maquininha) entra pela
- * tela, e o mês sai num zip. Só ADMIN: é o extrato de todas as contas e o que
- * os sócios retiraram.
- */
-const contabilidade: Modulo = {
-  id: 'contabilidade',
-  nome: 'Contabilidade',
-  descricao:
-    'Os documentos do mês para a contabilidade: o que sai do IXC já vem pronto, ' +
-    'o que falta aparece para você enviar',
-  base: '/contabilidade',
-  inicio: 'meses',
-  icone: IconeCalculo,
-  tom: 'bg-cyan-500/15 text-cyan-300',
-  papeis: ['ADMIN'],
-  menu: [
-    { to: 'meses', label: 'Meses', icone: IconeChecklist },
-    { to: 'ajustes', label: 'Ajustes', icone: IconeEngrenagem },
-  ],
-};
-
-/**
  * Patrocínios — quem a ILNET patrocina.
  *
  * O atleta, o time, o grupo de dança: o contato, o que já se mandou e quando,
@@ -449,7 +448,6 @@ export const MODULOS: Modulo[] = [
   seguranca,
   patrocinio,
   pontuacao,
-  contabilidade,
 ];
 
 /** O que se libera por login: um módulo, ou uma seção de dentro dele. */
@@ -480,7 +478,6 @@ export const MODULO_OS = os;
 export const MODULO_RH = rh;
 export const MODULO_SEGURANCA = seguranca;
 export const MODULO_PONTUACAO = pontuacao;
-export const MODULO_CONTABILIDADE = contabilidade;
 export const MODULO_PATROCINIO = patrocinio;
 
 /**
