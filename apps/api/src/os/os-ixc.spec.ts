@@ -85,6 +85,9 @@ describe('lerOs', () => {
       bairro: 'Centro',
       complemento: '',
       referencia: 'portão azul',
+      id_cidade: '637',
+      latitude: '-4.0406942',
+      longitude: '-44.4649361',
     });
     expect(lida).toEqual({
       id: 3788,
@@ -103,6 +106,9 @@ describe('lerOs', () => {
       fechamento: null,
       mensagem: 'Trocar ONU queimada',
       endereco: 'Rua das Palmeiras, 42 — Centro — portão azul',
+      cidadeId: 637,
+      referencia: 'portão azul',
+      coordenada: { latitude: -4.0406942, longitude: -44.4649361 },
     });
   });
 

@@ -20,14 +20,19 @@ import {
   somarDias,
   type AparelhoDaOs,
   type ConferenciaDoMes,
-  type Coordenada,
   type MaterialDaOs,
   type OsFechada,
   type PedidoDeConferencia,
   type Sinal,
 } from './conferencia';
 import { OsDoIxcService } from './os-do-ixc.service';
-import { hojeNaData, type ArquivoDaOs, type AssuntoDoIxc, type ComodatoDoContrato } from './os-ixc';
+import {
+  hojeNaData,
+  type ArquivoDaOs,
+  type AssuntoDoIxc,
+  type ComodatoDoContrato,
+  type Coordenada,
+} from './os-ixc';
 import type { Login } from './os.service';
 import { TecnicosService } from './tecnicos.service';
 

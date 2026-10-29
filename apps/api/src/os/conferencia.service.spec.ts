@@ -31,6 +31,9 @@ function fechada(id: number, dados: Partial<OsFechada> = {}): OsFechada {
     fechamento: '2026-10-23 10:00:00',
     mensagem: null,
     endereco: 'Rua das Palmeiras, 42',
+    cidadeId: 637,
+    referencia: null,
+    coordenada: null,
     relatorio: 'Troquei o conector.',
     ...dados,
   };

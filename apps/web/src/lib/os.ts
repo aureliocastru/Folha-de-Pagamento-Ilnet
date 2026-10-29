@@ -193,6 +193,88 @@ export interface OsAberta {
   itens: ItemDeOs[];
 }
 
+/** Um telefone do cliente, do jeito que a API da ficha o manda. */
+export interface TelefoneDoCliente {
+  /** De onde ele veio: "Celular", "WhatsApp", "Na mensagem da OS"… */
+  rotulo: string;
+  /** Como está escrito no cadastro — é o que se lê e se confere. */
+  numero: string;
+  /** Só os dígitos, para montar o link de ligar e o do WhatsApp. */
+  digitos: string;
+}
+
+export interface ClienteDaFicha {
+  id: number;
+  nome: string;
+  /** F pessoa física, J jurídica. */
+  tipoPessoa: string | null;
+  documento: string | null;
+  telefones: TelefoneDoCliente[];
+  email: string | null;
+  contato: string | null;
+  /** O aviso que pisca no IXC ao abrir o cliente. */
+  alerta: string | null;
+  observacao: string | null;
+}
+
+export interface EnderecoDaFicha {
+  /** A linha que a lista do técnico já mostra: rua, número, bairro, referência. */
+  linha: string | null;
+  /** Vêm nulos quando já estão escritos na linha — a API não repete. */
+  cidade: string | null;
+  uf: string | null;
+  cep: string | null;
+  referencia: string | null;
+  coordenada: { latitude: number; longitude: number } | null;
+}
+
+export interface ContratoDaFicha {
+  id: number;
+  plano: string | null;
+  status: string | null;
+  statusNome: string | null;
+  ativacao: string | null;
+  observacao: string | null;
+}
+
+export interface LoginDaFicha {
+  id: number;
+  usuario: string | null;
+  ativo: boolean;
+  online: boolean;
+  ip: string | null;
+  mac: string | null;
+  onu: string | null;
+  /** A caixa de atendimento e a porta onde a fibra do cliente termina. */
+  caixa: string | null;
+  porta: string | null;
+  ultimaConexao: string | null;
+  sinal: string | null;
+}
+
+/**
+ * A ficha da OS: as mesmas informações do papel que o IXC imprime
+ * ("matricial modelo 1"), mais o telefone para ligar e o ponto no mapa.
+ */
+export interface FichaDaOs {
+  os: {
+    id: number;
+    protocolo: string | null;
+    status: string;
+    statusNome: string;
+    prioridade: PrioridadeDaOs | null;
+    assunto: string | null;
+    abertura: string | null;
+    agenda: string | null;
+    mensagem: string | null;
+    filial: string | null;
+  };
+  cliente: ClienteDaFicha | null;
+  endereco: EnderecoDaFicha;
+  contrato: ContratoDaFicha | null;
+  login: LoginDaFicha | null;
+}
+
 export interface PecaAchada {
   patrimonioId: number;
   produtoId: number;
@@ -429,6 +511,21 @@ export function identificacaoDaPeca(p: {
 export function quantidadeComUnidade(quantidade: number, unidade: string | null): string {
   const n = quantidade.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
   return unidade ? `${n} ${unidade}` : n;
+}
+
+/**
+ * "2026-10-29 08:36:15" → "29/10/2026 08:36"; "2025-12-18" → "18/12/2025".
+ *
+ * Por fatia de texto, e não por `new Date`: a data do IXC vem sem fuso, e
+ * passar por `Date` a joga para o dia anterior em quem está a oeste de
+ * Greenwich.
+ */
+export function dataHoraDoIxc(ixc: string | null): string | null {
+  if (!ixc) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/.exec(ixc);
+  if (!m) return ixc;
+  const dia = `${m[3]}/${m[2]}/${m[1]}`;
+  return m[4] && m[4] + m[5] !== '0000' ? `${dia} ${m[4]}:${m[5]}` : dia;
 }
 
 /** "2026-09-24 09:00:00" → "24/09 09:00". */

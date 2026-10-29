@@ -23,11 +23,13 @@
 
 import { numeroDoIxc } from '../almoxarifado/estoque.mapper';
 import {
+  coordenada,
   ehAssinatura,
   lerOs,
   type ArquivoDaOs,
   type AssuntoDoIxc,
   type ComodatoDoContrato,
+  type Coordenada,
   type OsDoIxc,
 } from './os-ixc';
 
@@ -54,11 +56,6 @@ export function ehMotivo(v: unknown): v is MotivoDeProblema {
 // O que se lê do IXC
 // ---------------------------------------------------------------------------
 
-export interface Coordenada {
-  latitude: number;
-  longitude: number;
-}
-
 /** A OS fechada, com o que a conferência olha além do que a lista do técnico usa. */
 export interface OsFechada extends OsDoIxc {
   /** `mensagem_resposta`: o que o técnico escreveu ao fechar. */
@@ -68,16 +65,6 @@ export interface OsFechada extends OsDoIxc {
 function texto(v: unknown): string | null {
   const t = v === null || v === undefined ? '' : String(v).trim();
   return t === '' || t === '0' ? null : t;
-}
-
-/** Uma coordenada que dá para usar: número, dentro do mapa, e não o zero do vazio. */
-export function coordenada(latitude: unknown, longitude: unknown): Coordenada | null {
-  const lat = Number(String(latitude ?? '').replace(',', '.'));
-  const lng = Number(String(longitude ?? '').replace(',', '.'));
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-  if (lat === 0 && lng === 0) return null;
-  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
-  return { latitude: lat, longitude: lng };
 }
 
 /** Uma linha de `su_oss_chamado` fechada. Null quando não tem id. */

@@ -44,6 +44,9 @@ const OS: OsDoIxc = {
   fechamento: null,
   mensagem: null,
   endereco: 'Rua das Palmeiras, 42',
+  cidadeId: 637,
+  referencia: null,
+  coordenada: null,
 };
 
 const ASSUNTO: AssuntoDoIxc = {

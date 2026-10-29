@@ -1,7 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { IconeCaixa, IconeLupa, IconeOs, IconeRecolhido } from '../../components/icones';
+import {
+  IconeCaixa,
+  IconeDocumento,
+  IconeLupa,
+  IconeOs,
+  IconeRecolhido,
+} from '../../components/icones';
 import { LeitorDeCodigo, leitorDeCodigoSuportado } from '../../components/LeitorDeCodigo';
 import { Aviso, Carregando, Janela, Selo } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
@@ -421,6 +427,12 @@ export function CampoOs() {
             <p className="mt-2 text-[12px] text-tinta-400">
               Material de <strong className="text-tinta-600">{dados.tecnico.almox.nome}</strong>
             </p>
+            {/* A ficha é o papel da OS do IXC virado tela, e é por ela que o
+                técnico liga para o cliente e abre o mapa — antes de começar. */}
+            <Link to={`/campo/os/${id}/ficha`} className="btn btn-neutro mt-3 w-full justify-center">
+              <IconeDocumento className="h-4 w-4" />
+              Ficha da OS, contato e mapa
+            </Link>
           </div>
 
           {recusa && <Aviso tom="atencao">{recusa}</Aviso>}

@@ -4,6 +4,7 @@ import { IxcModule } from '../ixc/ixc.module';
 import { UsuariosModule } from '../usuarios/usuarios.module';
 import { ConferenciaController } from './conferencia.controller';
 import { ConferenciaService } from './conferencia.service';
+import { FichaDeOsService } from './ficha.service';
 import { FinalizacaoService } from './finalizacao.service';
 import { MateriaisDeOsService } from './materiais.service';
 import { MinhasOsController } from './minhas-os.controller';
@@ -31,6 +32,7 @@ import { TecnicosService } from './tecnicos.service';
     TecnicosService,
     ConferenciaService,
     OsService,
+    FichaDeOsService,
     FinalizacaoService,
     RecolhidosService,
     MateriaisDeOsService,

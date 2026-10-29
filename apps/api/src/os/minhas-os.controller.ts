@@ -23,6 +23,7 @@ import {
   ResponderConferenciaDto,
 } from './dto/os.dto';
 import { ConferenciaService } from './conferencia.service';
+import { FichaDeOsService } from './ficha.service';
 import { FinalizacaoService } from './finalizacao.service';
 import { OsService, type Login } from './os.service';
 
@@ -48,6 +49,7 @@ export class MinhasOsController {
     private readonly os: OsService,
     private readonly finalizacao: FinalizacaoService,
     private readonly conferencia: ConferenciaService,
+    private readonly ficha: FichaDeOsService,
   ) {}
 
   @Get()
@@ -78,6 +80,16 @@ export class MinhasOsController {
   @Get(':osId')
   abrir(@Req() req: Request, @Param('osId', ParseIntPipe) osId: number) {
     return this.os.abrir(logado(req), osId);
+  }
+
+  /**
+   * A ficha da OS: o que o IXC põe no papel do "matricial modelo 1" — o
+   * cliente, o endereço, o contrato e o login —, mais o telefone para ligar e
+   * o ponto no mapa. Só leitura, e é a OS do próprio técnico.
+   */
+  @Get(':osId/ficha')
+  fichaDaOs(@Req() req: Request, @Param('osId', ParseIntPipe) osId: number) {
+    return this.ficha.ficha(logado(req), osId);
   }
 
   /** O aparelho de um código bipado, e se ele pode ser instalado. Não anota nada. */

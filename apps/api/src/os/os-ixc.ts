@@ -153,6 +153,27 @@ export interface OsDoIxc {
   /** O que o atendimento escreveu ao abrir. */
   mensagem: string | null;
   endereco: string | null;
+  /** `id_cidade` — é por ele que se acha o nome da cidade e a UF. */
+  cidadeId: number;
+  /** O ponto de referência do endereço ("depois da igreja"). */
+  referencia: string | null;
+  /** Onde o IXC marcou a OS no mapa. */
+  coordenada: Coordenada | null;
+}
+
+export interface Coordenada {
+  latitude: number;
+  longitude: number;
+}
+
+/** Uma coordenada que dá para usar: número, dentro do mapa, e não o zero do vazio. */
+export function coordenada(latitude: unknown, longitude: unknown): Coordenada | null {
+  const lat = Number(String(latitude ?? '').replace(',', '.'));
+  const lng = Number(String(longitude ?? '').replace(',', '.'));
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat === 0 && lng === 0) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return { latitude: lat, longitude: lng };
 }
 
 function texto(v: unknown): string | null {
@@ -198,6 +219,9 @@ export function lerOs(l: Record<string, unknown>): OsDoIxc | null {
     fechamento: dataDoIxc(l.data_fechamento),
     mensagem: texto(l.mensagem),
     endereco: endereco || null,
+    cidadeId: numeroDoIxc(l.id_cidade),
+    referencia: texto(l.referencia),
+    coordenada: coordenada(l.latitude, l.longitude),
   };
 }
 

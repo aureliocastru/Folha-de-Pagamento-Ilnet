@@ -56,6 +56,11 @@ export class OsDoIxcService {
   private readonly logger = new Logger(OsDoIxcService.name);
   private assuntos: { em: number; porId: Map<number, AssuntoDoIxc> } | null = null;
   private filiais: { em: number; nomes: Map<number, string> } | null = null;
+  private ufs: { em: number; siglas: Map<number, string> } | null = null;
+  private readonly cidades = new Map<
+    number,
+    { em: number; cidade: { nome: string; uf: string | null } }
+  >();
 
   constructor(
     private readonly ixc: IxcClient,
@@ -217,6 +222,69 @@ export class OsDoIxcService {
       if (nome) nomes.set(unicos[i], nome);
     });
     return nomes;
+  }
+
+  /**
+   * O cadastro cru de um cliente, de um contrato ou de um login — o que a
+   * ficha da OS lê para o técnico. Cru porque quem escolhe campo a campo é
+   * `ficha.ts`, e cada um destes cadastros tem mais de cem colunas.
+   *
+   * A falha não sobe: a ficha vale sem o contrato ou sem o login, e o técnico
+   * no portão do cliente precisa do que der para ler. Null é "não achei".
+   */
+  async cadastroDaFicha(
+    resource: 'cliente' | 'cliente_contrato' | 'radusuarios',
+    id: number,
+  ): Promise<Record<string, unknown> | null> {
+    if (!(id > 0)) return null;
+    try {
+      return await this.ixc.getById<Record<string, unknown>>(resource, `${resource}.id`, id);
+    } catch (e) {
+      this.logger.warn(`Sem o ${resource} ${id} do IXC para a ficha da OS (${motivo(e)}).`);
+      return null;
+    }
+  }
+
+  /**
+   * A cidade de um endereço: o nome e a sigla da UF. São duas tabelas de
+   * cadastro do IXC (`cidade.uf` é o id de `uf`), e as duas quase não mudam —
+   * ficam guardadas como os assuntos e as filiais.
+   */
+  async cidade(cidadeId: number): Promise<{ nome: string; uf: string | null } | null> {
+    if (!(cidadeId > 0)) return null;
+    const guardada = this.cidades.get(cidadeId);
+    if (guardada && Date.now() - guardada.em < CADASTRO_VALE_MS) return guardada.cidade;
+    try {
+      const linha = await this.ixc.getById<Record<string, unknown>>('cidade', 'cidade.id', cidadeId);
+      const nome = String(linha?.nome ?? '').trim();
+      if (!nome) return null;
+      const cidade = { nome, uf: await this.siglaDaUf(numeroDoIxc(linha?.uf)) };
+      this.cidades.set(cidadeId, { em: Date.now(), cidade });
+      return cidade;
+    } catch (e) {
+      this.logger.warn(`Sem a cidade ${cidadeId} do IXC (${motivo(e)}).`);
+      return null;
+    }
+  }
+
+  /** id → sigla da UF ("MA"). O cadastro inteiro cabe em uma leitura. */
+  private async siglaDaUf(ufId: number): Promise<string | null> {
+    if (ufId <= 0) return null;
+    if (!this.ufs || Date.now() - this.ufs.em >= CADASTRO_VALE_MS) {
+      const linhas = await this.ixc.listAll<Record<string, unknown>>(
+        'uf',
+        { qtype: 'uf.id', query: '0', oper: '>', sortname: 'uf.id', sortorder: 'asc' },
+        { pageSize: 100, maxPages: 2 },
+      );
+      const siglas = new Map<number, string>();
+      for (const u of linhas) {
+        const id = numeroDoIxc(u.id);
+        const sigla = String(u.sigla ?? '').trim().toUpperCase();
+        if (id > 0 && sigla) siglas.set(id, sigla);
+      }
+      this.ufs = { em: Date.now(), siglas };
+    }
+    return this.ufs.siglas.get(ufId) ?? null;
   }
 
   /**
