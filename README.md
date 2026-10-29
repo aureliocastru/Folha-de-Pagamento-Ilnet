@@ -33,7 +33,8 @@ folha-pagamento/
 ├── docker-compose.yml    # Ambiente local completo (db + api + web)
 ├── .env.example          # Modelo das variáveis de ambiente
 ├── PLANO.md              # Roadmap por fases
-└── DEPLOY-EASYPANEL.md   # Guia de deploy no EasyPanel
+├── DEPLOY-EASYPANEL.md   # Guia de deploy no EasyPanel
+└── MIGRAR-DE-SERVIDOR.md # Levar o sistema para outra máquina
 ```
 
 **Backend (NestJS)** — organizado em módulos para escalar:
@@ -125,4 +126,5 @@ npm test              # testes unitários do backend (parsing, mappers, cliente 
 ## Deploy
 
 Veja **[DEPLOY-EASYPANEL.md](DEPLOY-EASYPANEL.md)** para o passo a passo no
-EasyPanel (Postgres + serviço da API + serviço Web).
+EasyPanel (Postgres + serviço da API + serviço Web). Para trocar de servidor
+levando os dados, **[MIGRAR-DE-SERVIDOR.md](MIGRAR-DE-SERVIDOR.md)**.

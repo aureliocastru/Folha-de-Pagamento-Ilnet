@@ -6,6 +6,10 @@ Guia para subir a aplicação no seu servidor com EasyPanel. Você vai criar
 Pré-requisito: o código versionado num repositório Git acessível pelo EasyPanel
 (GitHub/GitLab), ou faça o deploy por upload/Docker.
 
+> Trocando de servidor, com o sistema já rodando em outro? Então o que você quer
+> é **[MIGRAR-DE-SERVIDOR.md](MIGRAR-DE-SERVIDOR.md)**: estes mesmos passos, mais
+> o banco e a virada do domínio.
+
 ---
 
 ## 1. Criar o projeto e o banco
