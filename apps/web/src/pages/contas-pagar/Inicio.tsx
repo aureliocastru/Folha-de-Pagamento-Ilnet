@@ -332,6 +332,124 @@ export function Inicio() {
           nela, e é a primeira coisa a resolver. */}
       <DespesasNaoEnviadas />
 
+      {/*
+        Marcar uma conta não pode mexer na lista: quem está mirando a próxima
+        linha clicaria na conta errada. Por isso a barra nunca ocupa lugar: na
+        tela larga flutua no vazio ao lado da busca, e nas outras, no pé da
+        tela. Em qualquer uma ela continua à vista quando a lista rola.
+      */}
+      <div className="barra-selecao-lugar">
+        {marcados.size > 0 && (
+          <div className="surgir barra-selecao">
+            <div className="flex w-full items-baseline gap-2 md:w-auto">
+              <span className="barra-selecao-titulo whitespace-nowrap">
+                {marcados.size} marcado(s)
+              </span>
+              <span className="valor whitespace-nowrap text-sm text-white/80">
+                {formatBRL(
+                  (consulta.data?.contas ?? [])
+                    .filter((c) => marcados.has(c.idFnApagar))
+                    .reduce((s, c) => s + c.valorAberto, 0),
+                )}
+              </span>
+              {marcados.size > visiveisMarcados.length && (
+                <span
+                  className="whitespace-nowrap text-xs text-white/50"
+                  title="A marcação continua valendo para o que o filtro escondeu"
+                >
+                  ({visiveisMarcados.length} na tela)
+                </span>
+              )}
+            </div>
+            <SeletorDeCategoria
+              className="campo w-auto min-w-[10rem] flex-1 text-sm md:w-44 md:flex-none"
+              categorias={categorias.data}
+              value={categoriaLote}
+              vazio="Escolha a categoria…"
+              carregando={categorias.isLoading}
+              desabilitado={classificarLote.isPending}
+              onChange={setCategoriaLote}
+              extras={[{ valor: '__limpar', rotulo: '— tirar a categoria —' }]}
+            />
+            <button
+              onClick={() =>
+                classificarLote.mutate(
+                  categoriaLote === '__limpar' ? null : categoriaLote,
+                )
+              }
+              disabled={!categoriaLote || classificarLote.isPending}
+              className="btn btn-primario btn-p"
+            >
+              {classificarLote.isPending
+                ? 'Aplicando…'
+                : `Aplicar a ${marcados.size}`}
+            </button>
+            {/* Pagar o que está marcado, tudo numa janela só: quem separa dez
+                contas para pagar em dinheiro não quer dez confirmações. */}
+            <button
+              onClick={() =>
+                setPagandoEmMaos(
+                  (consulta.data?.contas ?? []).filter((c) =>
+                    marcados.has(c.idFnApagar),
+                  ),
+                )
+              }
+              className="btn btn-pagar btn-p"
+            >
+              Pagar
+            </button>
+            <button
+              onClick={() => {
+                const alvos = (consulta.data?.contas ?? []).filter((c) =>
+                  marcados.has(c.idFnApagar),
+                );
+                const total = alvos.reduce((s, c) => s + c.valorAberto, 0);
+                if (
+                  confirm(
+                    `Apagar ${alvos.length} título(s) no IXC, somando ` +
+                      `${formatBRL(total)}? As contas já pagas são puladas. ` +
+                      'Não dá para desfazer.',
+                  )
+                ) {
+                  excluirLote.mutate(alvos.map((c) => c.idFnApagar));
+                }
+              }}
+              disabled={excluirLote.isPending}
+              className="btn btn-p border border-white/15 text-rose-200 hover:bg-rose-500/20"
+            >
+              {excluirLote.isPending ? 'Apagando…' : 'Excluir'}
+            </button>
+            {/* Tira da lista, sem tocar no IXC: a conta continua devida e nos
+                totais. O botão amarelo no cabeçalho da tabela traz de volta. */}
+            <button
+              onClick={() => ocultarLote.mutate([...marcados])}
+              disabled={ocultarLote.isPending}
+              title="Tirar da lista. No IXC nada muda, e a conta continua nos totais."
+              className="btn btn-p border border-white/15 text-white/80 hover:bg-white/10 hover:text-white"
+            >
+              {ocultarLote.isPending ? 'Ocultando…' : 'Ocultar'}
+            </button>
+            <button
+              onClick={() => setMarcados(new Set())}
+              title="Desmarcar tudo"
+              className="btn btn-p text-white/60 hover:bg-white/10 hover:text-white"
+            >
+              Limpar
+            </button>
+            {classificarLote.isError && (
+              <span className="w-full text-sm text-rose-300">
+                {mensagemErro(classificarLote.error)}
+              </span>
+            )}
+            {ocultarLote.isError && (
+              <span className="w-full text-sm text-rose-300">
+                Não deu para ocultar: {mensagemErro(ocultarLote.error)}
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <input
           value={busca}
@@ -361,119 +479,6 @@ export function Inicio() {
           </span>
         )}
       </div>
-
-      {/*
-        A barra só existe quando há algo marcado, e some sozinha ao terminar.
-        Ela fica acima da tabela de propósito: é onde o olho está depois de
-        marcar as linhas, e no rodapé de uma lista de 500 títulos ninguém a
-        encontraria.
-      */}
-      {marcados.size > 0 && (
-        <div className="surgir barra-selecao mb-4">
-          <span className="barra-selecao-titulo">
-            {marcados.size} título(s) marcado(s)
-          </span>
-          <span className="valor text-sm text-white/80">
-            {formatBRL(
-              (consulta.data?.contas ?? [])
-                .filter((c) => marcados.has(c.idFnApagar))
-                .reduce((s, c) => s + c.valorAberto, 0),
-            )}
-          </span>
-          {marcados.size > visiveisMarcados.length && (
-            <span
-              className="text-xs text-white/50"
-              title="A marcação continua valendo para o que o filtro escondeu"
-            >
-              ({visiveisMarcados.length} na tela agora)
-            </span>
-          )}
-          <SeletorDeCategoria
-            className="campo max-w-xs py-1.5 text-sm"
-            categorias={categorias.data}
-            value={categoriaLote}
-            vazio="Escolha a categoria…"
-            carregando={categorias.isLoading}
-            desabilitado={classificarLote.isPending}
-            onChange={setCategoriaLote}
-            extras={[{ valor: '__limpar', rotulo: '— tirar a categoria —' }]}
-          />
-          <button
-            onClick={() =>
-              classificarLote.mutate(
-                categoriaLote === '__limpar' ? null : categoriaLote,
-              )
-            }
-            disabled={!categoriaLote || classificarLote.isPending}
-            className="btn btn-primario btn-p"
-          >
-            {classificarLote.isPending
-              ? 'Aplicando…'
-              : `Aplicar a ${marcados.size}`}
-          </button>
-          {/* Pagar o que está marcado, tudo numa janela só: quem separa dez
-              contas para pagar em dinheiro não quer dez confirmações. */}
-          <button
-            onClick={() =>
-              setPagandoEmMaos(
-                (consulta.data?.contas ?? []).filter((c) =>
-                  marcados.has(c.idFnApagar),
-                ),
-              )
-            }
-            className="btn btn-pagar btn-p"
-          >
-            Pagar
-          </button>
-          <button
-            onClick={() => {
-              const alvos = (consulta.data?.contas ?? []).filter((c) =>
-                marcados.has(c.idFnApagar),
-              );
-              const total = alvos.reduce((s, c) => s + c.valorAberto, 0);
-              if (
-                confirm(
-                  `Apagar ${alvos.length} título(s) no IXC, somando ` +
-                    `${formatBRL(total)}? As contas já pagas são puladas. ` +
-                    'Não dá para desfazer.',
-                )
-              ) {
-                excluirLote.mutate(alvos.map((c) => c.idFnApagar));
-              }
-            }}
-            disabled={excluirLote.isPending}
-            className="btn btn-p border border-white/15 text-rose-200 hover:bg-rose-500/20"
-          >
-            {excluirLote.isPending ? 'Apagando…' : 'Excluir'}
-          </button>
-          {/* Tira da lista, sem tocar no IXC: a conta continua devida e nos
-              totais. O botão amarelo no cabeçalho da tabela traz de volta. */}
-          <button
-            onClick={() => ocultarLote.mutate([...marcados])}
-            disabled={ocultarLote.isPending}
-            title="Tirar da lista. No IXC nada muda, e a conta continua nos totais."
-            className="btn btn-p border border-white/15 text-white/80 hover:bg-white/10 hover:text-white"
-          >
-            {ocultarLote.isPending ? 'Ocultando…' : 'Ocultar'}
-          </button>
-          <button
-            onClick={() => setMarcados(new Set())}
-            className="btn btn-p text-white/60 hover:bg-white/10 hover:text-white"
-          >
-            Limpar seleção
-          </button>
-          {classificarLote.isError && (
-            <span className="w-full text-sm text-rose-700">
-              {mensagemErro(classificarLote.error)}
-            </span>
-          )}
-          {ocultarLote.isError && (
-            <span className="w-full text-sm text-rose-300">
-              Não deu para ocultar: {mensagemErro(ocultarLote.error)}
-            </span>
-          )}
-        </div>
-      )}
 
       <Bloco semPadding>
         {/*
@@ -553,6 +558,10 @@ export function Inicio() {
           </div>
         )}
       </Bloco>
+
+      {/* Fica sempre, marcado ou não: a última conta não some atrás da barra, e
+          desmarcar lá no fim da lista não encurta a página. */}
+      <div className="barra-selecao-folga" aria-hidden />
 
       {detalhando && (
         <DetalheDaConta

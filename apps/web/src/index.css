@@ -591,11 +591,31 @@
    * lista tem centenas de linhas: marcar lá embaixo e ter de rolar até o topo
    * para achar o botão é o caminho mais curto para desistir da seleção.
    */
+  /*
+   * A barra nunca ocupa lugar na página, para marcar uma conta não mexer na
+   * lista. No pé da tela, à direita do menu lateral; de 1820px para cima há
+   * vazio ao lado da busca, e ela flutua ali (o `-lugar` tem altura zero e só a
+   * mantém à vista quando a lista rola).
+   */
   .barra-selecao {
-    @apply sticky top-2 z-20 flex flex-wrap items-center gap-3 rounded-xl bg-barra px-4 py-3 text-sm text-white shadow-lg;
+    @apply fixed bottom-3 left-[244px] right-3 z-20 flex flex-wrap items-center gap-2 rounded-xl bg-barra px-3 py-1 text-sm text-white shadow-lg;
   }
   .barra-selecao-titulo {
     @apply font-semibold text-white;
+  }
+  .barra-selecao-folga {
+    @apply h-16;
+  }
+  @media (min-width: 1820px) {
+    .barra-selecao-lugar {
+      @apply sticky top-2 z-20 h-0;
+    }
+    .barra-selecao {
+      @apply absolute -top-1 bottom-auto left-auto right-[7.75rem];
+    }
+    .barra-selecao-folga {
+      @apply h-0;
+    }
   }
 
   /* --- Selos --- */
@@ -770,7 +790,10 @@
    * ficaria por cima do outro justamente quando há linhas marcadas para pagar.
    */
   .barra-selecao {
-    @apply top-[3.75rem] gap-2 px-3 py-2.5 text-[13px];
+    @apply bottom-[calc(0.5rem+env(safe-area-inset-bottom))] left-2 right-2 py-2.5 text-[13px];
+  }
+  .barra-selecao-folga {
+    @apply h-40;
   }
 
   .selo {
