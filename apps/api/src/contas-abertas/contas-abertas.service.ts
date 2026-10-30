@@ -195,6 +195,9 @@ const TABELAS_PLANO_DE_CONTAS = [
  */
 const TIPOS_DE_CONTA_NO_INDICE = ['D', 'P', 'R'] as const;
 
+/** Até quantos títulos não liberados ficam de fora sem aviso na tela. */
+const NAO_LIBERADOS_SEM_AVISO = 20;
+
 /**
  * Conta em texto o que ficou de fora, por motivo e por coluna.
  *
@@ -222,13 +225,14 @@ function explicarExclusoes(
           `por ${parte}% do que o IXC devolveu.`,
       );
     } else if (motivo === 'nao-liberado') {
-      avisos.push(
-        `${quantidade} de ${totalLido} título(s) ficaram de fora por não terem ` +
-          `sido liberados no IXC (coluna "liberado" = N) — são lançamentos que ` +
-          `a entrada de nota criou e ninguém liberou. Eles também não aparecem ` +
-          `na tela de contas a pagar do IXC. Se esse número crescer muito, é ` +
-          `sinal de que esta regra está pegando conta demais.`,
-      );
+      // Os poucos de sempre são sobra de entrada de nota, e o próprio IXC os
+      // esconde. Muitos de uma vez é esta regra pegando conta devida.
+      if (quantidade > NAO_LIBERADOS_SEM_AVISO) {
+        avisos.push(
+          `${quantidade} de ${totalLido} título(s) ficaram de fora por não ` +
+            `estarem liberados no IXC.`,
+        );
+      }
     } else if (motivo === 'quitado') {
       avisos.push(
         `${quantidade} título(s) vieram sem saldo a pagar e ficaram de fora.`,

@@ -1,11 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Aviso,
   Bloco,
   CabecalhoPagina,
   Carregando,
-  Indicador,
   Pagina,
   Selo,
   Vazio,
@@ -23,6 +22,7 @@ import type {
   CategoriaDespesa,
   ContaAberta,
   ContasAbertas,
+  NoBancoDaConta,
 } from '../../lib/types';
 import { EditarConta, ExcluirConta, PagarEmMaos, SeloNoBanco } from './AcoesDaConta';
 import { DespesasNaoEnviadas } from './DespesasNaoEnviadas';
@@ -39,12 +39,8 @@ import { TornarRecorrente } from './TornarRecorrente';
  * sobre dívida é pior que número nenhum.
  */
 
-/** As fatias do resumo viram filtro: clicar no número mostra as contas dele. */
-type Recorte = 'todas' | 'vencidas' | 'semana' | 'demais' | 'sem-data';
-
 export function Inicio() {
   const queryClient = useQueryClient();
-  const [recorte, setRecorte] = useState<Recorte>('todas');
   const [busca, setBusca] = useState('');
   /** Mostrar só o que ninguém etiquetou ainda — a fila de trabalho. */
   const [soSemCategoria, setSoSemCategoria] = useState(false);
@@ -75,6 +71,53 @@ export function Inicio() {
     retry: 0,
   });
 
+  /** Os títulos que ainda esperam o banco: pagar, ou a baixa do que ele pagou. */
+  const esperandoBanco = useMemo(
+    () =>
+      (consulta.data?.contas ?? [])
+        .filter(({ noBanco: b }) =>
+          b ? b.situacao !== 'RECUSADO' && (b.situacao !== 'PAGO' || b.faltaBaixa) : false,
+        )
+        .map((c) => c.idFnApagar)
+        .join(','),
+    [consulta.data],
+  );
+
+  /*
+   * Enquanto há conta com o banco, pergunta só por elas, sem reler o IXC — a
+   * leitura inteira é pesada demais para repetir de poucos em poucos segundos.
+   * Continua com a aba no fundo: quem aprova está na tela do banco.
+   */
+  const noBancoAgora = useQuery({
+    queryKey: ['no-banco-agora', esperandoBanco],
+    queryFn: async () =>
+      (
+        await api.get<Record<string, NoBancoDaConta>>('/contas-abertas/banco/andamento', {
+          params: { ids: esperandoBanco },
+        })
+      ).data,
+    enabled: esperandoBanco !== '',
+    refetchInterval: 5000,
+    refetchIntervalInBackground: true,
+    refetchOnWindowFocus: true,
+    retry: 0,
+    // Resposta guardada de antes desfaria o que a lista já sabe.
+    gcTime: 0,
+  });
+
+  useEffect(() => {
+    if (!consulta.data || !noBancoAgora.data) return;
+    const novo = comOBancoDeAgora(consulta.data, noBancoAgora.data);
+    if (!novo) return;
+    queryClient.setQueryData(['contas-abertas'], novo.dados);
+    if (novo.baixadas.size === 0) return;
+    setMarcados((atuais) => new Set([...atuais].filter((id) => !novo.baixadas.has(id))));
+    // Saiu da lista já; a releitura acerta o resto sem a tela esperar por ela.
+    void queryClient.invalidateQueries({ queryKey: ['contas-abertas'] });
+    void queryClient.invalidateQueries({ queryKey: ['pagas-no-mes'] });
+    void queryClient.invalidateQueries({ queryKey: ['pagamentos-feitos'] });
+  }, [consulta.data, noBancoAgora.data, queryClient]);
+
   const categorias = useQuery({
     queryKey: ['categorias-despesa'],
     queryFn: async () =>
@@ -82,8 +125,8 @@ export function Inicio() {
   });
 
   const contas = useMemo(
-    () => filtrar(consulta.data?.contas ?? [], recorte, busca, soSemCategoria),
-    [consulta.data, recorte, busca, soSemCategoria],
+    () => filtrar(consulta.data?.contas ?? [], busca, soSemCategoria),
+    [consulta.data, busca, soSemCategoria],
   );
 
   /**
@@ -230,8 +273,6 @@ export function Inicio() {
     (c) => !c.oculta && !estaClassificado(c),
   ).length;
 
-  const resumo = consulta.data?.resumo;
-
   return (
     <Pagina>
       <CabecalhoPagina
@@ -260,7 +301,7 @@ export function Inicio() {
         <Aviso tom="erro">
           Não deu para ler as contas do IXC: {mensagemErro(consulta.error)}
           {consulta.data
-            ? ' Os números abaixo são da última leitura que deu certo.'
+            ? ' As contas abaixo são da última leitura que deu certo.'
             : ''}
         </Aviso>
       )}
@@ -287,52 +328,9 @@ export function Inicio() {
         </Aviso>
       ))}
 
-      {/* Acima dos indicadores de propósito: uma despesa que não chegou ao IXC
-          não está somada em nenhum deles, e é a primeira coisa a resolver. */}
+      {/* Acima da lista de propósito: uma despesa que não chegou ao IXC não está
+          nela, e é a primeira coisa a resolver. */}
       <DespesasNaoEnviadas />
-
-      {resumo && (
-        <div className="mb-4 grid grid-cols-2 gap-2.5 sm:gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <Indicador
-            rotulo="Total em aberto"
-            valor={formatBRL(resumo.total)}
-            detalhe={`${resumo.quantidade} título(s)`}
-            acento
-            aberto={recorte === 'todas'}
-            onClick={() => setRecorte('todas')}
-          />
-          <Indicador
-            rotulo="Vencidas"
-            valor={formatBRL(resumo.vencidas.total)}
-            detalhe={`${resumo.vencidas.quantidade} título(s)`}
-            alerta={
-              resumo.vencidas.quantidade > 0
-                ? 'Já passou do vencimento'
-                : undefined
-            }
-            aberto={recorte === 'vencidas'}
-            onClick={() => setRecorte('vencidas')}
-          />
-          <Indicador
-            rotulo="Vencem em 7 dias"
-            valor={formatBRL(resumo.venceEmSeteDias.total)}
-            detalhe={`${resumo.venceEmSeteDias.quantidade} título(s)`}
-            aberto={recorte === 'semana'}
-            onClick={() => setRecorte('semana')}
-          />
-          <Indicador
-            rotulo="Depois disso"
-            valor={formatBRL(resumo.demais.total)}
-            detalhe={
-              resumo.semVencimento.quantidade > 0
-                ? `${resumo.demais.quantidade} título(s) · ${resumo.semVencimento.quantidade} sem data`
-                : `${resumo.demais.quantidade} título(s)`
-            }
-            aberto={recorte === 'demais'}
-            onClick={() => setRecorte('demais')}
-          />
-        </div>
-      )}
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <input
@@ -357,14 +355,6 @@ export function Inicio() {
             <span className="num opacity-70">· {semCategoria}</span>
           )}
         </button>
-        {recorte !== 'todas' && (
-          <button
-            onClick={() => setRecorte('todas')}
-            className="btn btn-sutil btn-p"
-          >
-            Ver todas
-          </button>
-        )}
         {consulta.data && (
           <span className="ml-auto text-xs text-tinta-400">
             Lido do IXC às {formatHora(consulta.data.lidoEm)}
@@ -970,7 +960,6 @@ function CopiarMeioDePagamento({ conta }: { conta: ContaAberta }) {
  */
 function filtrar(
   contas: ContaAberta[],
-  recorte: Recorte,
   busca: string,
   soSemCategoria: boolean,
 ): ContaAberta[] {
@@ -979,14 +968,6 @@ function filtrar(
   return contas.filter((c) => {
     if (c.oculta) return false;
     if (soSemCategoria && estaClassificado(c)) return false;
-    const dias = c.diasParaVencer;
-    const passaRecorte =
-      recorte === 'todas' ||
-      (recorte === 'vencidas' && dias !== null && dias < 0) ||
-      (recorte === 'semana' && dias !== null && dias >= 0 && dias <= 7) ||
-      (recorte === 'demais' && dias !== null && dias > 7) ||
-      (recorte === 'sem-data' && dias === null);
-    if (!passaRecorte) return false;
     if (!termo) return true;
 
     // O valor entra junto: "2.330", "2330" e "2330,00" acham a mesma conta,
@@ -1002,6 +983,37 @@ function filtrar(
       termo,
     );
   });
+}
+
+/**
+ * A lista com o que o banco disse agora: a conta baixada sai, e a que mudou de
+ * situação troca de selo. Null = nada mudou.
+ */
+function comOBancoDeAgora(
+  dados: ContasAbertas,
+  agora: Record<string, NoBancoDaConta>,
+): { dados: ContasAbertas; baixadas: Set<number> } | null {
+  const baixadas = new Set<number>();
+  let mudou = false;
+  const contas = dados.contas.flatMap((c) => {
+    const lido = agora[c.idFnApagar];
+    if (!lido || !c.noBanco) return [c];
+    if (lido.situacao === 'PAGO' && !lido.faltaBaixa) {
+      baixadas.add(c.idFnApagar);
+      return [];
+    }
+    if (
+      lido.situacao === c.noBanco.situacao &&
+      lido.faltaBaixa === c.noBanco.faltaBaixa &&
+      lido.erro === c.noBanco.erro
+    ) {
+      return [c];
+    }
+    mudou = true;
+    return [{ ...c, noBanco: lido }];
+  });
+  if (!mudou && baixadas.size === 0) return null;
+  return { dados: { ...dados, contas }, baixadas };
 }
 
 function formatHora(iso: string): string {

@@ -193,6 +193,19 @@ export class DespesasController {
     return this.noBanco.situacao();
   }
 
+  /**
+   * Onde estão agora os pagamentos destes títulos ("12,45"). Não vai ao IXC nem
+   * ao banco: é o que a lista consulta para tirar a conta assim que ela baixa.
+   */
+  @Get('contas-abertas/banco/andamento')
+  async andamentoNoBanco(@Query('ids') ids?: string) {
+    const lista = (ids ?? '')
+      .split(',')
+      .map(Number)
+      .filter((n) => Number.isInteger(n) && n > 0);
+    return Object.fromEntries(await this.noBanco.naLista(lista));
+  }
+
   /** O valor e quem recebe de um QR Pix, perguntados ao banco — sem pagar. */
   @Post('contas-abertas/banco/ler-qr')
   @HttpCode(200)

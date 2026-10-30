@@ -3,12 +3,14 @@ import {
   Logger,
   OnModuleDestroy,
   OnModuleInit,
+  Optional,
 } from '@nestjs/common';
 import type { PagamentoNoBanco } from '@prisma/client';
 import { ConfigFinanceiraService } from '../financeiro/config-financeira.service';
 import { IxcClient } from '../ixc/ixc.client';
 import { lerSituacaoContaPagar } from '../ixc/ixc.financeiro';
 import { PrismaService } from '../prisma/prisma.service';
+import { HistoricoPagamentosService } from './historico-pagamentos.service';
 import { diaEmBrasilia } from './pagamentos-no-banco.regras';
 import {
   PagamentosNoBancoService,
@@ -16,11 +18,20 @@ import {
 } from './pagamentos-no-banco.service';
 import { PagamentosService } from './pagamentos.service';
 
-/** De quanto em quanto tempo perguntar ao banco. */
-const INTERVALO_MS = 60_000;
+/**
+ * De quanto em quanto tempo perguntar ao banco. Curto de propósito: quem aprova
+ * no banco e volta para a lista espera ver a conta sair dela.
+ */
+const INTERVALO_MS = 15_000;
+
+/** De quanto em quanto tempo buscar os comprovantes que faltam. */
+const INTERVALO_DOS_COMPROVANTES_MS = 60_000;
 
 /** Depois de uma baixa que falhou, quanto esperar para tentar de novo. */
-const ESPERA_DEPOIS_DE_FALHA_MS = 10 * 60_000;
+const ESPERA_DA_BAIXA_MS = 2 * 60_000;
+
+/** Depois de um comprovante que falhou, quanto esperar para pedir de novo. */
+const ESPERA_DO_COMPROVANTE_MS = 10 * 60_000;
 
 /** Até quando insistir no comprovante de um pagamento que o banco não entrega. */
 const PRAZO_DO_COMPROVANTE_MS = 30 * 24 * 60 * 60_000;
@@ -39,8 +50,9 @@ const PRAZO_DO_COMPROVANTE_MS = 30 * 24 * 60 * 60_000;
 @Injectable()
 export class PagamentosNoBancoPoller implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PagamentosNoBancoPoller.name);
-  private timer: NodeJS.Timeout | null = null;
-  private executando = false;
+  private timers: NodeJS.Timeout[] = [];
+  private perguntando = false;
+  private anexando = false;
 
   constructor(
     private readonly noBanco: PagamentosNoBancoService,
@@ -48,6 +60,8 @@ export class PagamentosNoBancoPoller implements OnModuleInit, OnModuleDestroy {
     private readonly config: ConfigFinanceiraService,
     private readonly prisma: PrismaService,
     private readonly ixc: IxcClient,
+    // A baixa torna velha a leitura guardada do "Já pago".
+    @Optional() private readonly historico?: HistoricoPagamentosService,
   ) {}
 
   onModuleInit(): void {
@@ -55,30 +69,33 @@ export class PagamentosNoBancoPoller implements OnModuleInit, OnModuleDestroy {
       this.logger.log('ModoBank: sem credencial no ambiente — pagamento direto desligado');
       return;
     }
-    this.timer = setInterval(() => void this.acompanhar(), INTERVALO_MS);
-    this.timer.unref?.();
-    this.logger.log('ModoBank: acompanhando os pagamentos a cada minuto');
+    this.timers = [
+      setInterval(() => void this.perguntarAoBanco(), INTERVALO_MS),
+      setInterval(() => void this.anexarComprovantes(), INTERVALO_DOS_COMPROVANTES_MS),
+    ];
+    this.timers.forEach((t) => t.unref?.());
+    this.logger.log('ModoBank: acompanhando os pagamentos a cada 15 segundos');
   }
 
   onModuleDestroy(): void {
-    if (this.timer) clearInterval(this.timer);
+    this.timers.forEach((t) => clearInterval(t));
   }
 
   async acompanhar(): Promise<void> {
-    if (this.executando) return;
-    this.executando = true;
+    await this.perguntarAoBanco();
+    await this.anexarComprovantes();
+  }
+
+  /** Onde está o que ainda anda, e a baixa do que o banco já pagou. */
+  private async perguntarAoBanco(): Promise<void> {
+    if (this.perguntando) return;
+    this.perguntando = true;
     try {
       const pendentes = await this.prisma.pagamentoNoBanco.findMany({
         where: {
           OR: [
             { situacao: { in: SITUACOES_EM_ANDAMENTO } },
             { situacao: 'PAGO', baixadoEm: null },
-            // Pago e baixado, mas o comprovante ainda não foi para o título.
-            {
-              situacao: 'PAGO',
-              comprovanteEm: null,
-              createdAt: { gte: new Date(Date.now() - PRAZO_DO_COMPROVANTE_MS) },
-            },
           ],
         },
         orderBy: { createdAt: 'asc' },
@@ -91,16 +108,49 @@ export class PagamentosNoBancoPoller implements OnModuleInit, OnModuleDestroy {
           if (atual.situacao === 'PAGO' && !atual.baixadoEm) {
             await this.baixar(atual);
           }
-          await this.anexarComprovante(atual.id);
         } catch (err) {
-          this.logger.warn(
-            `ModoBank, título ${p.idFnApagar}: ${err instanceof Error ? err.message : String(err)}`,
-          );
+          this.avisar(p.idFnApagar, err);
         }
       }
     } finally {
-      this.executando = false;
+      this.perguntando = false;
     }
+  }
+
+  /**
+   * Os comprovantes, à parte: banco lento para entregar um PDF não pode segurar
+   * a baixa de quem está esperando a conta sair da lista.
+   */
+  private async anexarComprovantes(): Promise<void> {
+    if (this.anexando) return;
+    this.anexando = true;
+    try {
+      const faltando = await this.prisma.pagamentoNoBanco.findMany({
+        where: {
+          situacao: 'PAGO',
+          baixadoEm: { not: null },
+          comprovanteEm: null,
+          createdAt: { gte: new Date(Date.now() - PRAZO_DO_COMPROVANTE_MS) },
+        },
+        orderBy: { createdAt: 'asc' },
+        take: 50,
+      });
+      for (const p of faltando) {
+        try {
+          await this.anexarComprovante(p.id);
+        } catch (err) {
+          this.avisar(p.idFnApagar, err);
+        }
+      }
+    } finally {
+      this.anexando = false;
+    }
+  }
+
+  private avisar(idFnApagar: number, err: unknown): void {
+    this.logger.warn(
+      `ModoBank, título ${idFnApagar}: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   /**
@@ -110,7 +160,7 @@ export class PagamentosNoBancoPoller implements OnModuleInit, OnModuleDestroy {
   private async anexarComprovante(id: string): Promise<void> {
     const p = await this.prisma.pagamentoNoBanco.findUnique({ where: { id } });
     if (!p || p.situacao !== 'PAGO' || !p.baixadoEm || p.comprovanteEm) return;
-    if (p.comprovanteErro && Date.now() - p.updatedAt.getTime() < ESPERA_DEPOIS_DE_FALHA_MS) {
+    if (p.comprovanteErro && Date.now() - p.updatedAt.getTime() < ESPERA_DO_COMPROVANTE_MS) {
       return;
     }
     await this.noBanco.anexarComprovante(p);
@@ -124,7 +174,7 @@ export class PagamentosNoBancoPoller implements OnModuleInit, OnModuleDestroy {
    * as duas coisas que a janela de pagar já faz com o "valor pago".
    */
   private async baixar(p: PagamentoNoBanco): Promise<void> {
-    if (p.erro && Date.now() - p.updatedAt.getTime() < ESPERA_DEPOIS_DE_FALHA_MS) {
+    if (p.erro && Date.now() - p.updatedAt.getTime() < ESPERA_DA_BAIXA_MS) {
       return;
     }
 
@@ -171,6 +221,7 @@ export class PagamentosNoBancoPoller implements OnModuleInit, OnModuleDestroy {
           : { erro: 'Pago no banco; o IXC aceitou a baixa mas o título continua aberto lá.' },
       });
       if (r.paga) {
+        this.historico?.esquecerLeituras();
         this.logger.log(`ModoBank, título ${p.idFnApagar}: pago e baixado no IXC.`);
       }
     } catch (err) {

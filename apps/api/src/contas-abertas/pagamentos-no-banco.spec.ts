@@ -521,6 +521,45 @@ describe('PagamentosNoBancoPoller — a baixa do que o banco pagou', () => {
     return { poller, pagamentos, prisma, noBanco };
   }
 
+  it('comprovante preso no banco não segura a pergunta seguinte', async () => {
+    const { poller, prisma, noBanco } = montar({ ...TITULO });
+    noBanco.anexarComprovante.mockImplementation(() => new Promise<boolean>(() => undefined));
+
+    void poller.acompanhar();
+    while (noBanco.anexarComprovante.mock.calls.length === 0) {
+      await new Promise((r) => setImmediate(r));
+    }
+
+    const voltas = prisma.pagamentoNoBanco.findMany.mock.calls.length;
+    await (poller as unknown as { perguntarAoBanco(): Promise<void> }).perguntarAoBanco();
+    expect(prisma.pagamentoNoBanco.findMany.mock.calls.length).toBe(voltas + 1);
+  });
+
+  it('depois de uma baixa que falhou, tenta de novo em dois minutos', async () => {
+    const recente = montar(
+      { ...TITULO },
+      { erro: 'Pago no banco, mas a baixa no IXC falhou: x', updatedAt: new Date(Date.now() - 60_000) },
+    );
+    await recente.poller.acompanhar();
+    expect(recente.pagamentos.pagar).not.toHaveBeenCalled();
+
+    const passado = montar(
+      { ...TITULO },
+      { erro: 'Pago no banco, mas a baixa no IXC falhou: x', updatedAt: new Date(Date.now() - 3 * 60_000) },
+    );
+    await passado.poller.acompanhar();
+    expect(passado.pagamentos.pagar).toHaveBeenCalled();
+  });
+
+  it('a baixa esquece a leitura guardada do Já pago', async () => {
+    const { poller, ...resto } = montar({ ...TITULO });
+    const historico = { esquecerLeituras: jest.fn() };
+    (poller as unknown as { historico: typeof historico }).historico = historico;
+    await poller.acompanhar();
+    expect(resto.pagamentos.pagar).toHaveBeenCalled();
+    expect(historico.esquecerLeituras).toHaveBeenCalled();
+  });
+
   it('baixado, anexa o comprovante do banco no título', async () => {
     const { poller, noBanco } = montar({ ...TITULO });
     await poller.acompanhar();
