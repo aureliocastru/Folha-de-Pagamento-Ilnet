@@ -5,6 +5,32 @@ Levar o ILNET FINANCE para outra máquina com EasyPanel. O guia de deploy
 do que o outro não trata: trazer os dados e virar a chave sem duas cópias do
 sistema escrevendo no IXC ao mesmo tempo.
 
+> **Os dois endereços.** O servidor de hoje é **170.0.124.7**; o novo é
+> **170.0.124.8**. Diferem no último dígito, e os comandos daqui apontam para um
+> ou para o outro em passos diferentes — confira o número antes de cada `ssh` e
+> antes de salvar o DNS. Errar o dígito no passo 9 é tirar o dump da máquina
+> errada; no passo 12, é deixar o domínio onde já estava.
+>
+> O EasyPanel do 170.0.124.8 já está no ar (painel em `http://170.0.124.8:3000`)
+> e os dois aceitam SSH, que é o que o passo 9 precisa.
+
+### Um atalho, se o IP puder se mudar junto
+
+Os dois endereços são do mesmo bloco `170.0.124.0/24`. Se quem controla esse
+bloco é a própria ILNET (ou o provedor aceita reapontar o endereço entre as
+máquinas), existe um caminho bem mais curto: **levar o 170.0.124.7 para o
+servidor novo** depois de desligar o antigo.
+
+Nesse caminho o DNS não muda, o TTL de quatro horas deixa de importar, o IP já
+está liberado no banco e no IXC, e o certificado atual continua valendo — caem
+os passos 1, 2 e a troca de DNS do 12. Sobra o que importa: o dump, o restore e
+a conferência.
+
+O preço é que a virada passa a depender de uma ação de rede no meio da janela
+(o endereço só pode existir numa máquina de cada vez, então é desligar o
+antigo, mover, subir o novo), e voltar atrás também. Vale perguntar antes de
+seguir pelo caminho longo; o resto do guia supõe que o endereço não se mexe.
+
 ---
 
 ## O que viaja, e o que não
@@ -31,22 +57,28 @@ tamanho da janela de parada.
 
 ## Antes do dia (sem parar nada)
 
-### 1. Libere o IP novo no banco e no IXC
+### 1. Libere o 170.0.124.8 no banco e no IXC
 
 O que mais quebra numa troca de servidor não é o deploy, é o endereço. A
 credencial do ModoBank é criada com o **IP do servidor liberado** (portal do
 banco → Configurações → Credenciais → API CONTAS): do IP novo, o banco recusa a
-autenticação e todo pagamento daqui para de sair. Libere o IP novo **antes**,
-deixando o antigo liberado durante a transição.
+autenticação e todo pagamento daqui para de sair. Libere o **170.0.124.8**
+alguns dias antes, deixando o **170.0.124.7** liberado durante a transição —
+são os dois ao mesmo tempo até você ter certeza de que não vai voltar.
 
 No IXC (Configurações → Integrações → Tokens da API), veja se o token tem
 restrição de IP. Se tiver, acrescente o novo.
 
 ### 2. Baixe o TTL do DNS
 
-No painel do domínio, ponha o TTL do registro `A` de `telecom.ilnet.com.br` em
-**300 segundos**. Feito um dia antes, a virada do passo 12 propaga em minutos em
-vez de horas.
+Hoje `telecom.ilnet.com.br` responde `170.0.124.7` com **TTL de 14400** — quatro
+horas. Trocar o registro sem mexer nisso é deixar parte da equipe caindo no
+servidor antigo pelas quatro horas seguintes, e lá a api vai estar parada.
+
+No painel do domínio, ponha o TTL desse registro `A` em **300 segundos**. Quatro
+horas antes da virada é o mínimo (é quanto o valor velho ainda vale nos
+resolvedores); um dia antes é o certo. Com o TTL baixo, o passo 12 propaga em
+minutos.
 
 ### 3. Copie as variáveis do servidor antigo
 
@@ -177,12 +209,16 @@ poller está no meio de uma baixa e o dump sai consistente.
 
 ### 9. Tire o dump
 
-Do **servidor novo**, por SSH, puxando do antigo numa tacada (o `-Fc` já vem
-comprimido):
+Do **servidor novo** (`170.0.124.8`), por SSH, puxando do antigo
+(`170.0.124.7`) numa tacada — o `-Fc` já vem comprimido:
 
 ```bash
-ssh root@IP_ANTIGO "docker exec \$(docker ps -q -f name=folha_db) pg_dump -U USUARIO -d BANCO -Fc" > /root/folha.dump
+ssh root@170.0.124.7 "docker exec \$(docker ps -q -f name=folha_db) pg_dump -U USUARIO -d BANCO -Fc" > /root/folha.dump
 ```
+
+O `.7` aqui é o antigo, de onde os dados saem. Trocado pelo `.8`, o comando tira
+o dump do banco vazio que a api nova acabou de criar — e o restore do passo 10
+apagaria o que você veio buscar.
 
 Confira que o arquivo tem tamanho de gente (`ls -lh /root/folha.dump`) antes de
 seguir. Em dois passos de propósito: se o restore falhar, você repete o restore
@@ -240,8 +276,8 @@ Deploy. **Confirme que a api antiga continua parada** — é o ponto em que duas
 cópias escreveriam no IXC.
 
 No serviço `web`, adicione `telecom.ilnet.com.br` em **Domains**. Então troque o
-registro `A` do domínio para o IP novo e, depois de propagar (minutos, com o TTL
-do passo 2), ative o **Let's Encrypt** nesse domínio — o certificado só é emitido
+registro `A` do domínio de `170.0.124.7` para `170.0.124.8` e, depois de propagar
+(minutos, com o TTL do passo 2), ative o **Let's Encrypt** nesse domínio — o certificado só é emitido
 com o DNS já apontando para cá. Entre a troca do DNS e o certificado o site fica
 alguns minutos fora; é o único buraco real da virada.
 
@@ -272,14 +308,15 @@ Cada item prova uma peça diferente:
   plano B — mas plano B com prazo: o que a equipe lançar no novo depois da
   virada não existe lá. Voltar o DNS só é limpo nos primeiros minutos, antes do
   primeiro lançamento novo.
-- Passados os dias, tire o IP antigo da liberação no portal do banco e no IXC.
+- Passados os dias, tire o `170.0.124.7` da liberação no portal do banco e no
+  IXC.
 - Se o VPS antigo vai ser devolvido ou apagado, **rotacione** o token do IXC e a
   credencial do ModoBank: eles estiveram nas variáveis de ambiente de uma
   máquina que não é mais sua.
 
 ## Se precisar voltar
 
-1. Troque o registro `A` de volta para o IP antigo.
+1. Troque o registro `A` de volta para `170.0.124.7`.
 2. Inicie o serviço `api` no EasyPanel antigo.
 3. Pare a `api` nova (ou ponha `IXC_SOMENTE_LEITURA=1` nela), para que as duas
    não escrevam no IXC.
