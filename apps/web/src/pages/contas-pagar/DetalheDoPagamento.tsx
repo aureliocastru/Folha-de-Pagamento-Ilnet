@@ -4,26 +4,18 @@ import { AnexarNotaAoTitulo, NotasDoTitulo } from '../../components/NotasDoTitul
 import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
 import { CategoriasDeDentro } from '../../components/SeloDaCategoria';
 import { estaClassificado } from '../../lib/categorias';
-import { Carregando, Janela, Selo } from '../../components/ui';
+import { Janela, Selo } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { formatBRL, formatData } from '../../lib/format';
-import { TIPO_LABEL } from '../../lib/status';
-import type {
-  CategoriaDespesa,
-  DetalheDoTitulo,
-  PagamentoFeito,
-} from '../../lib/types';
+import type { CategoriaDespesa, PagamentoFeito } from '../../lib/types';
 
 /**
- * A ficha de um pagamento: quanto saiu, quando, de qual caixa — e, no fim, o
- * registro do IXC por inteiro.
+ * A ficha de um pagamento: quanto saiu, quando, de qual caixa, e o que ainda se
+ * escreve nele depois de pago — o número da nota, a categoria e os anexos.
  *
- * A ordem é a de quem confere: primeiro o que se quer conferir (valor e dia),
- * depois se o IXC confirma isso sem contradição, e só então os campos crus. Para
- * um pagamento que fecha, as duas primeiras partes bastam e ninguém precisa
- * descer; para o que não fecha, o campo que decidiu está logo abaixo, com o
- * valor que veio do IXC — discordar deixa de ser palavra contra palavra.
+ * O que se repete com o alto da ficha, ou que é igual em todo pagamento, não
+ * entra: um parágrafo só aparece quando o registro do IXC não fecha.
  */
 export function DetalheDoPagamento({
   pagamento,
@@ -32,8 +24,6 @@ export function DetalheDoPagamento({
   pagamento: PagamentoFeito;
   onFechar: () => void;
 }) {
-  const [copiado, setCopiado] = useState(false);
-  const [verTudo, setVerTudo] = useState(false);
   const qcConferencia = useQueryClient();
 
   /*
@@ -54,37 +44,10 @@ export function DetalheDoPagamento({
       void qcConferencia.invalidateQueries({ queryKey: ['pagamentos-feitos'] }),
   });
 
-  // A mesma leitura crua da ficha do débito: é o mesmo título no IXC, pago em
-  // vez de aberto. Para um pagamento, o "por que ficou fora das contas em
-  // aberto" que ela devolve é exatamente a confirmação da baixa.
-  const detalhe = useQuery({
-    queryKey: ['conta-bruta', pagamento.idFnApagar],
-    queryFn: async () =>
-      (
-        await api.get<DetalheDoTitulo>(
-          `/contas-abertas/${pagamento.idFnApagar}/bruto`,
-        )
-      ).data,
-    retry: 0,
-  });
-
-  const campos = Object.entries(detalhe.data?.campos ?? {})
-    .map(([campo, valor]) => ({ campo, valor: String(valor ?? '') }))
-    .filter((c) => c.valor.trim() && c.valor.trim() !== '0')
-    .sort((a, b) => a.campo.localeCompare(b.campo));
-
-  async function copiar() {
-    await navigator.clipboard.writeText(
-      JSON.stringify(detalhe.data?.campos ?? {}, null, 2),
-    );
-    setCopiado(true);
-    setTimeout(() => setCopiado(false), 2500);
-  }
-
   const extras = pagamento.juros + pagamento.multa;
 
   return (
-    <Janela media titulo="Detalhe do pagamento" onFechar={onFechar}>
+    <Janela titulo="Detalhe do pagamento" onFechar={onFechar}>
       <div className="p-5 sm:p-6">
         {/* --- O que saiu, do tamanho de quem confere de longe --- */}
         <div className="rounded-2xl bg-realce p-5">
@@ -113,14 +76,9 @@ export function DetalheDoPagamento({
           </div>
         </div>
 
-        {/* --- O IXC confirma? --- */}
-        <div className="mt-5">
-          {pagamento.conferencia.fecha ? (
-            <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-              O registro do IXC confirma este pagamento: título baixado, valor
-              batendo com o que era devido e sem marca de estorno.
-            </div>
-          ) : (
+        {/* Só o que pede uma olhada: pagamento que fecha não tem o que dizer. */}
+        {!pagamento.conferencia.fecha && (
+          <div className="mt-4">
             <div
               className={`rounded-2xl px-4 py-3 text-sm ${
                 pagamento.conferencia.conferidoPor
@@ -178,50 +136,36 @@ export function DetalheDoPagamento({
                 )}
               </div>
             </div>
-          )}
+          </div>
+        )}
+
+        <div className="mt-4 grid grid-cols-1 gap-3">
+          <NumeroDaNota idFnApagar={pagamento.idFnApagar} />
+          <div>
+            <div className="rotulo">Categoria</div>
+            {/* Várias notas ou fatura: quem responde são as de dentro. */}
+            {pagamento.rateio?.length && estaClassificado(pagamento) ? (
+              <CategoriasDeDentro fatias={pagamento.rateio} />
+            ) : (
+              <ClassificacaoDoPagamento pagamento={pagamento} />
+            )}
+          </div>
         </div>
 
-        <div className="mt-5 grid grid-cols-1 gap-x-6 sm:grid-cols-2">
-          <Dado rotulo="Data do pagamento">
-            {formatData(pagamento.pagoEm)}
-            {/* De onde a data saiu não é detalhe técnico: é o que separa o
-                pagamento atrasado do lançamento atrasado, e é por ela que se
-                acha o registro na tela do IXC. */}
-            <span className="ml-1 text-xs text-tinta-400">
-              {pagamento.fonteDaData === 'baixa'
-                ? `(informada na baixa${
-                    pagamento.baixaNoIxc ? ` nº ${pagamento.baixaNoIxc}` : ''
-                  })`
-                : pagamento.fonteDaData === 'debito'
-                  ? `(${pagamento.campoDoDia} — o dia informado na baixa, que o IXC mostra como "Data pagamento")`
-                  : `(${pagamento.campoDoDia ?? pagamento.campoDaBaixa} — o dia em que a baixa foi registrada)`}
-            </span>
-          </Dado>
-          {/* Só quando os dois dias diferem: repetir a mesma data em dois
-              campos faria procurar diferença onde não há. */}
-          {pagamento.registradoEm.slice(0, 10) !==
-            pagamento.pagoEm.slice(0, 10) && (
-            <Dado rotulo="Lançado no IXC em">
-              {formatData(pagamento.registradoEm)}
-              <span className="ml-1 text-xs text-tinta-400">
-                (o dia do registro, não o do dinheiro)
-              </span>
-            </Dado>
-          )}
+        <div className="mt-3">
           <Dado rotulo="Vencimento">
-            {pagamento.vencimento
-              ? formatData(pagamento.vencimento)
-              : 'sem data no IXC'}
+            {pagamento.vencimento ? formatData(pagamento.vencimento) : '—'}
           </Dado>
-          <Dado rotulo="Valor do título">{formatBRL(pagamento.valor)}</Dado>
-          <Dado rotulo="Saiu do caixa">{formatBRL(pagamento.valorPago)}</Dado>
+          <Dado rotulo="De onde saiu">
+            {pagamento.caixa.nome ??
+              (pagamento.caixa.id ? `caixa ${pagamento.caixa.id}` : '—')}
+          </Dado>
+          {/* Só o que difere do valor lá de cima. */}
+          {Math.abs(pagamento.valor - pagamento.valorPago) >= 0.005 && (
+            <Dado rotulo="Valor do título">{formatBRL(pagamento.valor)}</Dado>
+          )}
           {extras > 0 && (
-            <Dado rotulo="Juros e multa">
-              {formatBRL(extras)}
-              <span className="ml-1 text-xs text-tinta-400">
-                (o preço do atraso)
-              </span>
-            </Dado>
+            <Dado rotulo="Juros e multa">{formatBRL(extras)}</Dado>
           )}
           {pagamento.desconto > 0 && (
             <Dado rotulo="Desconto">{formatBRL(pagamento.desconto)}</Dado>
@@ -231,55 +175,14 @@ export function DetalheDoPagamento({
               {formatBRL(pagamento.valorAberto)}
             </Dado>
           )}
-          <Dado rotulo="De onde saiu">
-            {pagamento.caixa.nome ??
-              (pagamento.caixa.id ? `caixa ${pagamento.caixa.id}` : '—')}
-          </Dado>
-          <Dado rotulo="Forma de pagamento">
-            {pagamento.formaPagamento ?? '—'}
-          </Dado>
-          <Dado rotulo="Documento">{pagamento.documento ?? '—'}</Dado>
-          <Dado rotulo="Título no IXC">nº {pagamento.idFnApagar}</Dado>
-          <Dado rotulo="Emissão">
-            {pagamento.emissao ? formatData(pagamento.emissao) : '—'}
-          </Dado>
-          <Dado rotulo="Categoria da despesa">
-            {pagamento.categoria.nome ??
-              (pagamento.categoria.id ? `conta ${pagamento.categoria.id}` : '—')}
-          </Dado>
-          <Dado rotulo="Classificação daqui">
-            {/* Várias notas ou fatura: quem responde são as de dentro. */}
-            {pagamento.rateio?.length && estaClassificado(pagamento) ? (
-              <CategoriasDeDentro fatias={pagamento.rateio} />
-            ) : (
-              <ClassificacaoDoPagamento pagamento={pagamento} />
-            )}
-          </Dado>
-          <Dado rotulo="Status no IXC">
-            {pagamento.statusEhDePago
-              ? `${pagamento.statusNoIxc} — pago`
-              : `${pagamento.statusNoIxc ?? '—'} (baixado mesmo assim)`}
-          </Dado>
-          <Dado rotulo="Auditoria">
-            {pagamento.statusAuditoria === 'A'
-              ? 'aprovada'
-              : pagamento.statusAuditoria === 'R'
-                ? 'reprovada'
-                : pagamento.statusAuditoria === 'C'
-                  ? 'cancelada'
-                  : 'não auditada'}
-          </Dado>
-          {pagamento.baixadoPor && (
-            <Dado rotulo="Baixado por">{pagamento.baixadoPor}</Dado>
+          {pagamento.documento && (
+            <Dado rotulo="Documento">{pagamento.documento}</Dado>
           )}
+          {pagamento.observacao && (
+            <Dado rotulo="Observação">{pagamento.observacao}</Dado>
+          )}
+          <Dado rotulo="Título no IXC">nº {pagamento.idFnApagar}</Dado>
         </div>
-
-        {pagamento.observacao && (
-          <div className="mt-4">
-            <div className="rotulo">Observação no IXC</div>
-            <p className="text-sm text-tinta-700">{pagamento.observacao}</p>
-          </div>
-        )}
 
         <NotasDoTitulo idFnApagar={pagamento.idFnApagar} />
         {/* A nota fiscal que chega depois de pago vai para o título no IXC —
@@ -288,96 +191,6 @@ export function DetalheDoPagamento({
           idFnApagar={pagamento.idFnApagar}
           descricao={pagamento.observacao?.trim().slice(0, 80) || 'Nota fiscal'}
         />
-
-        {pagamento.origem && (
-          <div className="mt-4 rounded-xl bg-tinta-100 px-4 py-3 text-sm text-tinta-700">
-            Este pagamento nasceu na Folha de Pagamento —{' '}
-            {TIPO_LABEL[pagamento.origem.tipo] ?? pagamento.origem.tipo}
-            {pagamento.origem.beneficiario
-              ? ` de ${pagamento.origem.beneficiario}`
-              : ''}
-            . É a mesma saída, não uma a mais.
-          </div>
-        )}
-
-        {/* --- O registro cru, para quem precisa cavar --- */}
-        <div className="mt-6 border-t border-tinta-100 pt-5">
-          <div className="rotulo">O que o IXC guarda deste título</div>
-
-          {detalhe.isLoading && <Carregando texto="Lendo o título no IXC…" />}
-
-          {detalhe.error && (
-            <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
-              {mensagemErro(detalhe.error)}
-            </p>
-          )}
-
-          {detalhe.data && (
-            <>
-              <p className="mb-3 text-xs leading-relaxed text-tinta-500">
-                Os campos que decidem se um título ainda é dívida, com o valor
-                que veio do IXC — a mesma leitura da ficha do débito, do outro
-                lado.{' '}
-                {pagamento.parcial
-                  ? 'Neste aqui os dois convivem: a baixa confirma o que já saiu e o saldo mantém o título na lista de contas em aberto.'
-                  : 'É por eles que este título saiu da lista de contas em aberto.'}
-              </p>
-
-              <div className="overflow-hidden rounded-xl border border-tinta-100">
-                <table className="w-full text-sm">
-                  <tbody>
-                    {detalhe.data.filtro.olhou.map((c) => (
-                      <tr key={c.campo} className="linha">
-                        <td className="td num w-2/5 align-top text-xs text-tinta-500">
-                          {c.campo}
-                          <div className="mt-0.5 text-[11px] text-tinta-300">
-                            {c.nota}
-                          </div>
-                        </td>
-                        <td className="td break-all align-top font-semibold text-tinta-800">
-                          {c.valor}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  onClick={() => setVerTudo((v) => !v)}
-                  className="btn btn-sutil btn-p"
-                >
-                  {verTudo
-                    ? 'Esconder os demais campos'
-                    : `Ver todos os ${campos.length} campos do IXC`}
-                </button>
-                <button onClick={copiar} className="btn btn-neutro btn-p">
-                  {copiado ? 'Copiado!' : 'Copiar tudo'}
-                </button>
-              </div>
-
-              {verTudo && (
-                <div className="mt-3 max-h-[40vh] overflow-y-auto rolagem-fina rounded-xl border border-tinta-100">
-                  <table className="w-full text-sm">
-                    <tbody>
-                      {campos.map(({ campo, valor }) => (
-                        <tr key={campo} className="linha">
-                          <td className="td num w-2/5 align-top text-xs text-tinta-500">
-                            {campo}
-                          </td>
-                          <td className="td break-all align-top text-tinta-800">
-                            {valor}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </>
-          )}
-        </div>
 
         <div className="mt-6 flex justify-end">
           <button onClick={onFechar} className="btn btn-neutro">
@@ -391,9 +204,87 @@ export function DetalheDoPagamento({
 
 function Dado({ rotulo, children }: { rotulo: string; children: ReactNode }) {
   return (
-    <div className="border-b border-tinta-100 py-2.5 last:border-0">
-      <div className="text-xs text-tinta-400">{rotulo}</div>
-      <div className="text-sm text-tinta-800">{children}</div>
+    <div className="flex items-baseline justify-between gap-4 border-b border-tinta-100 py-2 last:border-0">
+      <div className="shrink-0 text-xs text-tinta-400">{rotulo}</div>
+      <div className="min-w-0 break-words text-right text-sm text-tinta-800">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * O número da nota fiscal, o mesmo da conta — a Contabilidade o lê daqui, e por
+ * isso ele continua editável depois de pago. Grava ao sair do campo.
+ *
+ * Sem a leitura não há campo: em branco por falha, sair dele apagaria o número.
+ */
+function NumeroDaNota({ idFnApagar }: { idFnApagar: number }) {
+  const qc = useQueryClient();
+  const chave = ['nota-fiscal', idFnApagar];
+  /** O que está sendo digitado; null = ainda não mexeu. */
+  const [digitado, setDigitado] = useState<string | null>(null);
+
+  const nota = useQuery({
+    queryKey: chave,
+    queryFn: async () =>
+      (await api.get<{ numero: string | null }>(`/contas-abertas/${idFnApagar}/nota-fiscal`)).data,
+    retry: 0,
+  });
+
+  const gravar = useMutation({
+    mutationFn: async (numero: string | null) =>
+      (
+        await api.put<{ numero: string | null; parcelas: number }>(
+          `/contas-abertas/${idFnApagar}/nota-fiscal`,
+          { numero },
+        )
+      ).data,
+    onSuccess: (r) => {
+      qc.setQueryData(chave, { numero: r.numero });
+      // As outras parcelas da compra também podem ter recebido o número.
+      void qc.invalidateQueries({ queryKey: ['nota-fiscal'] });
+      void qc.invalidateQueries({ queryKey: ['contabilidade'] });
+    },
+  });
+
+  if (nota.isError) {
+    return <p className="text-sm text-rose-600">{mensagemErro(nota.error)}</p>;
+  }
+
+  const salvo = nota.data?.numero ?? '';
+  const salvar = () => {
+    const limpo = digitado?.trim() ?? salvo;
+    if (limpo !== salvo) gravar.mutate(limpo || null);
+  };
+
+  return (
+    <div>
+      <label className="rotulo" htmlFor="numero-nf-pago">
+        Nº da nota fiscal
+      </label>
+      <input
+        id="numero-nf-pago"
+        value={digitado ?? salvo}
+        disabled={nota.isLoading}
+        onChange={(e) => setDigitado(e.target.value)}
+        onBlur={salvar}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') e.currentTarget.blur();
+        }}
+        className="campo num"
+        maxLength={60}
+        autoComplete="off"
+      />
+      {gravar.isPending && <p className="ajuda">Salvando…</p>}
+      {gravar.isSuccess && (
+        <p className="ajuda">
+          {gravar.data.parcelas > 0
+            ? `Salvo, também em ${gravar.data.parcelas} outra(s) parcela(s).`
+            : 'Salvo.'}
+        </p>
+      )}
+      {gravar.isError && (
+        <p className="mt-1 text-sm text-rose-600">{mensagemErro(gravar.error)}</p>
+      )}
     </div>
   );
 }
@@ -454,15 +345,15 @@ function ClassificacaoDoPagamento({ pagamento }: { pagamento: PagamentoFeito }) 
   if (!ehAdmin) return <>{escrita}</>;
 
   return (
-    <div className="mt-0.5">
+    <div>
       <SeletorDeCategoria
         categorias={categorias.data}
         value={categoriaId}
         vazio="Sem classificação"
         carregando={categorias.isLoading}
         desabilitado={reclassificar.isPending}
-        className="campo max-w-xs py-1 text-sm"
-        title="Trocar a etiqueta deste pagamento"
+        className="campo"
+        title="Trocar a categoria deste pagamento"
         onChange={(id) => {
           // Guardado aqui além de ir para a API: a lista de trás só volta
           // depois, e até lá o `pagamento` que chegou por prop ainda é o
@@ -472,13 +363,8 @@ function ClassificacaoDoPagamento({ pagamento }: { pagamento: PagamentoFeito }) 
           reclassificar.mutate(id || null);
         }}
       />
-      <p className="ajuda">
-        {reclassificar.isPending
-          ? 'Salvando…'
-          : reclassificar.isSuccess
-            ? 'Etiqueta trocada — o painel do mês já conta este gasto na fatia nova.'
-            : 'Trocar aqui muda a fatia deste gasto no painel, inclusive em mês já fechado.'}
-      </p>
+      {reclassificar.isPending && <p className="ajuda">Salvando…</p>}
+      {reclassificar.isSuccess && <p className="ajuda">Salvo.</p>}
       {reclassificar.isError && (
         <p className="mt-1 text-sm text-rose-600">
           {mensagemErro(reclassificar.error)}
