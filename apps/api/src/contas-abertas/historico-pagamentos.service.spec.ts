@@ -148,7 +148,7 @@ function montarServico(opts: {
     contasAbertas as never,
   );
 
-  return { service, ixc, baixas, prisma };
+  return { service, ixc, baixas, prisma, contasAbertas };
 }
 
 /** O período de agosto, como o controller o entrega. */
@@ -418,6 +418,20 @@ describe('a leitura guardada do IXC', () => {
 
     await Promise.all([service.listar(agosto()), service.listar(agosto())]);
 
+    expect(baixas.daJanela).toHaveBeenCalledTimes(1);
+  });
+
+  it('o nome da conta que falhou na leitura volta na próxima abertura', async () => {
+    const { service, baixas, contasAbertas } = montarServico(pagamentoDeAgosto());
+    contasAbertas.contasDePagamento.mockRejectedValue(new Error('IXC fora do ar'));
+
+    const a = await service.listar(agosto());
+    expect(a.pagamentos[0].caixa).toEqual({ id: 15, nome: null });
+
+    contasAbertas.contasDePagamento.mockResolvedValue([{ id: 15, nome: 'Conta Teste' }]);
+    const b = await service.listar(agosto());
+
+    expect(b.pagamentos[0].caixa).toEqual({ id: 15, nome: 'Conta Teste' });
     expect(baixas.daJanela).toHaveBeenCalledTimes(1);
   });
 

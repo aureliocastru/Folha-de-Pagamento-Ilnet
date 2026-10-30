@@ -228,6 +228,7 @@ export class HistoricoPagamentosService implements OnModuleInit, OnModuleDestroy
       this.aplicarClassificacoes(pagamentos),
       this.marcarOrigemNaFolha(pagamentos),
       this.marcarComprovantes(pagamentos),
+      this.completarCaixasQueFaltam(pagamentos),
     ]);
 
     return {
@@ -946,11 +947,25 @@ export class HistoricoPagamentosService implements OnModuleInit, OnModuleDestroy
   }
 
   /**
+   * O nome que a leitura guardada não conseguiu: ela vale por horas, e sem isto
+   * uma falha passageira do IXC deixava "caixa 18" na ficha até a próxima.
+   */
+  private async completarCaixasQueFaltam(
+    pagamentos: PagamentoFeito[],
+  ): Promise<void> {
+    const semNome = pagamentos.filter((p) => !p.caixa.nome && p.caixa.id !== null);
+    if (semNome.length === 0) return;
+    const nomes = await this.nomesDosCaixas();
+    for (const p of semNome) p.caixa.nome = nomes.get(p.caixa.id!) ?? null;
+  }
+
+  /**
    * Nome das contas de onde o dinheiro sai — "Sicoob", "CX - Werick" —, para a
    * ficha dizer de onde saiu em vez de mostrar um código.
    *
    * Falha para dentro: sem o nome a tela mostra "caixa 27", o que é feio mas
    * verdadeiro, e não vale derrubar um histórico de pagamento por um rótulo.
+   * A lista vazia não fica guardada: a próxima abertura tenta de novo.
    */
   private async nomesDosCaixas(): Promise<Map<number, string>> {
     if (this.caixas && Date.now() - this.caixas.em < VALIDADE_DA_SONDA_MS) {
@@ -967,7 +982,7 @@ export class HistoricoPagamentosService implements OnModuleInit, OnModuleDestroy
       this.logger.warn(`Não deu para listar as contas de pagamento: ${message}`);
     }
 
-    this.caixas = { em: Date.now(), nomes };
+    this.caixas = nomes.size > 0 ? { em: Date.now(), nomes } : null;
     return nomes;
   }
 

@@ -181,6 +181,11 @@ export function DetalheDoPagamento({
           {pagamento.observacao && (
             <Dado rotulo="Observação">{pagamento.observacao}</Dado>
           )}
+          {pagamento.parcela && (
+            <Dado rotulo="Parcela">
+              {pagamento.parcela.posicao}/{pagamento.parcela.total}
+            </Dado>
+          )}
           <Dado rotulo="Título no IXC">nº {pagamento.idFnApagar}</Dado>
         </div>
 
