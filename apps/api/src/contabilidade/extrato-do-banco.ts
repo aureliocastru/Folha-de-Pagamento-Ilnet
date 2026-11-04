@@ -181,6 +181,8 @@ export interface ResumoDoBanco {
   entradas: number | null;
   saidas: number | null;
   movimentos: number | null;
+  /** O que o banco diz de cada dia (só no resumo por dia), em centavos. */
+  dias: Array<{ dia: string; entradas: number; saidas: number }>;
 }
 
 /**
@@ -192,15 +194,20 @@ export function resumoDoConsolidado(periodos: Array<Record<string, unknown>>): R
     String(a.periodDate ?? '').localeCompare(String(b.periodDate ?? '')),
   );
   if (ordenados.length === 0) {
-    return { saldoInicial: null, saldoFinal: null, entradas: null, saidas: null, movimentos: null };
+    return { saldoInicial: null, saldoFinal: null, entradas: null, saidas: null, movimentos: null, dias: [] };
   }
   let entradas = 0;
   let saidas = 0;
   let movimentos = 0;
+  const dias: ResumoDoBanco['dias'] = [];
   for (const p of ordenados) {
-    entradas += centavos(Math.abs(numeroDoBanco(p.creditAmount) ?? 0));
-    saidas += centavos(Math.abs(numeroDoBanco(p.debitAmount) ?? 0));
+    const e = centavos(Math.abs(numeroDoBanco(p.creditAmount) ?? 0));
+    const s = centavos(Math.abs(numeroDoBanco(p.debitAmount) ?? 0));
+    entradas += e;
+    saidas += s;
     movimentos += numeroDoBanco(p.movementCount) ?? 0;
+    const dia = String(p.periodDate ?? '');
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dia)) dias.push({ dia, entradas: e, saidas: s });
   }
   return {
     saldoInicial: numeroDoBanco(ordenados[0].initialBalance),
@@ -208,11 +215,137 @@ export function resumoDoConsolidado(periodos: Array<Record<string, unknown>>): R
     entradas: reais(entradas),
     saidas: reais(saidas),
     movimentos,
+    dias,
   };
 }
 
 const brl = (v: number) =>
   v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 });
+
+/** Entradas e saídas de uma lista, em centavos. */
+function totais(ls: LancamentoDoExtrato[]): { entradas: number; saidas: number } {
+  let entradas = 0;
+  let saidas = 0;
+  for (const l of ls) {
+    if (l.valor > 0) entradas += centavos(l.valor);
+    else saidas -= centavos(l.valor);
+  }
+  return { entradas, saidas };
+}
+
+/** O que separar as situações e os dias encontrou. */
+export interface FechamentoComOBanco {
+  /** Os lançamentos que ficam no extrato. */
+  lancamentos: LancamentoDoExtrato[];
+  /** Situação → quantos, e quanto entrou e saiu (em reais), de tudo o que veio. */
+  porSituacao: Record<string, { n: number; entradas: number; saidas: number }>;
+  /** As situações deixadas de fora porque o banco não as conta (achadas pela soma). */
+  tiradasPelaSoma: string[];
+  /** Os dias em que o extrato montado não bate com o banco (até 10). */
+  diasQueNaoBatem: Array<{ dia: string; entradas: number; saidas: number; bancoEntradas: number; bancoSaidas: number }>;
+}
+
+/**
+ * Escolhe o que entra no extrato de modo que ele feche com o banco.
+ *
+ * A lista fixa de situações (`entraNoExtrato`) é o ponto de partida, mas a
+ * documentação não diz todas: o primeiro extrato de verdade (out/2026) trouxe
+ * R$ 26 mil de saídas a mais que o banco, com as entradas certas ao centavo.
+ * Então, não fechando, as situações além de `LIQUIDATED` são testadas fora e
+ * dentro: a combinação que faz entradas **e** saídas baterem ao centavo com o
+ * banco é a certa — coincidência nesse grau não acontece. Achando mais de uma
+ * do mesmo tamanho, nenhuma é escolhida.
+ *
+ * Não fechando de jeito nenhum, devolve os dias em que o extrato e o banco
+ * discordam: é por eles que alguém confere à mão.
+ */
+export function fecharComOBanco(
+  todos: LancamentoDoExtrato[],
+  resumo: ResumoDoBanco | null,
+): FechamentoComOBanco {
+  const porSituacao: FechamentoComOBanco['porSituacao'] = {};
+  for (const l of todos) {
+    const s = (porSituacao[l.situacao || '(sem)'] ??= { n: 0, entradas: 0, saidas: 0 });
+    s.n++;
+    if (l.valor > 0) s.entradas = reais(centavos(s.entradas) + centavos(l.valor));
+    else s.saidas = reais(centavos(s.saidas) - centavos(l.valor));
+  }
+  const base = todos.filter((l) => entraNoExtrato(l.situacao));
+  const semBanco = { lancamentos: base, porSituacao, tiradasPelaSoma: [], diasQueNaoBatem: [] };
+  if (!resumo || resumo.entradas === null || resumo.saidas === null) return semBanco;
+
+  const alvo = { entradas: centavos(resumo.entradas), saidas: centavos(resumo.saidas) };
+  const bate = (ls: LancamentoDoExtrato[]) => {
+    const t = totais(ls);
+    return t.entradas === alvo.entradas && t.saidas === alvo.saidas;
+  };
+  if (bate(base)) return semBanco;
+
+  const duvidosas = [...new Set(todos.map((l) => l.situacao))].filter((s) => s !== 'LIQUIDATED').sort();
+  if (duvidosas.length <= 12) {
+    const combinacoes = Array.from({ length: 1 << duvidosas.length }, (_, m) => m).sort(
+      (a, b) => bits(a) - bits(b) || a - b,
+    );
+    let achada: number | null = null;
+    let tamanho = -1;
+    let empate = false;
+    for (const m of combinacoes) {
+      if (achada !== null && bits(m) > tamanho) break;
+      const fora = new Set(duvidosas.filter((_, i) => m & (1 << i)));
+      if (bate(todos.filter((l) => !fora.has(l.situacao)))) {
+        if (achada === null) {
+          achada = m;
+          tamanho = bits(m);
+        } else empate = true;
+      }
+    }
+    if (achada !== null && !empate) {
+      const fora = new Set(duvidosas.filter((_, i) => achada! & (1 << i)));
+      return {
+        lancamentos: todos.filter((l) => !fora.has(l.situacao)),
+        porSituacao,
+        tiradasPelaSoma: [...fora].filter((s) => entraNoExtrato(s)),
+        diasQueNaoBatem: [],
+      };
+    }
+  }
+
+  const diasQueNaoBatem: FechamentoComOBanco['diasQueNaoBatem'] = [];
+  for (const d of resumo.dias) {
+    const t = totais(base.filter((l) => l.dia === d.dia));
+    if (t.entradas !== d.entradas || t.saidas !== d.saidas) {
+      diasQueNaoBatem.push({
+        dia: d.dia,
+        entradas: reais(t.entradas),
+        saidas: reais(t.saidas),
+        bancoEntradas: reais(d.entradas),
+        bancoSaidas: reais(d.saidas),
+      });
+    }
+  }
+  return { lancamentos: base, porSituacao, tiradasPelaSoma: [], diasQueNaoBatem: diasQueNaoBatem.slice(0, 10) };
+}
+
+function bits(m: number): number {
+  let n = 0;
+  for (let x = m; x; x &= x - 1) n++;
+  return n;
+}
+
+/** O aviso de quando não fecha: por situação e por dia, para conferir à mão. */
+export function detalheDoQueNaoFecha(f: FechamentoComOBanco): string {
+  const situacoes = Object.entries(f.porSituacao)
+    .map(([s, v]) => `${s} ${v.n} (entradas ${brl(v.entradas)}, saídas ${brl(v.saidas)})`)
+    .join('; ');
+  const dias = f.diasQueNaoBatem
+    .map(
+      (d) =>
+        `${diaBr(d.dia)}: saídas ${brl(d.saidas)} × banco ${brl(d.bancoSaidas)}` +
+        (d.entradas !== d.bancoEntradas ? `, entradas ${brl(d.entradas)} × banco ${brl(d.bancoEntradas)}` : ''),
+    )
+    .join('; ');
+  return [`Por situação: ${situacoes}.`, dias && `Dias que não batem: ${dias}.`].filter(Boolean).join(' ');
+}
 
 /**
  * Os lançamentos fecham com o banco? Devolve a frase da conferência e, quando
@@ -390,6 +523,7 @@ export function abaDoExtrato(e: ExtratoDoBanco): Aba {
       { titulo: 'Entrada', tipo: 'moeda' },
       { titulo: 'Saída', tipo: 'moeda' },
       { titulo: 'Saldo', tipo: 'moeda' },
+      { titulo: 'Situação no banco', tipo: 'texto', largura: 16 },
       { titulo: 'Identificador', tipo: 'texto', largura: 38 },
     ],
     linhas: e.lancamentos.map((l, i) => [
@@ -402,9 +536,10 @@ export function abaDoExtrato(e: ExtratoDoBanco): Aba {
       l.valor > 0 ? l.valor : null,
       l.valor < 0 ? -l.valor : null,
       saldos[i],
+      l.situacao,
       l.endToEndId ?? l.id,
     ]),
-    totais: ['Total', '', '', '', '', '', reais(entradas), reais(saidas), e.saldoFinal, ''],
+    totais: ['Total', '', '', '', '', '', reais(entradas), reais(saidas), e.saldoFinal, '', ''],
   };
 }
 

@@ -2,7 +2,9 @@ import { ModobankClient } from '../modobank/modobank.client';
 import {
   abaDoExtrato,
   conferirComOBanco,
+  detalheDoQueNaoFecha,
   entraNoExtrato,
+  fecharComOBanco,
   lerTransacao,
   ofxDoExtrato,
   pdfDoExtrato,
@@ -92,6 +94,53 @@ describe('conferência com o saldo do banco', () => {
 
   it('sem o saldo do banco, não acusa nada', () => {
     expect(conferirComOBanco(lancs, null).aviso).toBeNull();
+  });
+});
+
+describe('fecharComOBanco', () => {
+  const l = (id: string, dia: string, valor: number, status: string) =>
+    lerTransacao(
+      pix({
+        id,
+        eventDate: `${dia}T15:00:00Z`,
+        status,
+        creditDebitType: valor > 0 ? 'CREDIT' : 'DEBIT',
+        transactionAmount: { available: Math.abs(valor) },
+      }),
+    )!;
+  const todos = [
+    l('a', '2026-10-01', 100, 'LIQUIDATED'),
+    l('b', '2026-10-01', -30, 'LIQUIDATED'),
+    l('c', '2026-10-02', -50, 'REFUNDED'), // o banco não conta: saiu e voltou
+    l('d', '2026-10-02', -20, 'LIQUIDATED'),
+    l('e', '2026-10-02', -999, 'CANCELED'),
+  ];
+  const resumo = resumoDoConsolidado([
+    { periodDate: '2026-10-01', creditAmount: 100, debitAmount: -30, initialBalance: 0, finalBalance: 70 },
+    { periodDate: '2026-10-02', creditAmount: 0, debitAmount: -20, initialBalance: 70, finalBalance: 50 },
+  ]);
+
+  it('acha pela soma a situação que o banco não conta, e o extrato fecha', () => {
+    const f = fecharComOBanco(todos, resumo);
+    expect(f.tiradasPelaSoma).toEqual(['REFUNDED']);
+    expect(f.lancamentos.map((x) => x.id)).toEqual(['a', 'b', 'd']);
+    expect(conferirComOBanco(f.lancamentos, resumo).aviso).toBeNull();
+    expect(f.porSituacao.REFUNDED).toEqual({ n: 1, entradas: 0, saidas: 50 });
+  });
+
+  it('já fechando, não tira nada além da lista fixa', () => {
+    const f = fecharComOBanco(todos.filter((x) => x.id !== 'c'), resumo);
+    expect(f.tiradasPelaSoma).toEqual([]);
+    expect(f.lancamentos.map((x) => x.id)).toEqual(['a', 'b', 'd']);
+  });
+
+  it('não fechando de jeito nenhum, aponta o dia que não bate', () => {
+    const errado = [...todos.filter((x) => x.id !== 'c'), l('f', '2026-10-02', -7, 'LIQUIDATED')];
+    const f = fecharComOBanco(errado, resumo);
+    expect(f.diasQueNaoBatem).toEqual([
+      { dia: '2026-10-02', entradas: 0, saidas: 27, bancoEntradas: 0, bancoSaidas: 20 },
+    ]);
+    expect(detalheDoQueNaoFecha(f)).toMatch(/02\/10\/2026: saídas R\$\s27,00 × banco R\$\s20,00/);
   });
 });
 

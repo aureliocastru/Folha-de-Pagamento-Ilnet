@@ -5,13 +5,15 @@ import {
   abaDoExtrato,
   conferirComOBanco,
   contraparteDe,
+  detalheDoQueNaoFecha,
   diaEHoraEmBrasilia,
-  entraNoExtrato,
+  fecharComOBanco,
   lerTransacao,
   ofxDoExtrato,
   pdfDoExtrato,
   resumoDoConsolidado,
   type ExtratoDoBanco,
+  type FechamentoComOBanco,
   type LancamentoDoExtrato,
   type ResumoDoBanco,
 } from './extrato-do-banco';
@@ -33,6 +35,10 @@ export interface DiagnosticoDoExtrato {
   /** Os campos que o banco mandou num lançamento (só os nomes). */
   campos: string[];
   semNome: number;
+  porSituacao: FechamentoComOBanco['porSituacao'];
+  /** Situações tiradas porque, sem elas, o extrato fecha com o banco. */
+  tiradasPelaSoma: string[];
+  diasQueNaoBatem: FechamentoComOBanco['diasQueNaoBatem'];
   conferencia: string;
   fechou: boolean | null;
 }
@@ -89,8 +95,7 @@ export class ExtratoDoBancoService {
       };
     }
 
-    const fora: Record<string, number> = {};
-    const lancamentos: LancamentoDoExtrato[] = [];
+    const todos: LancamentoDoExtrato[] = [];
     let ilegiveis = 0;
     for (const bruto of crus.itens) {
       const l = lerTransacao(bruto);
@@ -98,21 +103,14 @@ export class ExtratoDoBancoService {
         ilegiveis++;
         continue;
       }
-      if (!entraNoExtrato(l.situacao)) {
-        fora[l.situacao] = (fora[l.situacao] ?? 0) + 1;
-        continue;
-      }
       // O banco pode devolver um pouco além das pontas: vale o dia de Brasília.
       if (l.dia < de || l.dia > ate) continue;
-      lancamentos.push(l);
+      todos.push(l);
     }
-    lancamentos.sort((a, b) => (a.dia + a.hora).localeCompare(b.dia + b.hora));
     if (ilegiveis > 0) avisos.push(`ModoBank: ${ilegiveis} lançamento(s) vieram sem data ou valor legível.`);
     if (crus.total !== null && crus.itens.length < crus.total) {
       avisos.push(`ModoBank: o banco disse ${crus.total} lançamentos e vieram ${crus.itens.length}.`);
     }
-
-    await this.completarNomes(lancamentos, crus.itens);
 
     const resumo = await this.resumo(de, ate).catch((e: unknown) => {
       avisos.push(
@@ -120,8 +118,16 @@ export class ExtratoDoBancoService {
       );
       return null;
     });
+    const fechamento = fecharComOBanco(todos, resumo);
+    const lancamentos = fechamento.lancamentos.sort((a, b) => (a.dia + a.hora).localeCompare(b.dia + b.hora));
+    const ficaram = new Set(lancamentos);
+    const fora: Record<string, number> = {};
+    for (const l of todos) if (!ficaram.has(l)) fora[l.situacao] = (fora[l.situacao] ?? 0) + 1;
+
+    await this.completarNomes(lancamentos, crus.itens);
+
     const conferido = conferirComOBanco(lancamentos, resumo);
-    if (conferido.aviso) avisos.push(conferido.aviso);
+    if (conferido.aviso) avisos.push(`${conferido.aviso} ${detalheDoQueNaoFecha(fechamento)}`);
     if (ate >= hoje()) {
       avisos.push('ModoBank: o período ainda não acabou — o extrato vai até agora e é refeito a cada leitura.');
     }
@@ -168,6 +174,9 @@ export class ExtratoDoBancoService {
       fora,
       campos: Object.keys(crus.itens[0] ?? {}).sort(),
       semNome: lancamentos.filter((l) => !l.contraparte).length,
+      porSituacao: fechamento.porSituacao,
+      tiradasPelaSoma: fechamento.tiradasPelaSoma,
+      diasQueNaoBatem: fechamento.diasQueNaoBatem,
       conferencia: conferido.frase,
       fechou: resumo && resumo.saldoInicial !== null && resumo.saldoFinal !== null ? !conferido.aviso : null,
     };
