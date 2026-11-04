@@ -29,6 +29,7 @@ import {
   MarcarDto,
   MarcarVariosDto,
 } from './dto/contabilidade.dto';
+import { ExtratoDoBancoService } from './extrato-do-banco.service';
 import { PacoteZipService } from './pacote-zip.service';
 import { PacoteContabilService } from './pacote.service';
 
@@ -57,12 +58,28 @@ export class ContabilidadeController {
     private readonly pacotes: PacoteContabilService,
     private readonly zip: PacoteZipService,
     private readonly configuracao: ConfiguracaoService,
+    private readonly extratos: ExtratoDoBancoService,
   ) {}
 
   /** Uma página crua de uma tabela do IXC, para conferir um relatório. */
   @Get('diagnostico/:tabela')
   lerTabela(@Param('tabela') tabela: string, @Query() pedido: PedidoDeDiagnostico) {
     return this.diagnostico.ler(tabela, pedido);
+  }
+
+  /**
+   * O que a última montagem do extrato da ModoBank achou: quantos vieram, o
+   * que ficou fora e por quê, e — não fechando — as saídas suspeitas cruas.
+   */
+  @Get('pacotes/:id/extrato-do-banco')
+  extratoDoBanco(@Param('id') id: string) {
+    return this.extratos.diagnostico(id);
+  }
+
+  /** Um lançamento da ModoBank como o banco o detalha. Só leitura. */
+  @Get('banco/lancamentos/:id')
+  lancamentoDoBanco(@Param('id') id: string) {
+    return this.extratos.detalheCru(id);
   }
 
   // --- Os períodos ---

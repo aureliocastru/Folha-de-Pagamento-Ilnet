@@ -61,7 +61,40 @@ const TIPOS: Record<string, string> = {
   P2P: 'Transferência interna',
   FEE: 'Tarifa',
   TARIFF: 'Tarifa',
+  // Os R$ 0,22 que a própria ModoBank (MODO PAGAMENTOS S.A.) debita a cada
+  // Pix recebido: um por entrada, milhares no mês.
+  AUTHORIZED_DEBIT: 'Débito autorizado',
 };
+
+/** O tipo que não tem "recebido/enviado": o nome dele já diz o que é. */
+const DESCRICAO_DO_TIPO: Record<string, string> = {
+  'Débito autorizado': 'Débito autorizado',
+  Tarifa: 'Tarifa',
+};
+
+/**
+ * A saída que o banco desfez: o detalhe mostra que ela voltou (devolução no
+ * `refunds`) ou que não se completou. Em out/2026 a lista trouxe Pix enviados
+ * como LIQUIDATED — R$ 5.000,00 em 05/10, R$ 21.083,84 em 23/10 — que o saldo
+ * da conta não registra, e sem nenhuma volta na lista: só o detalhe diz.
+ */
+export function saidaDesfeita(l: LancamentoDoExtrato, detalhe: Record<string, unknown> | null): boolean {
+  if (l.valor >= 0 || !detalhe) return false;
+  const situacao = String(detalhe.status ?? '').toUpperCase();
+  if (situacao && (situacao === 'REFUNDED' || !entraNoExtrato(situacao))) return true;
+  const devolucoes = Array.isArray(detalhe.refunds) ? detalhe.refunds : [];
+  let devolvido = 0;
+  for (const d of devolucoes) {
+    const o = objeto(d);
+    if (!o) continue;
+    const st = String(o.status ?? '').toUpperCase();
+    if (st && !entraNoExtrato(st)) continue;
+    const valor =
+      numeroDoBanco(objeto(o.pixRefundAmount)?.amount) ?? numeroDoBanco(objeto(o.amount)?.amount) ?? numeroDoBanco(o.amount);
+    devolvido += centavos(Math.abs(valor ?? 0));
+  }
+  return devolvido > 0 && devolvido >= centavos(-l.valor);
+}
 
 function objeto(v: unknown): Record<string, unknown> | null {
   return v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
@@ -139,6 +172,7 @@ export function lerTransacao(b: Record<string, unknown>): LancamentoDoExtrato | 
   const descricao =
     textoDe(b.description) ??
     textoDe(b.descricao) ??
+    DESCRICAO_DO_TIPO[tipo] ??
     (tipo === 'Boleto'
       ? entrada
         ? 'Boleto recebido'
@@ -219,7 +253,7 @@ export function resumoDoConsolidado(periodos: Array<Record<string, unknown>>): R
   };
 }
 
-const brl = (v: number) =>
+export const brl = (v: number) =>
   v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2 });
 
 /** Entradas e saídas de uma lista, em centavos. */
@@ -483,7 +517,7 @@ export function ofxDoExtrato(e: ExtratoDoBanco): Buffer {
 // Excel
 // ---------------------------------------------------------------------------
 
-const diaBr = (dia: string) => `${dia.slice(8, 10)}/${dia.slice(5, 7)}/${dia.slice(0, 4)}`;
+export const diaBr = (dia: string) => `${dia.slice(8, 10)}/${dia.slice(5, 7)}/${dia.slice(0, 4)}`;
 
 function nomeDaConta(e: ExtratoDoBanco): string {
   const partes = [e.conta.agencia && `ag. ${e.conta.agencia}`, e.conta.numero && `c/c ${e.conta.numero}`].filter(Boolean);

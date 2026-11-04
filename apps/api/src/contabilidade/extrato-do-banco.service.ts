@@ -3,15 +3,19 @@ import { ModobankClient } from '../modobank/modobank.client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   abaDoExtrato,
+  brl,
   conferirComOBanco,
   contraparteDe,
   detalheDoQueNaoFecha,
+  diaBr,
   diaEHoraEmBrasilia,
+  entraNoExtrato,
   fecharComOBanco,
   lerTransacao,
   ofxDoExtrato,
   pdfDoExtrato,
   resumoDoConsolidado,
+  saidaDesfeita,
   type ExtratoDoBanco,
   type FechamentoComOBanco,
   type LancamentoDoExtrato,
@@ -39,6 +43,11 @@ export interface DiagnosticoDoExtrato {
   /** Situações tiradas porque, sem elas, o extrato fecha com o banco. */
   tiradasPelaSoma: string[];
   diasQueNaoBatem: FechamentoComOBanco['diasQueNaoBatem'];
+  /** Saídas que o detalhe mostrou desfeitas (devolvidas, recusadas). */
+  desfeitas: Array<{ dia: string; valor: number; id: string; contraparte: string | null }>;
+  detalhesLidos: number;
+  /** Não fechando: as saídas dos dias ruins, cruas, como o banco mandou. */
+  suspeitos: Array<{ lista: Record<string, unknown> | null; detalhe: Record<string, unknown> | null }>;
   conferencia: string;
   fechou: boolean | null;
 }
@@ -118,16 +127,45 @@ export class ExtratoDoBancoService {
       );
       return null;
     });
-    const fechamento = fecharComOBanco(todos, resumo);
+
+    // O detalhe de cada um: o nome de quem pagou/recebeu, e se a saída voltou.
+    const detalhes = await this.lerDetalhes(todos.filter((l) => entraNoExtrato(l.situacao)));
+    const desfeitas = todos.filter((l) => saidaDesfeita(l, detalhes.get(l.id) ?? null));
+    if (desfeitas.length > 0) {
+      avisos.push(
+        `ModoBank: ${desfeitas.length} saída(s) que o banco desfez ficaram fora do extrato — ` +
+          desfeitas
+            .map((l) => `${diaBr(l.dia)} ${brl(-l.valor)}${l.contraparte ? ` (${l.contraparte})` : ''}`)
+            .join('; ') +
+          '. Confira se no IXC elas também não estão como pagas.',
+      );
+    }
+    const semDesfeitas = todos.filter((l) => !desfeitas.includes(l));
+
+    const fechamento = fecharComOBanco(semDesfeitas, resumo);
     const lancamentos = fechamento.lancamentos.sort((a, b) => (a.dia + a.hora).localeCompare(b.dia + b.hora));
     const ficaram = new Set(lancamentos);
     const fora: Record<string, number> = {};
-    for (const l of todos) if (!ficaram.has(l)) fora[l.situacao] = (fora[l.situacao] ?? 0) + 1;
-
-    await this.completarNomes(lancamentos, crus.itens);
+    for (const l of todos) {
+      if (ficaram.has(l)) continue;
+      const motivo = desfeitas.includes(l) ? `${l.situacao} desfeita` : l.situacao;
+      fora[motivo] = (fora[motivo] ?? 0) + 1;
+    }
 
     const conferido = conferirComOBanco(lancamentos, resumo);
     if (conferido.aviso) avisos.push(`${conferido.aviso} ${detalheDoQueNaoFecha(fechamento)}`);
+
+    /*
+     * Não fechando, as saídas dos dias que não batem ficam guardadas como o
+     * banco as mandou (lista e detalhe): é por elas que se descobre o próximo
+     * jeito de o banco desfazer um pagamento sem dizer na lista.
+     */
+    const diasRuins = new Set(fechamento.diasQueNaoBatem.map((d) => d.dia));
+    const cruDoId = new Map(crus.itens.map((c) => [String(c.id ?? c.endToEndId ?? ''), c]));
+    const suspeitos = lancamentos
+      .filter((l) => diasRuins.has(l.dia) && l.valor < 0 && l.tipo !== 'Débito autorizado')
+      .slice(0, 40)
+      .map((l) => ({ lista: cruDoId.get(l.id) ?? null, detalhe: detalhes.get(l.id) ?? null }));
     if (ate >= hoje()) {
       avisos.push('ModoBank: o período ainda não acabou — o extrato vai até agora e é refeito a cada leitura.');
     }
@@ -177,6 +215,9 @@ export class ExtratoDoBancoService {
       porSituacao: fechamento.porSituacao,
       tiradasPelaSoma: fechamento.tiradasPelaSoma,
       diasQueNaoBatem: fechamento.diasQueNaoBatem,
+      desfeitas: desfeitas.map((l) => ({ dia: l.dia, valor: l.valor, id: l.id, contraparte: l.contraparte })),
+      detalhesLidos: detalhes.size,
+      suspeitos,
       conferencia: conferido.frase,
       fechou: resumo && resumo.saldoInicial !== null && resumo.saldoFinal !== null ? !conferido.aviso : null,
     };
@@ -188,51 +229,70 @@ export class ExtratoDoBancoService {
   }
 
   /**
-   * O nome de quem pagou ou recebeu, para o lançamento que veio sem ele.
+   * O detalhe de cada lançamento: quem pagou ou recebeu (a lista não traz), e
+   * se a saída voltou.
    *
-   * Um por um, no detalhe — a lista não traz. Quatro de cada vez, e para no
-   * primeiro "devagar" do banco ou se os três primeiros falharem: o nome
-   * enfeita o extrato, mas não pode derrubar a leitura do mês.
+   * As saídas primeiro — são poucas (224 Pix em out/2026) e é nelas que mora o
+   * dinheiro que pode ter voltado; depois as entradas, que são o nome do
+   * cliente. O débito de R$ 0,22 da ModoBank, um por Pix recebido, fica de
+   * fora: é sempre o mesmo, e seriam outras cinco mil idas ao banco. Seis de
+   * cada vez; para no primeiro "devagar" do banco ou se os três primeiros
+   * falharem — o nome enfeita o extrato, mas não pode derrubar a leitura.
    */
-  private async completarNomes(
+  private async lerDetalhes(
     lancamentos: LancamentoDoExtrato[],
-    crus: Array<Record<string, unknown>>,
-  ): Promise<void> {
-    if (!this.banco) return;
+  ): Promise<Map<string, Record<string, unknown>>> {
+    const detalhes = new Map<string, Record<string, unknown>>();
+    if (!this.banco) return detalhes;
     const banco = this.banco;
-    const semNome = lancamentos.filter((l) => !l.contraparte).slice(0, 3000);
-    if (semNome.length === 0) return;
-    const idDoBanco = new Map(crus.map((c) => [String(c.id ?? c.endToEndId ?? ''), c]));
+    const pedir = [
+      ...lancamentos.filter((l) => l.valor < 0 && l.tipo !== 'Débito autorizado'),
+      ...lancamentos.filter((l) => l.valor > 0 && !l.contraparte),
+    ].slice(0, 8000);
 
     let falhas = 0;
-    let acertos = 0;
     let parar = false;
     let proximo = 0;
     const trabalhar = async () => {
-      while (!parar && proximo < semNome.length) {
-        const l = semNome[proximo++];
-        const cru = idDoBanco.get(l.id);
-        const id = String(cru?.id ?? l.id);
+      while (!parar && proximo < pedir.length) {
+        const l = pedir[proximo++];
         try {
-          const d = await banco.detalheDaTransacao(id);
+          const d = await banco.detalheDaTransacao(l.id);
           if (!d) continue;
+          detalhes.set(l.id, d);
           const outro = contraparteDe(d, l.valor > 0);
-          if (outro.nome) {
+          if (outro.nome && !l.contraparte) {
             l.contraparte = outro.nome;
             l.documento = outro.documento;
-            acertos++;
           }
         } catch (e) {
           falhas++;
           const msg = e instanceof Error ? e.message : String(e);
-          if (/429|limite|too many/i.test(msg) || (acertos === 0 && falhas >= 3)) {
-            this.logger.warn(`Extrato da ModoBank: parei de pedir nomes (${msg}).`);
+          if (/429|limite|too many/i.test(msg) || (detalhes.size === 0 && falhas >= 3)) {
+            this.logger.warn(`Extrato da ModoBank: parei de pedir detalhes (${msg}).`);
             parar = true;
           }
         }
       }
     };
-    await Promise.all([trabalhar(), trabalhar(), trabalhar(), trabalhar()]);
+    await Promise.all(Array.from({ length: 6 }, trabalhar));
+    return detalhes;
+  }
+
+  /** O diagnóstico da última montagem do extrato do pacote (para conferir de fora). */
+  async diagnostico(pacoteId: string): Promise<unknown> {
+    const linha = await this.prisma.itemDoPacote.findUnique({
+      where: { pacoteId_item_chave: { pacoteId, item: 1, chave: '' } },
+      select: { dados: true },
+    });
+    const dados = linha?.dados as { extratoDoBanco?: unknown } | null;
+    return dados?.extratoDoBanco ?? null;
+  }
+
+  /** O detalhe cru de um lançamento, como o banco o devolve. Só leitura. */
+  async detalheCru(id: string): Promise<Record<string, unknown> | null> {
+    if (!this.banco?.configurado) return null;
+    return this.banco.detalheDaTransacao(id);
   }
 
   /**

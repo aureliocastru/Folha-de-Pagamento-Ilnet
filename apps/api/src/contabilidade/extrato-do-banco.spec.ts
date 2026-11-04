@@ -9,6 +9,7 @@ import {
   ofxDoExtrato,
   pdfDoExtrato,
   resumoDoConsolidado,
+  saidaDesfeita,
   type ExtratoDoBanco,
 } from './extrato-do-banco';
 import { lerOfx } from './ofx';
@@ -94,6 +95,40 @@ describe('conferência com o saldo do banco', () => {
 
   it('sem o saldo do banco, não acusa nada', () => {
     expect(conferirComOBanco(lancs, null).aviso).toBeNull();
+  });
+});
+
+describe('saidaDesfeita', () => {
+  const saida = lerTransacao(pix({ creditDebitType: 'DEBIT', transactionAmount: { available: 5000 } }))!;
+  const entrada = lerTransacao(pix({ transactionAmount: { available: 5000 } }))!;
+
+  it('devolução inteira no detalhe: a saída não tirou dinheiro', () => {
+    const detalhe = {
+      status: 'LIQUIDATED',
+      refunds: [{ status: 'LIQUIDATED', pixRefundAmount: { currency: 'BRL', amount: 5000 } }],
+    };
+    expect(saidaDesfeita(saida, detalhe)).toBe(true);
+  });
+
+  it('o detalhe diz devolvida ou cancelada, ainda que a lista diga liquidada', () => {
+    expect(saidaDesfeita(saida, { status: 'REFUNDED' })).toBe(true);
+    expect(saidaDesfeita(saida, { status: 'CANCELED' })).toBe(true);
+  });
+
+  it('devolução parcial, devolução cancelada ou entrada: fica', () => {
+    expect(saidaDesfeita(saida, { status: 'LIQUIDATED', refunds: [{ pixRefundAmount: { amount: 100 } }] })).toBe(false);
+    expect(
+      saidaDesfeita(saida, { status: 'LIQUIDATED', refunds: [{ status: 'CANCELED', pixRefundAmount: { amount: 5000 } }] }),
+    ).toBe(false);
+    expect(saidaDesfeita(entrada, { status: 'REFUNDED' })).toBe(false);
+    expect(saidaDesfeita(saida, null)).toBe(false);
+    expect(saidaDesfeita(saida, { status: 'LIQUIDATED' })).toBe(false);
+  });
+
+  it('o débito de R$ 0,22 da ModoBank tem nome próprio', () => {
+    expect(
+      lerTransacao(pix({ transactionType: 'AUTHORIZED_DEBIT', creditDebitType: 'DEBIT', transactionAmount: { available: 0.22 } })),
+    ).toMatchObject({ tipo: 'Débito autorizado', descricao: 'Débito autorizado', valor: -0.22 });
   });
 });
 
