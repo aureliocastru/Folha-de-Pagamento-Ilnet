@@ -169,6 +169,27 @@ export class ModobankClient {
   }
 
   /**
+   * O saldo da conta agora: o disponível mais o bloqueado (que continua na
+   * conta, só não pode sair). É a âncora do extrato: em out/2026 o resumo do
+   * banco errou o saldo do fim do mês, e o deste endpoint é o que o portal
+   * mostra.
+   */
+  async saldoDaConta(): Promise<{ saldo: number; em: Date } | null> {
+    const r = await this.pedir<{
+      data?: Array<{ eventDate?: string; balanceAmount?: { available?: unknown; blocked?: unknown } }>;
+    }>('get', '/accounts/balances');
+    const b = r.data?.[0]?.balanceAmount;
+    const disponivel = Number(b?.available);
+    if (!Number.isFinite(disponivel)) return null;
+    const bloqueado = Number(b?.blocked ?? 0);
+    const quando = Date.parse(String(r.data?.[0]?.eventDate ?? ''));
+    return {
+      saldo: Math.round((disponivel + (Number.isFinite(bloqueado) ? bloqueado : 0)) * 100) / 100,
+      em: Number.isFinite(quando) ? new Date(quando) : new Date(),
+    };
+  }
+
+  /**
    * Todos os lançamentos da conta entre dois dias (de Brasília), como o banco
    * os devolve — crus: a documentação do extrato é magra, e quem lê os campos
    * é o extrato da contabilidade, que aceita mais de um nome para cada um.

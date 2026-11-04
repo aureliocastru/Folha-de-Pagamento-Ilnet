@@ -75,7 +75,7 @@ const DESCRICAO_DO_TIPO: Record<string, string> = {
 /**
  * A saída que o banco desfez: o detalhe mostra que ela voltou (devolução no
  * `refunds`) ou que não se completou. Em out/2026 a lista trouxe Pix enviados
- * como LIQUIDATED — R$ 5.000,00 em 05/10, R$ 21.083,84 em 23/10 — que o saldo
+ * como LIQUIDATED, em dois dias do mês, que o saldo
  * da conta não registra, e sem nenhuma volta na lista: só o detalhe diz.
  */
 export function saidaDesfeita(l: LancamentoDoExtrato, detalhe: Record<string, unknown> | null): boolean {
@@ -284,7 +284,7 @@ export interface FechamentoComOBanco {
  *
  * A lista fixa de situações (`entraNoExtrato`) é o ponto de partida, mas a
  * documentação não diz todas: o primeiro extrato de verdade (out/2026) trouxe
- * R$ 26 mil de saídas a mais que o banco, com as entradas certas ao centavo.
+ * saídas a mais que o resumo do banco, com as entradas certas ao centavo.
  * Então, não fechando, as situações além de `LIQUIDATED` são testadas fora e
  * dentro: a combinação que faz entradas **e** saídas baterem ao centavo com o
  * banco é a certa — coincidência nesse grau não acontece. Achando mais de uma
@@ -417,6 +417,62 @@ export function conferirComOBanco(
       : '') +
     ').';
   return { frase: texto, aviso: `ModoBank: ${texto} Confira antes de mandar à contabilidade.` };
+}
+
+/** O saldo da conta numa hora, e o que entrou menos o que saiu dali até o fim do período. */
+export interface AncoraDoSaldo {
+  /** O saldo da conta quando foi lido (disponível + bloqueado). */
+  saldo: number;
+  em: Date;
+  /** Entradas menos saídas entre o fim do período e a leitura do saldo. */
+  depois: number;
+}
+
+/**
+ * Os saldos do extrato e a frase da conferência.
+ *
+ * Com a âncora — o saldo da conta agora, que é o que o portal mostra —, o
+ * saldo do fim do período é ele menos o que andou depois, e o do começo é esse
+ * menos o que andou no período. É a conta que não depende do resumo do banco:
+ * em out/2026 o resumo deixou de contar quatro Pix e errou o saldo do fim do
+ * mês, enquanto o portal mostrava o que a soma dos lançamentos dá. Desde então o resumo só é comparado, e a
+ * diferença vai escrita no papel, sem virar alerta.
+ *
+ * Alerta, só se as **entradas** discordarem do resumo: essas bateram ao
+ * centavo (milhares de Pix), e discordar ali é lançamento faltando na lista.
+ */
+export function saldosDoExtrato(
+  lancamentos: LancamentoDoExtrato[],
+  ancora: AncoraDoSaldo | null,
+  resumo: ResumoDoBanco | null,
+): { saldoInicial: number | null; saldoFinal: number | null; frase: string; aviso: string | null } {
+  if (!ancora) {
+    const c = conferirComOBanco(lancamentos, resumo);
+    return { saldoInicial: resumo?.saldoInicial ?? null, saldoFinal: resumo?.saldoFinal ?? null, ...c };
+  }
+  const t = totais(lancamentos);
+  const final = centavos(ancora.saldo) - centavos(ancora.depois);
+  const inicial = final - (t.entradas - t.saidas);
+  const quando = ancora.em.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' });
+  let frase =
+    `Saldos tirados do saldo da conta em ${quando} (${brl(ancora.saldo)}), ` +
+    'menos o que entrou e saiu depois do período.';
+  let aviso: string | null = null;
+  if (resumo && resumo.saldoFinal !== null) {
+    const diferenca = centavos(resumo.saldoFinal) - final;
+    frase +=
+      diferenca === 0
+        ? ' O resumo do banco confirma.'
+        : ` O resumo do banco diz ${brl(resumo.saldoFinal)} no fim do período ` +
+          `(${brl(reais(Math.abs(diferenca)))} ${diferenca > 0 ? 'a mais' : 'a menos'}): ` +
+          'ele não conta todos os lançamentos da conta.';
+  }
+  if (resumo && resumo.entradas !== null && centavos(resumo.entradas) !== t.entradas) {
+    aviso =
+      `ModoBank: as entradas do extrato (${brl(reais(t.entradas))}) não batem com o resumo do banco ` +
+      `(${brl(resumo.entradas)}). Pode faltar lançamento — confira antes de mandar à contabilidade.`;
+  }
+  return { saldoInicial: reais(inicial), saldoFinal: reais(final), frase, aviso };
 }
 
 // ---------------------------------------------------------------------------

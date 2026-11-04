@@ -10,6 +10,7 @@ import {
   pdfDoExtrato,
   resumoDoConsolidado,
   saidaDesfeita,
+  saldosDoExtrato,
   type ExtratoDoBanco,
 } from './extrato-do-banco';
 import { lerOfx } from './ofx';
@@ -95,6 +96,51 @@ describe('conferência com o saldo do banco', () => {
 
   it('sem o saldo do banco, não acusa nada', () => {
     expect(conferirComOBanco(lancs, null).aviso).toBeNull();
+  });
+});
+
+describe('saldosDoExtrato — a âncora no saldo da conta', () => {
+  const lancs = [
+    lerTransacao(pix({ transactionAmount: { available: 300 } }))!,
+    lerTransacao(pix({ id: 'b', creditDebitType: 'DEBIT', transactionAmount: { available: 120 } }))!,
+  ];
+  const ancora = { saldo: 1250, em: new Date('2026-11-04T19:00:00Z'), depois: 50 };
+
+  it('fim = saldo de agora menos o que andou depois; começo = fim menos o período', () => {
+    const s = saldosDoExtrato(lancs, ancora, null);
+    expect(s).toMatchObject({ saldoFinal: 1200, saldoInicial: 1020, aviso: null });
+    expect(s.frase).toContain('Saldos tirados do saldo da conta');
+  });
+
+  it('o resumo do banco que concorda confirma', () => {
+    const resumo = resumoDoConsolidado([
+      { periodDate: '2026-10-01', creditAmount: 300, debitAmount: -120, initialBalance: 1020, finalBalance: 1200 },
+    ]);
+    expect(saldosDoExtrato(lancs, ancora, resumo).frase).toContain('O resumo do banco confirma');
+  });
+
+  it('o resumo que não conta uma saída fica escrito, sem virar alerta', () => {
+    const resumo = resumoDoConsolidado([
+      { periodDate: '2026-10-01', creditAmount: 300, debitAmount: -20, initialBalance: 1020, finalBalance: 1300 },
+    ]);
+    const s = saldosDoExtrato(lancs, ancora, resumo);
+    expect(s.saldoFinal).toBe(1200);
+    expect(s.aviso).toBeNull();
+    expect(s.frase).toMatch(/resumo do banco diz R\$\s1\.300,00.*R\$\s100,00 a mais/);
+  });
+
+  it('entradas que não batem com o resumo: alerta, pode faltar lançamento', () => {
+    const resumo = resumoDoConsolidado([
+      { periodDate: '2026-10-01', creditAmount: 350, debitAmount: -120, initialBalance: 1020, finalBalance: 1250 },
+    ]);
+    expect(saldosDoExtrato(lancs, ancora, resumo).aviso).toMatch(/entradas.*não batem/);
+  });
+
+  it('sem âncora, vale o resumo do banco, como antes', () => {
+    const resumo = resumoDoConsolidado([
+      { periodDate: '2026-10-01', creditAmount: 300, debitAmount: -120, initialBalance: 1020, finalBalance: 1200 },
+    ]);
+    expect(saldosDoExtrato(lancs, null, resumo)).toMatchObject({ saldoInicial: 1020, saldoFinal: 1200, aviso: null });
   });
 });
 

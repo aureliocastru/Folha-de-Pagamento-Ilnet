@@ -4,7 +4,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   abaDoExtrato,
   brl,
-  conferirComOBanco,
   contraparteDe,
   detalheDoQueNaoFecha,
   diaBr,
@@ -16,6 +15,8 @@ import {
   pdfDoExtrato,
   resumoDoConsolidado,
   saidaDesfeita,
+  saldosDoExtrato,
+  type AncoraDoSaldo,
   type ExtratoDoBanco,
   type FechamentoComOBanco,
   type LancamentoDoExtrato,
@@ -48,6 +49,10 @@ export interface DiagnosticoDoExtrato {
   detalhesLidos: number;
   /** Não fechando: as saídas dos dias ruins, cruas, como o banco mandou. */
   suspeitos: Array<{ lista: Record<string, unknown> | null; detalhe: Record<string, unknown> | null }>;
+  /** O saldo da conta de onde os saldos do extrato saíram. */
+  ancora: { saldo: number; em: string; depois: number } | null;
+  saldoInicial: number | null;
+  saldoFinal: number | null;
   conferencia: string;
   fechou: boolean | null;
 }
@@ -152,7 +157,11 @@ export class ExtratoDoBancoService {
       fora[motivo] = (fora[motivo] ?? 0) + 1;
     }
 
-    const conferido = conferirComOBanco(lancamentos, resumo);
+    const ancora = await this.ancora(ate).catch((e: unknown) => {
+      this.logger.warn(`Extrato da ModoBank: sem o saldo da conta (${e instanceof Error ? e.message : String(e)}).`);
+      return null;
+    });
+    const conferido = saldosDoExtrato(lancamentos, ancora, resumo);
     if (conferido.aviso) avisos.push(`${conferido.aviso} ${detalheDoQueNaoFecha(fechamento)}`);
 
     /*
@@ -176,8 +185,8 @@ export class ExtratoDoBancoService {
       ate,
       geradoEm: new Date(),
       lancamentos,
-      saldoInicial: resumo?.saldoInicial ?? null,
-      saldoFinal: resumo?.saldoFinal ?? null,
+      saldoInicial: conferido.saldoInicial,
+      saldoFinal: conferido.saldoFinal,
       conferencia: conferido.frase,
     };
 
@@ -218,8 +227,11 @@ export class ExtratoDoBancoService {
       desfeitas: desfeitas.map((l) => ({ dia: l.dia, valor: l.valor, id: l.id, contraparte: l.contraparte })),
       detalhesLidos: detalhes.size,
       suspeitos,
+      ancora: ancora ? { saldo: ancora.saldo, em: ancora.em.toISOString(), depois: ancora.depois } : null,
+      saldoInicial: conferido.saldoInicial,
+      saldoFinal: conferido.saldoFinal,
       conferencia: conferido.frase,
-      fechou: resumo && resumo.saldoInicial !== null && resumo.saldoFinal !== null ? !conferido.aviso : null,
+      fechou: ancora || (resumo && resumo.saldoFinal !== null) ? !conferido.aviso : null,
     };
     this.logger.log(
       `Extrato da ModoBank ${de} a ${ate}: ${lancamentos.length} lançamentos ` +
@@ -232,7 +244,7 @@ export class ExtratoDoBancoService {
    * O detalhe de cada lançamento: quem pagou ou recebeu (a lista não traz), e
    * se a saída voltou.
    *
-   * As saídas primeiro — são poucas (224 Pix em out/2026) e é nelas que mora o
+   * As saídas primeiro — são poucas (umas duzentas por mês) e é nelas que mora o
    * dinheiro que pode ter voltado; depois as entradas, que são o nome do
    * cliente. O débito de R$ 0,22 da ModoBank, um por Pix recebido, fica de
    * fora: é sempre o mesmo, e seriam outras cinco mil idas ao banco. Seis de
@@ -277,6 +289,40 @@ export class ExtratoDoBancoService {
     };
     await Promise.all(Array.from({ length: 6 }, trabalhar));
     return detalhes;
+  }
+
+  /**
+   * O saldo da conta agora e o que andou entre o fim do período e agora — de
+   * onde sai o saldo do fim do período sem depender do resumo do banco.
+   *
+   * O saldo é lido antes e depois dos lançamentos: entra Pix na conta a cada
+   * poucos minutos, e um que caísse no meio da leitura deixaria a conta torta.
+   * Mudou, lê de novo (até três vezes). Período de mais de 120 dias atrás fica
+   * sem âncora: seriam meses de lançamentos para refazer um saldo antigo.
+   */
+  private async ancora(ate: string): Promise<AncoraDoSaldo | null> {
+    if (!this.banco) return null;
+    const hojeEm = hoje();
+    if ((Date.parse(hojeEm) - Date.parse(ate)) / 86_400_000 > 120) return null;
+    for (let tentativa = 1; tentativa <= 3; tentativa++) {
+      const antes = await this.banco.saldoDaConta();
+      if (!antes) return null;
+      let depois = 0;
+      if (ate < hojeEm) {
+        const crus = await this.banco.transacoes(diaSeguinte(ate), hojeEm);
+        for (const bruto of crus.itens) {
+          const l = lerTransacao(bruto);
+          if (!l || l.dia <= ate || !entraNoExtrato(l.situacao)) continue;
+          depois += Math.round(l.valor * 100);
+        }
+      }
+      const agora = await this.banco.saldoDaConta();
+      if (agora && agora.saldo === antes.saldo) {
+        return { saldo: agora.saldo, em: agora.em, depois: depois / 100 };
+      }
+    }
+    this.logger.warn('Extrato da ModoBank: o saldo mudou durante a leitura três vezes; ficou sem âncora.');
+    return null;
   }
 
   /** O diagnóstico da última montagem do extrato do pacote (para conferir de fora). */
@@ -357,6 +403,10 @@ export class ExtratoDoBancoService {
 
 function hoje(): string {
   return diaEHoraEmBrasilia(new Date().toISOString())!.dia;
+}
+
+function diaSeguinte(dia: string): string {
+  return new Date(Date.parse(dia) + 86_400_000).toISOString().slice(0, 10);
 }
 
 function ultimoDiaDoMes(dia: string): string {
