@@ -14,6 +14,8 @@ export interface ArquivoNaTela {
   nome: string;
   tamanho: number;
   createdAt: string;
+  /** Montado pela API do banco (a conta da ModoBank), e não enviado à mão. */
+  doBanco?: boolean;
 }
 
 export interface Vaga {

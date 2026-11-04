@@ -168,6 +168,97 @@ export class ModobankClient {
     return typeof disponivel === 'number' ? disponivel : null;
   }
 
+  /**
+   * Todos os lançamentos da conta entre dois dias (de Brasília), como o banco
+   * os devolve — crus: a documentação do extrato é magra, e quem lê os campos
+   * é o extrato da contabilidade, que aceita mais de um nome para cada um.
+   *
+   * O `page_offset` não diz na documentação se conta itens ou páginas. A
+   * segunda página responde: se ela repete o segundo item da primeira, é
+   * posição de item; senão, é número de página. Errar isso pularia 99 de cada
+   * 100 lançamentos sem erro nenhum, e um extrato é o papel que não pode faltar
+   * nada. `total` é o que o banco diz que existe, para conferir no fim.
+   */
+  async transacoes(de: string, ate: string): Promise<{ itens: Array<Record<string, unknown>>; total: number | null }> {
+    const limite = 100;
+    const pagina = (offset: number) =>
+      this.pedir<{ meta?: { total?: number }; data?: unknown }>(
+        'get',
+        '/accounts/transactions?' +
+          new URLSearchParams({
+            event_date_start: `${de}T00:00:00.000-03:00`,
+            event_date_end: `${ate}T23:59:59.999-03:00`,
+            page_offset: String(offset),
+            page_limit: String(limite),
+            sort_by: 'EVENT_DATE',
+            sort_order: 'ASC',
+          }).toString(),
+      );
+    const itensDe = (r: { data?: unknown }) =>
+      (Array.isArray(r.data) ? r.data : []).filter(
+        (x): x is Record<string, unknown> => !!x && typeof x === 'object',
+      );
+    const chave = (x: Record<string, unknown>, i: number) =>
+      String(x.id ?? x.endToEndId ?? `sem-id-${i}`);
+
+    const primeira = await pagina(0);
+    const total = typeof primeira.meta?.total === 'number' ? primeira.meta.total : null;
+    const vistos = new Map<string, Record<string, unknown>>();
+    const juntar = (lote: Array<Record<string, unknown>>) =>
+      lote.forEach((x, i) => vistos.set(chave(x, vistos.size + i), x));
+    const lote1 = itensDe(primeira);
+    juntar(lote1);
+    if (lote1.length < limite) return { itens: [...vistos.values()], total };
+
+    const segunda = itensDe(await pagina(1));
+    const porItem = segunda.length > 0 && lote1.length > 1 && chave(segunda[0], 0) === chave(lote1[1], 1);
+    let offset: number;
+    if (porItem) {
+      offset = limite;
+    } else {
+      juntar(segunda);
+      if (segunda.length < limite) return { itens: [...vistos.values()], total };
+      offset = 2;
+    }
+
+    // Teto de segurança: 2.000 páginas são 200 mil lançamentos num período.
+    for (let voltas = 0; voltas < 2000; voltas++) {
+      const lote = itensDe(await pagina(offset));
+      const antes = vistos.size;
+      juntar(lote);
+      if (lote.length < limite || vistos.size === antes) break;
+      if (total !== null && vistos.size >= total) break;
+      offset += porItem ? limite : 1;
+    }
+    return { itens: [...vistos.values()], total };
+  }
+
+  /** O detalhe de um lançamento: quem pagou e quem recebeu. */
+  async detalheDaTransacao(id: string): Promise<Record<string, unknown> | null> {
+    const r = await this.pedir<{ data?: unknown }>(
+      'get',
+      `/accounts/transactions/${encodeURIComponent(id)}/details`,
+    );
+    const d = Array.isArray(r.data) ? r.data[0] : r.data;
+    return d && typeof d === 'object' ? (d as Record<string, unknown>) : null;
+  }
+
+  /**
+   * O resumo do banco por dia ou por mês: saldo inicial, entradas, saídas e
+   * saldo final. É com ele que o extrato montado lançamento a lançamento se
+   * confere — se a soma não fechar com o saldo do próprio banco, faltou algo.
+   */
+  async extratoConsolidado(corpo: {
+    groupBy: 'DAY' | 'MONTH';
+    initialDate: string;
+    finalDate: string;
+  }): Promise<Array<Record<string, unknown>>> {
+    const r = await this.pedir<{ data?: unknown }>('post', '/accounts/consolidated-statement', corpo);
+    return (Array.isArray(r.data) ? r.data : []).filter(
+      (x): x is Record<string, unknown> => !!x && typeof x === 'object',
+    );
+  }
+
   /** Lê o boleto no banco sem pagar: quem recebe e quanto ele cobra hoje. */
   async consultarBoleto(codigo: string): Promise<BoletoNoBanco> {
     const digitos = codigo.replace(/\D/g, '');

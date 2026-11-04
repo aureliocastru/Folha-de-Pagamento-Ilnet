@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma, StatusContaPagar, TipoLancamento } from '@prisma/client';
 import { FechamentoCaixaService } from '../caixa/fechamento-caixa.service';
 import { CartoesCreditoService } from '../contas-abertas/cartoes-credito.service';
@@ -20,6 +20,7 @@ import {
   texto,
   type Pergunta,
 } from './ixc-leitura';
+import { ExtratoDoBancoService, type DiagnosticoDoExtrato } from './extrato-do-banco.service';
 import { lerOfx } from './ofx';
 import type { CaixaNoPeriodo } from './relatorios/caixa';
 import { relatorioDeClientes } from './relatorios/clientes';
@@ -142,6 +143,7 @@ export class LeitorDoPacoteService {
     private readonly fechamento: FechamentoCaixaService,
     private readonly cartoes: CartoesCreditoService,
     private readonly categorias: CategoriasService,
+    @Optional() private readonly extratos?: ExtratoDoBancoService,
   ) {}
 
   estaLendo(pacoteId: string): boolean {
@@ -326,11 +328,37 @@ export class LeitorDoPacoteService {
   private async lerContas(ctx: Contexto): Promise<void> {
     const contas = await this.contas(ctx);
     const doPeriodo = contas.filter((c) => c.movimentos > 0 || c.ativa);
+    const doBanco = await this.extratoDoBanco(ctx, contas);
     await this.guardar(ctx, 1, '', {
-      dados: { contas: doPeriodo },
+      dados: {
+        contas: doPeriodo,
+        ...(doBanco.diagnostico ? { extratoDoBanco: doBanco.diagnostico } : {}),
+      },
       resumo: [],
-      avisos: [],
+      avisos: doBanco.avisos,
     });
+  }
+
+  /**
+   * O extrato da conta da ModoBank sai da API do banco: o PDF, o Excel e o OFX
+   * entram nas vagas dela sem ninguém baixar do portal (pedido de 04/11/2026).
+   * Vem antes da conciliação, que lê o OFX das vagas — e o acha lá.
+   */
+  private async extratoDoBanco(
+    ctx: Contexto,
+    contas: ContaDoPacote[],
+  ): Promise<{ avisos: string[]; diagnostico: DiagnosticoDoExtrato | null }> {
+    if (!this.extratos?.ligado) return { avisos: [], diagnostico: null };
+    const id = await this.extratos.contaDoBanco();
+    const conta = contas.find((c) => c.id === id && c.papel === 'extrato' && c.movimentos > 0);
+    if (!conta) return { avisos: [], diagnostico: null };
+    try {
+      return await this.extratos.montarEGuardar(ctx.pacoteId, ctx.de, ctx.ate, conta);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.logger.error(`Extrato da ModoBank ${ctx.de} a ${ctx.ate}: ${msg}`);
+      return { avisos: [`ModoBank: não deu para montar o extrato (${msg}). Envie o arquivo à mão.`], diagnostico: null };
+    }
   }
 
   private async nomesDasContas(ctx: Contexto): Promise<Map<number, string>> {

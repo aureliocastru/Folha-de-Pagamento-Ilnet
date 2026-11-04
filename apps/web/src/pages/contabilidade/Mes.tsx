@@ -528,6 +528,9 @@ function VagaDeArquivo({ vaga, item, pacoteId }: { vaga: Vaga; item: ItemNaTela;
           >
             <span className="mr-1 text-emerald-600 dark:text-emerald-400">✓</span>
             {vaga.rotulo}
+            {unico.doBanco && (
+              <span className="ml-1.5 text-xs font-normal text-tinta-400">gerado pelo banco</span>
+            )}
           </button>
         ) : (
           <p className={`min-w-0 text-sm ${falta ? 'font-semibold text-rose-700 dark:text-rose-300' : 'text-tinta-700'}`}>

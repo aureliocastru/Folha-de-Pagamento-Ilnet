@@ -2,11 +2,13 @@ import { Module } from '@nestjs/common';
 import { CaixaModule } from '../caixa/caixa.module';
 import { ContasAbertasModule } from '../contas-abertas/contas-abertas.module';
 import { IxcModule } from '../ixc/ixc.module';
+import { ModobankModule } from '../modobank/modobank.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ConfiguracaoService } from './configuracao-tela.service';
 import { ConfiguracaoContabilService } from './configuracao.service';
 import { ContabilidadeController } from './contabilidade.controller';
 import { DiagnosticoService } from './diagnostico.service';
+import { ExtratoDoBancoService } from './extrato-do-banco.service';
 import { LeitorDoPacoteService } from './leitor.service';
 import { PacoteZipService } from './pacote-zip.service';
 import { PacoteContabilService } from './pacote.service';
@@ -23,12 +25,13 @@ import { PacoteContabilService } from './pacote.service';
  * download da nota anexada no título.
  */
 @Module({
-  imports: [IxcModule, PrismaModule, CaixaModule, ContasAbertasModule],
+  imports: [IxcModule, PrismaModule, CaixaModule, ContasAbertasModule, ModobankModule],
   controllers: [ContabilidadeController],
   providers: [
     DiagnosticoService,
     ConfiguracaoContabilService,
     ConfiguracaoService,
+    ExtratoDoBancoService,
     LeitorDoPacoteService,
     PacoteContabilService,
     PacoteZipService,

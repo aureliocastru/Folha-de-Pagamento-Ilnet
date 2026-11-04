@@ -20,6 +20,7 @@ import {
   type DadosDasSaidas,
   type Grupo,
 } from './leitor.service';
+import { ENVIADO_PELO_BANCO } from './extrato-do-banco.service';
 import { lerOfx } from './ofx';
 import { relatorioDoSaldoDoCaixa, saldoNoDia, type CaixaNoPeriodo } from './relatorios/caixa';
 import { situacaoDaConciliacao, type IdentificacaoDoLancamento } from './relatorios/conciliacao';
@@ -46,6 +47,8 @@ export interface ArquivoNaTela {
   nome: string;
   tamanho: number;
   createdAt: Date;
+  /** Montado pela API do banco, e não enviado à mão. */
+  doBanco?: boolean;
 }
 
 /** Um lugar onde um arquivo (ou um valor) é esperado. */
@@ -234,7 +237,16 @@ export class PacoteContabilService {
       this.itensSemPeso(id),
       this.prisma.arquivoContabil.findMany({
         where: { pacoteId: id },
-        select: { id: true, item: true, chave: true, nome: true, tamanho: true, createdAt: true, tipo: true },
+        select: {
+          id: true,
+          item: true,
+          chave: true,
+          nome: true,
+          tamanho: true,
+          createdAt: true,
+          tipo: true,
+          criadoPor: true,
+        },
         orderBy: { createdAt: 'asc' },
       }),
       this.contratosVigentes(de, ate),
@@ -245,7 +257,13 @@ export class PacoteContabilService {
     const arquivosDe = (item: number, chave: string): ArquivoNaTela[] =>
       arquivos
         .filter((a) => a.item === item && a.chave === chave)
-        .map((a) => ({ id: a.id, nome: a.nome, tamanho: a.tamanho, createdAt: a.createdAt }));
+        .map((a) => ({
+          id: a.id,
+          nome: a.nome,
+          tamanho: a.tamanho,
+          createdAt: a.createdAt,
+          doBanco: a.criadoPor === ENVIADO_PELO_BANCO,
+        }));
     const marca = (item: number, chave: string) => {
       const l = linha(item, chave);
       return { naoTem: l?.naoTeve ?? false, motivo: l?.observacao ?? null };
