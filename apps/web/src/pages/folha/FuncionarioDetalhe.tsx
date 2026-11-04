@@ -1,12 +1,13 @@
 import { CalendarioDeFaltas } from '../../components/CalendarioDeFaltas';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
-  Bloco,
   CampoDinheiro,
   Carregando,
+  FichaEmAbas,
   Pagina,
+  PainelDaAba,
   Selo,
   Vazio,
 } from '../../components/ui';
@@ -37,6 +38,42 @@ export function FuncionarioDetalhe() {
     queryFn: async () => (await api.get<TFunc>(`/funcionarios/${id}`)).data,
     enabled: !!id,
   });
+  const vales = useValesDaPessoa(id);
+
+  /*
+   * A aba aberta mora no endereço (`?aba=vales`): voltar da tela de vales, ou
+   * recarregar, devolve a ficha na mesma aba, e um link pode abrir direto nela.
+   * `replace` para trocar de aba não encher o "voltar" do navegador.
+   */
+  const [params, setParams] = useSearchParams();
+  const abas: Array<{ id: AbaDaFicha; selo?: number }> = [
+    { id: 'cadastro' },
+    { id: 'notas' },
+    { id: 'folha' },
+    { id: 'vendas' },
+    ...(data?.carteiraAssinada ? [] : [{ id: 'faltas' as const }]),
+    {
+      id: 'vales',
+      // O mesmo critério da lista da aba: em aberto, nem quitado nem cancelado.
+      selo: (vales.data ?? []).filter((v) => !v.quitado && !v.vale.cancelado)
+        .length,
+    },
+    { id: 'lancamentos', selo: data?.lancamentos.length },
+    { id: 'adiantamentos', selo: data?.adiantamentos.length },
+  ];
+  const pedida = params.get('aba');
+  const aba: AbaDaFicha =
+    abas.find((a) => a.id === pedida)?.id ?? 'cadastro';
+  function trocarDeAba(nova: AbaDaFicha) {
+    setParams(
+      (p) => {
+        if (nova === 'cadastro') p.delete('aba');
+        else p.set('aba', nova);
+        return p;
+      },
+      { replace: true },
+    );
+  }
 
   useEffect(() => {
     if (data) {
@@ -115,156 +152,218 @@ export function FuncionarioDetalhe() {
         </p>
       </header>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <section className="space-y-4 lg:col-span-2">
-          <Bloco titulo="Cadastro no IXC" className="surgir surgir-1">
-            <div className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2">
-              <Campo rotulo="CPF/CNPJ" valor={data.cpfCnpj} mono />
-              <Campo rotulo="E-mail" valor={data.email} />
-              <Campo rotulo="Telefone" valor={data.telefone} mono />
-              <Campo rotulo="Função" valor={data.funcao} />
-              <Campo rotulo="Departamento" valor={data.departamento} />
-              <Campo rotulo="Admissão" valor={formatData(data.dataAdmissao)} />
+      {/*
+        As áreas da ficha em abas, como o cadastro de cliente do IXC (pedido de
+        04/11/2026). Antes eram oito cartões empilhados em duas colunas, e quem
+        vinha lançar um vale rolava por cadastro, configuração, vendas e
+        calendário até achar o lugar.
+      */}
+      <FichaEmAbas
+        className="surgir surgir-1"
+        atual={aba}
+        onTrocar={trocarDeAba}
+        abas={abas.map((a) => ({ ...a, rotulo: ROTULO_DA_ABA[a.id] }))}
+      >
+        <PainelDaAba aberta={aba === 'cadastro'}>
+          <div className="grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
+            <Campo rotulo="CPF/CNPJ" valor={data.cpfCnpj} mono />
+            <Campo rotulo="E-mail" valor={data.email} />
+            <Campo rotulo="Telefone" valor={data.telefone} mono />
+            <Campo rotulo="Função" valor={data.funcao} />
+            <Campo rotulo="Departamento" valor={data.departamento} />
+            <Campo rotulo="Admissão" valor={formatData(data.dataAdmissao)} />
+          </div>
+          <div className="mt-5 grid grid-cols-1 gap-x-8 gap-y-4 border-t border-tinta-100 pt-5 sm:grid-cols-2 lg:grid-cols-3">
+            <Campo rotulo="Banco" valor={data.banco} />
+            <Campo rotulo="Agência" valor={data.agencia} mono />
+            <Campo rotulo="Conta" valor={data.conta} mono />
+            <Campo rotulo="Chave PIX" valor={data.chavePix} mono />
+            <Campo
+              rotulo="Tipo da chave"
+              valor={data.tipoChavePix ?? 'pelo formato da chave'}
+            />
+          </div>
+        </PainelDaAba>
+
+        <PainelDaAba aberta={aba === 'notas'}>
+          <div className="grid max-w-2xl grid-cols-1 gap-3">
+            <div>
+              <label className="rotulo" htmlFor="apelido">
+                Apelido
+              </label>
+              <input
+                id="apelido"
+                value={apelido}
+                onChange={(e) => setApelido(e.target.value)}
+                className="campo"
+                placeholder="Como todo mundo chama"
+                autoComplete="off"
+              />
+              <p className="ajuda">
+                É por ele que a busca acha a pessoa — aqui, na folha e nos
+                pagamentos. O IXC não tem esse campo; ele é só daqui.
+              </p>
             </div>
-            <div className="mt-5 grid grid-cols-1 gap-x-8 gap-y-4 border-t border-tinta-100 pt-5 sm:grid-cols-2">
-              <Campo rotulo="Banco" valor={data.banco} />
-              <Campo rotulo="Agência" valor={data.agencia} mono />
-              <Campo rotulo="Conta" valor={data.conta} mono />
-              <Campo rotulo="Chave PIX" valor={data.chavePix} mono />
-              <Campo
-                rotulo="Tipo da chave"
-                valor={data.tipoChavePix ?? 'pelo formato da chave'}
+            <div>
+              <label className="rotulo" htmlFor="pix">
+                Chave PIX (complementar)
+              </label>
+              <input
+                id="pix"
+                value={chavePix}
+                onChange={(e) => setChavePix(e.target.value)}
+                className="campo"
+                autoComplete="off"
               />
             </div>
-          </Bloco>
+            <div>
+              <label className="rotulo" htmlFor="tipo-pix">
+                Tipo da chave
+              </label>
+              <select
+                id="tipo-pix"
+                value={tipoChavePix}
+                onChange={(e) => setTipoChavePix(e.target.value)}
+                className="campo"
+              >
+                <option value="">Pelo formato da chave</option>
+                {TIPOS_CHAVE_PIX.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+              <p className="ajuda">
+                É o que a conta a pagar marca no IXC. Vem do tipo preferencial
+                do fornecedor a cada sincronização — mexa aqui só para corrigir.
+              </p>
+            </div>
+            <div>
+              <label className="rotulo" htmlFor="obs">
+                Observações
+              </label>
+              <textarea
+                id="obs"
+                value={observacoes}
+                onChange={(e) => setObservacoes(e.target.value)}
+                rows={5}
+                className="campo resize-y"
+                placeholder="Contexto que não cabe no IXC."
+              />
+            </div>
+            <button
+              onClick={() => salvar.mutate()}
+              disabled={salvar.isPending}
+              className="btn btn-primario justify-self-start"
+            >
+              {salvar.isPending ? 'Salvando…' : 'Salvar'}
+            </button>
+            {salvo && (
+              <span className="text-xs font-semibold text-emerald-600">
+                Salvo.
+              </span>
+            )}
+          </div>
+        </PainelDaAba>
 
+        <PainelDaAba aberta={aba === 'folha'}>
           <ConfigFolhaBloco data={data} funcionarioId={id!} />
+        </PainelDaAba>
 
+        <PainelDaAba aberta={aba === 'vendas'}>
           <VariaveisMesBloco
             funcionarioId={id!}
             variaveis={data.variaveisMes ?? []}
             valorPorVendaPadrao={data.valorPorVenda ?? null}
             carteiraAssinada={!!data.carteiraAssinada}
           />
+        </PainelDaAba>
 
-          {/* Só sem carteira assinada: com carteira, quem desconta falta é a
-              contabilidade na folha oficial, e marcar aqui tiraria o mesmo dia
-              duas vezes da mesma pessoa. */}
-          {!data.carteiraAssinada && (
+        {/* Só sem carteira assinada: com carteira, quem desconta falta é a
+            contabilidade na folha oficial, e marcar aqui tiraria o mesmo dia
+            duas vezes da mesma pessoa. */}
+        {!data.carteiraAssinada && (
+          <PainelDaAba aberta={aba === 'faltas'}>
             <CalendarioDeFaltas funcionarioId={id!} nome={data.nome} />
-          )}
+          </PainelDaAba>
+        )}
 
-          <ValesBloco funcionarioId={id!} />
+        <PainelDaAba aberta={aba === 'vales'}>
+          <ValesBloco vales={vales.data} carregando={vales.isLoading} />
+        </PainelDaAba>
 
+        <PainelDaAba aberta={aba === 'lancamentos'}>
           <LancamentosBloco funcionarioId={id!} lancamentos={data.lancamentos} />
+        </PainelDaAba>
 
-          <Bloco titulo="Adiantamentos vindos do IXC" semPadding>
-            {data.adiantamentos.length === 0 ? (
-              <Vazio titulo="Nenhum adiantamento sincronizado" />
-            ) : (
-              <div className="overflow-x-auto rolagem-fina">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-t border-tinta-200">
-                      <th className="th">Data</th>
-                      <th className="th">Descrição</th>
-                      <th className="th text-right">Valor</th>
+        <PainelDaAba aberta={aba === 'adiantamentos'} semPadding>
+          {data.adiantamentos.length === 0 ? (
+            <Vazio titulo="Nenhum adiantamento sincronizado" />
+          ) : (
+            <div className="overflow-x-auto rolagem-fina">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr>
+                    <th className="th">Data</th>
+                    <th className="th">Descrição</th>
+                    <th className="th text-right">Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.adiantamentos.map((a) => (
+                    <tr key={a.id} className="linha">
+                      <td className="td num text-tinta-500">
+                        {formatData(a.data)}
+                      </td>
+                      <td className="td">{a.descricao}</td>
+                      <td className="td text-right">
+                        <span className="valor">{formatBRL(a.valor)}</span>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {data.adiantamentos.map((a) => (
-                      <tr key={a.id} className="linha">
-                        <td className="td num text-tinta-500">
-                          {formatData(a.data)}
-                        </td>
-                        <td className="td">{a.descricao}</td>
-                        <td className="td text-right">
-                          <span className="valor">{formatBRL(a.valor)}</span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Bloco>
-        </section>
-
-        <section className="space-y-4">
-          <Bloco titulo="Notas internas" className="surgir surgir-2">
-            <label className="rotulo" htmlFor="apelido">
-              Apelido
-            </label>
-            <input
-              id="apelido"
-              value={apelido}
-              onChange={(e) => setApelido(e.target.value)}
-              className="campo mb-1"
-              placeholder="Como todo mundo chama"
-              autoComplete="off"
-            />
-            <p className="mb-4 text-xs leading-snug text-tinta-400">
-              É por ele que a busca acha a pessoa — aqui, na folha e nos
-              pagamentos. O IXC não tem esse campo; ele é só daqui.
-            </p>
-            <label className="rotulo" htmlFor="pix">
-              Chave PIX (complementar)
-            </label>
-            <input
-              id="pix"
-              value={chavePix}
-              onChange={(e) => setChavePix(e.target.value)}
-              className="campo mb-4"
-              autoComplete="off"
-            />
-            <label className="rotulo" htmlFor="tipo-pix">
-              Tipo da chave
-            </label>
-            <select
-              id="tipo-pix"
-              value={tipoChavePix}
-              onChange={(e) => setTipoChavePix(e.target.value)}
-              className="campo mb-1"
-            >
-              <option value="">Pelo formato da chave</option>
-              {TIPOS_CHAVE_PIX.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-            <p className="mb-4 text-xs leading-snug text-tinta-400">
-              É o que a conta a pagar marca no IXC. Vem do tipo preferencial do
-              fornecedor a cada sincronização — mexa aqui só para corrigir.
-            </p>
-            <label className="rotulo" htmlFor="obs">
-              Observações
-            </label>
-            <textarea
-              id="obs"
-              value={observacoes}
-              onChange={(e) => setObservacoes(e.target.value)}
-              rows={5}
-              className="campo resize-y"
-              placeholder="Contexto que não cabe no IXC."
-            />
-            <button
-              onClick={() => salvar.mutate()}
-              disabled={salvar.isPending}
-              className="btn btn-primario mt-4 w-full"
-            >
-              {salvar.isPending ? 'Salvando…' : 'Salvar'}
-            </button>
-            {salvo && (
-              <p className="mt-2 text-center text-xs font-semibold text-emerald-600">
-                Salvo.
-              </p>
-            )}
-          </Bloco>
-        </section>
-      </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </PainelDaAba>
+      </FichaEmAbas>
     </Pagina>
   );
+}
+
+type AbaDaFicha =
+  | 'cadastro'
+  | 'notas'
+  | 'folha'
+  | 'vendas'
+  | 'faltas'
+  | 'vales'
+  | 'lancamentos'
+  | 'adiantamentos';
+
+const ROTULO_DA_ABA: Record<AbaDaFicha, string> = {
+  cadastro: 'Cadastro',
+  notas: 'Notas internas',
+  folha: 'Folha',
+  vendas: 'Vendas e horas extras',
+  faltas: 'Faltas',
+  vales: 'Vales e acertos',
+  lancamentos: 'Lançamentos',
+  adiantamentos: 'Adiantamentos',
+};
+
+/** Vales e acertos desta pessoa — o que ainda pesa nela entra no selo da aba. */
+function useValesDaPessoa(funcionarioId: string | undefined) {
+  return useQuery({
+    queryKey: ['vales', 'funcionario', funcionarioId],
+    queryFn: async () =>
+      (
+        await api.get<ValeComSaldo[]>('/vales', {
+          params: { funcionarioId, situacao: 'TODOS' },
+        })
+      ).data,
+    enabled: !!funcionarioId,
+  });
 }
 
 function Campo({
@@ -337,7 +436,7 @@ function ConfigFolhaBloco({
   });
 
   return (
-    <Bloco titulo="Configuração da folha" className="surgir surgir-2">
+    <div>
       <div className="space-y-3">
         <Marcador
           checked={clt}
@@ -441,7 +540,7 @@ function ConfigFolhaBloco({
           <span className="text-xs font-semibold text-emerald-600">Salvo.</span>
         )}
       </div>
-    </Bloco>
+    </div>
   );
 }
 
@@ -555,7 +654,7 @@ function VariaveisMesBloco({
   const comissaoPrevista = (Number(vendas) || 0) * unitario;
 
   return (
-    <Bloco titulo="Vendas e horas extras do mês" className="surgir surgir-3">
+    <div>
       <p className="mb-4 text-xs leading-relaxed text-tinta-500">
         Lançamento por <strong>mês trabalhado</strong>: o que você registrar em{' '}
         <span className="num">{formatComp(competencia)}</span> entra no saldo
@@ -692,22 +791,18 @@ function VariaveisMesBloco({
           </table>
         </div>
       )}
-    </Bloco>
+    </div>
   );
 }
 
 // --- Vales e acertos desta pessoa ---
-function ValesBloco({ funcionarioId }: { funcionarioId: string }) {
-  const { data, isLoading } = useQuery({
-    queryKey: ['vales', 'funcionario', funcionarioId],
-    queryFn: async () =>
-      (
-        await api.get<ValeComSaldo[]>('/vales', {
-          params: { funcionarioId, situacao: 'TODOS' },
-        })
-      ).data,
-  });
-
+function ValesBloco({
+  vales: data,
+  carregando: isLoading,
+}: {
+  vales: ValeComSaldo[] | undefined;
+  carregando: boolean;
+}) {
   /*
    * O vale quitado sai da lista, pelo mesmo motivo do avulso já descontado: a
    * ficha responde "o que ainda pesa nesta pessoa". Quitado não pesa mais, e
@@ -722,18 +817,15 @@ function ValesBloco({ funcionarioId }: { funcionarioId: string }) {
   const quitados = (data ?? []).length - naFicha.length;
 
   return (
-    <Bloco
-      titulo="Vales e acertos"
-      className="surgir surgir-4"
-      acao={
+    <div>
+      <div className="mb-3 flex justify-end">
         <Link
           to="/contas-pagar/folha/vales"
           className="text-xs font-semibold text-brand-700 hover:underline"
         >
           Registrar
         </Link>
-      }
-    >
+      </div>
       {isLoading && <p className="text-sm text-tinta-400">Carregando…</p>}
       {data && naFicha.length === 0 && (
         <p className="text-sm text-tinta-400">
@@ -792,7 +884,7 @@ function ValesBloco({ funcionarioId }: { funcionarioId: string }) {
             ` · ${quitados} já quitado${quitados > 1 ? 's' : ''}, fora desta lista`}
         </p>
       )}
-    </Bloco>
+    </div>
   );
 }
 
@@ -884,7 +976,7 @@ function LancamentosBloco({
   const erro = adicionar.error ?? salvar.error ?? remover.error;
 
   return (
-    <Bloco titulo="Lançamentos fixos e avulsos" className="surgir surgir-4">
+    <div>
       {/* Mesma régua do bloco de vendas: mês trabalhado. Um mês de trabalho é
           pago em dois pedaços, e é por isso que o mês do pagamento não serve
           de referência aqui. */}
@@ -1013,7 +1105,7 @@ function LancamentosBloco({
       </div>
 
       {erro && <p className="mt-3 text-sm text-rose-600">{mensagemErro(erro)}</p>}
-    </Bloco>
+    </div>
   );
 }
 

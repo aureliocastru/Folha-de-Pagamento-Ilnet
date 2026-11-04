@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { api, mensagemErro } from '../lib/api';
 import { formatBRL } from '../lib/format';
-import { Aviso, Bloco, Carregando } from './ui';
+import { Aviso, Carregando } from './ui';
 
 /** O que uma falta custa: o dia e o descanso da semana. */
 interface DescontoDeFaltas {
@@ -99,20 +99,22 @@ export function CalendarioDeFaltas({
 
   const d = faltas.data?.desconto;
 
+  // Mora na aba "Faltas" da ficha: o nome da aba é o título, e o mês vira o
+  // primeiro campo, como nas outras abas.
   return (
-    <Bloco
-      titulo="Calendário de faltas"
-      className="surgir"
-      acao={
+    <div className="max-w-2xl">
+      <div className="mb-3">
+        <label className="rotulo" htmlFor="mes-das-faltas">
+          Mês
+        </label>
         <input
+          id="mes-das-faltas"
           type="month"
           value={competencia}
           onChange={(e) => setCompetencia(e.target.value)}
-          className="campo w-auto"
-          aria-label="Mês das faltas"
+          className="campo"
         />
-      }
-    >
+      </div>
       <p className="ajuda mb-3">
         Marque o dia em que {nome.split(' ')[0]} faltou. O descanso semanal sai
         sozinho: falta sem justificativa derruba o DSR daquela semana, e é por
@@ -198,7 +200,7 @@ export function CalendarioDeFaltas({
       )}
 
       {erro && <p className="mt-3 text-sm text-rose-600">{erro}</p>}
-    </Bloco>
+    </div>
   );
 }
 

@@ -276,6 +276,41 @@
   .faixa-titulo {
     @apply rounded-t-2xl border-b border-tinta-200 bg-titulo;
   }
+
+  /*
+   * As abas de uma ficha, no modelo do cadastro de cliente do IXC (04/11/2026).
+   *
+   * Três tons, medidos no print do IXC: a faixa, a aba fechada destacada dela
+   * como um botão, e a aba aberta com a cor do cartão — ela não fica por cima
+   * do conteúdo, ela *é* o alto do conteúdo. Sem fio embaixo da faixa: é a
+   * mudança de cor que separa, como lá.
+   *
+   * No celular a faixa rola de lado por dentro (sem barra de rolagem à
+   * mostra), e a página não: a aba seguinte cortada na borda já diz que há
+   * mais.
+   */
+  .faixa-abas {
+    @apply relative flex gap-1 overflow-x-auto rounded-t-[inherit] bg-realce px-2 pt-2;
+    scrollbar-width: none;
+  }
+  .faixa-abas::-webkit-scrollbar {
+    display: none;
+  }
+  .aba {
+    @apply shrink-0 whitespace-nowrap rounded-t-lg bg-tinta-100 px-4 py-2 text-[13px] font-medium text-tinta-600 transition-colors hover:text-tinta-900;
+  }
+  /* No escuro o `tinta-100` cai no mesmo tom da faixa; o cinza do título é o
+     degrau acima dela. */
+  .dark .aba {
+    @apply bg-titulo;
+  }
+  .aba[aria-selected='true'] {
+    @apply bg-papel font-semibold text-tinta-900;
+  }
+  .aba-selo {
+    @apply ml-1.5 rounded-full bg-tinta-200/70 px-1.5 py-px text-[11px] text-tinta-700;
+    font-variant-numeric: tabular-nums;
+  }
   .card-hover {
     @apply transition duration-200 hover:-translate-y-0.5 hover:shadow-card-hover;
   }

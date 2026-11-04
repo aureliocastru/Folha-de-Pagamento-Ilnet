@@ -244,6 +244,87 @@ export function CabecalhoPagina({
   );
 }
 
+/**
+ * Ficha em abas, no modelo do cadastro de cliente do IXC: a faixa de abas no
+ * alto do cartão e o conteúdo da aba aberta embaixo, colado nela.
+ *
+ * As abas fechadas continuam montadas, só escondidas (`PainelDaAba`): quem
+ * escreveu num campo e foi olhar outra aba volta e encontra o que escreveu —
+ * como no IXC, onde a ficha toda é um formulário só.
+ */
+export function FichaEmAbas<T extends string>({
+  abas,
+  atual,
+  onTrocar,
+  className = '',
+  children,
+}: {
+  /** `selo`: um número ao lado do nome (quantos itens a aba tem). */
+  abas: Array<{ id: T; rotulo: string; selo?: number }>;
+  atual: T;
+  onTrocar: (id: T) => void;
+  className?: string;
+  children: ReactNode;
+}) {
+  const faixa = useRef<HTMLDivElement>(null);
+
+  // No celular a faixa rola de lado: a aba aberta tem de estar à vista, também
+  // quando a ficha abre direto nela pelo endereço. Mexe só na faixa — o
+  // `scrollIntoView` arrastaria a página junto.
+  useEffect(() => {
+    const f = faixa.current;
+    const aba = f?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (!f || !aba) return;
+    const folga = 8;
+    if (aba.offsetLeft < f.scrollLeft) f.scrollLeft = aba.offsetLeft - folga;
+    else if (aba.offsetLeft + aba.offsetWidth > f.scrollLeft + f.clientWidth)
+      f.scrollLeft = aba.offsetLeft + aba.offsetWidth - f.clientWidth + folga;
+  }, [atual]);
+
+  return (
+    <section className={`card ${className}`}>
+      <div ref={faixa} role="tablist" className="faixa-abas">
+        {abas.map((a) => (
+          <button
+            key={a.id}
+            type="button"
+            role="tab"
+            aria-selected={a.id === atual}
+            onClick={() => onTrocar(a.id)}
+            className="aba"
+          >
+            {a.rotulo}
+            {!!a.selo && <span className="aba-selo">{a.selo}</span>}
+          </button>
+        ))}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+/** O conteúdo de uma aba da `FichaEmAbas`. */
+export function PainelDaAba({
+  aberta,
+  semPadding = false,
+  children,
+}: {
+  aberta: boolean;
+  /** Para tabelas, que sangram até a borda do cartão. */
+  semPadding?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      role="tabpanel"
+      hidden={!aberta}
+      className={semPadding ? '' : 'px-3.5 pb-3.5 pt-4 md:px-5 md:pb-5 md:pt-5'}
+    >
+      {children}
+    </div>
+  );
+}
+
 export function Bloco({
   titulo,
   acao,
