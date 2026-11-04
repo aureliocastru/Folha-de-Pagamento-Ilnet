@@ -1947,8 +1947,12 @@ export interface ReciboDaFolha {
   jaGuardado: boolean;
   /** O "Líquido a Receber" do recibo. Null = não deu para ler. */
   liquido: number | null;
-  /** O "A receber na folha" de agora do dono da pasta achada. */
+  /** O "A receber na folha" de agora do dono do recibo (achado pelo CPF). */
   aReceberAtual: number | null;
+  /** O que ele passa a ser ao guardar. Null = fica como está. */
+  aReceberNovo: number | null;
+  /** Por que não muda, ou por que muda sem a folha usar. */
+  aReceberAviso: string | null;
 }
 
 export interface AnaliseDosRecibos {
@@ -1970,6 +1974,10 @@ export interface RecibosGuardados {
   pulados: Array<{ nome: string; motivo: string }>;
   /** De quem o "A receber na folha" passou a ser o líquido do recibo. */
   aReceber: Array<{ nome: string; antes: string | null; depois: string }>;
+  /** Recibos cujo dono ficou com o valor velho, e por quê. */
+  semAtualizar: Array<{ nome: string; motivo: string }>;
+  /** Atualizados, mas sem carteira assinada: a folha não usa o valor. */
+  semCarteira: string[];
   atualizaAReceber: boolean;
 }
 

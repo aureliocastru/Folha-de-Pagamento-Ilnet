@@ -9,6 +9,12 @@ import {
   lerDataUrl,
   soDigitos,
 } from './documentos.service';
+import {
+  aReceberDoRecibo,
+  donoNaFolha,
+  naoAtualiza,
+  type FuncionarioDaFolha,
+} from './recibos.a-receber';
 import { chaveDoNome, lerRecibos, type ReciboLido } from './recibos.parse';
 
 /** O tipo com que o recibo entra na pasta. Fixo: é o que o mês seguinte procura. */
@@ -83,6 +89,7 @@ export class RecibosDaFolhaService {
       jaGuardados.map((d) => d.pasta.paiId ?? d.pastaId),
     );
     const atualizaAReceber = await this.eDoMesMaisNovo(leitura.competencia);
+    const funcionarios = await this.funcionariosDaFolha();
 
     return {
       competencia: leitura.competencia,
@@ -97,6 +104,11 @@ export class RecibosDaFolhaService {
       atualizaAReceber,
       itens: leitura.recibos.map((r) => {
         const pasta = casar(r, pastas);
+        const aReceber = aReceberDoRecibo(
+          r.liquido,
+          donoNaFolha(r.cpf, pasta?.funcionarioId ?? null, funcionarios),
+          atualizaAReceber,
+        );
         return {
           ...r,
           pastaId: pasta?.id ?? null,
@@ -105,8 +117,12 @@ export class RecibosDaFolhaService {
           casouPor: pasta?.por ?? null,
           /** Este mês já está guardado nesta pasta: entraria repetido. */
           jaGuardado: pasta ? jaTem.has(pasta.id) : false,
-          /** O "A receber na folha" de agora do dono da pasta achada. */
-          aReceberAtual: pasta?.aReceber ?? null,
+          /** O "A receber na folha" de agora do dono do recibo. */
+          aReceberAtual: aReceber.antes,
+          /** O que ele passa a ser ao guardar. Null = fica como está. */
+          aReceberNovo: aReceber.depois,
+          /** Por que não muda, ou por que muda sem a folha usar. */
+          aReceberAviso: aReceber.aviso,
         };
       }),
     };
@@ -126,14 +142,28 @@ export class RecibosDaFolhaService {
     arquivoNome: string,
     usuarioId?: string,
   ) {
-    if (itens.length === 0) {
-      throw new BadRequestException('Nenhum recibo foi marcado para guardar.');
-    }
-
     const conteudo = pdfDaDataUrl(arquivoDataUrl);
     const original = await PDFDocument.load(conteudo, {
       ignoreEncryption: true,
     });
+
+    /*
+     * O líquido de cada recibo é relido do próprio PDF, e não aceito da tela:
+     * é dinheiro que vai para a folha, e quem diz quanto é o papel. O CPF
+     * também, porque é ele que diz de quem é o dinheiro.
+     */
+    const leitura = lerRecibos(
+      await extrairPaginasPdf(new Uint8Array(conteudo)),
+    );
+    if (leitura.competencia && leitura.competencia !== competencia) {
+      throw new BadRequestException(
+        `Este PDF é de ${leitura.competencia.slice(5)}/${leitura.competencia.slice(0, 4)}, ` +
+          'e não do mês que a tela mandou. Escolha o arquivo de novo.',
+      );
+    }
+    if (itens.length === 0 && leitura.recibos.length === 0) {
+      throw new BadRequestException('Nenhum recibo foi marcado para guardar.');
+    }
 
     /*
      * O lote nasce antes dos documentos porque é ele que os marca.
@@ -154,14 +184,8 @@ export class RecibosDaFolhaService {
 
     const guardados: Array<{ pasta: string; nome: string }> = [];
     const pulados: Array<{ nome: string; motivo: string }> = [];
-    /*
-     * O líquido de cada recibo é relido do próprio PDF, e não aceito da tela:
-     * é dinheiro que vai para a folha, e quem diz quanto é o papel.
-     */
-    const liquidos = new Map<number, number | null>();
-    for (const r of lerRecibos(await extrairPaginasPdf(new Uint8Array(conteudo))).recibos) {
-      for (const p of r.paginas) liquidos.set(p, r.liquido);
-    }
+    /** A pasta que a tela escolheu para cada página — o plano B do dono. */
+    const pastaDaPagina = new Map<number, string>();
     const atualizaAReceber = await this.eDoMesMaisNovo(competencia, lote.id);
     const trocados: Array<{
       funcionarioId: string;
@@ -179,15 +203,14 @@ export class RecibosDaFolhaService {
 
       const pasta = await this.prisma.pastaRh.findUnique({
         where: { id: item.pastaId },
-        select: {
-          id: true,
-          nome: true,
-          funcionario: { select: { id: true, valorAReceberFolha: true } },
-        },
+        select: { id: true, nome: true, funcionarioId: true },
       });
       if (!pasta) {
         pulados.push({ nome: item.nome, motivo: 'a pasta não existe mais' });
         continue;
+      }
+      if (pasta.funcionarioId) {
+        for (const p of paginas) pastaDaPagina.set(p, pasta.funcionarioId);
       }
 
       /*
@@ -254,35 +277,61 @@ export class RecibosDaFolhaService {
         if (!repetido) this.logger.warn(`Recibo de ${item.nome}: ${err}`);
         continue;
       }
+    }
 
-      // O recibo entrou na pasta: o líquido dele é o "A receber na folha" do
-      // dono, como era digitado à mão a partir deste papel.
-      const liquido = liquidos.get(paginas[0]) ?? null;
-      const funcionario = pasta.funcionario;
-      if (!atualizaAReceber || !funcionario || liquido === null || liquido <= 0) continue;
-      const antes = funcionario.valorAReceberFolha;
-      if (antes !== null && antes.equals(liquido)) continue;
-      try {
-        await this.prisma.funcionario.update({
-          where: { id: funcionario.id },
-          data: { valorAReceberFolha: new Prisma.Decimal(liquido) },
-        });
-        trocados.push({
-          funcionarioId: funcionario.id,
-          nome: item.nome,
-          antes: antes?.toFixed(2) ?? null,
-          depois: liquido.toFixed(2),
-        });
-      } catch (err) {
-        this.logger.warn(`A receber de ${item.nome}: ${err}`);
+    /*
+     * O "A receber na folha": de todo recibo do PDF, e não só dos que entraram
+     * na pasta agora. O recibo já guardado no mês, a linha desmarcada e a pasta
+     * feita à mão eram três jeitos de o valor ficar o velho sem aviso — e o
+     * valor é da folha, não da pasta. O líquido dele é o que era digitado à mão
+     * a partir deste papel.
+     */
+    const semAtualizar: Array<{ nome: string; motivo: string }> = [];
+    const semCarteira: string[] = [];
+    if (atualizaAReceber) {
+      const funcionarios = await this.funcionariosDaFolha();
+      const pastas = await this.pastasParaCasar();
+      const jaTrocado = new Set<string>();
+      for (const r of leitura.recibos) {
+        const daPasta =
+          pastaDaPagina.get(r.paginas[0]) ?? casar(r, pastas)?.funcionarioId ?? null;
+        const a = aReceberDoRecibo(
+          r.liquido,
+          donoNaFolha(r.cpf, daPasta, funcionarios),
+          true,
+        );
+        if (naoAtualiza(a.motivo)) {
+          semAtualizar.push({ nome: r.nome, motivo: a.aviso! });
+          continue;
+        }
+        if (a.motivo === 'sem-carteira') semCarteira.push(r.nome);
+        const id = a.funcionarioId;
+        if (a.depois === null || !id || jaTrocado.has(id)) continue;
+        try {
+          await this.prisma.funcionario.update({
+            where: { id },
+            data: { valorAReceberFolha: new Prisma.Decimal(a.depois) },
+          });
+          jaTrocado.add(id);
+          trocados.push({
+            funcionarioId: id,
+            nome: r.nome,
+            antes: a.antes === null ? null : a.antes.toFixed(2),
+            depois: a.depois.toFixed(2),
+          });
+        } catch (err) {
+          semAtualizar.push({ nome: r.nome, motivo: 'o banco recusou' });
+          this.logger.warn(`A receber de ${r.nome}: ${err}`);
+        }
       }
     }
 
     /*
      * Lote sem nada dentro não vira linha no histórico: um "desfazer" que não
-     * desfaz nada é ruído na única lista que serve para consertar engano.
+     * desfaz nada é ruído na única lista que serve para consertar engano. O
+     * lote que só trocou o "A receber" fica — é ele que o devolve.
      */
-    if (guardados.length === 0) {
+    if (guardados.length === 0 && trocados.length === 0) {
       await this.prisma.loteDeRecibos.delete({ where: { id: lote.id } });
     } else {
       await this.prisma.loteDeRecibos.update({
@@ -304,11 +353,15 @@ export class RecibosDaFolhaService {
     );
     return {
       competencia,
-      loteId: guardados.length > 0 ? lote.id : null,
+      loteId: guardados.length > 0 || trocados.length > 0 ? lote.id : null,
       guardados,
       pulados,
       /** De quem o "A receber na folha" passou a ser o líquido do recibo. */
       aReceber: trocados.map(({ nome, antes, depois }) => ({ nome, antes, depois })),
+      /** Recibos cujo dono ficou com o valor velho, e por quê. */
+      semAtualizar,
+      /** Atualizados, mas sem carteira assinada: a folha não usa o valor. */
+      semCarteira,
       atualizaAReceber,
     };
   }
@@ -407,13 +460,37 @@ export class RecibosDaFolhaService {
     return !maisNovo || competencia >= maisNovo.competencia;
   }
 
+  /** O cadastro da folha, com o que serve para achar o dono de um recibo. */
+  private async funcionariosDaFolha(): Promise<FuncionarioDaFolha[]> {
+    const funcionarios = await this.prisma.funcionario.findMany({
+      select: {
+        id: true,
+        nome: true,
+        cpfCnpj: true,
+        ativo: true,
+        isentoIcms: true,
+        carteiraAssinada: true,
+        valorAReceberFolha: true,
+      },
+    });
+    return funcionarios.map((f) => ({
+      id: f.id,
+      nome: f.nome,
+      cpf: soDigitos(f.cpfCnpj),
+      ativo: f.ativo,
+      naFolha: f.isentoIcms,
+      carteiraAssinada: f.carteiraAssinada,
+      aReceber: f.valorAReceberFolha === null ? null : Number(f.valorAReceberFolha),
+    }));
+  }
+
   /** As pastas com o que serve para reconhecer o dono de um recibo. */
   private async pastasParaCasar(): Promise<PastaParaCasar[]> {
     const pastas = await this.prisma.pastaRh.findMany({
       where: { daEmpresa: false },
       include: {
         funcionario: {
-          select: { nome: true, apelido: true, cpfCnpj: true, valorAReceberFolha: true },
+          select: { nome: true, apelido: true, cpfCnpj: true },
         },
       },
     });
@@ -421,10 +498,7 @@ export class RecibosDaFolhaService {
     return pastas.map((p) => ({
       id: p.id,
       nome: p.funcionario?.nome ?? p.nome,
-      aReceber:
-        p.funcionario?.valorAReceberFolha != null
-          ? Number(p.funcionario.valorAReceberFolha)
-          : null,
+      funcionarioId: p.funcionarioId,
       cpf: p.cpf || soDigitos(p.funcionario?.cpfCnpj),
       nomes: [p.nome, p.funcionario?.nome, p.funcionario?.apelido]
         .filter((n): n is string => !!n)
@@ -436,8 +510,8 @@ export class RecibosDaFolhaService {
 interface PastaParaCasar {
   id: string;
   nome: string;
-  /** O "A receber na folha" do funcionário da pasta, quando ela é de um. */
-  aReceber: number | null;
+  /** O funcionário da pasta, quando ela é de um. */
+  funcionarioId: string | null;
   cpf: string;
   nomes: string[];
 }

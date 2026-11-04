@@ -163,6 +163,11 @@ export function RecibosDaFolha() {
     ? analise.itens.filter((i) => destinos[i.matricula] && !fora.has(i.matricula))
         .length
     : 0;
+  /* O "A receber na folha" troca para todo recibo do PDF, marcado ou não: o
+     valor é da folha, e a marca é só de guardar na pasta. */
+  const aAtualizar = analise
+    ? analise.itens.filter((i) => i.aReceberNovo !== null).length
+    : 0;
 
   return (
     <Pagina>
@@ -197,6 +202,26 @@ export function RecibosDaFolha() {
           )}
         </Aviso>
       )}
+      {resultado &&
+        (resultado.semAtualizar.length > 0 || resultado.semCarteira.length > 0) && (
+          <Aviso tom="atencao">
+            {resultado.semAtualizar.length > 0 && (
+              <>
+                A receber na folha <strong>não</strong> atualizado:{' '}
+                {resultado.semAtualizar
+                  .map((p) => `${p.nome} (${p.motivo})`)
+                  .join('; ')}
+                .{' '}
+              </>
+            )}
+            {resultado.semCarteira.length > 0 && (
+              <>
+                Sem carteira assinada no cadastro — a folha paga pelo salário
+                base: {resultado.semCarteira.join('; ')}.
+              </>
+            )}
+          </Aviso>
+        )}
 
       <Bloco titulo="O arquivo do mês" className="surgir mb-6">
         <div className="flex flex-wrap items-center gap-3">
@@ -240,6 +265,12 @@ export function RecibosDaFolha() {
                 {' '}
                 É de um mês anterior ao último separado: o A receber na folha
                 não muda.
+              </>
+            )}
+            {aAtualizar > 0 && (
+              <>
+                {' '}
+                O A receber na folha muda para {aAtualizar} funcionário(s).
               </>
             )}
           </Aviso>
@@ -304,15 +335,19 @@ export function RecibosDaFolha() {
                           ) : (
                             <span className="text-tinta-400">—</span>
                           )}
-                          {analise.atualizaAReceber &&
-                            destino === item.pastaId &&
-                            item.aReceberAtual !== null &&
-                            item.liquido !== null &&
-                            item.aReceberAtual !== item.liquido && (
-                              <div className="num text-xs text-tinta-400">
-                                era {formatBRL(item.aReceberAtual)}
-                              </div>
-                            )}
+                          {item.aReceberNovo !== null && (
+                            <div className="num text-xs text-tinta-400">
+                              era{' '}
+                              {item.aReceberAtual !== null
+                                ? formatBRL(item.aReceberAtual)
+                                : 'vazio'}
+                            </div>
+                          )}
+                          {item.aReceberAviso && (
+                            <div className="mt-0.5 max-w-[220px] whitespace-normal text-xs text-amber-600 dark:text-amber-400">
+                              {item.aReceberAviso}
+                            </div>
+                          )}
                         </td>
                         <td className="td num whitespace-nowrap text-tinta-500">
                           {item.paginas.join(', ')}
@@ -383,12 +418,14 @@ export function RecibosDaFolha() {
             <button
               type="button"
               onClick={() => guardar.mutate()}
-              disabled={aGuardar === 0 || guardar.isPending}
+              disabled={(aGuardar === 0 && aAtualizar === 0) || guardar.isPending}
               className="btn btn-acao"
             >
               {guardar.isPending
                 ? 'Guardando…'
-                : `Guardar ${aGuardar} recibo(s) nas pastas`}
+                : aGuardar > 0
+                  ? `Guardar ${aGuardar} recibo(s) nas pastas`
+                  : `Atualizar o A receber de ${aAtualizar} funcionário(s)`}
             </button>
           </div>
         </>

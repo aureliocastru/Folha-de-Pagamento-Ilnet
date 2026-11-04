@@ -183,8 +183,12 @@ export class GuardarRecibosDto extends AnalisarRecibosDto {
   /** O nome do arquivo que veio da contabilidade, para o histórico. */
   @IsOptional() @IsString() @MaxLength(255) arquivoNome?: string;
 
+  /*
+   * Pode vir vazio: o mês já guardado nas pastas, mandado de novo só para o
+   * "A receber na folha" pegar o líquido — que vale para todo recibo do PDF,
+   * marcado ou não.
+   */
   @IsArray()
-  @ArrayMinSize(1, { message: 'Nenhum recibo foi marcado para guardar.' })
   @ArrayMaxSize(500)
   @ValidateNested({ each: true })
   @Type(() => ItemDoReciboDto)
