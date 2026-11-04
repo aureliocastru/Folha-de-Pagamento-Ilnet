@@ -78,6 +78,7 @@ const Funcionarios = telaSobDemanda(() => import('./pages/folha/Funcionarios').t
 const Impostos = telaSobDemanda(() => import('./pages/folha/Impostos').then((m) => m.Impostos));
 const MinhaConta = telaSobDemanda(() => import('./pages/folha/MinhaConta').then((m) => m.MinhaConta));
 const Usuarios = telaSobDemanda(() => import('./pages/folha/Usuarios').then((m) => m.Usuarios));
+const Backup = telaSobDemanda(() => import('./pages/Backup').then((m) => m.Backup));
 const Vales = telaSobDemanda(() => import('./pages/folha/Vales').then((m) => m.Vales));
 const PortalDePontos = telaSobDemanda(() => import('./pages/pontos/Portal').then((m) => m.Portal));
 const Coordenadores = telaSobDemanda(() => import('./pages/pontuacao/Coordenadores').then((m) => m.Coordenadores));
@@ -270,6 +271,20 @@ export default function App() {
             <SomenteAdmin>
               <TelaDeFora>
                 <Usuarios />
+              </TelaDeFora>
+            </SomenteAdmin>
+          </Protegida>
+        }
+      />
+      {/* O banco inteiro num arquivo. Fora dos módulos pelo mesmo motivo dos
+          logins: é do sistema todo. Botão ao lado do de Usuários. */}
+      <Route
+        path="/backup"
+        element={
+          <Protegida>
+            <SomenteAdmin>
+              <TelaDeFora>
+                <Backup />
               </TelaDeFora>
             </SomenteAdmin>
           </Protegida>

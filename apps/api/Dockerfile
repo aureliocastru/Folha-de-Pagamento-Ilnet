@@ -40,6 +40,20 @@ COPY package.json package-lock.json* ./
 COPY apps/api/package.json ./apps/api/
 RUN npm install --omit=optional
 
+# O cliente do Postgres, para o backup (ver `src/backup/`). Várias versões lado
+# a lado, cada uma em /usr/libexec/postgresqlNN: o pg_dump precisa ser da mesma
+# versão do banco, e o Postgres do EasyPanel pode ser qualquer uma. A API escolhe
+# a que serve na hora do backup. Versão que o Alpine desta imagem não tem é
+# pulada; nenhuma instalada derruba o build, em vez de o botão falhar no dia.
+#
+# Mora depois do `npm install` de propósito: entrou quando o disco do servidor
+# estava cheio, e antes dele obrigaria a refazer a camada das dependências — a
+# maior da imagem depois do LibreOffice.
+RUN for v in 13 14 15 16 17 18 19; do \
+      apk add --no-cache "postgresql$v-client" >/dev/null 2>&1 && echo "pg_dump $v"; \
+    done; \
+    ls /usr/libexec/postgresql*/pg_dump
+
 # Código-fonte + geração do Prisma Client + build
 COPY apps/api ./apps/api
 WORKDIR /app/apps/api

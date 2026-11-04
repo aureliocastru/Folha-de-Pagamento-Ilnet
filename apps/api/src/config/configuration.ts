@@ -85,6 +85,8 @@ export function configuration() {
   return {
     nodeEnv: env.NODE_ENV,
     port: env.API_PORT,
+    // O Prisma lê a sua sozinho; esta é a do `pg_dump` do backup.
+    databaseUrl: env.DATABASE_URL,
     corsOrigins: env.CORS_ORIGINS.split(',')
       .map((o) => o.trim())
       .filter(Boolean),

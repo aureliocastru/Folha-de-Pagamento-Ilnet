@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
 import { caminhoDaConta } from '../lib/modulos';
-import { IconeChave } from './icones';
+import { IconeBanco, IconeChave } from './icones';
 
 /**
  * O cabeçalho escuro de fora dos módulos: a marca, e à direita quem está logado.
@@ -51,6 +51,16 @@ export function CabecalhoDeFora({ voltarParaModulos = false }: { voltarParaModul
           >
             <IconeChave className="h-4 w-4 text-white/50" />
             Usuários
+          </Link>
+        )}
+        {/* O banco inteiro num arquivo: só o administrador, como os logins. */}
+        {usuario?.role === 'ADMIN' && !voltarParaModulos && (
+          <Link
+            to="/backup"
+            className="flex items-center gap-2 rounded-lg border border-white/10 px-3 py-1.5 text-[12px] font-semibold text-white/80 transition hover:border-white/20 hover:bg-white/5 hover:text-white"
+          >
+            <IconeBanco className="h-4 w-4 text-white/50" />
+            Backup
           </Link>
         )}
         <Link

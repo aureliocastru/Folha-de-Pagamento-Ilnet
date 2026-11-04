@@ -224,8 +224,18 @@ Confira que o arquivo tem tamanho de gente (`ls -lh /root/folha.dump`) antes de
 seguir. Em dois passos de propósito: se o restore falhar, você repete o restore
 sem tirar o dump de novo.
 
-Sem acesso SSH ao antigo, use o **Console** do serviço `db` no painel para gerar
-o arquivo e os backups do EasyPanel para tirá-lo de lá.
+Sem acesso SSH ao antigo, use o botão **Backup** do próprio sistema (na tela de
+módulos, ao lado de Usuários, só para administrador). Ele roda o mesmo `pg_dump
+-Fc` e entrega um zip pelo navegador, sem gravar nada no disco do servidor:
+
+- `banco.dump` — o banco inteiro, o arquivo que o passo 10 restaura;
+- `conferencia.txt` / `conferencia.json` — cada tabela com o número de
+  registros, contados na mesma foto do banco que o `pg_dump` copiou.
+
+Para o botão a `api` antiga tem de estar **no ar**: em vez do passo 8, feche o
+sistema para a equipe e só pare a `api` depois de o download terminar com
+"Backup completo" na tela. Download que cai no meio aparece como "Backup
+incompleto" — o arquivo não serve, faça de novo.
 
 ### 10. Restaure no novo
 
@@ -262,6 +272,10 @@ ORDER BY 1;
 ```
 
 Números diferentes = pare aqui e resolva antes de mexer no DNS.
+
+Com o backup do botão, a comparação é mais simples: a tela **Backup** do
+servidor novo lista cada tabela com o número de registros, e cada número tem de
+bater com o `conferencia.txt` que veio dentro do zip.
 
 ### 12. Ligue de verdade e vire o DNS
 
