@@ -2538,6 +2538,16 @@ model LoteDeRecibos {
   /// da folha de quem tem carteira assinada.
   aReceberTrocado Json? @map("a_receber_trocado")
 
+  /// De que parcela do 13º salário é o arquivo (1 ou 2). Null = a folha do
+  /// mês. O lote do 13º não conta como "o mês mais novo" dos recibos: o de
+  /// dezembro não pode impedir o recibo de novembro de trocar o A receber.
+  parcelaDo13 Int? @map("parcela_do_13")
+
+  /// Os bônus do 13º que este lote lançou: [{ lancamentoId, funcionarioId,
+  /// antes, depois }], com `antes` null quando o bônus nasceu aqui. É o que o
+  /// desfazer apaga (ou devolve ao valor de antes).
+  bonusDo13 Json? @map("bonus_do_13")
+
   documentos DocumentoRh[]
 
   criadoPor String?  @map("criado_por")

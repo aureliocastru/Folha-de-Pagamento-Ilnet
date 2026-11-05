@@ -15,6 +15,7 @@ import type {
   AnaliseDosRecibos,
   EstanteRh,
   LoteDeRecibos,
+  ParcelaDo13,
   PastaRh,
   RecibosGuardados,
 } from '../../lib/types';
@@ -97,17 +98,23 @@ export function RecibosDaFolha() {
   const desfazer = useMutation({
     mutationFn: async (lote: LoteDeRecibos) =>
       (
-        await api.delete<{ competencia: string; apagados: number; devolvidos?: number }>(
-          `/rh/recibos/lotes/${lote.id}`,
-        )
+        await api.delete<{
+          competencia: string;
+          apagados: number;
+          devolvidos?: number;
+          bonusDesfeitos?: number;
+        }>(`/rh/recibos/lotes/${lote.id}`)
       ).data,
-    onSuccess: (r) => {
+    onSuccess: (r, lote) => {
       setErro(null);
       setResultado(null);
       setDesfeito(
-        `${r.apagados} recibo(s) de ${mesDaCompetencia(r.competencia)} apagados das pastas.` +
+        `${r.apagados} recibo(s) ${deQue(lote.parcelaDo13, r.competencia)} apagados das pastas.` +
           (r.devolvidos
             ? ` O A receber na folha de ${r.devolvidos} funcionário(s) voltou ao de antes.`
+            : '') +
+          (r.bonusDesfeitos
+            ? ` ${r.bonusDesfeitos} bônus do 13º desfeito(s).`
             : ''),
       );
       void qc.invalidateQueries({ queryKey: ['funcionarios'] });
@@ -168,6 +175,13 @@ export function RecibosDaFolha() {
   const aAtualizar = analise
     ? analise.itens.filter((i) => i.aReceberNovo !== null).length
     : 0;
+  /* O 13º não mexe no A receber: o líquido vira um bônus, de todo recibo do
+     PDF, pela mesma razão. */
+  const e13 = !!analise?.parcelaDo13;
+  const aLancar = analise
+    ? analise.itens.filter((i) => i.bonus13?.novo != null).length
+    : 0;
+  const aMudar = e13 ? aLancar : aAtualizar;
 
   return (
     <Pagina>
@@ -181,8 +195,16 @@ export function RecibosDaFolha() {
 
       {resultado && (
         <Aviso tom="pago">
-          {resultado.guardados.length} recibo(s) de{' '}
-          {mesDaCompetencia(resultado.competencia)} guardados nas pastas.
+          {resultado.guardados.length} recibo(s){' '}
+          {deQue(resultado.parcelaDo13, resultado.competencia)} guardados nas
+          pastas.
+          {resultado.bonus.length > 0 && (
+            <>
+              {' '}
+              Bônus do 13º lançado para {resultado.bonus.length} funcionário(s):{' '}
+              {quandoSai(resultado.bonus.map((b) => b.folha))}.
+            </>
+          )}
           {resultado.aReceber.length > 0 && (
             <>
               {' '}
@@ -203,8 +225,19 @@ export function RecibosDaFolha() {
         </Aviso>
       )}
       {resultado &&
-        (resultado.semAtualizar.length > 0 || resultado.semCarteira.length > 0) && (
+        (resultado.semAtualizar.length > 0 ||
+          resultado.semCarteira.length > 0 ||
+          resultado.semBonus.length > 0) && (
           <Aviso tom="atencao">
+            {resultado.semBonus.length > 0 && (
+              <>
+                Sem bônus do 13º:{' '}
+                {resultado.semBonus
+                  .map((p) => `${p.nome} (${p.motivo})`)
+                  .join('; ')}
+                .{' '}
+              </>
+            )}
             {resultado.semAtualizar.length > 0 && (
               <>
                 A receber na folha <strong>não</strong> atualizado:{' '}
@@ -223,7 +256,7 @@ export function RecibosDaFolha() {
           </Aviso>
         )}
 
-      <Bloco titulo="O arquivo do mês" className="surgir mb-6">
+      <Bloco titulo="O arquivo da contabilidade" className="surgir mb-6">
         <div className="flex flex-wrap items-center gap-3">
           <label className="btn btn-primario w-fit cursor-pointer">
             {analisar.isPending ? 'Lendo o PDF…' : 'Escolher o PDF dos recibos'}
@@ -241,16 +274,31 @@ export function RecibosDaFolha() {
           )}
         </div>
         <p className="ajuda">
-          É o mesmo arquivo que chega da contabilidade, com um empregado por
-          página. Nada é guardado antes de você conferir a lista abaixo.
+          O recibo do mês ou o do 13º salário, como chega da contabilidade.
+          Nada é guardado antes de você conferir a lista abaixo.
         </p>
       </Bloco>
 
       {analise && (
         <>
           <Aviso tom="info">
-            {analise.itens.length} recibo(s) de{' '}
-            <strong>{analise.competenciaEscrita ?? analise.competencia}</strong>{' '}
+            {analise.itens.length} recibo(s){' '}
+            {analise.parcelaDo13 ? (
+              <>
+                do{' '}
+                <strong>
+                  13º salário — {analise.parcelaDo13}ª parcela
+                </strong>{' '}
+                ({analise.competenciaEscrita ?? analise.competencia})
+              </>
+            ) : (
+              <>
+                de{' '}
+                <strong>
+                  {analise.competenciaEscrita ?? analise.competencia}
+                </strong>
+              </>
+            )}{' '}
             em {analise.totalDePaginas} páginas.
             {analise.paginasSemDono.length > 0 && (
               <>
@@ -260,14 +308,26 @@ export function RecibosDaFolha() {
                 nenhuma.
               </>
             )}
-            {!analise.atualizaAReceber && (
+            {!e13 && !analise.atualizaAReceber && (
               <>
                 {' '}
                 É de um mês anterior ao último separado: o A receber na folha
                 não muda.
               </>
             )}
-            {aAtualizar > 0 && (
+            {aLancar > 0 && (
+              <>
+                {' '}
+                O líquido vira bônus do 13º para {aLancar} funcionário(s):{' '}
+                {quandoSai(
+                  analise.itens
+                    .filter((i) => i.bonus13?.novo != null)
+                    .map((i) => i.bonus13!.folha ?? ''),
+                )}
+                .
+              </>
+            )}
+            {!e13 && aAtualizar > 0 && (
               <>
                 {' '}
                 O A receber na folha muda para {aAtualizar} funcionário(s).
@@ -282,7 +342,9 @@ export function RecibosDaFolha() {
                   <tr>
                     <th className="th">Guardar</th>
                     <th className="th">Quem</th>
-                    <th className="th text-right">A receber</th>
+                    <th className="th text-right">
+                      {e13 ? 'Bônus do 13º' : 'A receber'}
+                    </th>
                     <th className="th">Página</th>
                     <th className="th">Vai para a pasta</th>
                   </tr>
@@ -319,10 +381,46 @@ export function RecibosDaFolha() {
                           </div>
                           {item.jaGuardado && (
                             <Selo pequeno tom="atencao">
-                              já guardado neste mês
+                              {e13 ? 'já guardado' : 'já guardado neste mês'}
                             </Selo>
                           )}
                         </td>
+                        {item.bonus13 ? (
+                          <td className="td whitespace-nowrap text-right">
+                            {item.liquido !== null ? (
+                              <span
+                                className={`valor ${
+                                  item.bonus13.novo === null && item.bonus13.atual === null
+                                    ? 'text-tinta-400'
+                                    : ''
+                                }`}
+                              >
+                                {formatBRL(item.liquido)}
+                              </span>
+                            ) : (
+                              <span className="text-tinta-400">—</span>
+                            )}
+                            {item.bonus13.folha && !item.bonus13.aviso && (
+                              <div className="text-xs text-tinta-400">
+                                {item.bonus13.novo === null
+                                  ? 'já lançado · '
+                                  : ''}
+                                {quintoDia(item.bonus13.folha)}
+                              </div>
+                            )}
+                            {item.bonus13.novo !== null &&
+                              item.bonus13.atual !== null && (
+                                <div className="num text-xs text-tinta-400">
+                                  era {formatBRL(item.bonus13.atual)}
+                                </div>
+                              )}
+                            {item.bonus13.aviso && (
+                              <div className="mt-0.5 max-w-[220px] whitespace-normal text-xs text-amber-600 dark:text-amber-400">
+                                {item.bonus13.aviso}
+                              </div>
+                            )}
+                          </td>
+                        ) : (
                         <td className="td whitespace-nowrap text-right">
                           {item.liquido !== null ? (
                             <span
@@ -349,6 +447,7 @@ export function RecibosDaFolha() {
                             </div>
                           )}
                         </td>
+                        )}
                         <td className="td num whitespace-nowrap text-tinta-500">
                           {item.paginas.join(', ')}
                         </td>
@@ -418,14 +517,20 @@ export function RecibosDaFolha() {
             <button
               type="button"
               onClick={() => guardar.mutate()}
-              disabled={(aGuardar === 0 && aAtualizar === 0) || guardar.isPending}
+              disabled={(aGuardar === 0 && aMudar === 0) || guardar.isPending}
               className="btn btn-acao"
             >
               {guardar.isPending
                 ? 'Guardando…'
-                : aGuardar > 0
-                  ? `Guardar ${aGuardar} recibo(s) nas pastas`
-                  : `Atualizar o A receber de ${aAtualizar} funcionário(s)`}
+                : e13
+                  ? aGuardar > 0 && aLancar > 0
+                    ? `Guardar ${aGuardar} recibo(s) e lançar ${aLancar} bônus`
+                    : aGuardar > 0
+                      ? `Guardar ${aGuardar} recibo(s) nas pastas`
+                      : `Lançar o bônus do 13º de ${aLancar} funcionário(s)`
+                  : aGuardar > 0
+                    ? `Guardar ${aGuardar} recibo(s) nas pastas`
+                    : `Atualizar o A receber de ${aAtualizar} funcionário(s)`}
             </button>
           </div>
         </>
@@ -470,7 +575,9 @@ export function RecibosDaFolha() {
                       {formatData(lote.createdAt)}
                     </td>
                     <td className="td num whitespace-nowrap">
-                      {mesDaCompetencia(lote.competencia)}
+                      {lote.parcelaDo13
+                        ? `13º ${lote.competencia.slice(0, 4)} · ${lote.parcelaDo13}ª parcela`
+                        : mesDaCompetencia(lote.competencia)}
                     </td>
                     <td className="td">
                       <span className="truncate text-tinta-500">
@@ -493,9 +600,11 @@ export function RecibosDaFolha() {
                         type="button"
                         onClick={() => {
                           const ok = confirm(
-                            `Desfazer o lançamento de ${mesDaCompetencia(lote.competencia)}?\n\n` +
+                            `Desfazer o lançamento ${deQue(lote.parcelaDo13, lote.competencia)}?\n\n` +
                               `Isto apaga ${lote.guardados} recibo(s) das pastas de todo mundo, ` +
-                              'e o A receber na folha volta ao de antes. ' +
+                              (lote.parcelaDo13
+                                ? `e os ${lote.bonus} bônus do 13º que ele lançou. `
+                                : 'e o A receber na folha volta ao de antes. ') +
                               'Os arquivos saem daqui e não voltam.',
                           );
                           if (ok) desfazer.mutate(lote);
@@ -521,6 +630,50 @@ export function RecibosDaFolha() {
 /** "2026-07" → "07/2026". */
 function mesDaCompetencia(competencia: string): string {
   return `${competencia.slice(5)}/${competencia.slice(0, 4)}`;
+}
+
+/** "de 07/2026", ou "do 13º 2026 (1ª parcela)" — de que é o arquivo. */
+function deQue(parcela: ParcelaDo13 | null, competencia: string): string {
+  return parcela
+    ? `do 13º ${competencia.slice(0, 4)} (${parcela}ª parcela)`
+    : `de ${mesDaCompetencia(competencia)}`;
+}
+
+const MESES = [
+  'janeiro',
+  'fevereiro',
+  'março',
+  'abril',
+  'maio',
+  'junho',
+  'julho',
+  'agosto',
+  'setembro',
+  'outubro',
+  'novembro',
+  'dezembro',
+];
+
+/** "2026-11" → "sai no quinto dia de novembro": a folha que paga o bônus. */
+function quintoDia(folha: string): string {
+  const mes = MESES[Number(folha.slice(5, 7)) - 1] ?? folha;
+  const ano = folha.slice(0, 4);
+  const anoDeAgora = String(new Date().getFullYear());
+  return `sai no quinto dia de ${mes}${ano === anoDeAgora ? '' : ` de ${ano}`}`;
+}
+
+/**
+ * Em que folha os bônus saem, juntando quem cai na mesma: "sai no quinto dia
+ * de novembro", ou "20 no quinto dia de novembro, 4 no de dezembro".
+ */
+function quandoSai(folhas: string[]): string {
+  const conta = new Map<string, number>();
+  for (const f of folhas.filter(Boolean)) conta.set(f, (conta.get(f) ?? 0) + 1);
+  const ordem = [...conta.keys()].sort();
+  if (ordem.length <= 1) return ordem[0] ? quintoDia(ordem[0]) : '';
+  return ordem
+    .map((f) => `${conta.get(f)} ${quintoDia(f).replace('sai no ', 'no ')}`)
+    .join(', ');
 }
 
 /** O arquivo como data URL — é assim que ele chega à API. */

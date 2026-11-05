@@ -15,7 +15,14 @@
  * A âncora é o rótulo impresso ("Empregado", "Competência"), e não a posição na
  * página: a extração de texto embaralha colunas, e é por isso que o CPF aparece
  * *antes* do "CPF:" que o nomeia. Rótulo é o que sobrevive a isso.
+ *
+ * O 13º salário vem em arquivo à parte, no mesmo desenho — só o título muda:
+ * "Recibo de Pagamento ( Adiantamento de 13º Salário )" na 1ª parcela, contra
+ * o "( Folha de Pagamento )" do mês. É o título que decide o que o líquido
+ * vira: o "A receber" do mês, ou um bônus (pedido de 05/11/2026).
  */
+
+import type { ParcelaDo13 } from './recibos.decimo-terceiro';
 
 /** O dono de uma página do PDF. */
 export interface ReciboLido {
@@ -37,6 +44,8 @@ export interface LeituraDosRecibos {
   competencia: string | null;
   /** Como ela está escrita no papel ("Julho de 2026"), para a tela repetir. */
   competenciaEscrita: string | null;
+  /** De que parcela do 13º é o arquivo. Null = é a folha do mês. */
+  parcelaDo13: ParcelaDo13 | null;
   recibos: ReciboLido[];
   /** Páginas que não deram para reconhecer, para ninguém achar que sumiram. */
   paginasSemDono: number[];
@@ -68,12 +77,16 @@ export function lerRecibos(paginas: string[]): LeituraDosRecibos {
   const recibos: ReciboLido[] = [];
   const paginasSemDono: number[] = [];
   let competenciaEscrita: string | null = null;
+  let titulo: string | null = null;
+  let anoImpresso: string | null = null;
 
   paginas.forEach((texto, i) => {
     const pagina = i + 1;
     const limpo = texto.replace(/\s+/g, ' ');
 
     competenciaEscrita ??= lerCompetenciaEscrita(limpo);
+    titulo ??= lerTitulo(limpo);
+    anoImpresso ??= /Compet[êe]ncia\b.{0,40}?\b(20\d{2})\b/.exec(limpo)?.[1] ?? null;
 
     const dono = /Empregado\s+(\d{3,10})\s+([^\d]{3,80}?)\s+Banco\b/.exec(limpo);
     if (!dono) {
@@ -104,12 +117,40 @@ export function lerRecibos(paginas: string[]): LeituraDosRecibos {
     });
   });
 
+  const parcela = titulo ? parcelaDo13(titulo) : null;
+  let competencia = competenciaEscrita ? paraAaaaMm(competenciaEscrita) : null;
+  /*
+   * O 13º pode sair sem mês na competência ("13º Salário de 2026"). Aí vale o
+   * mês em que cada parcela é devida: novembro a 1ª, dezembro a 2ª.
+   */
+  if (!competencia && parcela && anoImpresso) {
+    competencia = `${anoImpresso}-${parcela === 1 ? '11' : '12'}`;
+    competenciaEscrita = `${parcela === 1 ? 'Novembro' : 'Dezembro'} de ${anoImpresso}`;
+  }
+
   return {
-    competencia: competenciaEscrita ? paraAaaaMm(competenciaEscrita) : null,
+    competencia,
     competenciaEscrita,
+    parcelaDo13: parcela,
     recibos,
     paginasSemDono,
   };
+}
+
+/** O que vem entre parênteses em "Recibo de Pagamento ( … )". */
+function lerTitulo(texto: string): string | null {
+  return (
+    /Recibo\s+de\s+Pagamento\s*\(\s*([^)]{3,80}?)\s*\)/i.exec(texto)?.[1] ?? null
+  );
+}
+
+/**
+ * "Adiantamento de 13º Salário" → 1; "13º Salário" → 2; "Folha de Pagamento"
+ * → null. Sem "adiantamento" nem "1ª parcela", é a 2ª: é ela que fecha o ano.
+ */
+export function parcelaDo13(titulo: string): ParcelaDo13 | null {
+  if (!/(^|\D)13\s*[º°o]?(\D|$)|d[ée]cimo\s+terceiro/i.test(titulo)) return null;
+  return /adiantamento|(^|\D)1\s*[ªa]\s*parcela|primeira/i.test(titulo) ? 1 : 2;
 }
 
 /** O "Líquido a Receber 1.874,13" da página, em reais. Null = não está nela. */

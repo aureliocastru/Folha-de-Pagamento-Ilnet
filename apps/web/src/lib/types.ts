@@ -1953,11 +1953,26 @@ export interface ReciboDaFolha {
   aReceberNovo: number | null;
   /** Por que não muda, ou por que muda sem a folha usar. */
   aReceberAviso: string | null;
+  /** O bônus do 13º que o recibo vira. Null = é a folha do mês. */
+  bonus13: {
+    /** O valor do bônus que já existe (o PDF mandado de novo). */
+    atual: number | null;
+    /** O valor que ele passa a ter. Null = nada nasce nem muda. */
+    novo: number | null;
+    /** "AAAA-MM" da folha do quinto dia que o paga. */
+    folha: string | null;
+    aviso: string | null;
+  } | null;
 }
+
+/** 1 = o adiantamento do 13º (novembro); 2 = a 2ª parcela (dezembro). */
+export type ParcelaDo13 = 1 | 2;
 
 export interface AnaliseDosRecibos {
   competencia: string;
   competenciaEscrita: string | null;
+  /** De que parcela do 13º é o arquivo. Null = a folha do mês. */
+  parcelaDo13: ParcelaDo13 | null;
   totalDePaginas: number;
   /** Páginas que não deram para reconhecer: contadas, não descartadas. */
   paginasSemDono: number[];
@@ -1968,6 +1983,7 @@ export interface AnaliseDosRecibos {
 
 export interface RecibosGuardados {
   competencia: string;
+  parcelaDo13: ParcelaDo13 | null;
   /** O lançamento que isto virou no histórico. Null = nada foi guardado. */
   loteId: string | null;
   guardados: Array<{ pasta: string; nome: string }>;
@@ -1979,6 +1995,10 @@ export interface RecibosGuardados {
   /** Atualizados, mas sem carteira assinada: a folha não usa o valor. */
   semCarteira: string[];
   atualizaAReceber: boolean;
+  /** Os bônus do 13º lançados (ou com o valor acertado), e em que folha. */
+  bonus: Array<{ nome: string; antes: string | null; depois: string; folha: string }>;
+  /** Recibos do 13º que não viraram bônus, e por quê. */
+  semBonus: Array<{ nome: string; motivo: string }>;
 }
 
 /** Uma vez em que o PDF do mês foi separado — e que dá para desfazer. */
@@ -1990,6 +2010,10 @@ export interface LoteDeRecibos {
   quantidade: number;
   /** Quantos ainda estão guardados; menos que o de cima = alguém já apagou. */
   guardados: number;
+  /** De que parcela do 13º é o lote. Null = a folha do mês. */
+  parcelaDo13: ParcelaDo13 | null;
+  /** Quantos bônus do 13º ele lançou. */
+  bonus: number;
   criadoPor: string | null;
   createdAt: string;
 }

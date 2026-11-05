@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, TipoLancamento } from '@prisma/client';
 import { PDFDocument } from 'pdf-lib';
 import { extrairPaginasPdf } from '../pdf/pdf';
 import { PrismaService } from '../prisma/prisma.service';
@@ -15,6 +15,14 @@ import {
   naoAtualiza,
   type FuncionarioDaFolha,
 } from './recibos.a-receber';
+import {
+  bonusDoRecibo,
+  descricaoDoBonus13,
+  TIPO_RECIBO_13,
+  type BonusDo13Existente,
+  type BonusDoRecibo,
+  type ParcelaDo13,
+} from './recibos.decimo-terceiro';
 import { chaveDoNome, lerRecibos, type ReciboLido } from './recibos.parse';
 
 /** O tipo com que o recibo entra na pasta. Fixo: é o que o mês seguinte procura. */
@@ -75,9 +83,10 @@ export class RecibosDaFolhaService {
       );
     }
 
+    const parcela = leitura.parcelaDo13;
     const pastas = await this.pastasParaCasar();
     const jaGuardados = await this.prisma.documentoRh.findMany({
-      where: { tipo: TIPO_RECIBO, competencia: leitura.competencia },
+      where: { tipo: tipoDoRecibo(parcela), competencia: leitura.competencia },
       select: { pastaId: true, pasta: { select: { paiId: true } } },
     });
     /*
@@ -88,12 +97,26 @@ export class RecibosDaFolhaService {
     const jaTem = new Set(
       jaGuardados.map((d) => d.pasta.paiId ?? d.pastaId),
     );
-    const atualizaAReceber = await this.eDoMesMaisNovo(leitura.competencia);
+    // O 13º não é salário: o líquido dele vira bônus, e o A receber fica.
+    const atualizaAReceber = parcela
+      ? false
+      : await this.eDoMesMaisNovo(leitura.competencia);
     const funcionarios = await this.funcionariosDaFolha();
+    const bonus = parcela
+      ? await this.bonusDo13(
+          leitura.recibos,
+          parcela,
+          leitura.competencia,
+          (r) => casar(r, pastas)?.funcionarioId ?? null,
+          funcionarios,
+        )
+      : null;
 
     return {
       competencia: leitura.competencia,
       competenciaEscrita: leitura.competenciaEscrita,
+      /** De que parcela do 13º é o arquivo. Null = a folha do mês. */
+      parcelaDo13: parcela,
       totalDePaginas: paginas.length,
       paginasSemDono: leitura.paginasSemDono,
       /**
@@ -102,13 +125,14 @@ export class RecibosDaFolhaService {
        * mês mais novo.
        */
       atualizaAReceber,
-      itens: leitura.recibos.map((r) => {
+      itens: leitura.recibos.map((r, i) => {
         const pasta = casar(r, pastas);
         const aReceber = aReceberDoRecibo(
           r.liquido,
           donoNaFolha(r.cpf, pasta?.funcionarioId ?? null, funcionarios),
           atualizaAReceber,
         );
+        const b = bonus?.[i] ?? null;
         return {
           ...r,
           pastaId: pasta?.id ?? null,
@@ -122,7 +146,17 @@ export class RecibosDaFolhaService {
           /** O que ele passa a ser ao guardar. Null = fica como está. */
           aReceberNovo: aReceber.depois,
           /** Por que não muda, ou por que muda sem a folha usar. */
-          aReceberAviso: aReceber.aviso,
+          aReceberAviso: parcela ? null : aReceber.aviso,
+          /** O bônus do 13º. Null = o arquivo é a folha do mês. */
+          bonus13: b && {
+            /** O valor do bônus que já existe (o PDF mandado de novo). */
+            atual: b.antes,
+            /** O valor que ele passa a ter. Null = nada nasce nem muda. */
+            novo: b.depois,
+            /** "AAAA-MM" da folha do quinto dia que o paga. */
+            folha: b.folha,
+            aviso: b.aviso,
+          },
         };
       }),
     };
@@ -164,6 +198,10 @@ export class RecibosDaFolhaService {
     if (itens.length === 0 && leitura.recibos.length === 0) {
       throw new BadRequestException('Nenhum recibo foi marcado para guardar.');
     }
+    // Relida do PDF, como o líquido: é ela que decide se o dinheiro vira o A
+    // receber do mês ou um bônus.
+    const parcela = leitura.parcelaDo13;
+    const tipo = tipoDoRecibo(parcela);
 
     /*
      * O lote nasce antes dos documentos porque é ele que os marca.
@@ -178,6 +216,7 @@ export class RecibosDaFolhaService {
         competencia,
         arquivoNome: arquivoNome.trim().slice(0, 255) || 'recibos.pdf',
         quantidade: 0,
+        parcelaDo13: parcela,
         criadoPor: usuarioId ?? null,
       },
     });
@@ -186,7 +225,9 @@ export class RecibosDaFolhaService {
     const pulados: Array<{ nome: string; motivo: string }> = [];
     /** A pasta que a tela escolheu para cada página — o plano B do dono. */
     const pastaDaPagina = new Map<number, string>();
-    const atualizaAReceber = await this.eDoMesMaisNovo(competencia, lote.id);
+    const atualizaAReceber = parcela
+      ? false
+      : await this.eDoMesMaisNovo(competencia, lote.id);
     const trocados: Array<{
       funcionarioId: string;
       nome: string;
@@ -242,13 +283,17 @@ export class RecibosDaFolhaService {
           data: {
             pastaId: destinoId,
             loteId: lote.id,
-            titulo: `Recibo de pagamento ${mes}/${ano}`,
-            tipo: TIPO_RECIBO,
+            titulo: parcela
+              ? `Recibo do 13º salário ${ano} — ${parcela}ª parcela`
+              : `Recibo de pagamento ${mes}/${ano}`,
+            tipo,
             competencia,
             // O dia impresso é o do fechamento da folha, que não vem no papel;
             // o mês é o que identifica o documento, e ele está na competência.
             emitidoEm: null,
-            arquivoNome: `recibo-${competencia}-${arquivoAmigavel(item.nome)}.pdf`,
+            arquivoNome: parcela
+              ? `recibo-13-${ano}-parcela-${parcela}-${arquivoAmigavel(item.nome)}.pdf`
+              : `recibo-${competencia}-${arquivoAmigavel(item.nome)}.pdf`,
             arquivoTipo: 'application/pdf',
             arquivoTamanho: bytes.length,
             // O `save()` do pdf-lib devolve `Uint8Array` sobre um buffer
@@ -271,7 +316,9 @@ export class RecibosDaFolhaService {
         pulados.push({
           nome: item.nome,
           motivo: repetido
-            ? `já havia um recibo de ${mes}/${ano} na pasta`
+            ? parcela
+              ? `já havia o recibo da ${parcela}ª parcela do 13º na pasta`
+              : `já havia um recibo de ${mes}/${ano} na pasta`
             : 'o banco recusou',
         });
         if (!repetido) this.logger.warn(`Recibo de ${item.nome}: ${err}`);
@@ -327,11 +374,83 @@ export class RecibosDaFolhaService {
     }
 
     /*
+     * O bônus do 13º: de todo recibo do PDF, marcado ou não, pela mesma razão
+     * do A receber — o dinheiro é da folha, e a marca é só de guardar na pasta.
+     * Mandar o mesmo PDF de novo acha o bônus que já existe e só acerta o
+     * valor; dois bônus do mesmo 13º pagariam duas vezes.
+     */
+    const bonusLancados: Array<{
+      lancamentoId: string;
+      funcionarioId: string;
+      nome: string;
+      antes: string | null;
+      depois: string;
+      folha: string;
+    }> = [];
+    const semBonus: Array<{ nome: string; motivo: string }> = [];
+    if (parcela) {
+      const descricao = descricaoDoBonus13(parcela, competencia.slice(0, 4));
+      const pastas = await this.pastasParaCasar();
+      const bonus = await this.bonusDo13(
+        leitura.recibos,
+        parcela,
+        competencia,
+        (r) =>
+          pastaDaPagina.get(r.paginas[0]) ?? casar(r, pastas)?.funcionarioId ?? null,
+        await this.funcionariosDaFolha(),
+      );
+      const jaLancado = new Set<string>();
+      for (const [i, r] of leitura.recibos.entries()) {
+        const b = bonus[i];
+        if (b.aviso) {
+          semBonus.push({ nome: r.nome, motivo: b.aviso });
+          continue;
+        }
+        const id = b.funcionarioId;
+        if (b.depois === null || !id || !b.folha || jaLancado.has(id)) continue;
+        try {
+          const lancamento = b.lancamentoId
+            ? await this.prisma.lancamento.update({
+                where: { id: b.lancamentoId },
+                data: { valor: new Prisma.Decimal(b.depois) },
+                select: { id: true },
+              })
+            : await this.prisma.lancamento.create({
+                data: {
+                  funcionarioId: id,
+                  tipo: TipoLancamento.BONUS,
+                  descricao,
+                  valor: new Prisma.Decimal(b.depois),
+                  competencia: b.mesTrabalhado,
+                  ativo: true,
+                },
+                select: { id: true },
+              });
+          jaLancado.add(id);
+          bonusLancados.push({
+            lancamentoId: lancamento.id,
+            funcionarioId: id,
+            nome: r.nome,
+            antes: b.antes === null ? null : b.antes.toFixed(2),
+            depois: b.depois.toFixed(2),
+            folha: b.folha,
+          });
+        } catch (err) {
+          semBonus.push({ nome: r.nome, motivo: 'o banco recusou' });
+          this.logger.warn(`Bônus do 13º de ${r.nome}: ${err}`);
+        }
+      }
+    }
+
+    /*
      * Lote sem nada dentro não vira linha no histórico: um "desfazer" que não
      * desfaz nada é ruído na única lista que serve para consertar engano. O
-     * lote que só trocou o "A receber" fica — é ele que o devolve.
+     * lote que só trocou o "A receber" (ou só lançou bônus) fica — é ele que
+     * os devolve.
      */
-    if (guardados.length === 0 && trocados.length === 0) {
+    const fezAlgo =
+      guardados.length > 0 || trocados.length > 0 || bonusLancados.length > 0;
+    if (!fezAlgo) {
       await this.prisma.loteDeRecibos.delete({ where: { id: lote.id } });
     } else {
       await this.prisma.loteDeRecibos.update({
@@ -343,17 +462,31 @@ export class RecibosDaFolhaService {
             antes,
             depois,
           })),
+          ...(parcela
+            ? {
+                bonusDo13: bonusLancados.map(
+                  ({ lancamentoId, funcionarioId, antes, depois }) => ({
+                    lancamentoId,
+                    funcionarioId,
+                    antes,
+                    depois,
+                  }),
+                ),
+              }
+            : {}),
         },
       });
     }
 
     this.logger.log(
-      `Recibos de ${competencia}: ${guardados.length} guardado(s), ` +
-        `${pulados.length} pulado(s), ${trocados.length} "a receber" trocado(s).`,
+      `Recibos de ${competencia}${parcela ? ` (13º, ${parcela}ª parcela)` : ''}: ` +
+        `${guardados.length} guardado(s), ${pulados.length} pulado(s), ` +
+        `${trocados.length} "a receber" trocado(s), ${bonusLancados.length} bônus.`,
     );
     return {
       competencia,
-      loteId: guardados.length > 0 || trocados.length > 0 ? lote.id : null,
+      parcelaDo13: parcela,
+      loteId: fezAlgo ? lote.id : null,
       guardados,
       pulados,
       /** De quem o "A receber na folha" passou a ser o líquido do recibo. */
@@ -363,6 +496,15 @@ export class RecibosDaFolhaService {
       /** Atualizados, mas sem carteira assinada: a folha não usa o valor. */
       semCarteira,
       atualizaAReceber,
+      /** Os bônus do 13º lançados (ou com o valor acertado), e em que folha. */
+      bonus: bonusLancados.map(({ nome, antes, depois, folha }) => ({
+        nome,
+        antes,
+        depois,
+        folha,
+      })),
+      /** Recibos do 13º que não viraram bônus, e por quê. */
+      semBonus,
     };
   }
 
@@ -390,6 +532,10 @@ export class RecibosDaFolhaService {
        * documento à mão, e o desfazer vai achar menos do que o lote diz.
        */
       guardados: l._count.documentos,
+      /** De que parcela do 13º é o lote. Null = a folha do mês. */
+      parcelaDo13: l.parcelaDo13 === 1 || l.parcelaDo13 === 2 ? l.parcelaDo13 : null,
+      /** Quantos bônus do 13º ele lançou. */
+      bonus: Array.isArray(l.bonusDo13) ? l.bonusDo13.length : 0,
       criadoPor: l.criadoPor,
       createdAt: l.createdAt,
     }));
@@ -437,13 +583,43 @@ export class RecibosDaFolhaService {
       devolvidos += mudou;
     }
 
+    /*
+     * Os bônus do 13º: o que nasceu no lote sai, o que só teve o valor
+     * acertado volta ao de antes. Pela mesma régua do A receber, só o que
+     * ainda está com o valor do lote — quem foi mexido à mão fica.
+     */
+    let bonusDesfeitos = 0;
+    const bonus = Array.isArray(lote.bonusDo13)
+      ? (lote.bonusDo13 as Array<{
+          lancamentoId: string;
+          antes: string | null;
+          depois: string;
+        }>)
+      : [];
+    for (const b of bonus) {
+      const onde = { id: b.lancamentoId, valor: new Prisma.Decimal(b.depois) };
+      const { count: mudou } =
+        b.antes === null
+          ? await this.prisma.lancamento.deleteMany({ where: onde })
+          : await this.prisma.lancamento.updateMany({
+              where: onde,
+              data: { valor: new Prisma.Decimal(b.antes) },
+            });
+      bonusDesfeitos += mudou;
+    }
+
     await this.prisma.loteDeRecibos.delete({ where: { id: loteId } });
 
     this.logger.log(
       `Lote de recibos de ${lote.competencia} desfeito: ${count} documento(s) apagados, ` +
-        `${devolvidos} "a receber" devolvido(s).`,
+        `${devolvidos} "a receber" devolvido(s), ${bonusDesfeitos} bônus do 13º desfeito(s).`,
     );
-    return { competencia: lote.competencia, apagados: count, devolvidos };
+    return {
+      competencia: lote.competencia,
+      apagados: count,
+      devolvidos,
+      bonusDesfeitos,
+    };
   }
 
   /**
@@ -453,11 +629,88 @@ export class RecibosDaFolhaService {
    */
   private async eDoMesMaisNovo(competencia: string, foraDoLote?: string): Promise<boolean> {
     const maisNovo = await this.prisma.loteDeRecibos.findFirst({
-      where: foraDoLote ? { id: { not: foraDoLote } } : {},
+      // Só a folha do mês: o 13º de dezembro, guardado antes do recibo de
+      // novembro chegar, não pode impedir este de trocar o A receber.
+      where: {
+        parcelaDo13: null,
+        ...(foraDoLote ? { id: { not: foraDoLote } } : {}),
+      },
       orderBy: { competencia: 'desc' },
       select: { competencia: true },
     });
     return !maisNovo || competencia >= maisNovo.competencia;
+  }
+
+  /**
+   * O bônus do 13º de cada recibo do arquivo, na ordem dos recibos.
+   *
+   * O dono é achado como o do A receber — pelo CPF no cadastro da folha, a
+   * pasta como plano B. Para cada um, o bônus deste 13º que já existe (o PDF
+   * mandado de novo) e as folhas que já saíram para ele, que são as que o
+   * bônus novo não pode mais pegar.
+   */
+  private async bonusDo13(
+    recibos: ReciboLido[],
+    parcela: ParcelaDo13,
+    competencia: string,
+    funcionarioDaPasta: (r: ReciboLido) => string | null,
+    funcionarios: FuncionarioDaFolha[],
+  ): Promise<BonusDoRecibo[]> {
+    const donos = recibos.map((r) =>
+      donoNaFolha(r.cpf, funcionarioDaPasta(r), funcionarios),
+    );
+    const ids = [
+      ...new Set(
+        donos.filter((d): d is FuncionarioDaFolha => !!d).map((d) => d.id),
+      ),
+    ];
+    const [existentes, contas] = await Promise.all([
+      this.prisma.lancamento.findMany({
+        where: {
+          funcionarioId: { in: ids },
+          tipo: TipoLancamento.BONUS,
+          descricao: descricaoDoBonus13(parcela, competencia.slice(0, 4)),
+        },
+        select: { id: true, funcionarioId: true, valor: true, competencia: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.contaPagar.findMany({
+        where: {
+          funcionarioId: { in: ids },
+          tipo: { in: [TipoLancamento.SALARIO, TipoLancamento.BONUS] },
+          competencia: { not: null },
+        },
+        select: { funcionarioId: true, competencia: true },
+      }),
+    ]);
+
+    const existenteDe = new Map<string, BonusDo13Existente>();
+    for (const l of existentes) {
+      if (existenteDe.has(l.funcionarioId)) continue;
+      existenteDe.set(l.funcionarioId, {
+        id: l.id,
+        valor: Number(l.valor),
+        competencia: l.competencia,
+      });
+    }
+    const fechadasDe = new Map<string, Set<string>>();
+    for (const c of contas) {
+      if (!c.funcionarioId || !c.competencia) continue;
+      const fechadas = fechadasDe.get(c.funcionarioId) ?? new Set<string>();
+      fechadas.add(c.competencia);
+      fechadasDe.set(c.funcionarioId, fechadas);
+    }
+
+    return recibos.map((r, i) => {
+      const dono = donos[i];
+      return bonusDoRecibo(
+        r.liquido,
+        dono,
+        dono ? (existenteDe.get(dono.id) ?? null) : null,
+        competencia,
+        dono ? (fechadasDe.get(dono.id) ?? new Set()) : new Set(),
+      );
+    });
   }
 
   /** O cadastro da folha, com o que serve para achar o dono de um recibo. */
@@ -539,6 +792,11 @@ function casar(
     return { ...iguais[0], por: 'nome' };
   }
   return null;
+}
+
+/** O tipo com que o recibo entra na pasta: o do mês, ou o da parcela do 13º. */
+function tipoDoRecibo(parcela: ParcelaDo13 | null): string {
+  return parcela ? TIPO_RECIBO_13[parcela] : TIPO_RECIBO;
 }
 
 /** O PDF de dentro da data URL, conferido como PDF e como tamanho. */

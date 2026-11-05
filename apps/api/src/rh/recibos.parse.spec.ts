@@ -1,4 +1,10 @@
-import { arrumarNome, chaveDoNome, lerLiquido, lerRecibos } from './recibos.parse';
+import {
+  arrumarNome,
+  chaveDoNome,
+  lerLiquido,
+  lerRecibos,
+  parcelaDo13,
+} from './recibos.parse';
 
 /**
  * O PDF de recibos da contabilidade, como o extrator de texto o entrega.
@@ -16,11 +22,12 @@ function pagina(over: Partial<Record<string, string>> = {}): string {
     cpf: '111.222.333-44',
     cargo: 'INSTALADOR E REPARADOR DE REDES',
     liquido: '1.627,05',
+    titulo: 'Folha de Pagamento',
     ...over,
   };
   return (
     'Data e Assinatura ____________________ ___/___/____ ' +
-    'Recibo de Pagamento ( Folha de Pagamento ) ' +
+    `Recibo de Pagamento ( ${d.titulo} ) ` +
     `Competência ${d.competencia} Inscrição 11.111.111/0001-11 ` +
     'Empregador EMPRESA DE MENTIRA LTDA ' +
     `Admissão 07/06/2025 Lotação GERAL Cargo ${d.cargo} ` +
@@ -32,6 +39,42 @@ function pagina(over: Partial<Record<string, string>> = {}): string {
     'Salário Contratual 1.621,00 Base de Cálculo do IRRF(S)'
   );
 }
+
+describe('o recibo do 13º salário', () => {
+  it('a folha do mês não é 13º', () => {
+    expect(lerRecibos([pagina()]).parcelaDo13).toBeNull();
+  });
+
+  it('o adiantamento é a 1ª parcela, no mês impresso', () => {
+    const leitura = lerRecibos([
+      pagina({
+        titulo: 'Adiantamento de 13º Salário',
+        competencia: 'Novembro de 2026',
+        liquido: '1.321,35',
+      }),
+    ]);
+    expect(leitura.parcelaDo13).toBe(1);
+    expect(leitura.competencia).toBe('2026-11');
+    expect(leitura.recibos[0].liquido).toBe(1321.35);
+  });
+
+  it('o 13º sem adiantamento no título é a 2ª parcela', () => {
+    expect(parcelaDo13('13º Salário')).toBe(2);
+    expect(parcelaDo13('13º Salário - 2ª Parcela')).toBe(2);
+    expect(parcelaDo13('Décimo Terceiro Salário')).toBe(2);
+    expect(parcelaDo13('13º Salário - 1ª Parcela')).toBe(1);
+    expect(parcelaDo13('Folha de Pagamento')).toBeNull();
+    expect(parcelaDo13('Férias')).toBeNull();
+  });
+
+  it('competência sem mês: o mês em que a parcela é devida', () => {
+    const leitura = lerRecibos([
+      pagina({ titulo: '13º Salário', competencia: '13º Salário de 2026' }),
+    ]);
+    expect(leitura.parcelaDo13).toBe(2);
+    expect(leitura.competencia).toBe('2026-12');
+  });
+});
 
 describe('o recibo de pagamento que a contabilidade manda', () => {
   it('acha o dono de cada página', () => {
