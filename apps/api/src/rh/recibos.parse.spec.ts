@@ -50,12 +50,12 @@ describe('o recibo do 13º salário', () => {
       pagina({
         titulo: 'Adiantamento de 13º Salário',
         competencia: 'Novembro de 2026',
-        liquido: '1.321,35',
+        liquido: '1.234,56',
       }),
     ]);
     expect(leitura.parcelaDo13).toBe(1);
     expect(leitura.competencia).toBe('2026-11');
-    expect(leitura.recibos[0].liquido).toBe(1321.35);
+    expect(leitura.recibos[0].liquido).toBe(1234.56);
   });
 
   it('o 13º sem adiantamento no título é a 2ª parcela', () => {

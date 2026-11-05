@@ -28,12 +28,12 @@ describe('o bônus do 13º', () => {
   });
 
   it('sai na folha do quinto dia do mês impresso: o mês trabalhado é o anterior', () => {
-    const b = bonusDoRecibo(1321.35, func(), null, '2026-11', nenhuma);
+    const b = bonusDoRecibo(1234.56, func(), null, '2026-11', nenhuma);
     expect(b).toMatchObject({
       funcionarioId: 'f1',
       lancamentoId: null,
       antes: null,
-      depois: 1321.35,
+      depois: 1234.56,
       folha: '2026-11',
       mesTrabalhado: '2026-10',
       aviso: null,
