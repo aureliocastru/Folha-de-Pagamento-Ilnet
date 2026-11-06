@@ -38,7 +38,10 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 60s;
+        # Pagar a folha pelo banco e falar com o IXC leva tempo: com 60s a tela
+        # dava erro com o pagamento já feito. A tela manda o lote em pedaços;
+        # isto é a folga para quando o IXC está lento.
+        proxy_read_timeout 300s;
     }
 
     # O mime.types do nginx não conhece `.webmanifest`, e sem isto o manifesto

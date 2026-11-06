@@ -125,6 +125,26 @@ function descontoQueCabe(
   };
 }
 
+/** O que a API devolve ao pagar um pedaço do lote. */
+interface RespostaDoLote {
+  pagas: Array<{
+    idFnApagar: number;
+    aguardandoBanco: boolean;
+    noBanco?: { situacao: string };
+    avisos?: string[];
+  }>;
+  falhas: Array<{ idFnApagar: number; erro: string }>;
+  total: number;
+  economia: number;
+  acrescimo?: number;
+}
+
+/**
+ * Quantas contas vão em cada pedido. O servidor paga uma por vez, e o nginx
+ * desiste em 60s: com 70 de uma vez a tela dava erro com tudo já no banco.
+ */
+const POR_PEDIDO = 5;
+
 function hojeISO(): string {
   const agora = new Date();
   const mes = String(agora.getMonth() + 1).padStart(2, '0');
@@ -366,39 +386,66 @@ export function PagarEmMaos({
     axios.isAxiosError(previa.error) &&
     (previa.error.response?.data as { codigo?: string } | undefined)?.codigo === 'GUIA_SEM_PIX';
 
+  /** Quantas do lote já foram mandadas (null = nada em andamento). */
+  const [enviadas, setEnviadas] = useState<number | null>(null);
+
+  async function pagarPacote(idsFnApagar: number[]): Promise<RespostaDoLote> {
+    const { data: r } = await api.post<RespostaDoLote>('/contas-abertas/pagar-lote', {
+      idsFnApagar,
+      // Sem escolha, vai vazio: o servidor baixa cada título na conta que
+      // está nele. Mandar a padrão aqui era o que trocava o banco.
+      contaPagamento: contaEscolhida ? Number(contaEscolhida) : undefined,
+      data,
+      jaSaiu,
+      // Para a API vai o desconto, que é o campo que o IXC entende na baixa;
+      // o valor pago é o jeito de digitá-lo, não o jeito de guardá-lo.
+      desconto: descontoNumero > 0 ? descontoNumero : undefined,
+      // Acima do título vai o valor de destino, e não a diferença: repetir
+      // depois de uma falha acha o título já no valor e não o sobe de novo.
+      valorPago: pagouAMais ? aPagar : undefined,
+      // Os do ModoBank vão direto ao banco; os de outras contas, como sempre.
+      enviarAoBanco: bancoLigado,
+    });
+    return r;
+  }
+
   const pagar = useMutation({
     mutationFn: async () => {
-      const { data: r } = await api.post<{
-        pagas: Array<{
-          idFnApagar: number;
-          aguardandoBanco: boolean;
-          noBanco?: { situacao: string };
-          avisos?: string[];
-        }>;
-        falhas: Array<{ idFnApagar: number; erro: string }>;
-        total: number;
-        economia: number;
-        acrescimo?: number;
-      }>('/contas-abertas/pagar-lote', {
-        // As que o banco recusou na prévia ficam de fora: mandá-las só
-        // repetiria a recusa, conta por conta.
-        idsFnApagar: aMandar.map((c) => c.idFnApagar),
-        // Sem escolha, vai vazio: o servidor baixa cada título na conta que
-        // está nele. Mandar a padrão aqui era o que trocava o banco.
-        contaPagamento: contaEscolhida ? Number(contaEscolhida) : undefined,
-        data,
-        jaSaiu,
-        // Para a API vai o desconto, que é o campo que o IXC entende na baixa;
-        // o valor pago é o jeito de digitá-lo, não o jeito de guardá-lo.
-        desconto: descontoNumero > 0 ? descontoNumero : undefined,
-        // Acima do título vai o valor de destino, e não a diferença: repetir
-        // depois de uma falha acha o título já no valor e não o sobe de novo.
-        valorPago: pagouAMais ? aPagar : undefined,
-        // Os do ModoBank vão direto ao banco; os de outras contas, como sempre.
-        enviarAoBanco: bancoLigado,
-      });
-      return r;
+      // As que o banco recusou na prévia ficam de fora: mandá-las só
+      // repetiria a recusa, conta por conta.
+      const ids = aMandar.map((c) => c.idFnApagar);
+      /*
+       * Em pacotes de poucas: o servidor paga uma de cada vez, e as 70 da
+       * folha num pedido só passavam do tempo do nginx — o banco pagava tudo,
+       * e a tela dizia que tinha dado errado.
+       */
+      const soma: RespostaDoLote = { pagas: [], falhas: [], total: 0, economia: 0, acrescimo: 0 };
+      setEnviadas(0);
+      for (let i = 0; i < ids.length; i += POR_PEDIDO) {
+        const pacote = ids.slice(i, i + POR_PEDIDO);
+        let r: RespostaDoLote;
+        try {
+          r = await pagarPacote(pacote);
+        } catch (err) {
+          // Nada saiu ainda: o erro é da janela, como sempre foi.
+          if (i === 0) throw err;
+          // Parte já saiu: mostra o que foi e marca o resto para conferir.
+          const motivo = `${mensagemErro(err)} Confira esta antes de pagar de novo.`;
+          soma.falhas.push(
+            ...ids.slice(i).map((idFnApagar) => ({ idFnApagar, erro: motivo })),
+          );
+          break;
+        }
+        soma.pagas.push(...r.pagas);
+        soma.falhas.push(...r.falhas);
+        soma.total = Math.round((soma.total + r.total) * 100) / 100;
+        soma.economia = Math.round((soma.economia + r.economia) * 100) / 100;
+        soma.acrescimo = Math.round(((soma.acrescimo ?? 0) + (r.acrescimo ?? 0)) * 100) / 100;
+        setEnviadas(i + pacote.length);
+      }
+      return soma;
     },
+    onSettled: () => setEnviadas(null),
     onSuccess: (r) => {
       const doBanco = r.pagas.filter((p) => p.noBanco);
       setResultado({
@@ -836,9 +883,11 @@ export function PagarEmMaos({
           className="btn btn-primario"
         >
           {pagar.isPending
-            ? peloBanco
-              ? 'Mandando ao banco…'
-              : 'Enviando ao IXC…'
+            ? `${peloBanco || loteTodoNoBanco ? 'Mandando ao banco…' : 'Enviando ao IXC…'}${
+                contas.length > 1 && enviadas !== null
+                  ? ` ${enviadas} de ${aMandar.length}`
+                  : ''
+              }`
             : consultandoBanco
               ? 'Consultando no banco…'
               : peloBanco || loteTodoNoBanco
