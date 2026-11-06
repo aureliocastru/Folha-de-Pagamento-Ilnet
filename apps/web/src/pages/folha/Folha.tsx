@@ -169,6 +169,73 @@ function valorComDia25(it: ItemGerar, reparto: RepartoDia25): number {
  * de R$ 0,01 e derruba o lote inteiro. Acontece quando o dia 25 come todo o
  * salário — aí quem paga o resto é o bônus, e a linha de salário some.
  */
+/** O que a folha salva guarda de cada pessoa: o que foi mudado na tela. */
+interface AjusteDaPessoa {
+  ferias: boolean;
+  descontarAdiantamento: boolean;
+  /** Pelo tipo original da linha (SALARIO, BONUS, ADIANTAMENTO). */
+  linhas: Record<string, { valor: number; selecionado: boolean }>;
+}
+
+interface FolhaSalva {
+  ajustes: Record<string, AjusteDaPessoa>;
+  salvoPor: string | null;
+  updatedAt: string;
+}
+
+/** A folha como está na tela, no formato em que é salva. */
+function ajustesDaFolha(itens: ItemGerar[]): Record<string, AjusteDaPessoa> {
+  const ajustes: Record<string, AjusteDaPessoa> = {};
+  for (const it of itens) {
+    const aj = (ajustes[it.funcionarioId] ??= {
+      ferias: false,
+      descontarAdiantamento: it.descontarAdiantamento,
+      linhas: {},
+    });
+    if (it.ferias) aj.ferias = true;
+    aj.linhas[it.tipo] = { valor: it.valor, selecionado: it.selecionado };
+  }
+  return ajustes;
+}
+
+/**
+ * Põe a folha salva por cima da prévia que acabou de ser calculada: férias,
+ * dia 25, valor e quem fica de fora voltam como foram deixados. O que já foi
+ * gerado depois de salvar não se remarca — seria pagar duas vezes.
+ */
+function aplicarFolhaSalva(
+  flat: ItemGerar[],
+  salva: FolhaSalva | null,
+): ItemGerar[] {
+  if (!salva) return flat;
+  return flat.map((it) => {
+    const aj = salva.ajustes[it.funcionarioId];
+    if (!aj) return it;
+    const linha = aj.linhas[it.tipo];
+    const atualizado: ItemGerar = {
+      ...it,
+      ferias: aj.ferias && it.tipo === 'SALARIO',
+      descontarAdiantamento: aj.descontarAdiantamento,
+    };
+    if (!linha) return atualizado;
+    return {
+      ...atualizado,
+      valor: linha.valor,
+      selecionado:
+        linha.selecionado &&
+        !jaGeradoDoItem(atualizado) &&
+        !tambemJaGerado(atualizado),
+    };
+  });
+}
+
+function formatSalvoEm(iso: string): string {
+  const d = new Date(iso);
+  const dia = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+  const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  return `${dia} às ${hora}`;
+}
+
 function vaiGerar(it: ItemGerar): boolean {
   return it.selecionado && it.valor > 0;
 }
@@ -928,15 +995,19 @@ function montarAviso(
   // Curto, e só o que pede atenção: quem já foi gerado desce para o grupo do
   // fim da lista, e o selo de cada um diz o resto (pedido de 23/10/2026 — a
   // folha tinha informação demais).
-  const deFerias = pessoas.filter((p) => p.ferias.deFerias).length;
   if (modo === 'DIA_25') {
     const semDia25 = pessoas.filter((p) => p.ferias.semDia25 ?? p.ferias.deFerias).length;
     return semDia25 > 0
       ? `${semDia25} pessoa(s) de férias ou de volta delas vieram sem o dia 25.`
       : null;
   }
-  return deFerias > 0
-    ? `${deFerias} pessoa(s) de férias: o salário sai como férias — confira o valor com a contabilidade.`
+  // No quinto dia conta quem a folha está pagando como férias — quem teve as
+  // férias desmarcadas e salvas já não entra.
+  const pagosComoFerias = new Set(
+    itens.filter((it) => it.ferias).map((it) => it.funcionarioId),
+  ).size;
+  return pagosComoFerias > 0
+    ? `${pagosComoFerias} pessoa(s) de férias: o salário sai como férias — confira o valor com a contabilidade.`
     : null;
 }
 
@@ -995,6 +1066,10 @@ export function Folha() {
   const [feedback, setFeedback] = useState<string | null>(null);
   /** Funcionários com o detalhamento aberto. */
   const [abertos, setAbertos] = useState<Record<string, boolean>>({});
+  /** A folha deste mês como está salva no servidor (null = nunca salva). */
+  const [salva, setSalva] = useState<FolhaSalva | null>(null);
+  /** A folha como estava ao abrir ou salvar — o que não mudou não pede salvar. */
+  const [retrato, setRetrato] = useState('');
 
   const preview = useMutation({
     mutationFn: async () => {
@@ -1010,11 +1085,14 @@ export function Folha() {
         incluirSalario: modo === 'QUINTO_DIA',
         incluirBonus: modo === 'QUINTO_DIA',
       };
-      return (
-        await api.post<PreviewFuncionario[]>('/contas-pagar/preparar-folha', body)
-      ).data;
+      const qual = { modo, mesTrabalhado };
+      const [previa, folhaSalva] = await Promise.all([
+        api.post<PreviewFuncionario[]>('/contas-pagar/preparar-folha', body),
+        api.get<FolhaSalva | null>('/contas-pagar/folha-salva', { params: qual }),
+      ]);
+      return { data: previa.data, salva: folhaSalva.data || null };
     },
-    onSuccess: (data) => {
+    onSuccess: ({ data, salva: folhaSalva }) => {
       const flat: ItemGerar[] = [];
       for (const f of data) {
         const temSalario = f.lancamentos.some((l) => l.tipo === 'SALARIO');
@@ -1077,8 +1155,11 @@ export function Folha() {
           flat.push({ ...item, valor: valorComDia25(item, reparto) });
         }
       }
-      setItens(flat);
-      setFeedback(montarAviso(modo, data, flat));
+      const folha = aplicarFolhaSalva(flat, folhaSalva);
+      setItens(folha);
+      setSalva(folhaSalva);
+      setRetrato(JSON.stringify(ajustesDaFolha(folha)));
+      setFeedback(montarAviso(modo, data, folha));
     },
     onError: (err) => setFeedback(mensagemErro(err)),
   });
@@ -1090,8 +1171,53 @@ export function Folha() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [modo, mesTrabalhado, verFerias]);
 
+  const salvar = useMutation({
+    mutationFn: async () => {
+      const ajustes = ajustesDaFolha(itens);
+      const { data } = await api.put<FolhaSalva>('/contas-pagar/folha-salva', {
+        modo,
+        mesTrabalhado,
+        ajustes,
+      });
+      return { data, retrato: JSON.stringify(ajustes) };
+    },
+    onSuccess: ({ data, retrato: novo }) => {
+      setSalva(data);
+      setRetrato(novo);
+    },
+    onError: (err) => setFeedback(`Não deu para salvar a folha: ${mensagemErro(err)}`),
+  });
+
+  const descartar = useMutation({
+    mutationFn: async () =>
+      api.delete('/contas-pagar/folha-salva', { params: { modo, mesTrabalhado } }),
+    onSuccess: () => preview.mutate(),
+    onError: (err) => setFeedback(`Não deu para descartar: ${mensagemErro(err)}`),
+  });
+
+  const mudou =
+    itens.length > 0 && JSON.stringify(ajustesDaFolha(itens)) !== retrato;
+
+  // Fechar a aba com mudança sem salvar pergunta antes.
+  useEffect(() => {
+    if (!mudou) return;
+    const avisar = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener('beforeunload', avisar);
+    return () => window.removeEventListener('beforeunload', avisar);
+  }, [mudou]);
+
+  /** Trocar de mês ou de pagamento com mudança sem salvar pergunta antes. */
+  function podeSair(): boolean {
+    return (
+      !mudou ||
+      window.confirm('A folha tem mudanças que não foram salvas. Sair sem salvar?')
+    );
+  }
+
   const gerar = useMutation({
     mutationFn: async () => {
+      // Gerar também salva: a folha que virou conta é a que fica.
+      if (mudou) await salvar.mutateAsync().catch(() => undefined);
       const selecionados = itens.filter(vaiGerar);
       const body = {
         itens: selecionados.map((i) => ({
@@ -1314,19 +1440,21 @@ export function Folha() {
   }
   function limparPrevia() {
     setItens([]);
+    setSalva(null);
+    setRetrato('');
     setAbertos({});
     setFeedback(null);
     setBuscaPessoa('');
   }
   /** Trocar de pagamento invalida a prévia anterior. */
   function trocarModo(novo: ModoPagamento) {
-    if (novo === modo) return;
+    if (novo === modo || !podeSair()) return;
     setModo(novo);
     limparPrevia();
   }
   /** O mês trabalhado é o mesmo nos dois pagamentos — só muda quando sai. */
   function trocarMes(novo: string) {
-    if (!novo || novo === mesTrabalhado) return;
+    if (!novo || novo === mesTrabalhado || !podeSair()) return;
     setMesTrabalhado(novo);
     limparPrevia();
   }
@@ -1365,7 +1493,14 @@ export function Folha() {
         >
           Quinto dia
         </BotaoModo>
-        <BotaoModo ativo={verFerias} onClick={() => setVerFerias(true)}>
+        <BotaoModo
+          ativo={verFerias}
+          onClick={() => {
+            if (verFerias || !podeSair()) return;
+            limparPrevia();
+            setVerFerias(true);
+          }}
+        >
           Férias
         </BotaoModo>
       </div>
@@ -1448,6 +1583,39 @@ export function Folha() {
               Quem está fora da busca continua marcado.
             </span>
           )}
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <span className="text-xs text-tinta-400">
+              {mudou
+                ? 'Mudanças não salvas'
+                : salva
+                  ? `Salva em ${formatSalvoEm(salva.updatedAt)}${
+                      salva.salvoPor ? ` · ${salva.salvoPor}` : ''
+                    }`
+                  : 'Folha ainda não salva'}
+            </span>
+            {salva && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (window.confirm('Descartar a folha salva e calcular de novo do zero?')) {
+                    descartar.mutate();
+                  }
+                }}
+                disabled={descartar.isPending || preview.isPending}
+                className="btn btn-neutro"
+              >
+                Descartar
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => salvar.mutate()}
+              disabled={salvar.isPending || (!mudou && !!salva)}
+              className={`btn ${mudou ? 'btn-primario' : 'btn-neutro'}`}
+            >
+              {salvar.isPending ? 'Salvando…' : 'Salvar folha'}
+            </button>
+          </div>
         </div>
       )}
 
@@ -1544,7 +1712,11 @@ export function Folha() {
                           {/* Um selo só por pessoa: o que já saiu, ou as férias.
                               O resto (dia 25, composição) mora no detalhe. */}
                           <SeloDaPessoa grupo={g} itens={itens} />
-                          <SeloFerias modo={modo} ferias={g.feriasInfo} />
+                          {/* Férias desmarcadas aqui: a pessoa sai como salário,
+                              e o selo some junto. */}
+                          {(modo === 'DIA_25' || g.salarioIdx === null || g.ferias) && (
+                            <SeloFerias modo={modo} ferias={g.feriasInfo} />
+                          )}
                         </div>
                         {/* Mais de um pagamento: de que o total é feito. */}
                         {g.indices.length > 1 && (

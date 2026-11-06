@@ -4101,3 +4101,25 @@ model ArquivoDoPatrocinado {
   @@index([patrocinadoId])
   @@map("arquivos_do_patrocinado")
 }
+
+/// A folha do mês como quem gera deixou: as mudanças feitas na prévia (férias
+/// desmarcadas, valor trocado, dia 25, quem fica de fora). Uma por pagamento e
+/// mês trabalhado — abrir a tela de novo traz a mesma folha, e não uma nova.
+model FolhaSalva {
+  id String @id @default(uuid())
+
+  /// "DIA_25" ou "QUINTO_DIA".
+  modo          String
+  mesTrabalhado String @map("mes_trabalhado")
+
+  /// Por pessoa: { funcionarioId: { ferias, descontarAdiantamento,
+  /// linhas: { SALARIO: { valor, selecionado }, ... } } }.
+  ajustes Json @default("{}")
+
+  salvoPor  String?  @map("salvo_por")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([modo, mesTrabalhado])
+  @@map("folhas_salvas")
+}

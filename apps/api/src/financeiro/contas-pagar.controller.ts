@@ -6,6 +6,7 @@ import {
   HttpCode,
   Param,
   Post,
+  Put,
   Query,
   Req,
 } from '@nestjs/common';
@@ -15,6 +16,7 @@ import { Roles } from '../auth/roles.decorator';
 import { ContasPagarService } from './contas-pagar.service';
 import { CriarContasPagarDto } from './dto/criar-contas.dto';
 import { PrepararFolhaDto } from './dto/preparar-folha.dto';
+import { QueryFolhaSalvaDto, SalvarFolhaDto } from './dto/folha-salva.dto';
 import {
   AuditoriaDto,
   LoteContasDto,
@@ -34,6 +36,26 @@ export class ContasPagarController {
   @HttpCode(200)
   prepararFolha(@Body() dto: PrepararFolhaDto) {
     return this.service.prepararFolha(dto);
+  }
+
+  /** A folha do mês salva (null = ainda não foi salva). */
+  @Get('folha-salva')
+  folhaSalva(@Query() q: QueryFolhaSalvaDto) {
+    return this.service.folhaSalva(q.modo, q.mesTrabalhado);
+  }
+
+  /** Salva a folha do mês — a mesma volta toda vez que a tela abre. */
+  @Put('folha-salva')
+  salvarFolha(@Body() dto: SalvarFolhaDto, @Req() req: Request) {
+    const nome = (req.user as { nome?: string } | undefined)?.nome ?? null;
+    return this.service.salvarFolha(dto.modo, dto.mesTrabalhado, dto.ajustes, nome);
+  }
+
+  /** Joga fora a folha salva: a prévia volta a sair do cálculo. */
+  @Delete('folha-salva')
+  @HttpCode(204)
+  async descartarFolha(@Query() q: QueryFolhaSalvaDto) {
+    await this.service.descartarFolha(q.modo, q.mesTrabalhado);
   }
 
   /** Cria as contas a pagar (salva localmente e envia ao IXC). */

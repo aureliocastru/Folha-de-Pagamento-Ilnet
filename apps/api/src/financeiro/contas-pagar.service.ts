@@ -277,6 +277,34 @@ export class ContasPagarService {
   // -------------------------------------------------------------------------
   // 1) Preview: calcula os lançamentos sugeridos (não persiste nada)
   // -------------------------------------------------------------------------
+  /** A folha do mês como foi salva, ou null. */
+  async folhaSalva(modo: string, mesTrabalhado: string) {
+    return this.prisma.folhaSalva.findUnique({
+      where: { modo_mesTrabalhado: { modo, mesTrabalhado } },
+      select: { ajustes: true, salvoPor: true, updatedAt: true },
+    });
+  }
+
+  /** Grava a folha do mês por cima da anterior: há uma só por mês. */
+  async salvarFolha(
+    modo: string,
+    mesTrabalhado: string,
+    ajustes: Record<string, unknown>,
+    salvoPor: string | null,
+  ) {
+    const dados = { ajustes: ajustes as Prisma.InputJsonValue, salvoPor };
+    return this.prisma.folhaSalva.upsert({
+      where: { modo_mesTrabalhado: { modo, mesTrabalhado } },
+      create: { modo, mesTrabalhado, ...dados },
+      update: dados,
+      select: { ajustes: true, salvoPor: true, updatedAt: true },
+    });
+  }
+
+  async descartarFolha(modo: string, mesTrabalhado: string) {
+    await this.prisma.folhaSalva.deleteMany({ where: { modo, mesTrabalhado } });
+  }
+
   async prepararFolha(dto: PrepararFolhaDto): Promise<PreviewFuncionario[]> {
     const cfg = await this.config.obter();
     // Só entra na folha quem o filtro do IXC marcou como funcionário
