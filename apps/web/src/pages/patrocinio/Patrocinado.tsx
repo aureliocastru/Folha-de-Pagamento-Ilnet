@@ -120,7 +120,11 @@ export function PatrocinadoAberto() {
       <CabecalhoPagina
         secao="Patrocínios"
         titulo={p.nome}
-        voltar={() => navigate('..', { relative: 'path' })}
+        // De volta à lista com o filtro que ela tinha (`?tipo=AVULSO`).
+        voltar={() => {
+          const lista = (location.state as { lista?: string } | null)?.lista;
+          navigate(lista ? `..?${lista}` : '..', { relative: 'path' });
+        }}
         acoes={
           <>
             {p.idFornecedorIxc && p.ativo && podePagar && !desconto && (

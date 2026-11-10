@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Bloco,
   CabecalhoPagina,
@@ -18,6 +18,7 @@ import type {
   Patrocinado,
   PatrocinadoNaLista,
   ResumoDosPagamentos,
+  TipoDePatrocinio,
 } from '../../lib/types';
 import {
   CADASTRO_VAZIO,
@@ -30,6 +31,15 @@ import {
   type Cadastro,
   type FornecedorEscolhido,
 } from './comum';
+import { PagarPatrocinado, usePodePagar } from './Pagar';
+
+/** O filtro da lista, como ele vai no endereço (`?tipo=AVULSO`). */
+const FILTROS: Array<{ id: TipoDePatrocinio | null; nome: string; vazio: string }> = [
+  { id: null, nome: 'Todos', vazio: '' },
+  { id: 'FIXO', nome: 'Fixos', vazio: 'Nenhum patrocinado fixo em dinheiro' },
+  { id: 'DESCONTO', nome: 'Desconto', vazio: 'Nenhum patrocinado em desconto na mensalidade' },
+  { id: 'AVULSO', nome: 'Avulsos', vazio: 'Nenhum patrocinado avulso' },
+];
 
 /**
  * Quem a ILNET patrocina: a lista, com o que já se mandou a cada um e onde
@@ -40,9 +50,21 @@ import {
  */
 export function Patrocinados() {
   const navigate = useNavigate();
+  const podePagar = usePodePagar();
+  // O filtro mora no endereço: voltar da ficha traz a lista do jeito que estava.
+  const [params, setParams] = useSearchParams();
+  const filtro = FILTROS.find((f) => f.id !== null && f.id === params.get('tipo'))?.id ?? null;
   const [busca, setBusca] = useState('');
   const [verInativos, setVerInativos] = useState(false);
   const [novo, setNovo] = useState(false);
+  const [pagando, setPagando] = useState<Patrocinado | null>(null);
+
+  function filtrar(tipo: TipoDePatrocinio | null) {
+    const novos = new URLSearchParams(params);
+    if (tipo) novos.set('tipo', tipo);
+    else novos.delete('tipo');
+    setParams(novos, { replace: true });
+  }
 
   const lista = useQuery({
     queryKey: ['patrocinados', busca, verInativos],
@@ -64,9 +86,14 @@ export function Patrocinados() {
     (pagamentos.data?.linhas ?? []).map((l) => [l.patrocinado.id, l]),
   );
 
-  const itens = lista.data ?? [];
+  const todos = lista.data ?? [];
+  const itens = filtro ? todos.filter((i) => i.patrocinado.tipo === filtro) : todos;
+  const quantos = (tipo: TipoDePatrocinio | null) =>
+    tipo ? todos.filter((i) => i.patrocinado.tipo === tipo).length : todos.length;
   const ativos = itens.filter((i) => i.patrocinado.ativo);
-  const totalMandado = (pagamentos.data?.linhas ?? []).reduce((s, l) => s + l.resumo.totalPago, 0);
+  const totalMandado = (pagamentos.data?.linhas ?? [])
+    .filter((l) => !filtro || l.patrocinado.tipo === filtro)
+    .reduce((s, l) => s + l.resumo.totalPago, 0);
   const semContrato = ativos.filter((i) => i.contrato !== 'ASSINADO').length;
 
   return (
@@ -111,6 +138,24 @@ export function Patrocinados() {
         </label>
       </div>
 
+      <div className="mb-3 flex flex-wrap gap-1.5" role="tablist" aria-label="Tipo de patrocínio">
+        {FILTROS.map((f) => {
+          const ativo = f.id === filtro;
+          return (
+            <button
+              key={f.nome}
+              role="tab"
+              aria-selected={ativo}
+              onClick={() => filtrar(f.id)}
+              className={`btn btn-p ${ativo ? 'btn-primario' : 'btn-neutro'}`}
+            >
+              {f.nome}
+              {lista.data && ` (${quantos(f.id)})`}
+            </button>
+          );
+        })}
+      </div>
+
       <Bloco className="surgir surgir-2" semPadding>
         <div className="overflow-x-auto rolagem-fina">
           <table className="w-full text-sm">
@@ -122,31 +167,39 @@ export function Patrocinados() {
                 <th className="th text-right">Por mês</th>
                 <th className="th text-right">Já mandado</th>
                 <th className="th">Último</th>
+                <th className="th text-right">Ação</th>
               </tr>
             </thead>
             <tbody>
               {lista.isLoading && (
                 <tr>
-                  <td colSpan={6}>
+                  <td colSpan={7}>
                     <Carregando />
                   </td>
                 </tr>
               )}
               {lista.isError && (
                 <tr>
-                  <td colSpan={6}>
+                  <td colSpan={7}>
                     <Vazio titulo="Não deu para carregar">{mensagemErro(lista.error)}</Vazio>
                   </td>
                 </tr>
               )}
               {!lista.isLoading && !lista.isError && itens.length === 0 && (
                 <tr>
-                  <td colSpan={6}>
-                    <Vazio titulo={busca ? 'Ninguém com esse nome' : 'Nenhum patrocinado ainda'}>
-                      Cadastre o atleta, o time ou o projeto que a ILNET apoia, ligado ao
-                      fornecedor dele no IXC. O pagamento sai pela aba Pagamentos, e o
-                      contrato vai por link.
-                    </Vazio>
+                  <td colSpan={7}>
+                    {filtro && todos.length > 0 ? (
+                      <Vazio titulo={FILTROS.find((f) => f.id === filtro)!.vazio}>
+                        {busca ? 'Com esse nome, não. ' : ''}
+                        Para mudar o tipo de um patrocinado, abra a ficha dele e clique em Editar.
+                      </Vazio>
+                    ) : (
+                      <Vazio titulo={busca ? 'Ninguém com esse nome' : 'Nenhum patrocinado ainda'}>
+                        Cadastre o atleta, o time ou o projeto que a ILNET apoia, ligado ao
+                        fornecedor dele no IXC. O pagamento sai pela aba Pagamentos, e o
+                        contrato vai por link.
+                      </Vazio>
+                    )}
                   </td>
                 </tr>
               )}
@@ -156,7 +209,7 @@ export function Patrocinados() {
                 return (
                   <tr
                     key={p.id}
-                    onClick={() => navigate(p.id)}
+                    onClick={() => navigate(p.id, { state: { lista: params.toString() } })}
                     className={`linha cursor-pointer ${p.ativo ? '' : 'opacity-50'}`}
                   >
                     <td className="td">
@@ -222,6 +275,21 @@ export function Patrocinados() {
                     <td className="td num text-tinta-500">
                       {doIxc?.resumo.ultimoPagamento ? formatData(doIxc.resumo.ultimoPagamento) : '—'}
                     </td>
+                    <td className="td text-right">
+                      {/* O avulso não entra no mês da aba Pagamentos como devendo: paga-se daqui,
+                          quando aparece o evento. O fixo segue o mês, pela aba Pagamentos. */}
+                      {p.tipo === 'AVULSO' && p.ativo && p.idFornecedorIxc && podePagar && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPagando(p);
+                          }}
+                          className="btn btn-p btn-pagar"
+                        >
+                          Pagar
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
@@ -229,6 +297,8 @@ export function Patrocinados() {
           </table>
         </div>
       </Bloco>
+
+      {pagando && <PagarPatrocinado patrocinado={pagando} onFechar={() => setPagando(null)} />}
 
       {novo && (
         <NovoPatrocinado
