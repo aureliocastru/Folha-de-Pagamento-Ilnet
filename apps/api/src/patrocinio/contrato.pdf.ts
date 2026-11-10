@@ -6,7 +6,7 @@
  * antes de assinar. Reimprimir o contrato de março tem de dar o papel de março.
  */
 
-import { ModoAssinatura } from '@prisma/client';
+import { ModoAssinatura, TipoDePatrocinio } from '@prisma/client';
 import PDFDocument from 'pdfkit';
 import { formatValorBR } from '../financeiro/folha.calc';
 import { blocosDoContrato } from './contrato.texto';
@@ -16,6 +16,8 @@ export interface DadosDoContrato {
   id: string;
   empresa: { nome: string; cnpj: string | null };
   patrocinado: { nome: string; cpfCnpj: string | null; projeto: string | null };
+  /** Diz se o valor do mês é dinheiro ou desconto na mensalidade. */
+  tipo: TipoDePatrocinio;
   valorMensal: number | null;
   inicio: Date | null;
   fim: Date | null;
@@ -113,7 +115,8 @@ function desenhar(doc: PDFKit.PDFDocument, d: DadosDoContrato): void {
   linhaDeDado(doc, 'Patrocinador', comDocumento(d.empresa.nome, d.empresa.cnpj, 'CNPJ'));
   linhaDeDado(doc, 'Patrocinado', comDocumento(d.patrocinado.nome, d.patrocinado.cpfCnpj, 'CPF/CNPJ'));
   if (d.patrocinado.projeto) linhaDeDado(doc, 'Projeto', d.patrocinado.projeto);
-  if (d.valorMensal) linhaDeDado(doc, 'Apoio mensal', formatValorBR(d.valorMensal));
+  if (d.valorMensal) linhaDeDado(doc, rotuloDoValorMensal(d.tipo), formatValorBR(d.valorMensal));
+  if (d.tipo === TipoDePatrocinio.AVULSO) linhaDeDado(doc, 'Apoio', 'avulso, combinado a cada pagamento');
   const vigencia = textoDaVigencia(d.inicio, d.fim);
   if (vigencia) linhaDeDado(doc, 'Vigência', vigencia);
 
@@ -271,6 +274,14 @@ function comDocumento(nome: string, documento: string | null, rotulo: string): s
 }
 
 /** "de 01/10/2026 a 30/09/2027", "a partir de 01/10/2026", ou nada. */
+/**
+ * Como o valor do mês sai no contrato. O desconto não é dinheiro na mão, e o
+ * papel não pode dar a entender que é.
+ */
+export function rotuloDoValorMensal(tipo: TipoDePatrocinio): string {
+  return tipo === TipoDePatrocinio.DESCONTO ? 'Desconto mensal na internet' : 'Apoio mensal';
+}
+
 export function textoDaVigencia(inicio: Date | null, fim: Date | null): string | null {
   if (inicio && fim) return `de ${formatarData(inicio)} a ${formatarData(fim)}`;
   if (inicio) return `a partir de ${formatarData(inicio)}`;

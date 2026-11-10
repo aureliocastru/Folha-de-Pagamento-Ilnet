@@ -4,7 +4,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, TipoDePatrocinio } from '@prisma/client';
 import { conferirArquivo, emMegabytes, lerDataUrl } from '../arquivos/data-url';
 import { FornecedorService } from '../financeiro/fornecedor.service';
 import { IxcClient } from '../ixc/ixc.client';
@@ -100,6 +100,34 @@ export const CONTRATO_NA_LISTA = {
 } satisfies Prisma.ContratoDePatrocinioSelect;
 
 /**
+ * A nota de recebimento como as listas a mostram: sem o desenho da assinatura,
+ * que são dezenas de KB que a lista não desenha.
+ */
+export const NOTA_NA_LISTA = {
+  id: true,
+  patrocinadoId: true,
+  idFnApagar: true,
+  token: true,
+  expiraEm: true,
+  valor: true,
+  referente: true,
+  vencimento: true,
+  pagoEm: true,
+  nomePatrocinado: true,
+  assinadoEm: true,
+  nomeAssinante: true,
+  modo: true,
+  baixadaEm: true,
+  baixadaPor: true,
+  createdAt: true,
+} satisfies Prisma.NotaDeRecebimentoSelect;
+
+export type NotaNaLista = Prisma.NotaDeRecebimentoGetPayload<{ select: typeof NOTA_NA_LISTA }>;
+
+/** O pagamento como as telas o recebem: o título do IXC e a nota dele, se já há uma. */
+export type PagamentoComNota = PagamentoAoPatrocinado & { nota: NotaNaLista | null };
+
+/**
  * Os patrocinados: o cadastro, a ficha com o que já se mandou, os pagamentos
  * do mês e os arquivos. Os contratos têm serviço próprio
  * (`ContratosDePatrocinioService`).
@@ -176,6 +204,8 @@ export class PatrocinioService {
     });
     if (!p) throw new NotFoundException('Patrocinado não encontrado.');
 
+    // O desconto também lê, quando há fornecedor: é o que já se mandou em
+    // dinheiro antes de o patrocínio virar desconto.
     let pagamentos: PagamentoAoPatrocinado[] = [];
     let avisoPagamentos: string | null = null;
     if (p.idFornecedorIxc) {
@@ -192,30 +222,36 @@ export class PatrocinioService {
       contrato: situacaoDoContrato(contratos),
       contratos,
       arquivos,
-      pagamentos,
+      pagamentos: await this.comNotas(pagamentos),
       resumo: resumirPagamentos(pagamentos),
       avisoPagamentos,
     };
   }
 
-  /** Cadastra o patrocinado já ligado ao fornecedor por onde ele recebe. */
+  /**
+   * Cadastra o patrocinado já ligado ao fornecedor por onde ele recebe. O do
+   * desconto na mensalidade pode vir sem: não há dinheiro para mandar.
+   */
   async criar(dto: CriarPatrocinadoDto, usuarioId?: string) {
-    await this.exigirFornecedorLivre(dto.idFornecedorIxc);
+    const idFornecedorIxc = dto.idFornecedorIxc ?? null;
+    if (idFornecedorIxc !== null) await this.exigirFornecedorLivre(idFornecedorIxc);
 
     const patrocinado = await this.comFornecedorUnico(() =>
       this.prisma.patrocinado.create({
         data: {
           ...dadosDoCadastro(dto),
           nome: dto.nome.trim(),
-          idFornecedorIxc: dto.idFornecedorIxc,
-          fornecedorNome: dto.fornecedorNome.trim(),
+          idFornecedorIxc,
+          fornecedorNome: idFornecedorIxc !== null ? (dto.fornecedorNome?.trim() ?? null) : null,
           criadoPor: usuarioId ?? null,
         },
       }),
     );
 
     this.logger.log(
-      `Patrocinado ${patrocinado.id} cadastrado (recebe pelo fornecedor ${dto.idFornecedorIxc}).`,
+      `Patrocinado ${patrocinado.id} cadastrado (${patrocinado.tipo}` +
+        (idFornecedorIxc !== null ? `, recebe pelo fornecedor ${idFornecedorIxc}` : '') +
+        ').',
     );
     return { patrocinado };
   }
@@ -256,13 +292,13 @@ export class PatrocinioService {
   async remover(id: string): Promise<void> {
     const p = await this.prisma.patrocinado.findUnique({
       where: { id },
-      include: { _count: { select: { contratos: true, arquivos: true } } },
+      include: { _count: { select: { contratos: true, arquivos: true, notas: true } } },
     });
     if (!p) throw new NotFoundException('Patrocinado não encontrado.');
-    if (p._count.contratos > 0 || p._count.arquivos > 0) {
+    if (p._count.contratos > 0 || p._count.arquivos > 0 || p._count.notas > 0) {
       throw new BadRequestException(
-        'Este patrocinado já tem contrato ou arquivo guardado — desative o ' +
-          'cadastro em vez de apagar.',
+        'Este patrocinado já tem contrato, arquivo ou nota de recebimento guardado — ' +
+          'desative o cadastro em vez de apagar.',
       );
     }
     await this.prisma.patrocinado.delete({ where: { id } });
@@ -300,17 +336,25 @@ export class PatrocinioService {
    * O mês de cada patrocinado ativo: quanto se combinou, quanto já saiu e
    * quanto está lançado esperando, e o que falta.
    *
+   * O fixo em dinheiro e o avulso são as linhas — o avulso nunca "falta", que
+   * não há combinado por mês. O desconto na mensalidade fica à parte: não sai
+   * dinheiro, e por isso ele não entra na soma do que se pagou nem do que falta.
+   *
    * Um fornecedor que o IXC não deixou ler fica com o motivo na linha dele, e
    * os outros respondem do mesmo jeito.
    */
   async pagamentosDoMes(mes: string) {
-    const ativos = await this.prisma.patrocinado.findMany({
+    const todos = await this.prisma.patrocinado.findMany({
       where: { ativo: true },
-      orderBy: { nome: 'asc' },
+      // O enum ordena como foi declarado: fixo, desconto, avulso.
+      orderBy: [{ tipo: 'asc' }, { nome: 'asc' }],
       select: {
         id: true,
+        tipo: true,
         nome: true,
         projeto: true,
+        // Para mandar a nota de recebimento pelo WhatsApp dali mesmo.
+        telefone: true,
         valorMensal: true,
         inicio: true,
         fim: true,
@@ -318,6 +362,8 @@ export class PatrocinioService {
         fornecedorNome: true,
       },
     });
+    const ativos = todos.filter((p) => p.tipo !== TipoDePatrocinio.DESCONTO);
+    const descontos = todos.filter((p) => p.tipo === TipoDePatrocinio.DESCONTO);
 
     const lidos = new Map<number, PagamentoAoPatrocinado[] | Error>();
     const fornecedores = [
@@ -336,11 +382,14 @@ export class PatrocinioService {
       );
     }
 
-    const linhas = ativos.map((p) => {
+    const semNotas = ativos.map((p) => {
       const lido = p.idFornecedorIxc ? lidos.get(p.idFornecedorIxc) : undefined;
       const pagamentos = Array.isArray(lido) ? lido : [];
       const doMes = pagamentosDoMes(pagamentos, mes);
-      const valorMensal = p.valorMensal ? Number(p.valorMensal) : null;
+      // O avulso não tem combinado: se sobrou um valor de quando ele era fixo,
+      // ele não pode fazer a linha dizer que falta pagar.
+      const valorMensal =
+        p.tipo === TipoDePatrocinio.FIXO && p.valorMensal ? Number(p.valorMensal) : null;
       return {
         patrocinado: p,
         mes: doMes,
@@ -350,25 +399,58 @@ export class PatrocinioService {
       };
     });
 
-    const soma = (f: (l: (typeof linhas)[number]) => number) =>
-      Math.round(linhas.reduce((t, l) => t + f(l), 0) * 100) / 100;
+    const notas = await this.notasDosTitulos(
+      semNotas.flatMap((l) => l.mes.pagamentos.map((pg) => pg.idFnApagar)),
+    );
+    const linhas = semNotas.map((l) => ({
+      ...l,
+      mes: {
+        ...l.mes,
+        pagamentos: l.mes.pagamentos.map((pg) => ({ ...pg, nota: notas.get(pg.idFnApagar) ?? null })),
+      },
+    }));
+
+    const soma = (valores: number[]) =>
+      Math.round(valores.reduce((t, v) => t + v, 0) * 100) / 100;
     return {
       mes,
       linhas,
+      descontos,
       totais: {
-        combinado: soma((l) => Number(l.patrocinado.valorMensal ?? 0)),
-        pago: soma((l) => l.mes.pago),
-        emAberto: soma((l) => l.mes.emAberto),
+        combinado: soma(
+          linhas
+            .filter((l) => l.patrocinado.tipo === TipoDePatrocinio.FIXO)
+            .map((l) => Number(l.patrocinado.valorMensal ?? 0)),
+        ),
+        pago: soma(linhas.map((l) => l.mes.pago)),
+        emAberto: soma(linhas.map((l) => l.mes.emAberto)),
         faltam: linhas.filter((l) => l.situacao === 'FALTA' || l.situacao === 'PARCIAL').length,
+        desconto: soma(descontos.map((p) => Number(p.valorMensal ?? 0))),
       },
     };
   }
 
+  /** Os pagamentos, cada um com a nota de recebimento dele quando já há uma. */
+  private async comNotas(pagamentos: PagamentoAoPatrocinado[]): Promise<PagamentoComNota[]> {
+    const notas = await this.notasDosTitulos(pagamentos.map((pg) => pg.idFnApagar));
+    return pagamentos.map((pg) => ({ ...pg, nota: notas.get(pg.idFnApagar) ?? null }));
+  }
+
+  private async notasDosTitulos(ids: number[]): Promise<Map<number, NotaNaLista>> {
+    if (ids.length === 0) return new Map();
+    const notas = await this.prisma.notaDeRecebimento.findMany({
+      where: { idFnApagar: { in: [...new Set(ids)] } },
+      select: NOTA_NA_LISTA,
+    });
+    return new Map(notas.map((n) => [n.idFnApagar, n]));
+  }
+
   /**
    * Os títulos de um fornecedor no IXC, como pagamentos — pagos e em aberto,
-   * do mais recente para o mais antigo.
+   * do mais recente para o mais antigo. Público porque a nota de recebimento
+   * confere aqui o pagamento que vai assinar.
    */
-  private async pagamentosDoFornecedor(idFornecedor: number): Promise<PagamentoAoPatrocinado[]> {
+  async pagamentosDoFornecedor(idFornecedor: number): Promise<PagamentoAoPatrocinado[]> {
     const brutos = await this.ixc.listAll<Record<string, unknown>>(
       'fn_apagar',
       {
@@ -494,7 +576,11 @@ export class PatrocinioService {
 function dadosDoCadastro(dto: DadosDoPatrocinadoDto) {
   const texto = (v: string | null | undefined) =>
     v === undefined ? undefined : v?.trim() || null;
+  // O avulso não tem valor por mês: virar avulso apaga o que havia.
+  const semValorMensal = dto.tipo === TipoDePatrocinio.AVULSO;
   return {
+    ...(dto.tipo === undefined ? {} : { tipo: dto.tipo }),
+    ...(semValorMensal ? { valorMensal: null } : {}),
     projeto: texto(dto.projeto),
     cpfCnpj: texto(dto.cpfCnpj),
     responsavel: texto(dto.responsavel),
@@ -503,7 +589,7 @@ function dadosDoCadastro(dto: DadosDoPatrocinadoDto) {
     instagram: texto(dto.instagram),
     cidade: texto(dto.cidade),
     observacoes: texto(dto.observacoes),
-    ...(dto.valorMensal === undefined
+    ...(dto.valorMensal === undefined || semValorMensal
       ? {}
       : {
           valorMensal:

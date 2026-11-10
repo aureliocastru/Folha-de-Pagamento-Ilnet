@@ -20,14 +20,22 @@ import { ContratosDePatrocinioService } from './contratos.service';
 import {
   AtualizarPatrocinadoDto,
   CriarPatrocinadoDto,
+  GerarNotaDto,
   GuardarArquivoDto,
   GuardarEscaneadoDto,
 } from './dto/patrocinio.dto';
+import { NotasDeRecebimentoService, type SituacaoDaNota } from './notas.service';
 import { PatrocinioService } from './patrocinio.service';
 
 function usuarioId(req: Request): string | undefined {
   return (req.user as { id?: string } | undefined)?.id;
 }
+
+function nomeDoUsuario(req: Request): string | null {
+  return (req.user as { nome?: string } | undefined)?.nome ?? null;
+}
+
+const SITUACOES_DA_NOTA: SituacaoDaNota[] = ['A_BAIXAR', 'AGUARDANDO', 'BAIXADAS'];
 
 /** De onde partiu a assinatura — o primeiro endereço do X-Forwarded-For. */
 function origemDaRequisicao(req: Request): { ip?: string; userAgent?: string } {
@@ -69,6 +77,7 @@ export class PatrocinioController {
   constructor(
     private readonly service: PatrocinioService,
     private readonly contratos: ContratosDePatrocinioService,
+    private readonly notas: NotasDeRecebimentoService,
   ) {}
 
   @Get()
@@ -142,6 +151,49 @@ export class PatrocinioController {
     return { ok: true };
   }
 
+  // --- Notas de recebimento ---
+
+  /** A aba Notas: as de uma situação, e quantas há em cada. Sem `situacao`, as a dar baixa. */
+  @Get('notas')
+  listarNotas(@Query('situacao') situacao?: string) {
+    const s = SITUACOES_DA_NOTA.find((x) => x === situacao) ?? 'A_BAIXAR';
+    return this.notas.listar(s);
+  }
+
+  @Get('notas/:notaId')
+  nota(@Param('notaId') id: string) {
+    return this.notas.daNota(id);
+  }
+
+  /** A nota assinada, em PDF. */
+  @Get('notas/:notaId/arquivo')
+  async arquivoDaNota(
+    @Param('notaId') id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    return servir(res, await this.notas.paraBaixar(id));
+  }
+
+  @Post('notas/:notaId/baixa')
+  @HttpCode(200)
+  darBaixa(@Param('notaId') id: string, @Req() req: Request) {
+    return this.notas.darBaixa(id, nomeDoUsuario(req));
+  }
+
+  @Delete('notas/:notaId/baixa')
+  @HttpCode(200)
+  desfazerBaixa(@Param('notaId') id: string) {
+    return this.notas.desfazerBaixa(id);
+  }
+
+  /** Cancela o link que ninguém assinou. */
+  @Delete('notas/:notaId')
+  @HttpCode(200)
+  async removerNota(@Param('notaId') id: string) {
+    await this.notas.remover(id);
+    return { ok: true };
+  }
+
   // --- O patrocinado ---
 
   @Post()
@@ -184,6 +236,13 @@ export class PatrocinioController {
     return this.contratos.gerarLink(id, usuarioId(req));
   }
 
+  /** Abre (ou renova) o link da nota de recebimento de um pagamento. */
+  @Post(':id/notas')
+  @HttpCode(201)
+  gerarNota(@Param('id') id: string, @Body() dto: GerarNotaDto, @Req() req: Request) {
+    return this.notas.gerarLink(id, dto.idFnApagar, usuarioId(req));
+  }
+
   /** O contrato físico do patrocínio antigo, escaneado. */
   @Post(':id/contratos/escaneado')
   @HttpCode(201)
@@ -222,6 +281,32 @@ export class AssinarContratoController {
     @Req() req: Request,
   ) {
     return this.contratos.assinar(token, dto, origemDaRequisicao(req));
+  }
+}
+
+/**
+ * A assinatura da nota de recebimento, de fora (sem login) — o mesmo caminho
+ * do contrato: o link é a credencial de quem recebeu.
+ */
+@Controller('assinar-nota')
+export class AssinarNotaController {
+  constructor(private readonly notas: NotasDeRecebimentoService) {}
+
+  @Public()
+  @Get(':token')
+  abrir(@Param('token') token: string) {
+    return this.notas.abrirPorToken(token);
+  }
+
+  @Public()
+  @Post(':token')
+  @HttpCode(200)
+  assinar(
+    @Param('token') token: string,
+    @Body() dto: AssinarDto,
+    @Req() req: Request,
+  ) {
+    return this.notas.assinar(token, dto, origemDaRequisicao(req));
   }
 }
 

@@ -25,6 +25,7 @@ import {
   CamposDoPatrocinado,
   EscolherFornecedor,
   SeloDoContrato,
+  SeloDoTipo,
   corpoDoCadastro,
   type Cadastro,
   type FornecedorEscolhido,
@@ -161,12 +162,13 @@ export function Patrocinados() {
                     <td className="td">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-medium text-tinta-900">{p.nome}</span>
+                        <SeloDoTipo tipo={p.tipo} />
                         {!p.ativo && (
                           <Selo tom="neutro" pequeno>
                             encerrado
                           </Selo>
                         )}
-                        {!p.idFornecedorIxc && (
+                        {!p.idFornecedorIxc && p.tipo !== 'DESCONTO' && (
                           <Selo tom="erro" pequeno titulo="Não está ligado a nenhum fornecedor do IXC">
                             sem fornecedor
                           </Selo>
@@ -183,8 +185,15 @@ export function Patrocinados() {
                       <SeloDoContrato situacao={i.contrato} />
                     </td>
                     <td className="td text-right text-tinta-500">
-                      {p.valorMensal && Number(p.valorMensal) > 0 ? (
-                        <span className="valor">{formatBRL(p.valorMensal)}</span>
+                      {p.tipo === 'AVULSO' ? (
+                        <span className="text-xs text-tinta-400">avulso</span>
+                      ) : p.valorMensal && Number(p.valorMensal) > 0 ? (
+                        <>
+                          <span className="valor">{formatBRL(p.valorMensal)}</span>
+                          {p.tipo === 'DESCONTO' && (
+                            <div className="text-xs text-sky-700 dark:text-sky-300">desconto na mensalidade</div>
+                          )}
+                        </>
                       ) : (
                         '—'
                       )}
@@ -263,12 +272,13 @@ function NovoPatrocinado({
   const [fornecedor, setFornecedor] = useState<FornecedorEscolhido | null>(null);
   const [erro, setErro] = useState<string | null>(null);
 
+  const desconto = form.tipo === 'DESCONTO';
+
   const salvar = useMutation({
     mutationFn: async () => {
       const corpo = {
         ...corpoDoCadastro(form),
-        idFornecedorIxc: fornecedor!.idFornecedor,
-        fornecedorNome: fornecedor!.nome,
+        ...(fornecedor ? { idFornecedorIxc: fornecedor.idFornecedor, fornecedorNome: fornecedor.nome } : {}),
       };
       return (await api.post<{ patrocinado: Patrocinado }>('/patrocinios', corpo)).data;
     },
@@ -290,7 +300,8 @@ function NovoPatrocinado({
     });
   }
 
-  const podeSalvar = form.nome.trim().length >= 2 && !!fornecedor && !salvar.isPending;
+  // O desconto na mensalidade não recebe dinheiro: o fornecedor é opcional.
+  const podeSalvar = form.nome.trim().length >= 2 && (!!fornecedor || desconto) && !salvar.isPending;
 
   return (
     <Janela titulo="Novo patrocinado" onFechar={onFechar}>
@@ -299,11 +310,14 @@ function NovoPatrocinado({
 
         <section className="mt-6 rounded-xl border border-tinta-100 p-4">
           <h3 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-tinta-500">
-            Fornecedor no IXC
+            Fornecedor no IXC{desconto ? ' (opcional)' : ''}
           </h3>
           <p className="ajuda mt-1">
-            O patrocinado recebe como o fornecedor que ele já é no IXC: o pagamento de cada mês é
-            uma conta a pagar para ele, lançada pela aba Pagamentos.
+            {desconto
+              ? 'O desconto na mensalidade não sai em dinheiro, e por isso não precisa de fornecedor. Ligue só se ele também for receber algum pagamento.'
+              : form.tipo === 'AVULSO'
+                ? 'O patrocinado recebe como o fornecedor que ele já é no IXC: cada pagamento avulso é uma conta a pagar para ele.'
+                : 'O patrocinado recebe como o fornecedor que ele já é no IXC: o pagamento de cada mês é uma conta a pagar para ele, lançada pela aba Pagamentos.'}
           </p>
           <div className="mt-3 max-w-2xl">
             <Campo label="Fornecedor">

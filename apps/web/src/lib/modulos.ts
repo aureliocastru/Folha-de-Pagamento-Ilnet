@@ -418,14 +418,16 @@ const pontuacao: Modulo = {
  * O atleta, o time, o grupo de dança: o contato, o que já se mandou e quando,
  * o contrato que eles assinam e os arquivos de cada um. Cada patrocinado é o
  * fornecedor que ele já é no IXC: a aba Pagamentos lança a conta a pagar do mês
- * para ele, e o que já foi pago é lido dos títulos dele lá.
+ * para ele, e o que já foi pago é lido dos títulos dele lá. O patrocínio é fixo
+ * em dinheiro, fixo em desconto na mensalidade, ou avulso; e a cada pagamento o
+ * patrocinado assina a nota de recebimento, que a aba Notas confere e baixa.
  */
 const patrocinio: Modulo = {
   id: 'patrocinio',
   nome: 'Patrocínios',
   descricao:
-    'Quem a ILNET patrocina: contato, o que já se mandou, o contrato assinado ' +
-    'e os arquivos de cada um',
+    'Quem a ILNET patrocina: contato, o que já se mandou, o contrato assinado, ' +
+    'as notas de recebimento e os arquivos de cada um',
   base: '/patrocinio',
   inicio: 'patrocinados',
   icone: IconeMegafone,
@@ -436,6 +438,8 @@ const patrocinio: Modulo = {
     // O texto que vai no link, para ler antes de mandar.
     { to: 'contrato', label: 'Contrato padrão', icone: IconeDocumento },
     { to: 'pagamentos', label: 'Pagamentos', icone: IconeMoeda },
+    // A nota que o patrocinado assina a cada pagamento, esperando a baixa.
+    { to: 'notas', label: 'Notas', icone: IconeRecibo },
   ],
 };
 

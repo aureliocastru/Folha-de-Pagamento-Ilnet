@@ -2813,8 +2813,16 @@ export interface AReceber {
 // Patrocínio — quem a ILNET patrocina. Cada patrocinado é um fornecedor do IXC:
 // paga-se por conta a pagar, e o que já saiu é lido dos títulos dele lá.
 // ---------------------------------------------------------------------------
+
+/**
+ * Fixo em dinheiro (todo mês), fixo em desconto na mensalidade da internet
+ * (todo mês, sem dinheiro), ou avulso (de vez em quando, sem combinado).
+ */
+export type TipoDePatrocinio = 'FIXO' | 'DESCONTO' | 'AVULSO';
+
 export interface Patrocinado {
   id: string;
+  tipo: TipoDePatrocinio;
   nome: string;
   projeto: string | null;
   cpfCnpj: string | null;
@@ -2823,7 +2831,7 @@ export interface Patrocinado {
   email: string | null;
   instagram: string | null;
   cidade: string | null;
-  /** Decimal do Prisma: chega como texto */
+  /** Decimal do Prisma: chega como texto. No desconto, o tamanho do desconto. */
   valorMensal: string | null;
   inicio: string | null;
   fim: string | null;
@@ -2879,6 +2887,60 @@ export interface ArquivoDoPatrocinado {
   createdAt: string;
 }
 
+/** A nota de recebimento que o patrocinado assina por um pagamento. */
+export interface NotaDeRecebimento {
+  id: string;
+  patrocinadoId: string;
+  idFnApagar: number;
+  token: string;
+  expiraEm: string;
+  /** Decimal do Prisma: chega como texto */
+  valor: string;
+  referente: string;
+  vencimento: string | null;
+  pagoEm: string | null;
+  nomePatrocinado: string;
+  assinadoEm: string | null;
+  nomeAssinante: string | null;
+  modo: ModoAssinatura;
+  baixadaEm: string | null;
+  baixadaPor: string | null;
+  createdAt: string;
+  /** Só na consulta de uma nota (a janela do link) */
+  assinaturaPng?: string | null;
+}
+
+/** As abas da tela de notas. */
+export type SituacaoDaNota = 'A_BAIXAR' | 'AGUARDANDO' | 'BAIXADAS';
+
+export interface NotaNaAba extends NotaDeRecebimento {
+  patrocinado: { id: string; nome: string; telefone: string | null; responsavel: string | null };
+}
+
+export interface NotasDoPatrocinio {
+  situacao: SituacaoDaNota;
+  notas: NotaNaAba[];
+  contagem: Record<SituacaoDaNota, number>;
+}
+
+/** A nota como a tela pública (sem login) a mostra. */
+export interface NotaPublica {
+  empresa: { nome: string; cnpj: string | null };
+  patrocinado: { nome: string; cpfCnpj: string | null; projeto: string | null };
+  quemAssina: string;
+  /** A frase que sai no papel — o que a assinatura confirma */
+  declaracao: string;
+  valor: string;
+  referente: string;
+  vencimento: string | null;
+  pagoEm: string | null;
+  assinado: boolean;
+  assinadoEm: string | null;
+  assinaturaPng: string | null;
+  nomeAssinante: string | null;
+  modo: ModoAssinatura;
+}
+
 /** Um título do fornecedor no IXC, visto como pagamento ao patrocinado. */
 export interface PagamentoAoPatrocinado {
   idFnApagar: number;
@@ -2889,6 +2951,8 @@ export interface PagamentoAoPatrocinado {
   pagoEm: string | null;
   descricao: string | null;
   documento: string | null;
+  /** A nota de recebimento deste pagamento, quando já se pediu uma */
+  nota: NotaDeRecebimento | null;
 }
 
 export interface FichaDoPatrocinado {
@@ -2915,10 +2979,7 @@ export type SituacaoDoMes = 'PAGO' | 'EM_ABERTO' | 'PARCIAL' | 'FALTA' | 'SEM_PA
 
 /** Um patrocinado ativo no mês escolhido. */
 export interface LinhaDosPagamentos {
-  patrocinado: Pick<
-    Patrocinado,
-    'id' | 'nome' | 'projeto' | 'valorMensal' | 'inicio' | 'fim' | 'idFornecedorIxc' | 'fornecedorNome'
-  >;
+  patrocinado: PatrocinadoDoMes;
   mes: { pago: number; emAberto: number; pagamentos: PagamentoAoPatrocinado[] };
   situacao: SituacaoDoMes;
   /** De sempre, não só do mês */
@@ -2927,11 +2988,28 @@ export interface LinhaDosPagamentos {
   erro: string | null;
 }
 
+export type PatrocinadoDoMes = Pick<
+  Patrocinado,
+  | 'id'
+  | 'tipo'
+  | 'nome'
+  | 'projeto'
+  | 'telefone'
+  | 'valorMensal'
+  | 'inicio'
+  | 'fim'
+  | 'idFornecedorIxc'
+  | 'fornecedorNome'
+>;
+
 export interface PagamentosDoPatrocinio {
   /** "AAAA-MM" */
   mes: string;
+  /** O fixo em dinheiro e o avulso */
   linhas: LinhaDosPagamentos[];
-  totais: { combinado: number; pago: number; emAberto: number; faltam: number };
+  /** O desconto na mensalidade: não sai dinheiro, e fica à parte */
+  descontos: PatrocinadoDoMes[];
+  totais: { combinado: number; pago: number; emAberto: number; faltam: number; desconto: number };
 }
 
 export type BlocoDoContrato =
@@ -2944,6 +3022,8 @@ export interface ContratoPublico {
   empresa: { nome: string; cnpj: string | null };
   patrocinado: { nome: string; cpfCnpj: string | null; projeto: string | null };
   quemAssina: string;
+  /** Diz se o valor do mês é dinheiro ou desconto na mensalidade */
+  tipo: TipoDePatrocinio;
   valorMensal: string | null;
   inicio: string | null;
   fim: string | null;

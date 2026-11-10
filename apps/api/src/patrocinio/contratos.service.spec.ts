@@ -112,6 +112,27 @@ describe('ContratosDePatrocinioService — o link', () => {
     expect(Math.round(prazo / 86_400_000)).toBe(VALIDADE_DO_LINK_DIAS);
   });
 
+  it('guarda o tipo do patrocínio, e o avulso sai sem valor por mês', async () => {
+    const desconto = montar({ patrocinado: { ...PATROCINADO, tipo: 'DESCONTO', contratos: [] } });
+    await desconto.service.gerarLink('p1');
+    expect(desconto.prisma.contratoDePatrocinio.create.mock.calls[0][0].data).toMatchObject({
+      tipo: 'DESCONTO',
+      valorMensal: new Prisma.Decimal(500),
+    });
+
+    const avulso = montar({ patrocinado: { ...PATROCINADO, tipo: 'AVULSO', contratos: [] } });
+    await avulso.service.gerarLink('p1');
+    expect(avulso.prisma.contratoDePatrocinio.create.mock.calls[0][0].data).toMatchObject({
+      tipo: 'AVULSO',
+      valorMensal: null,
+    });
+  });
+
+  it('o contrato de antes da coluna tipo abre como fixo', async () => {
+    const { service } = montar({ contrato: contratoGravado({ tipo: null }) });
+    expect((await service.abrirPorToken('tok')).tipo).toBe('FIXO');
+  });
+
   it('com um link aberto, renova o mesmo em vez de abrir uma segunda via', async () => {
     const { service, prisma } = montar({ abertos: [{ id: 'c-aberto' }] });
     await service.gerarLink('p1');

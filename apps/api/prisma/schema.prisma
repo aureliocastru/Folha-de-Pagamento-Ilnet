@@ -3944,8 +3944,25 @@ model ConfiguracaoContabil {
 // do pagamento para cá seria um segundo lugar para o IXC e a casa divergirem;
 // daqui se lê o que já saiu por lá.
 // ---------------------------------------------------------------------------
+
+/// Como o patrocínio é dado. Muda o que a casa cobra de si mesma todo mês.
+enum TipoDePatrocinio {
+  /// Todo mês, em dinheiro: a conta a pagar do mês para o fornecedor dele.
+  FIXO
+  /// Todo mês, sem dinheiro: o apoio é um desconto na mensalidade da internet.
+  /// Não há o que pagar nem nota para assinar — o desconto é dado no IXC, e
+  /// aqui ele só fica registrado.
+  DESCONTO
+  /// De vez em quando: a viagem do campeonato, o uniforme, a inscrição. Pago
+  /// quando aparece, sem valor combinado por mês.
+  AVULSO
+}
+
 model Patrocinado {
   id String @id @default(uuid())
+
+  /// Fixo em dinheiro, fixo em desconto na mensalidade, ou avulso.
+  tipo TipoDePatrocinio @default(FIXO)
 
   /// Como a casa chama o patrocinado: a pessoa ("Maria Clara") ou o projeto
   /// ("Futsal Unidos do Bairro").
@@ -3967,7 +3984,8 @@ model Patrocinado {
 
   // --- O combinado ---
   /// Quanto se combinou mandar por mês. Só referência: o que saiu de verdade
-  /// são os títulos do fornecedor ligado, lidos do IXC.
+  /// são os títulos do fornecedor ligado, lidos do IXC. No desconto, é o
+  /// tamanho do desconto na mensalidade; no avulso, fica vazio.
   valorMensal Decimal?  @map("valor_mensal") @db.Decimal(14, 2)
   inicio      DateTime? @db.Date
   fim         DateTime? @db.Date
@@ -3981,7 +3999,7 @@ model Patrocinado {
   ///
   /// Único: um fornecedor paga um patrocinado só, ou a soma do que se mandou a
   /// cada um contaria o dinheiro do outro. Vazio = sem por onde pagar, que a
-  /// tela mostra e pede para ligar.
+  /// tela mostra e pede para ligar — menos no desconto, que não se paga.
   idFornecedorIxc Int?    @unique @map("id_fornecedor_ixc")
   /// O nome do fornecedor quando foi ligado, para a tela não ir ao IXC só para
   /// escrevê-lo.
@@ -3989,6 +4007,7 @@ model Patrocinado {
 
   contratos ContratoDePatrocinio[]
   arquivos  ArquivoDoPatrocinado[]
+  notas     NotaDeRecebimento[]
 
   criadoPor String?  @map("criado_por")
   createdAt DateTime @default(now()) @map("created_at")
@@ -4041,6 +4060,10 @@ model ContratoDePatrocinio {
   cpfPatrocinado  String?   @map("cpf_patrocinado")
   projeto         String?
   valorMensal     Decimal?  @map("valor_mensal") @db.Decimal(14, 2)
+  /// Como era o patrocínio no dia do link: é o que diz se o valor do papel é
+  /// dinheiro ou desconto na mensalidade. Vazio = contrato de antes desta
+  /// coluna, que era sempre em dinheiro.
+  tipo            TipoDePatrocinio?
   inicio          DateTime? @db.Date
   fim             DateTime? @db.Date
   /// Quem patrocina, como sai no cabeçalho do contrato
@@ -4100,6 +4123,76 @@ model ArquivoDoPatrocinado {
 
   @@index([patrocinadoId])
   @@map("arquivos_do_patrocinado")
+}
+
+/// A nota de recebimento: o patrocinado assina que recebeu o dinheiro de um
+/// pagamento. Uma por pagamento — o título do fornecedor dele no IXC.
+///
+/// Segue o desenho do recibo da diária: o link é a credencial de quem assina,
+/// e o valor, a referência e os nomes são copiados para cá na hora do link. A
+/// nota é o retrato do que a pessoa disse ter recebido; se o título mudar no
+/// IXC depois, o papel que ela assinou não muda junto.
+///
+/// Assinada, ela vai para a aba Notas, onde alguém confere e dá baixa. A baixa
+/// é só daqui: diz que a nota foi conferida e arquivada, e não mexe no título
+/// do IXC — o pagamento continua sendo do Contas a Pagar.
+model NotaDeRecebimento {
+  id String @id @default(uuid())
+
+  patrocinado   Patrocinado @relation(fields: [patrocinadoId], references: [id], onDelete: Cascade)
+  patrocinadoId String      @map("patrocinado_id")
+
+  /// O título do `fn_apagar` que esta nota recebe. Único: dois papéis
+  /// dizendo que o mesmo dinheiro foi recebido são um papel a mais para
+  /// alguém somar.
+  idFnApagar Int @unique @map("id_fn_apagar")
+
+  /// Segredo que vai na URL pública. Quem tem o link assina — por isso ele é
+  /// sorteado grande e não serve mais para assinar depois de usado.
+  token    String   @unique
+  expiraEm DateTime @map("expira_em")
+
+  // --- O retrato do pagamento, congelado na hora do link ---
+  valor           Decimal   @db.Decimal(14, 2)
+  /// A que o dinheiro se refere — a descrição do título ("Patrocínio Maria
+  /// Clara - outubro de 2026").
+  referente       String
+  /// O vencimento do título: é o mês que o pagamento quita.
+  vencimento      DateTime? @db.Date
+  /// O dia em que o dinheiro saiu, quando já tinha saído.
+  pagoEm          DateTime? @map("pago_em") @db.Date
+  nomePatrocinado String    @map("nome_patrocinado")
+  cpfPatrocinado  String?   @map("cpf_patrocinado")
+  projeto         String?
+  /// Quem pagou, como sai no cabeçalho da nota
+  empresaNome     String    @map("empresa_nome")
+  empresaCnpj     String?   @map("empresa_cnpj")
+
+  // --- A assinatura ---
+  /// PNG da assinatura, em data URL. Vazio até alguém assinar.
+  assinaturaPng String?        @map("assinatura_png")
+  assinadoEm    DateTime?      @map("assinado_em")
+  modo          ModoAssinatura @default(DESENHADA)
+  /// Nome que a pessoa confirmou ser o dela ao assinar
+  nomeAssinante String?        @map("nome_assinante")
+  /// De onde veio a assinatura, para o caso de alguém contestar
+  ip            String?
+  userAgent     String?        @map("user_agent")
+
+  // --- A baixa ---
+  /// Quando alguém conferiu a nota assinada e deu baixa. Vazio = esperando.
+  baixadaEm  DateTime? @map("baixada_em")
+  /// O nome de quem deu baixa, como estava no login naquele dia.
+  baixadaPor String?   @map("baixada_por")
+
+  /// Quem gerou o link
+  criadoPor String?  @map("criado_por")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([patrocinadoId])
+  @@index([assinadoEm, baixadaEm])
+  @@map("notas_de_recebimento")
 }
 
 /// A folha do mês como quem gera deixou: as mudanças feitas na prévia (férias

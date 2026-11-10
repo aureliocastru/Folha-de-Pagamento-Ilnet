@@ -22,14 +22,20 @@ import type {
   ContratoDePatrocinio,
   FichaDoPatrocinado,
 } from '../../lib/types';
+import { NotaDoPagamento } from './ColetarNota';
 import {
   CamposDoPatrocinado,
   EscolherFornecedor,
   SeloDoContrato,
   SeloDoPagamento,
+  SeloDoTipo,
+  TIPOS,
   cadastroDe,
   corpoDoCadastro,
   emMegabytes,
+  formatDataHora,
+  linkDoWhatsapp,
+  rotuloDoValorMensal,
   textoDaVigencia,
   type Cadastro,
   type FornecedorEscolhido,
@@ -104,7 +110,10 @@ export function PatrocinadoAberto() {
 
   const f = ficha.data;
   const p = f.patrocinado;
-  const podeApagar = f.contratos.length === 0 && f.arquivos.length === 0;
+  const podeApagar =
+    f.contratos.length === 0 && f.arquivos.length === 0 && f.pagamentos.every((pg) => !pg.nota);
+  // O desconto na mensalidade não se paga daqui: não sai dinheiro.
+  const desconto = p.tipo === 'DESCONTO';
 
   return (
     <Pagina>
@@ -114,7 +123,7 @@ export function PatrocinadoAberto() {
         voltar={() => navigate('..', { relative: 'path' })}
         acoes={
           <>
-            {p.idFornecedorIxc && p.ativo && podePagar && (
+            {p.idFornecedorIxc && p.ativo && podePagar && !desconto && (
               <button onClick={() => setPagando(true)} className="btn btn-pagar">
                 Pagar
               </button>
@@ -149,7 +158,15 @@ export function PatrocinadoAberto() {
 
       {aviso && <Aviso tom={aviso.ruim ? 'atencao' : 'marca'}>{aviso.texto}</Aviso>}
       {!p.ativo && <Aviso tom="neutro">Patrocínio encerrado. O histórico continua aqui.</Aviso>}
-      {!p.idFornecedorIxc && (
+      {desconto && (
+        <Aviso tom="info">
+          Patrocínio em desconto na mensalidade
+          {p.valorMensal && Number(p.valorMensal) > 0 ? ` de ${formatBRL(p.valorMensal)} por mês` : ''}: não sai
+          dinheiro, e por isso não há pagamento nem nota para assinar. O desconto é dado no contrato do cliente
+          no IXC.
+        </Aviso>
+      )}
+      {!p.idFornecedorIxc && !desconto && (
         <Aviso
           tom="erro"
           acao={
@@ -199,7 +216,10 @@ export function PatrocinadoAberto() {
 
       {aba === 'dados' && <AbaDados ficha={f} onTrocarFornecedor={() => setTrocandoFornecedor(true)} />}
       {aba === 'pagamentos' && (
-        <AbaPagamentos ficha={f} onPagar={podePagar && p.ativo ? () => setPagando(true) : undefined} />
+        <AbaPagamentos
+          ficha={f}
+          onPagar={podePagar && p.ativo && !desconto ? () => setPagando(true) : undefined}
+        />
       )}
       {aba === 'contrato' && <AbaContrato ficha={f} onMudou={recarregar} />}
       {aba === 'arquivos' && <AbaArquivos ficha={f} onMudou={recarregar} />}
@@ -282,6 +302,8 @@ function Numero({ rotulo, valor, nota }: { rotulo: string; valor: string; nota?:
  * mês costuma estar adiantando o próximo.
  */
 function faltaNoMes(ficha: FichaDoPatrocinado): number | null {
+  // O avulso não tem combinado: quem paga digita o valor.
+  if (ficha.patrocinado.tipo !== 'FIXO') return null;
   const combinado = Number(ficha.patrocinado.valorMensal ?? 0);
   if (combinado <= 0) return null;
   const mes = mesAtual();
@@ -294,6 +316,7 @@ function faltaNoMes(ficha: FichaDoPatrocinado): number | null {
 
 function AbaDados({ ficha, onTrocarFornecedor }: { ficha: FichaDoPatrocinado; onTrocarFornecedor: () => void }) {
   const p = ficha.patrocinado;
+  const desconto = p.tipo === 'DESCONTO';
   const whatsapp = linkDoWhatsapp(p.telefone);
   const vigencia = textoDaVigencia(p.inicio, p.fim);
 
@@ -301,9 +324,20 @@ function AbaDados({ ficha, onTrocarFornecedor }: { ficha: FichaDoPatrocinado; on
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Bloco titulo="Patrocinado">
         <dl className="space-y-2.5 text-sm">
+          <Linha
+            rotulo="Tipo"
+            valor={
+              <span className="flex flex-wrap items-center gap-2">
+                <SeloDoTipo tipo={p.tipo} />
+                <span className="text-tinta-500">{TIPOS[p.tipo].explica}</span>
+              </span>
+            }
+          />
           <Linha rotulo="O que se patrocina" valor={p.projeto} />
           <Linha rotulo="CPF / CNPJ" valor={p.cpfCnpj} />
-          <Linha rotulo="Apoio por mês" valor={p.valorMensal ? formatBRL(p.valorMensal) : null} />
+          {p.tipo !== 'AVULSO' && (
+            <Linha rotulo={rotuloDoValorMensal(p.tipo)} valor={p.valorMensal ? formatBRL(p.valorMensal) : null} />
+          )}
           <Linha rotulo="Vigência" valor={vigencia} />
           <Linha rotulo="Cidade" valor={p.cidade} />
           <Linha rotulo="Observações" valor={p.observacoes} />
@@ -368,8 +402,9 @@ function AbaDados({ ficha, onTrocarFornecedor }: { ficha: FichaDoPatrocinado; on
           <p className="text-sm text-tinta-500">Nenhum fornecedor ligado.</p>
         )}
         <p className="ajuda mt-3">
-          O pagamento é uma conta a pagar para este fornecedor, lançada pela aba Pagamentos. A chave
-          PIX e os dados do banco são os do cadastro dele no IXC.
+          {desconto
+            ? 'O desconto na mensalidade não precisa de fornecedor. Ligue um só se ele também for receber algum pagamento em dinheiro.'
+            : 'O pagamento é uma conta a pagar para este fornecedor, lançada pela aba Pagamentos. A chave PIX e os dados do banco são os do cadastro dele no IXC.'}
         </p>
       </Bloco>
     </div>
@@ -385,76 +420,83 @@ function Linha({ rotulo, valor }: { rotulo: string; valor: ReactNode }) {
   );
 }
 
-/** wa.me só aceita os dígitos, com o 55 do Brasil na frente. */
-function linkDoWhatsapp(telefone: string | null, texto?: string): string | null {
-  const digitos = (telefone ?? '').replace(/\D/g, '');
-  if (digitos.length < 10) return null;
-  const numero = digitos.length <= 11 ? `55${digitos}` : digitos;
-  return `https://wa.me/${numero}${texto ? `?text=${encodeURIComponent(texto)}` : ''}`;
-}
-
 // ---------------------------------------------------------------------------
 // Pagamentos — os títulos do fornecedor no IXC
 // ---------------------------------------------------------------------------
 
 function AbaPagamentos({ ficha, onPagar }: { ficha: FichaDoPatrocinado; onPagar?: () => void }) {
   const p = ficha.patrocinado;
+  const quem = { id: p.id, nome: p.nome, telefone: p.telefone };
   return (
-    <Bloco
-      titulo="O que já se mandou"
-      semPadding
-      acao={
-        p.idFornecedorIxc &&
-        onPagar && (
-          <button onClick={onPagar} className="btn btn-p btn-pagar">
-            Novo pagamento
-          </button>
-        )
-      }
-    >
-      <div className="overflow-x-auto rolagem-fina">
-        <table className="w-full text-sm">
-          <thead>
-            <tr>
-              <th className="th">Vencimento</th>
-              <th className="th">Pago em</th>
-              <th className="th">Descrição</th>
-              <th className="th">Situação</th>
-              <th className="th text-right">Valor</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ficha.pagamentos.length === 0 && (
+    <>
+      <Bloco
+        titulo="O que já se mandou"
+        semPadding
+        acao={
+          p.idFornecedorIxc &&
+          onPagar && (
+            <button onClick={onPagar} className="btn btn-p btn-pagar">
+              Novo pagamento
+            </button>
+          )
+        }
+      >
+        <div className="overflow-x-auto rolagem-fina">
+          <table className="w-full text-sm">
+            <thead>
               <tr>
-                <td colSpan={5}>
-                  <Vazio titulo="Nenhum pagamento ainda">
-                    {p.idFornecedorIxc
-                      ? `As contas a pagar de ${p.fornecedorNome ?? p.nome} no IXC aparecem aqui sozinhas — as lançadas daqui e as lançadas direto lá.`
-                      : 'Ligue o patrocinado ao fornecedor dele no IXC para poder pagá-lo.'}
-                  </Vazio>
-                </td>
+                <th className="th">Vencimento</th>
+                <th className="th">Pago em</th>
+                <th className="th">Descrição</th>
+                <th className="th">Situação</th>
+                <th className="th text-right">Valor</th>
+                <th className="th">Nota de recebimento</th>
               </tr>
-            )}
-            {ficha.pagamentos.map((pg) => (
-              <tr key={pg.idFnApagar} className="linha">
-                <td className="td num text-tinta-600">{pg.vencimento ? formatData(pg.vencimento) : '—'}</td>
-                <td className="td num text-tinta-600">{pg.pagoEm ? formatData(pg.pagoEm) : '—'}</td>
-                <td className="td text-tinta-800">
-                  {pg.descricao || '—'}
-                  <div className="num text-xs text-tinta-400">título nº {pg.idFnApagar}</div>
-                </td>
-                <td className="td">
-                  <SeloDoPagamento situacao={pg.situacao} />
-                </td>
-                <td className="td text-right">
-                  <span className="valor">{formatBRL(pg.valor)}</span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </Bloco>
+            </thead>
+            <tbody>
+              {ficha.pagamentos.length === 0 && (
+                <tr>
+                  <td colSpan={6}>
+                    <Vazio titulo="Nenhum pagamento ainda">
+                      {p.idFornecedorIxc
+                        ? `As contas a pagar de ${p.fornecedorNome ?? p.nome} no IXC aparecem aqui sozinhas — as lançadas daqui e as lançadas direto lá.`
+                        : p.tipo === 'DESCONTO'
+                          ? 'Patrocínio em desconto na mensalidade: não há pagamento em dinheiro.'
+                          : 'Ligue o patrocinado ao fornecedor dele no IXC para poder pagá-lo.'}
+                    </Vazio>
+                  </td>
+                </tr>
+              )}
+              {ficha.pagamentos.map((pg) => (
+                <tr key={pg.idFnApagar} className="linha">
+                  <td className="td num text-tinta-600">{pg.vencimento ? formatData(pg.vencimento) : '—'}</td>
+                  <td className="td num text-tinta-600">{pg.pagoEm ? formatData(pg.pagoEm) : '—'}</td>
+                  <td className="td text-tinta-800">
+                    {pg.descricao || '—'}
+                    <div className="num text-xs text-tinta-400">título nº {pg.idFnApagar}</div>
+                  </td>
+                  <td className="td">
+                    <SeloDoPagamento situacao={pg.situacao} />
+                  </td>
+                  <td className="td text-right">
+                    <span className="valor">{formatBRL(pg.valor)}</span>
+                  </td>
+                  <td className="td">
+                    <NotaDoPagamento pagamento={pg} patrocinado={quem} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Bloco>
+      {ficha.pagamentos.length > 0 && (
+        <p className="ajuda mt-3">
+          A cada pagamento, peça a assinatura da nota de recebimento: o link vai pelo WhatsApp, o
+          patrocinado (ou o responsável) assina no celular, e a nota cai na aba Notas para a baixa.
+        </p>
+      )}
+    </>
   );
 }
 
@@ -718,7 +760,13 @@ function ColetarContrato({
       <div className="p-5 sm:p-6">
         <div className="rounded-2xl bg-realce p-4 text-sm text-tinta-600">
           Contrato de <span className="font-semibold text-tinta-800">{ficha.patrocinado.nome}</span>
-          {ficha.patrocinado.valorMensal && <> · {formatBRL(ficha.patrocinado.valorMensal)} por mês</>}
+          {ficha.patrocinado.valorMensal && ficha.patrocinado.tipo !== 'AVULSO' && (
+            <>
+              {' '}
+              · {formatBRL(ficha.patrocinado.valorMensal)}
+              {ficha.patrocinado.tipo === 'DESCONTO' ? ' de desconto' : ''} por mês
+            </>
+          )}
         </div>
 
         {assinado ? (
@@ -1072,8 +1120,4 @@ function TrocarFornecedor({
       </div>
     </Janela>
   );
-}
-
-function formatDataHora(iso: string): string {
-  return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(iso));
 }

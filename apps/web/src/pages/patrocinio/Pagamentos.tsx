@@ -14,7 +14,8 @@ import { api, mensagemErro } from '../../lib/api';
 import { mesAnterior, mesAtual, mesSeguinte } from '../../lib/folha';
 import { formatBRL, formatData } from '../../lib/format';
 import type { LinhaDosPagamentos, PagamentosDoPatrocinio } from '../../lib/types';
-import { SeloDoMes, SeloDoPagamento, mesPorExtenso } from './comum';
+import { NotaDoPagamento } from './ColetarNota';
+import { SeloDoMes, SeloDoPagamento, SeloDoTipo, mesPorExtenso } from './comum';
 import { PagarPatrocinado, usePodePagar } from './Pagar';
 
 /**
@@ -25,6 +26,10 @@ import { PagarPatrocinado, usePodePagar } from './Pagar';
  * Tudo é lido dos títulos do fornecedor de cada um no IXC: o que se lança por
  * aqui e o que alguém lançou direto lá entram do mesmo jeito. O título conta
  * no mês do vencimento dele.
+ *
+ * O avulso aparece junto, mas nunca "falta": não há combinado por mês. O
+ * desconto na mensalidade fica num bloco à parte — não sai dinheiro. E cada
+ * título do mês tem a nota de recebimento dele para pedir.
  */
 export function Pagamentos() {
   const navigate = useNavigate();
@@ -39,6 +44,7 @@ export function Pagamentos() {
   });
 
   const linhas = dados.data?.linhas ?? [];
+  const descontos = dados.data?.descontos ?? [];
   const totais = dados.data?.totais;
   const doMes = linhas
     .flatMap((l) => l.mes.pagamentos.map((pg) => ({ pg, quem: l.patrocinado })))
@@ -83,7 +89,11 @@ export function Pagamentos() {
       )}
 
       <div className="surgir mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Numero rotulo="Combinado no mês" valor={totais ? formatBRL(totais.combinado) : '…'} />
+        <Numero
+          rotulo="Combinado no mês"
+          valor={totais ? formatBRL(totais.combinado) : '…'}
+          nota="Dos fixos em dinheiro"
+        />
         <Numero rotulo="Já pago" valor={totais ? formatBRL(totais.pago) : '…'} />
         <Numero
           rotulo="Em aberto"
@@ -129,10 +139,16 @@ export function Pagamentos() {
               {dados.data && linhas.length === 0 && (
                 <tr>
                   <td colSpan={6}>
-                    <Vazio titulo="Nenhum patrocinado ativo">
-                      Cadastre os patrocinados na aba Patrocinados, cada um ligado ao fornecedor dele no
-                      IXC.
-                    </Vazio>
+                    {descontos.length > 0 ? (
+                      <Vazio titulo="Nenhum patrocínio em dinheiro">
+                        Os patrocinados ativos são todos desconto na mensalidade — estão no bloco abaixo.
+                      </Vazio>
+                    ) : (
+                      <Vazio titulo="Nenhum patrocinado ativo">
+                        Cadastre os patrocinados na aba Patrocinados, cada um ligado ao fornecedor dele no
+                        IXC.
+                      </Vazio>
+                    )}
                   </td>
                 </tr>
               )}
@@ -146,7 +162,10 @@ export function Pagamentos() {
                     className="linha cursor-pointer"
                   >
                     <td className="td">
-                      <div className="font-medium text-tinta-900">{p.nome}</div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-medium text-tinta-900">{p.nome}</span>
+                        {p.tipo === 'AVULSO' && <SeloDoTipo tipo={p.tipo} />}
+                      </div>
                       <div className="text-xs text-tinta-500">
                         {p.fornecedorNome ?? (
                           <Selo tom="erro" pequeno titulo="Não está ligado a nenhum fornecedor do IXC">
@@ -156,7 +175,13 @@ export function Pagamentos() {
                       </div>
                     </td>
                     <td className="td text-right text-tinta-500">
-                      {combinado > 0 ? <span className="valor">{formatBRL(combinado)}</span> : '—'}
+                      {p.tipo === 'AVULSO' ? (
+                        <span className="text-xs text-tinta-400">avulso</span>
+                      ) : combinado > 0 ? (
+                        <span className="valor">{formatBRL(combinado)}</span>
+                      ) : (
+                        '—'
+                      )}
                     </td>
                     <td className="td text-right">
                       {l.mes.pago > 0 ? <span className="valor">{formatBRL(l.mes.pago)}</span> : '—'}
@@ -210,6 +235,7 @@ export function Pagamentos() {
                   <th className="th">Descrição</th>
                   <th className="th">Situação</th>
                   <th className="th text-right">Valor</th>
+                  <th className="th">Nota de recebimento</th>
                 </tr>
               </thead>
               <tbody>
@@ -228,11 +254,63 @@ export function Pagamentos() {
                     <td className="td text-right">
                       <span className="valor">{formatBRL(pg.valor)}</span>
                     </td>
+                    <td className="td">
+                      <NotaDoPagamento
+                        pagamento={pg}
+                        patrocinado={{ id: quem.id, nome: quem.nome, telefone: quem.telefone }}
+                      />
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+        </Bloco>
+      )}
+
+      {descontos.length > 0 && (
+        <Bloco
+          titulo="Desconto na mensalidade"
+          className="surgir surgir-3 mt-4"
+          semPadding
+          acao={
+            totais && (
+              <span className="text-sm text-tinta-500">
+                <span className="valor text-tinta-800">{formatBRL(totais.desconto)}</span> por mês
+              </span>
+            )
+          }
+        >
+          <div className="overflow-x-auto rolagem-fina">
+            <table className="w-full text-sm">
+              <thead>
+                <tr>
+                  <th className="th">Patrocinado</th>
+                  <th className="th">O que se patrocina</th>
+                  <th className="th text-right">Desconto por mês</th>
+                </tr>
+              </thead>
+              <tbody>
+                {descontos.map((p) => (
+                  <tr
+                    key={p.id}
+                    onClick={() => navigate(`/patrocinio/patrocinados/${p.id}`)}
+                    className="linha cursor-pointer"
+                  >
+                    <td className="td font-medium text-tinta-900">{p.nome}</td>
+                    <td className="td text-tinta-500">{p.projeto || '—'}</td>
+                    <td className="td text-right">
+                      {Number(p.valorMensal ?? 0) > 0 ? <span className="valor">{formatBRL(p.valorMensal!)}</span> : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="ajuda px-4 pb-4">
+            Não sai dinheiro: o desconto é dado no contrato do cliente no IXC, e aqui só fica registrado.
+            Não entra no combinado, no que já se pagou nem no que falta.
+          </p>
         </Bloco>
       )}
 
@@ -253,6 +331,8 @@ export function Pagamentos() {
  * coberto, sugere o combinado inteiro.
  */
 function faltaNoMes(l: LinhaDosPagamentos): number | null {
+  // O avulso não tem combinado: quem paga digita o valor.
+  if (l.patrocinado.tipo !== 'FIXO') return null;
   const combinado = Number(l.patrocinado.valorMensal ?? 0);
   if (combinado <= 0) return null;
   const falta = Math.round((combinado - l.mes.pago - l.mes.emAberto) * 100) / 100;

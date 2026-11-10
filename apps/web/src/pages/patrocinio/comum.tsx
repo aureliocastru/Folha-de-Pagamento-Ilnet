@@ -11,10 +11,12 @@ import type {
   SituacaoDoContrato,
   SituacaoDoMes,
   SituacaoDoPagamento,
+  TipoDePatrocinio,
 } from '../../lib/types';
 
 /** O cadastro como o formulário o edita: tudo texto, vazio = sem valor. */
 export const CADASTRO_VAZIO = {
+  tipo: 'FIXO' as TipoDePatrocinio,
   nome: '',
   projeto: '',
   cpfCnpj: '',
@@ -33,6 +35,7 @@ export type Cadastro = typeof CADASTRO_VAZIO;
 
 export function cadastroDe(p: Patrocinado): Cadastro {
   return {
+    tipo: p.tipo,
     nome: p.nome,
     projeto: p.projeto ?? '',
     cpfCnpj: p.cpfCnpj ?? '',
@@ -54,6 +57,7 @@ export function cadastroDe(p: Patrocinado): Cadastro {
  */
 export function corpoDoCadastro(c: Cadastro) {
   return {
+    tipo: c.tipo,
     nome: c.nome.trim(),
     projeto: c.projeto,
     cpfCnpj: c.cpfCnpj,
@@ -62,7 +66,8 @@ export function corpoDoCadastro(c: Cadastro) {
     email: c.email,
     instagram: c.instagram,
     cidade: c.cidade,
-    valorMensal: c.valorMensal || null,
+    // O avulso não tem valor por mês; o servidor também apaga, mas a tela não manda.
+    valorMensal: c.tipo === 'AVULSO' ? null : c.valorMensal || null,
     inicio: c.inicio,
     fim: c.fim,
     observacoes: c.observacoes,
@@ -86,6 +91,9 @@ export function CamposDoPatrocinado({
 
   return (
     <div className="grid max-w-2xl grid-cols-1 gap-3">
+      <Campo label="Tipo de patrocínio">
+        <EscolherTipo valor={form.tipo} onChange={(tipo) => setForm({ ...form, tipo })} />
+      </Campo>
       <Campo label="Nome do patrocinado">
         <input {...campo('nome')} placeholder="Ex.: Maria Clara, Futsal Unidos" />
       </Campo>
@@ -110,13 +118,20 @@ export function CamposDoPatrocinado({
       <Campo label="Cidade">
         <input {...campo('cidade')} />
       </Campo>
-      <Campo label="Apoio combinado por mês (R$)">
-        <CampoDinheiro
-          valor={form.valorMensal}
-          onChange={(v) => setForm({ ...form, valorMensal: v })}
-          placeholder="Vazio = sem valor fixo"
-        />
-      </Campo>
+      {form.tipo !== 'AVULSO' && (
+        <Campo label={form.tipo === 'DESCONTO' ? 'Desconto na mensalidade (R$ por mês)' : 'Apoio combinado por mês (R$)'}>
+          <CampoDinheiro
+            valor={form.valorMensal}
+            onChange={(v) => setForm({ ...form, valorMensal: v })}
+            placeholder="Vazio = sem valor fixo"
+          />
+          {form.tipo === 'DESCONTO' && (
+            <p className="ajuda">
+              Só fica registrado aqui: o desconto continua sendo dado no contrato do cliente no IXC.
+            </p>
+          )}
+        </Campo>
+      )}
       <Campo label="Início do patrocínio">
         <CampoDeData valor={form.inicio} onChange={(v) => setForm({ ...form, inicio: v })} />
       </Campo>
@@ -128,6 +143,63 @@ export function CamposDoPatrocinado({
       </Campo>
     </div>
   );
+}
+
+/** O que cada tipo quer dizer, para quem cadastra escolher sem dúvida. */
+export const TIPOS: Record<TipoDePatrocinio, { nome: string; explica: string }> = {
+  FIXO: { nome: 'Fixo', explica: 'Todo mês, em dinheiro' },
+  DESCONTO: { nome: 'Desconto', explica: 'Todo mês, como desconto na mensalidade da internet' },
+  AVULSO: { nome: 'Avulso', explica: 'De vez em quando: o evento, a viagem, o uniforme' },
+};
+
+function EscolherTipo({
+  valor,
+  onChange,
+}: {
+  valor: TipoDePatrocinio;
+  onChange: (t: TipoDePatrocinio) => void;
+}) {
+  return (
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3" role="radiogroup">
+      {(Object.keys(TIPOS) as TipoDePatrocinio[]).map((t) => {
+        const ativo = valor === t;
+        return (
+          <button
+            key={t}
+            type="button"
+            role="radio"
+            aria-checked={ativo}
+            onClick={() => onChange(t)}
+            className={`rounded-xl border px-3 py-2 text-left transition-colors ${
+              ativo
+                ? 'border-brand-400 bg-brand-50 dark:border-brand-500/60 dark:bg-brand-500/10'
+                : 'border-tinta-100 hover:bg-tinta-50'
+            }`}
+          >
+            <span className={`block text-sm font-semibold ${ativo ? 'text-brand-800 dark:text-brand-200' : 'text-tinta-800'}`}>
+              {TIPOS[t].nome}
+            </span>
+            <span className="block text-xs text-tinta-500">{TIPOS[t].explica}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+const TOM_DO_TIPO: Record<TipoDePatrocinio, Tom> = { FIXO: 'marca', DESCONTO: 'info', AVULSO: 'neutro' };
+
+export function SeloDoTipo({ tipo }: { tipo: TipoDePatrocinio }) {
+  return (
+    <Selo tom={TOM_DO_TIPO[tipo]} pequeno titulo={TIPOS[tipo].explica}>
+      {TIPOS[tipo].nome.toLowerCase()}
+    </Selo>
+  );
+}
+
+/** Como o valor do mês se chama: o desconto não é dinheiro na mão. */
+export function rotuloDoValorMensal(tipo: TipoDePatrocinio): string {
+  return tipo === 'DESCONTO' ? 'Desconto mensal na internet' : 'Apoio mensal';
 }
 
 export function Campo({
@@ -365,4 +437,16 @@ export function textoDaVigencia(inicio: string | null, fim: string | null): stri
 export function emMegabytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1).replace('.', ',')} MB`;
+}
+
+/** wa.me só aceita os dígitos, com o 55 do Brasil na frente. */
+export function linkDoWhatsapp(telefone: string | null, texto?: string): string | null {
+  const digitos = (telefone ?? '').replace(/\D/g, '');
+  if (digitos.length < 10) return null;
+  const numero = digitos.length <= 11 ? `55${digitos}` : digitos;
+  return `https://wa.me/${numero}${texto ? `?text=${encodeURIComponent(texto)}` : ''}`;
+}
+
+export function formatDataHora(iso: string): string {
+  return new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' }).format(new Date(iso));
 }

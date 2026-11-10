@@ -8,7 +8,7 @@ import {
 import { api, mensagemErro } from '../lib/api';
 import { formatBRL } from '../lib/format';
 import type { ContratoPublico, ModoAssinatura } from '../lib/types';
-import { TextoDoContrato, blocosDoTexto, textoDaVigencia } from './patrocinio/comum';
+import { TextoDoContrato, blocosDoTexto, rotuloDoValorMensal, textoDaVigencia } from './patrocinio/comum';
 
 /**
  * A tela em que o patrocinado assina o contrato. Abre sem login, como a do
@@ -242,8 +242,9 @@ function Partes({ contrato: c }: { contrato: ContratoPublico }) {
       />
       {c.patrocinado.projeto && <Linha rotulo="Projeto" valor={c.patrocinado.projeto} />}
       {c.valorMensal && Number(c.valorMensal) > 0 && (
-        <Linha rotulo="Apoio mensal" valor={formatBRL(c.valorMensal)} />
+        <Linha rotulo={rotuloDoValorMensal(c.tipo)} valor={formatBRL(c.valorMensal)} />
       )}
+      {c.tipo === 'AVULSO' && <Linha rotulo="Apoio" valor="avulso, combinado a cada pagamento" />}
       {vigencia && <Linha rotulo="Vigência" valor={vigencia} />}
     </dl>
   );

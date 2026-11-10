@@ -5,7 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { ModoAssinatura, OrigemDoContrato } from '@prisma/client';
+import { ModoAssinatura, OrigemDoContrato, TipoDePatrocinio } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import { conferirArquivo, extensaoDoTipo, lerDataUrl } from '../arquivos/data-url';
 import { AssinarDto } from '../assinaturas/dto/assinatura.dto';
@@ -42,6 +42,8 @@ export interface ContratoPublico {
   patrocinado: { nome: string; cpfCnpj: string | null; projeto: string | null };
   /** O nome que a tela sugere para quem assina: o responsável, ou o próprio. */
   quemAssina: string;
+  /** Diz se o valor do mês é dinheiro ou desconto na mensalidade. */
+  tipo: TipoDePatrocinio;
   valorMensal: string | null;
   inicio: Date | null;
   fim: Date | null;
@@ -106,7 +108,9 @@ export class ContratosDePatrocinioService {
       nomePatrocinado: p.nome,
       cpfPatrocinado: p.cpfCnpj,
       projeto: p.projeto,
-      valorMensal: p.valorMensal,
+      tipo: p.tipo,
+      // O avulso não tem valor por mês, ainda que sobre um de quando era fixo.
+      valorMensal: p.tipo === TipoDePatrocinio.AVULSO ? null : p.valorMensal,
       inicio: p.inicio,
       fim: p.fim,
       empresaNome: cfg.empresaNome.trim() || 'ILNET',
@@ -209,6 +213,7 @@ export class ContratosDePatrocinioService {
         cpfCnpj: c.cpfPatrocinado,
         projeto: c.projeto,
       },
+      tipo: c.tipo ?? TipoDePatrocinio.FIXO,
       valorMensal: c.valorMensal ? Number(c.valorMensal) : null,
       inicio: c.inicio,
       fim: c.fim,
@@ -267,6 +272,7 @@ export class ContratosDePatrocinioService {
         projeto: c.projeto,
       },
       quemAssina: c.patrocinado.responsavel?.trim() || c.nomePatrocinado || c.patrocinado.nome,
+      tipo: c.tipo ?? TipoDePatrocinio.FIXO,
       valorMensal: c.valorMensal?.toString() ?? null,
       inicio: c.inicio,
       fim: c.fim,

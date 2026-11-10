@@ -35,6 +35,7 @@ const CampoPontuar = telaSobDemanda(() => import('./pages/apr/Campo').then((m) =
 const Formularios = telaSobDemanda(() => import('./pages/apr/Formularios').then((m) => m.Formularios));
 const Assinar = telaSobDemanda(() => import('./pages/Assinar').then((m) => m.Assinar));
 const AssinarContrato = telaSobDemanda(() => import('./pages/AssinarContrato').then((m) => m.AssinarContrato));
+const AssinarNota = telaSobDemanda(() => import('./pages/AssinarNota').then((m) => m.AssinarNota));
 const CampoMinhasOs = telaSobDemanda(() => import('./pages/os/NoCampo').then((m) => m.CampoMinhasOs));
 const CampoOs = telaSobDemanda(() => import('./pages/os/NoCampo').then((m) => m.CampoOs));
 const CampoFichaDaOs = telaSobDemanda(() => import('./pages/os/Ficha').then((m) => m.CampoFichaDaOs));
@@ -97,6 +98,7 @@ const Patrocinados = telaSobDemanda(() => import('./pages/patrocinio/Patrocinado
 const PatrocinadoAberto = telaSobDemanda(() => import('./pages/patrocinio/Patrocinado').then((m) => m.PatrocinadoAberto));
 const ContratoPadrao = telaSobDemanda(() => import('./pages/patrocinio/ContratoPadrao').then((m) => m.ContratoPadrao));
 const PagamentosDoPatrocinio = telaSobDemanda(() => import('./pages/patrocinio/Pagamentos').then((m) => m.Pagamentos));
+const NotasDoPatrocinio = telaSobDemanda(() => import('./pages/patrocinio/Notas').then((m) => m.Notas));
 
 function Protegida({ children }: { children: ReactNode }) {
   const { usuario, carregando } = useAuth();
@@ -211,7 +213,7 @@ const TELAS_DO_MODULO: Record<string, Array<{ preCarregar: () => void }>> = {
   seguranca: [Aprs, Formularios, MinhaConta],
   campo: [CampoMinhasOs, MinhaConta],
   pontuacao: [Pontuar, Motivos, Coordenadores, MinhaConta],
-  patrocinio: [Patrocinados, PatrocinadoAberto, ContratoPadrao, PagamentosDoPatrocinio, MinhaConta],
+  patrocinio: [Patrocinados, PatrocinadoAberto, ContratoPadrao, PagamentosDoPatrocinio, NotasDoPatrocinio, MinhaConta],
 };
 
 function usePreCarregarOModulo() {
@@ -249,6 +251,8 @@ export default function App() {
       {/* O patrocinado assina o contrato aqui, pelo mesmo motivo: sem conta,
           com o link. */}
       <Route path="/assinar-contrato/:token" element={<AssinarContrato />} />
+      {/* E a nota de recebimento de cada pagamento, do mesmo jeito. */}
+      <Route path="/assinar-nota/:token" element={<AssinarNota />} />
 
       {/* O portal de pontos: fora do login do sistema de propósito. O
           coordenador entra com CPF e senha, o funcionário só com o CPF — nenhum
@@ -526,6 +530,7 @@ export default function App() {
         <Route path="patrocinados/:id" element={<PatrocinadoAberto />} />
         <Route path="contrato" element={<ContratoPadrao />} />
         <Route path="pagamentos" element={<PagamentosDoPatrocinio />} />
+        <Route path="notas" element={<NotasDoPatrocinio />} />
         <Route path="minha-conta" element={<MinhaConta />} />
       </Route>
 

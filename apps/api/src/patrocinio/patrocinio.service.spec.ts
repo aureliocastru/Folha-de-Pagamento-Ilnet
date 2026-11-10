@@ -1,11 +1,13 @@
 import { BadRequestException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, TipoDePatrocinio } from '@prisma/client';
 import { PatrocinioService } from './patrocinio.service';
 
 /**
  * O que este arquivo protege: todo patrocinado tem por onde receber, um
  * fornecedor paga um patrocinado só — senão "quanto já mandei" de um somaria o
  * dinheiro do outro —, e o que já se mandou vem dos títulos do fornecedor.
+ * E o tipo do patrocínio: o desconto na mensalidade não se paga nem "falta", e
+ * o avulso não tem combinado por mês.
  */
 
 /** Um título do fornecedor 77 já baixado no IXC. */
@@ -39,6 +41,7 @@ function montar(
     ativos?: Array<Record<string, unknown>>;
     titulos?: Array<Record<string, unknown>> | Error;
     criarFalha?: Error;
+    notas?: Array<Record<string, unknown>>;
   } = {},
 ) {
   const prisma = {
@@ -53,6 +56,9 @@ function montar(
       }),
       update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'p1', ...data })),
       delete: jest.fn(),
+    },
+    notaDeRecebimento: {
+      findMany: jest.fn().mockResolvedValue(opts.notas ?? []),
     },
   };
   const ixc = {
@@ -93,6 +99,32 @@ describe('PatrocinioService.criar', () => {
     expect((data.inicio as Date).toISOString()).toBe('2026-10-01T00:00:00.000Z');
   });
 
+  it('o desconto na mensalidade entra sem fornecedor, e nem pergunta de quem ele é', async () => {
+    const { service, prisma } = montar();
+    await service.criar({ nome: 'Ana Ciclista', tipo: TipoDePatrocinio.DESCONTO, valorMensal: 99.9 });
+
+    expect(prisma.patrocinado.findUnique).not.toHaveBeenCalled();
+    const { data } = prisma.patrocinado.create.mock.calls[0][0];
+    expect(data).toMatchObject({ tipo: 'DESCONTO', idFornecedorIxc: null, fornecedorNome: null });
+    expect(data.valorMensal).toEqual(new Prisma.Decimal(99.9));
+  });
+
+  it('o avulso não guarda valor por mês, mesmo que a tela mande um', async () => {
+    const { service, prisma } = montar();
+    await service.criar({
+      nome: 'Grupo de Dança',
+      tipo: TipoDePatrocinio.AVULSO,
+      valorMensal: 200,
+      idFornecedorIxc: 91,
+      fornecedorNome: 'GRUPO',
+    });
+    expect(prisma.patrocinado.create.mock.calls[0][0].data).toMatchObject({
+      tipo: 'AVULSO',
+      valorMensal: null,
+      idFornecedorIxc: 91,
+    });
+  });
+
   it('fornecedor que já paga outro patrocinado é recusado, com o nome de quem', async () => {
     const { service, prisma } = montar({ dono: { id: 'outro', nome: 'Vôlei da Vila' } });
     await expect(
@@ -121,6 +153,23 @@ describe('PatrocinioService.atualizar', () => {
       idFornecedorIxc: 77,
       fornecedorNome: 'Maria',
     });
+  });
+
+  it('virar avulso apaga o valor por mês que havia', async () => {
+    const { service, prisma } = montar({ patrocinado: { id: 'p1' } });
+    await service.atualizar('p1', { tipo: TipoDePatrocinio.AVULSO });
+    expect(prisma.patrocinado.update.mock.calls[0][0].data).toMatchObject({
+      tipo: 'AVULSO',
+      valorMensal: null,
+    });
+  });
+
+  it('corrigir o telefone não mexe no tipo nem no valor', async () => {
+    const { service, prisma } = montar({ patrocinado: { id: 'p1' } });
+    await service.atualizar('p1', { telefone: '99 99999-0000' });
+    const { data } = prisma.patrocinado.update.mock.calls[0][0];
+    expect(data).not.toHaveProperty('tipo');
+    expect(data).not.toHaveProperty('valorMensal');
   });
 
   it('trocar o fornecedor sem dizer o nome dele é recusado', async () => {
@@ -171,6 +220,23 @@ describe('PatrocinioService.ficha', () => {
     expect(f.contrato).toBe('SEM_CONTRATO');
   });
 
+  it('cada pagamento vem com a nota de recebimento dele, quando há', async () => {
+    const nota = { id: 'n1', idFnApagar: 501, assinadoEm: new Date(), baixadaEm: null };
+    const { service, prisma } = montar({
+      patrocinado,
+      titulos: [PAGO_SETEMBRO, ABERTO_OUTUBRO],
+      notas: [nota],
+    });
+    const f = await service.ficha('p1');
+    expect(prisma.notaDeRecebimento.findMany.mock.calls[0][0].where).toEqual({
+      idFnApagar: { in: [502, 501] },
+    });
+    expect(f.pagamentos.map((p) => [p.idFnApagar, p.nota?.id ?? null])).toEqual([
+      [502, null],
+      [501, 'n1'],
+    ]);
+  });
+
   it('o IXC fora do ar não fecha a ficha: os pagamentos voltam com o motivo', async () => {
     const { service } = montar({ patrocinado, titulos: new Error('tempo esgotado') });
     const f = await service.ficha('p1');
@@ -199,9 +265,9 @@ describe('PatrocinioService.pagamentosDoMes', () => {
   it('cada ativo com o mês dele, e um fornecedor ilegível não derruba os outros', async () => {
     const { service, ixc } = montar({
       ativos: [
-        { id: 'p1', nome: 'Maria Clara', valorMensal: new Prisma.Decimal(300), idFornecedorIxc: 77 },
-        { id: 'p2', nome: 'Futsal Unidos', valorMensal: new Prisma.Decimal(500), idFornecedorIxc: 88 },
-        { id: 'p3', nome: 'Sem fornecedor', valorMensal: null, idFornecedorIxc: null },
+        { id: 'p1', tipo: 'FIXO', nome: 'Maria Clara', valorMensal: new Prisma.Decimal(300), idFornecedorIxc: 77 },
+        { id: 'p2', tipo: 'FIXO', nome: 'Futsal Unidos', valorMensal: new Prisma.Decimal(500), idFornecedorIxc: 88 },
+        { id: 'p3', tipo: 'FIXO', nome: 'Sem fornecedor', valorMensal: null, idFornecedorIxc: null },
       ],
     });
     ixc.listAll.mockImplementation(async (...args: unknown[]) => {
@@ -219,16 +285,49 @@ describe('PatrocinioService.pagamentosDoMes', () => {
     expect(futsal.erro).toMatch(/IXC fora do ar/);
     expect(futsal.situacao).toBe('FALTA');
     expect(sem.situacao).toBe('SEM_PAGAMENTO');
-    expect(r.totais).toEqual({ combinado: 800, pago: 0, emAberto: 300, faltam: 1 });
+    expect(r.totais).toEqual({ combinado: 800, pago: 0, emAberto: 300, faltam: 1, desconto: 0 });
+  });
+
+  it('o desconto fica à parte, sem ir ao IXC; o avulso nunca falta nem soma no combinado', async () => {
+    const { service, ixc } = montar({
+      ativos: [
+        { id: 'p1', tipo: 'FIXO', nome: 'Maria Clara', valorMensal: new Prisma.Decimal(300), idFornecedorIxc: 77 },
+        { id: 'p2', tipo: 'DESCONTO', nome: 'Ana Ciclista', valorMensal: new Prisma.Decimal(99.9), idFornecedorIxc: 66 },
+        // Um valor que sobrou de quando era fixo não faz o avulso "faltar".
+        { id: 'p3', tipo: 'AVULSO', nome: 'Grupo de Dança', valorMensal: new Prisma.Decimal(200), idFornecedorIxc: 91 },
+      ],
+    });
+    ixc.listAll.mockImplementation(async (...args: unknown[]) => {
+      const params = args[1] as { query: string };
+      return params.query === '77' ? [ABERTO_OUTUBRO] : [];
+    });
+
+    const r = await service.pagamentosDoMes('2026-10');
+    const lidos = (ixc.listAll.mock.calls as unknown[][]).map((c) => (c[1] as { query: string }).query);
+    expect(lidos).toEqual(['77', '91']);
+    expect(r.linhas.map((l) => [l.patrocinado.nome, l.situacao])).toEqual([
+      ['Maria Clara', 'EM_ABERTO'],
+      ['Grupo de Dança', 'SEM_PAGAMENTO'],
+    ]);
+    expect(r.descontos.map((d) => d.nome)).toEqual(['Ana Ciclista']);
+    expect(r.totais).toEqual({ combinado: 300, pago: 0, emAberto: 300, faltam: 0, desconto: 99.9 });
   });
 });
 
 describe('PatrocinioService.remover', () => {
   it('quem tem contrato ou arquivo é desativado, não apagado', async () => {
     const { service, prisma } = montar({
-      patrocinado: { id: 'p1', _count: { contratos: 1, arquivos: 0 } },
+      patrocinado: { id: 'p1', _count: { contratos: 1, arquivos: 0, notas: 0 } },
     });
     await expect(service.remover('p1')).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.patrocinado.delete).not.toHaveBeenCalled();
+  });
+
+  it('quem já tem nota de recebimento também não se apaga', async () => {
+    const { service, prisma } = montar({
+      patrocinado: { id: 'p1', _count: { contratos: 0, arquivos: 0, notas: 1 } },
+    });
+    await expect(service.remover('p1')).rejects.toThrow(/nota de recebimento/);
     expect(prisma.patrocinado.delete).not.toHaveBeenCalled();
   });
 });

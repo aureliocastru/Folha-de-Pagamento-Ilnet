@@ -1,7 +1,9 @@
+import { TipoDePatrocinio } from '@prisma/client';
 import { Transform } from 'class-transformer';
 import {
   IsBoolean,
   IsEmail,
+  IsEnum,
   IsInt,
   IsNumber,
   IsOptional,
@@ -10,6 +12,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
 
 /** Data de calendário, sem hora e sem fuso: "AAAA-MM-DD". */
@@ -21,6 +24,11 @@ const vazioViraNulo = ({ value }: { value: unknown }) =>
 
 /** Os dados do patrocinado — comuns a cadastrar e a corrigir. */
 export class DadosDoPatrocinadoDto {
+  /** Fixo em dinheiro, fixo em desconto na mensalidade, ou avulso. Vazio = fixo. */
+  @IsOptional()
+  @IsEnum(TipoDePatrocinio, { message: 'Escolha se o patrocínio é fixo, desconto ou avulso.' })
+  tipo?: TipoDePatrocinio;
+
   @IsOptional() @Transform(vazioViraNulo) @IsString() @MaxLength(160) projeto?: string | null;
   @IsOptional() @Transform(vazioViraNulo) @IsString() @MaxLength(30) cpfCnpj?: string | null;
   @IsOptional() @Transform(vazioViraNulo) @IsString() @MaxLength(160) responsavel?: string | null;
@@ -34,7 +42,10 @@ export class DadosDoPatrocinadoDto {
   @IsOptional() @Transform(vazioViraNulo) @IsString() @MaxLength(80) instagram?: string | null;
   @IsOptional() @Transform(vazioViraNulo) @IsString() @MaxLength(80) cidade?: string | null;
 
-  /** Quanto se combinou por mês. Vazio = não se combinou valor fixo. */
+  /**
+   * Quanto se combinou por mês — no desconto, o tamanho do desconto. Vazio =
+   * não se combinou valor fixo. O avulso não tem: o serviço o apaga.
+   */
   @IsOptional()
   @Transform(({ value }) => (value === '' || value == null ? null : Number(value)))
   @IsNumber({}, { message: 'O valor mensal precisa ser um número.' })
@@ -58,9 +69,14 @@ export class DadosDoPatrocinadoDto {
 const idDoFornecedor = ({ value }: { value: unknown }) =>
   value === '' || value == null ? undefined : Number(value);
 
+/** O fornecedor só é obrigatório para quem recebe dinheiro. */
+const recebeDinheiro = (o: { tipo?: TipoDePatrocinio; idFornecedorIxc?: unknown }) =>
+  o.tipo !== TipoDePatrocinio.DESCONTO || o.idFornecedorIxc != null;
+
 /**
  * O cadastro novo. Por onde ele recebe é obrigatório: o fornecedor que ele já
- * é no IXC. Um patrocinado sem isso é alguém que não dá para pagar.
+ * é no IXC. Um patrocinado sem isso é alguém que não dá para pagar — menos o
+ * do desconto na mensalidade, que não recebe dinheiro nenhum.
  */
 export class CriarPatrocinadoDto extends DadosDoPatrocinadoDto {
   @IsString({ message: 'Diga como o patrocinado se chama.' })
@@ -68,16 +84,18 @@ export class CriarPatrocinadoDto extends DadosDoPatrocinadoDto {
   @MaxLength(160)
   nome!: string;
 
+  @ValidateIf(recebeDinheiro)
   @Transform(idDoFornecedor)
   @IsInt({ message: 'Escolha o fornecedor no IXC.' })
   @Min(1, { message: 'Escolha o fornecedor no IXC.' })
-  idFornecedorIxc!: number;
+  idFornecedorIxc?: number;
 
   /** Como o fornecedor se chama no IXC, guardado para a tela. */
+  @ValidateIf(recebeDinheiro)
   @IsString({ message: 'Escolha o fornecedor no IXC.' })
   @MinLength(1)
   @MaxLength(200)
-  fornecedorNome!: string;
+  fornecedorNome?: string;
 }
 
 export class AtualizarPatrocinadoDto extends DadosDoPatrocinadoDto {
@@ -132,4 +150,12 @@ export class GuardarEscaneadoDto {
   @Transform(vazioViraNulo)
   @Matches(DIA, { message: 'A data da assinatura precisa ser AAAA-MM-DD.' })
   assinadoEm?: string | null;
+}
+
+/** O pagamento cuja nota de recebimento se vai assinar: o título no IXC. */
+export class GerarNotaDto {
+  @Transform(({ value }) => (value === '' || value == null ? undefined : Number(value)))
+  @IsInt({ message: 'Diga de que pagamento é a nota.' })
+  @Min(1, { message: 'Diga de que pagamento é a nota.' })
+  idFnApagar!: number;
 }
