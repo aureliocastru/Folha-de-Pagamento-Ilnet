@@ -13,7 +13,14 @@ import {
   type VeiculoNoMapa,
   type VinculoDoRastreador,
 } from './frota';
-import { entraNoMapa, idDoIxc, osNoMapa, temPosicaoPropria, type OsNoMapa } from './ordens';
+import {
+  assuntoForaDoMapa,
+  entraNoMapa,
+  idDoIxc,
+  osNoMapa,
+  temPosicaoPropria,
+  type OsNoMapa,
+} from './ordens';
 import { RastreamentoClient } from './rastreamento.client';
 
 const MINUTO = 60_000;
@@ -192,30 +199,39 @@ export class MapaService {
       }
     };
 
-    const linhas = await this.ixc.listAll<Record<string, unknown>>(
-      'su_oss_chamado',
-      {
-        qtype: 'su_oss_chamado.status',
-        query: 'F',
-        oper: '!=',
-        sortname: 'su_oss_chamado.id',
-        sortorder: 'desc',
-      },
-      { pageSize: 1000, maxPages: 20 },
-    );
+    const [linhas, assuntos] = await Promise.all([
+      this.ixc.listAll<Record<string, unknown>>(
+        'su_oss_chamado',
+        {
+          qtype: 'su_oss_chamado.status',
+          query: 'F',
+          oper: '!=',
+          sortname: 'su_oss_chamado.id',
+          sortorder: 'desc',
+        },
+        { pageSize: 1000, maxPages: 20 },
+      ),
+      // Os nomes dos assuntos vêm junto, e não depois: é por eles que algumas
+      // OS ficam de fora (`assuntoForaDoMapa`), e a que fica de fora não
+      // precisa ter o cliente lido. Esta leitura não falha: sem o IXC, volta o
+      // que já estava guardado.
+      this.osDoIxc.nomesDosAssuntos(),
+    ]);
     const limite = this.cfg.osDias > 0 ? Date.now() - this.cfg.osDias * DIA : null;
-    const abertas = linhas.filter((l) => entraNoMapa(l, { tipos: this.cfg.osTipos, limite }));
+    const abertas = linhas.filter(
+      (l) =>
+        entraNoMapa(l, { tipos: this.cfg.osTipos, limite }) &&
+        !assuntoForaDoMapa(assuntos.get(idDoIxc(l.id_assunto) ?? 0)),
+    );
     // Login e contrato só importam para a OS que não tem coordenada própria.
     const semPosicao = abertas.filter((l) => !temPosicaoPropria(l));
     const ids = (lista: Array<Record<string, unknown>>, campo: string) =>
       lista.map((l) => idDoIxc(l[campo])).filter((id): id is number => id !== null);
 
-    const [clientes, contratos, logins, assuntos, tecnicos] = await Promise.all([
+    const [clientes, contratos, logins, tecnicos] = await Promise.all([
       opcional('Clientes', this.clientes.obter(ids(abertas, 'id_cliente'))),
       opcional('Contratos', this.contratos.obter(ids(semPosicao, 'id_contrato_kit'))),
       opcional('Logins', this.logins.obter(ids(semPosicao, 'id_login'))),
-      // Este não falha: sem o IXC, volta o que já estava guardado.
-      this.osDoIxc.nomesDosAssuntos(),
       opcional('Técnicos', this.nomesDosTecnicos()),
     ]);
 

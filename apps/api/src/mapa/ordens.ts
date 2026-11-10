@@ -140,6 +140,32 @@ export function temPosicaoPropria(linha: Record<string, unknown>): boolean {
 }
 
 /**
+ * Os assuntos que não entram no mapa, pelo nome — comparado sem acento, sem
+ * caixa e sem espaço sobrando: "AUDITORIA TÉCNICA" e "Auditoria tecnica" são
+ * o mesmo.
+ *
+ * Pedido de 10/11/2026: as OS de auditoria técnica ficam fora do mapa (eram
+ * 31 das 210 abertas nesse dia). É o nome exato: "Auditoria Técnica Pós
+ * Venda" e "Auditoria Técnica Pós Retorno Fibra" são outros assuntos no IXC,
+ * e continuam aparecendo.
+ */
+export const ASSUNTOS_FORA_DO_MAPA = ['auditoria tecnica'];
+
+function nomeComparavel(nome: string): string {
+  return nome
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** O assunto com este nome fica fora do mapa? */
+export function assuntoForaDoMapa(nome: string | null | undefined): boolean {
+  return !!nome && ASSUNTOS_FORA_DO_MAPA.includes(nomeComparavel(nome));
+}
+
+/**
  * A OS entra no mapa? Não finalizada, de um dos tipos escolhidos, e aberta (ou
  * agendada) depois de `limite` — a OS esquecida há dois anos só suja o mapa.
  * Sem data nenhuma ela entra: não dá para dizer que é velha.

@@ -116,9 +116,16 @@ export class MapaDeServico {
         maxZoom: 20,
         attribution: '&copy; OpenStreetMap &copy; CARTO',
       }),
+      /*
+       * O Esri não tem foto em todo zoom. Onde falta, ele devolve um quadro
+       * cinza escrito "Map data not yet available", e o mapa virava um
+       * tabuleiro dele ao aproximar. Na região das OS a foto vai até o zoom 17
+       * (conferido em 10/11/2026: do 18 em diante, só o quadro cinza). Acima
+       * disso a tela amplia a foto do 17: menos nítida, mas no lugar.
+       */
       Satélite: L.tileLayer(
         'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-        { maxZoom: 19, attribution: 'Imagens &copy; Esri' },
+        { maxZoom: 19, maxNativeZoom: 17, attribution: 'Imagens &copy; Esri' },
       ),
     };
     (camadas[lerPreferencia() ?? ''] ?? camadas.Ruas).addTo(this.mapa);

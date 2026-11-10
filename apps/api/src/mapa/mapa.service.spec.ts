@@ -18,6 +18,8 @@ const OS = [
   { id: '12', tipo: 'C', status: 'F', id_cliente: '52', data_abertura: haDias(1) },
   { id: '13', tipo: 'C', status: 'A', id_cliente: '53', data_abertura: haDias(400) },
   { id: '14', tipo: 'X', status: 'A', id_cliente: '54', data_abertura: haDias(1) },
+  // A auditoria técnica não entra no mapa (pedido de 10/11/2026).
+  { id: '15', tipo: 'C', status: 'A', id_cliente: '55', id_assunto: '117', latitude: '-2.5', longitude: '-44.3', data_abertura: haDias(1) },
 ];
 
 const FUNCIONARIOS = [
@@ -48,7 +50,7 @@ function montar(opcoes: { clientesFalham?: boolean; vinculos?: unknown[] } = {})
     }),
   };
   const osDoIxc = {
-    nomesDosAssuntos: jest.fn(async () => new Map([[1, 'Sem conexão']])),
+    nomesDosAssuntos: jest.fn(async () => new Map([[1, 'Sem conexão'], [117, 'AUDITORIA TÉCNICA']])),
     cidade: jest.fn(async () => ({ nome: 'São Luís', uf: 'MA' })),
   };
   const rastreio = {
@@ -86,7 +88,7 @@ function montar(opcoes: { clientesFalham?: boolean; vinculos?: unknown[] } = {})
 }
 
 describe('as OS do mapa', () => {
-  it('só as abertas, dos tipos escolhidos e recentes, com tudo resolvido', async () => {
+  it('só as abertas, dos tipos escolhidos, recentes e fora da auditoria técnica, com tudo resolvido', async () => {
     const { mapa } = montar();
     const { ordens, avisos, erro } = await mapa.ordens();
     expect(ordens.map((o) => o.id)).toEqual([10, 11]);
@@ -101,6 +103,15 @@ describe('as OS do mapa', () => {
     expect(ordens[1]).toMatchObject({ lat: -2.6, lng: -44.2, origemPosicao: 'login' });
     expect(avisos).toEqual([]);
     expect(erro).toBeNull();
+  });
+
+  it('a OS que fica de fora não tem o cliente lido', async () => {
+    const { mapa, ixc } = montar();
+    await mapa.ordens();
+    const clientes = ixc.list.mock.calls
+      .filter(([tabela]) => tabela === 'cliente')
+      .map(([, p]) => (p as { gridParam: Array<{ P: string }> }).gridParam[0].P);
+    expect(clientes).toEqual(['50,51']);
   });
 
   it('login e contrato só se leem para a OS sem coordenada própria', async () => {

@@ -1,4 +1,5 @@
 import {
+  assuntoForaDoMapa,
   entraNoMapa,
   isoDeBrasilia,
   osNoMapa,
@@ -91,6 +92,24 @@ describe('o que entra no mapa', () => {
 
   it('sem data nenhuma, entra: não dá para dizer que é velha', () => {
     expect(entraNoMapa({ status: 'A', tipo: 'C' }, regra)).toBe(true);
+  });
+});
+
+describe('os assuntos fora do mapa', () => {
+  /* Pedido de 10/11/2026: a auditoria técnica não entra no mapa. */
+  it('a auditoria técnica fica de fora, escrita de qualquer jeito', () => {
+    expect(assuntoForaDoMapa('AUDITORIA TÉCNICA')).toBe(true);
+    expect(assuntoForaDoMapa('Auditoria tecnica')).toBe(true);
+    expect(assuntoForaDoMapa('  auditoria   técnica ')).toBe(true);
+  });
+
+  /* Os parentes dela são outros assuntos no IXC, e continuam no mapa. */
+  it('é o nome exato: as outras auditorias e os outros assuntos continuam', () => {
+    expect(assuntoForaDoMapa('AUDITORIA TECNICA PÓS VENDA')).toBe(false);
+    expect(assuntoForaDoMapa('AUDITORIA SUPORTE')).toBe(false);
+    expect(assuntoForaDoMapa('RETIRADA DE EQUIPAMENTO')).toBe(false);
+    expect(assuntoForaDoMapa(null)).toBe(false);
+    expect(assuntoForaDoMapa(undefined)).toBe(false);
   });
 });
 
