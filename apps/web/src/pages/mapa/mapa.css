@@ -1,0 +1,303 @@
+/*
+ * O desenho de dentro do mapa de serviço: o pino da OS, o veículo, o grupo de
+ * OS e o popup. Tudo debaixo de `.mapa-de-servico` — o Leaflet põe marcador e
+ * popup dentro da caixa do mapa, e assim nada daqui vaza para outra tela.
+ *
+ * O resto da tela (o painel, os filtros, os números do alto) é Tailwind, como
+ * o resto da casa.
+ */
+
+.mapa-de-servico {
+  background: #dfe5ec;
+  font-family: inherit;
+}
+
+/* Pino de OS: a gota na cor da situação. */
+.mapa-de-servico .pino-os {
+  background: none;
+  border: 0;
+}
+.mapa-de-servico .pino-os .gota {
+  position: absolute;
+  left: 3px;
+  top: 0;
+  width: 24px;
+  height: 24px;
+  background: var(--cor);
+  border: 2px solid #fff;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+.mapa-de-servico .pino-os .gota::after {
+  content: '';
+  position: absolute;
+  inset: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.92);
+}
+/* A de estrutura (poste, caixa, rede) tem o miolo quadrado. */
+.mapa-de-servico .pino-os.estrutura .gota::after {
+  border-radius: 2px;
+  inset: 6.5px;
+}
+/* A atrasada pulsa: agenda vencida ou SLA estourado. */
+.mapa-de-servico .pino-os.atrasada::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: -4px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 3px solid #f04d4d;
+  animation: mapa-pulso 1.6s ease-out infinite;
+}
+@keyframes mapa-pulso {
+  0% {
+    transform: scale(0.6);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .mapa-de-servico .pino-os.atrasada::before {
+    animation: none;
+    opacity: 0.8;
+  }
+}
+
+/* Veículo: o disco na cor do estado, a seta do rumo e o nome embaixo. */
+.mapa-de-servico .marcador-veiculo {
+  background: none;
+  border: 0;
+}
+.mapa-de-servico .veiculo {
+  position: relative;
+  width: 34px;
+  height: 34px;
+}
+.mapa-de-servico .veiculo .disco {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--cor);
+  border: 2.5px solid #fff;
+  display: grid;
+  place-items: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+.mapa-de-servico .veiculo .seta {
+  position: absolute;
+  inset: -9px;
+  pointer-events: none;
+}
+.mapa-de-servico .veiculo .seta::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  transform: translateX(-50%);
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 9px solid var(--cor);
+  filter: drop-shadow(0 -1px 0 #fff);
+}
+.mapa-de-servico .veiculo .rotulo {
+  position: absolute;
+  top: 38px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(11, 18, 32, 0.88);
+  color: #fff;
+}
+.mapa-de-servico .marcador-veiculo.esmaecido {
+  opacity: 0.35;
+}
+.mapa-de-servico .marcador-veiculo.destacado .disco {
+  box-shadow:
+    0 0 0 4px rgba(34, 184, 207, 0.6),
+    0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+/* O grupo de OS; vermelho quando tem atrasada dentro. */
+.mapa-de-servico .cluster-os {
+  background: none;
+}
+.mapa-de-servico .cluster-os div {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #0e7490;
+  color: #fff;
+  font-weight: 700;
+  border: 3px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+.mapa-de-servico .cluster-os.com-atraso div {
+  background: #c02626;
+}
+
+/* Popup. Fica claro nos dois temas: o mapa embaixo dele é claro. */
+.mapa-de-servico .leaflet-popup-content-wrapper {
+  border-radius: 12px;
+}
+.mapa-de-servico .leaflet-popup-content {
+  margin: 14px 16px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #1e293b;
+  min-width: 250px;
+}
+.mapa-de-servico .pop-cabecalho {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.mapa-de-servico .pop-titulo {
+  font-size: 15px;
+  font-weight: 700;
+  flex: 1;
+  color: #0f172a;
+}
+.mapa-de-servico .pop-status {
+  flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--cor);
+}
+.mapa-de-servico .pop-dados {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 10px;
+  margin: 0;
+}
+.mapa-de-servico .pop-dados dt {
+  color: #64748b;
+}
+.mapa-de-servico .pop-dados dd {
+  margin: 0;
+  color: #0f172a;
+}
+.mapa-de-servico .pop-alerta {
+  margin: 0 0 8px;
+  color: #b91c1c;
+  font-weight: 600;
+}
+.mapa-de-servico .pop-mensagem {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  background: #f1f5f9;
+  border-radius: 8px;
+  white-space: pre-line;
+  max-height: 110px;
+  overflow: auto;
+}
+.mapa-de-servico .pop-nota {
+  color: #64748b;
+  font-size: 12px;
+  margin-top: 6px;
+}
+.mapa-de-servico .pop-secao {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #e2e8f0;
+}
+.mapa-de-servico .pop-secao h4 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #64748b;
+}
+.mapa-de-servico .pop-proximos {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.mapa-de-servico .pop-proximos button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  padding: 5px 8px;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  cursor: pointer;
+  color: #0f172a;
+}
+.mapa-de-servico .pop-proximos button:hover {
+  border-color: #0e7490;
+}
+.mapa-de-servico .pop-proximos .bolinha {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--cor);
+  flex: none;
+}
+.mapa-de-servico .pop-proximos .nome {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mapa-de-servico .pop-proximos .dist {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.mapa-de-servico .pop-proximos .tag {
+  flex: none;
+  font-size: 10px;
+  font-weight: 700;
+  color: #0e7490;
+  background: #cffafe;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.mapa-de-servico .pop-acoes {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.mapa-de-servico .pop-botao {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 12.5px;
+  border: 1px solid #0e7490;
+  background: #0e7490;
+  color: #fff !important;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+/* O botão de enquadrar tudo, junto do zoom. */
+.mapa-de-servico .controle-enquadrar a {
+  font-size: 16px;
+  line-height: 30px;
+}

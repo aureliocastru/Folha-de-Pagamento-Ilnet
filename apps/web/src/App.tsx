@@ -4,6 +4,7 @@ import { useAuth } from './lib/auth';
 import {
   MODULO_CONTAS_PAGAR,
   MODULO_ALMOXARIFADO,
+  MODULO_MAPA,
   MODULO_OS,
   MODULO_PATROCINIO,
   MODULO_PONTUACAO,
@@ -99,6 +100,8 @@ const PatrocinadoAberto = telaSobDemanda(() => import('./pages/patrocinio/Patroc
 const ContratoPadrao = telaSobDemanda(() => import('./pages/patrocinio/ContratoPadrao').then((m) => m.ContratoPadrao));
 const PagamentosDoPatrocinio = telaSobDemanda(() => import('./pages/patrocinio/Pagamentos').then((m) => m.Pagamentos));
 const NotasDoPatrocinio = telaSobDemanda(() => import('./pages/patrocinio/Notas').then((m) => m.Notas));
+const MapaAoVivo = telaSobDemanda(() => import('./pages/mapa/MapaAoVivo').then((m) => m.MapaAoVivo));
+const Rastreadores = telaSobDemanda(() => import('./pages/mapa/Rastreadores').then((m) => m.Rastreadores));
 
 function Protegida({ children }: { children: ReactNode }) {
   const { usuario, carregando } = useAuth();
@@ -209,6 +212,7 @@ const TELAS_DO_MODULO: Record<string, Array<{ preCarregar: () => void }>> = {
     Ferramentas, Comodato, Precos, FornecedoresDeCotacao, MinhaConta,
   ],
   os: [RegistrosDeOs, ConferenciaDeOs, Recolhidos, TecnicosDeOs, MateriaisDeOs, RelatorioDeOs, MinhaConta],
+  mapa: [MapaAoVivo, Rastreadores, MinhaConta],
   rh: [PastasRh, PastaDaEmpresa, RecibosDaFolha, Licitacoes, NotasFiscais, MinhaConta],
   seguranca: [Aprs, Formularios, MinhaConta],
   campo: [CampoMinhasOs, MinhaConta],
@@ -429,6 +433,23 @@ export default function App() {
         <Route path="tecnicos" element={<TecnicosDeOs />} />
         <Route path="materiais" element={<MateriaisDeOs />} />
         <Route path="relatorio" element={<RelatorioDeOs />} />
+        <Route path="minha-conta" element={<MinhaConta />} />
+      </Route>
+
+      {/* Mapa de Serviço — as OS abertas e a frota em tempo real, no mesmo
+          mapa. Era o ILNET Service Map, um painel à parte; a ligação de cada
+          carro ao técnico, que lá era arquivo, aqui é a tela de Rastreadores. */}
+      <Route
+        path="/mapa"
+        element={
+          <Protegida>
+            <Layout modulo={MODULO_MAPA} />
+          </Protegida>
+        }
+      >
+        <Route index element={<Navigate to="ao-vivo" replace />} />
+        <Route path="ao-vivo" element={<MapaAoVivo />} />
+        <Route path="rastreadores" element={<Rastreadores />} />
         <Route path="minha-conta" element={<MinhaConta />} />
       </Route>
 

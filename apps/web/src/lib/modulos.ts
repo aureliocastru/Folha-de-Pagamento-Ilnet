@@ -14,6 +14,7 @@ import {
   IconeEngrenagem,
   IconeEtiqueta,
   IconeGuia,
+  IconeMapa,
   IconeMartelo,
   IconeMegafone,
   IconeMoeda,
@@ -388,6 +389,36 @@ const os: Modulo = {
 };
 
 /**
+ * Mapa de Serviço — as OS abertas do IXC e a frota em tempo real, no mesmo
+ * mapa.
+ *
+ * Era o ILNET Service Map, um painel à parte com login próprio, inspirado no
+ * InMap do IXC: a OS em pino da cor da situação, o carro na cor do estado, os
+ * veículos mais perto de cada OS e "Como chegar". Aqui é módulo, com o login
+ * da casa. A tela de Rastreadores liga cada carro ao técnico que anda nele —
+ * o que lá era um arquivo no servidor.
+ *
+ * Só lê o IXC. Mostra nome e endereço de cliente: abre para os mesmos perfis
+ * das Ordens de Serviço.
+ */
+const mapa: Modulo = {
+  id: 'mapa',
+  nome: 'Mapa de Serviço',
+  descricao:
+    'As OS abertas do IXC e a frota em tempo real no mesmo mapa: quem está ' +
+    'mais perto de cada OS e por onde anda cada técnico',
+  base: '/mapa',
+  inicio: 'ao-vivo',
+  icone: IconeMapa,
+  tom: 'bg-cyan-500/15 text-cyan-300',
+  papeis: ['ADMIN', 'RH', 'VISUALIZADOR'],
+  menu: [
+    { to: 'ao-vivo', label: 'Mapa', icone: IconeMapa },
+    { to: 'rastreadores', label: 'Rastreadores', icone: IconeCarro },
+  ],
+};
+
+/**
  * Pontuação — os coordenadores pontuam os funcionários.
  *
  * Por dentro do sistema, só o ADMIN entra, e sem login novo: é ele quem vê
@@ -448,6 +479,7 @@ export const MODULOS: Modulo[] = [
   contasPagar,
   almoxarifado,
   os,
+  mapa,
   rh,
   seguranca,
   patrocinio,
@@ -483,6 +515,7 @@ export const MODULO_RH = rh;
 export const MODULO_SEGURANCA = seguranca;
 export const MODULO_PONTUACAO = pontuacao;
 export const MODULO_PATROCINIO = patrocinio;
+export const MODULO_MAPA = mapa;
 
 /**
  * A tela do colaborador — a pontuação, o abastecimento e a análise de risco de

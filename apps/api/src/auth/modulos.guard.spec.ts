@@ -147,4 +147,18 @@ describe('login com perfil criado', () => {
   it('as contas de luz são do Contas a Pagar', () => {
     expect(moduloDaRota('/api/contas-contrato')).toEqual(['contas-pagar']);
   });
+
+  /*
+   * O mapa mostra nome e endereço de cliente. Módulo novo nasce fechado para
+   * o perfil que já existia: o administrador abre de propósito.
+   */
+  it('o mapa de serviço é módulo próprio, e nasce fechado para os perfis de antes', () => {
+    expect(moduloDaRota('/api/mapa/ordens')).toEqual(['mapa']);
+    expect(() => guard.canActivate(contexto(almoxarife, '/api/mapa/frota'))).toThrow(/não abre/);
+    const despacho = { ...almoxarife, permissoes: { ...almoxarife.permissoes, mapa: 'ver' as const } };
+    expect(guard.canActivate(contexto(despacho, '/api/mapa/frota'))).toBe(true);
+    expect(() =>
+      guard.canActivate(contexto(despacho, '/api/mapa/rastreadores/1024', 'PUT')),
+    ).toThrow(/só vê/);
+  });
 });

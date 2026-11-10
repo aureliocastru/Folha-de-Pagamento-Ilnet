@@ -42,10 +42,11 @@ describe('permissões do perfil', () => {
       rh: 'nao',
       seguranca: 'nao',
       almoxarifado: 'mexer',
-      // Módulo que nasceu depois do perfil (as OS, o patrocínio) fica fechado
-      // até alguém abrir.
+      // Módulo que nasceu depois do perfil (as OS, o patrocínio, o mapa) fica
+      // fechado até alguém abrir.
       os: 'nao',
       patrocinio: 'nao',
+      mapa: 'nao',
     });
   });
 });

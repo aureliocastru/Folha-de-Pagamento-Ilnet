@@ -614,6 +614,19 @@ export function IconeMegafone({ className }: IconeProps) {
   );
 }
 
+/** O mapa dobrado com o pino: onde está cada OS e cada carro. */
+export function IconeMapa({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M9 4.5 3.5 6.5v13l5.5-2 6 2 5.5-2v-5" />
+      <path d="M9 4.5v13" />
+      <path d="M15 12v7.5" />
+      <path d="M18 2.5a3 3 0 0 0-3 3c0 2.2 3 5 3 5s3-2.8 3-5a3 3 0 0 0-3-3Z" />
+      <circle cx="18" cy="5.5" r="0.9" />
+    </svg>
+  );
+}
+
 /** A setinha de um grupo do menu: para o lado fechado, para baixo aberto. */
 export function IconeSetinha({ className }: IconeProps) {
   return (

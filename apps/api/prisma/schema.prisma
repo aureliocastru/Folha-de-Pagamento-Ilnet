@@ -4216,3 +4216,35 @@ model FolhaSalva {
   @@unique([modo, mesTrabalhado])
   @@map("folhas_salvas")
 }
+
+/// Qual técnico anda com cada rastreador da frota — o que o mapa de serviço
+/// precisa para dizer, no veículo, de quem são as OS, e na OS, se o carro mais
+/// perto é o do técnico dela.
+///
+/// O rastreador não sabe quem está no carro, e o IXC tem o campo
+/// (`funcionarios.rastreador`), mas vazio em todo colaborador (visto em
+/// 10/11/2026). No ILNET Service Map, de onde o mapa veio, a ligação era um
+/// arquivo no servidor (`config/vinculos.json`); aqui é uma tela.
+model RastreadorDoTecnico {
+  /// O `id` do aparelho na plataforma de rastreamento (`get_devices`).
+  dispositivoId String @id @map("dispositivo_id")
+
+  /// O nome do veículo lá quando a ligação foi feita — para a tela dizer qual
+  /// era, se o aparelho sair da conta do rastreador.
+  nomeDoVeiculo String? @map("nome_do_veiculo")
+
+  /// `funcionarios.id` do IXC — o mesmo `id_tecnico` das OS.
+  tecnicoIxcId Int?    @map("tecnico_ixc_id")
+  /// O nome do técnico quando a ligação foi feita, pelo mesmo motivo.
+  tecnicoNome  String? @map("tecnico_nome")
+
+  /// "Equipe Norte", "Fibra" — o que a base chama o carro, se chama.
+  equipe String?
+
+  atualizadoPor String?  @map("atualizado_por")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@index([tecnicoIxcId])
+  @@map("rastreadores_dos_tecnicos")
+}

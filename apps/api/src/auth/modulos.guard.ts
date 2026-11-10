@@ -16,6 +16,7 @@ export const MODULOS = [
   'almoxarifado',
   'os',
   'patrocinio',
+  'mapa',
 ] as const;
 export type ModuloId = (typeof MODULOS)[number];
 
@@ -73,6 +74,10 @@ const MODULO_DA_ROTA: Array<[string, ModuloId[]]> = [
   // do Contas a Pagar: quem abre só o patrocínio vê o que já se mandou (lido
   // do IXC por aqui), e não paga.
   ['patrocinios', ['patrocinio']],
+
+  // O mapa de serviço: as OS abertas e a frota. Mostra nome e endereço de
+  // cliente, e por isso é módulo — e não uma tela solta para qualquer login.
+  ['mapa', ['mapa']],
 
   ['contas-abertas', ['contas-pagar']],
   ['pagamentos-feitos', ['contas-pagar']],

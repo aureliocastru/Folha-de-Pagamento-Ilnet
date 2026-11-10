@@ -38,5 +38,7 @@ import { TecnicosService } from './tecnicos.service';
     MateriaisDeOsService,
     RelatorioOsService,
   ],
+  // O mapa de serviço lê os assuntos e as cidades das OS pelas mesmas leituras.
+  exports: [OsDoIxcService],
 })
 export class OsModule {}

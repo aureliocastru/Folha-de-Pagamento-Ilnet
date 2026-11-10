@@ -43,6 +43,16 @@ Pré-requisito: o código versionado num repositório Git acessível pelo EasyPa
   ADMIN_EMAIL=voce@empresa.com
   ADMIN_SENHA=<senha-forte-do-admin>
   ```
+- **Mapa de Serviço (opcional):** para a frota aparecer no mapa, junto das OS,
+  acrescente a chave da plataforma de rastreamento. Sem ela o mapa mostra só as
+  OS. As outras variáveis do mapa (`MAPA_*`) estão no `.env.example`.
+  ```
+  RASTREIO_API_HASH=<user_api_hash da plataforma>
+  # ou, no lugar do hash, o e-mail e a senha da conta (o servidor gera o hash):
+  # RASTREIO_EMAIL=frota@empresa.com
+  # RASTREIO_SENHA=<senha-da-conta>
+  ```
+  Quem anda em cada carro se liga na tela **Mapa de Serviço › Rastreadores**.
 - **Port:** exponha a porta `3333` (interna). Não precisa de domínio público se
   o `web` fizer o proxy (recomendado).
 - O container roda `prisma migrate deploy` automaticamente no start — as tabelas

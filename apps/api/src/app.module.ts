@@ -29,6 +29,7 @@ import { ColaboradorModule } from './colaborador/colaborador.module';
 import { OsModule } from './os/os.module';
 import { ContabilidadeModule } from './contabilidade/contabilidade.module';
 import { PatrocinioModule } from './patrocinio/patrocinio.module';
+import { MapaModule } from './mapa/mapa.module';
 import { BackupModule } from './backup/backup.module';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { ModulosGuard } from './auth/modulos.guard';
@@ -69,6 +70,7 @@ import { HealthController } from './health/health.controller';
     OsModule,
     ContabilidadeModule,
     PatrocinioModule,
+    MapaModule,
     BackupModule,
   ],
   controllers: [HealthController],
