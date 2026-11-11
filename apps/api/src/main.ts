@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import type { AppConfig } from './config/configuration';
+import { medirPedidos } from './health/medidor';
 
 /**
  * Teto do corpo em JSON. O padrão do express é 100 KB, e a assinatura do
@@ -47,6 +48,8 @@ async function bootstrap() {
     cors: false,
     bodyParser: false,
   });
+  // Antes de tudo, para o tempo contar a leitura do corpo também.
+  app.use(medirPedidos);
   app.use(json({ limit: LIMITE_CORPO }));
   app.use(urlencoded({ extended: true, limit: LIMITE_CORPO }));
 

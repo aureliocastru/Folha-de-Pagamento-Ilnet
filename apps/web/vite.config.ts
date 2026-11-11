@@ -19,9 +19,33 @@ const VERSAO = new Intl.DateTimeFormat('pt-BR', {
   .format(new Date())
   .replace(', ', ' às ');
 
+const BIBLIOTECAS_DE_BASE =
+  /\/node_modules\/(react|react-dom|scheduler|react-router|react-router-dom|@remix-run\/router|@tanstack\/[^/]+|axios)\//;
+
 export default defineConfig({
   plugins: [react()],
   define: { __VERSAO__: JSON.stringify(VERSAO) },
+  build: {
+    rollupOptions: {
+      output: {
+        /*
+         * As bibliotecas de base (React, rotas, consultas, axios) num pacote à
+         * parte. Elas vinham dentro do pacote principal, que muda de nome a
+         * cada versão — e sai versão quase todo dia: o celular baixava de novo
+         * o React inteiro por causa de uma vírgula numa tela. Separadas, o
+         * nome delas só muda quando a biblioteca muda, e o aparelho segue com
+         * a cópia que já tem.
+         *
+         * O nome não pode começar com `index-`: é por esse nome que o
+         * `AvisoDeVersaoNova` reconhece o pacote principal.
+         */
+        manualChunks(id) {
+          if (BIBLIOTECAS_DE_BASE.test(id.replaceAll('\\', '/'))) return 'base';
+          return undefined;
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {

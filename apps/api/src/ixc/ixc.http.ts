@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import axios, { AxiosInstance } from 'axios';
 import type { AppConfig } from '../config/configuration';
+import { medidor } from '../health/medidor';
 
 export const IXC_HTTP = 'IXC_HTTP';
 
@@ -35,11 +36,46 @@ export function createIxcHttp(ixc: AppConfig['ixc']): AxiosInstance {
     validateStatus: (s) => s >= 200 && s < 500,
   });
 
+  medirChamadas(http);
+
   if (ixc.somenteLeitura) {
     logger.warn('IXC em modo só leitura (IXC_SOMENTE_LEITURA): toda escrita será recusada.');
     http.interceptors.request.use(recusarEscrita);
   }
   return http;
+}
+
+/**
+ * Anota quanto o IXC levou em cada chamada, por recurso (ver o `medidor`).
+ *
+ * É o que separa "o IXC está lento" de "nós estamos lentos": quase toda tela
+ * daqui lê de lá, e a demora dele chega à pessoa com a nossa cara.
+ */
+function medirChamadas(http: AxiosInstance): void {
+  const INICIO = Symbol('inicio');
+  type Marcado = { [INICIO]?: number; method?: string; url?: string };
+  const anotar = (pedido: Marcado | undefined) => {
+    const inicio = pedido?.[INICIO];
+    if (inicio === undefined) return;
+    // Só o recurso: o id que vem depois da barra não entra na chave.
+    const recurso = (pedido?.url ?? '').split('/').filter(Boolean)[0] ?? '?';
+    const metodo = (pedido?.method ?? 'get').toUpperCase();
+    medidor.anotar('ixc', `${metodo} ${recurso}`, performance.now() - inicio);
+  };
+  http.interceptors.request.use((pedido) => {
+    (pedido as Marcado)[INICIO] = performance.now();
+    return pedido;
+  });
+  http.interceptors.response.use(
+    (resposta) => {
+      anotar(resposta.config as Marcado);
+      return resposta;
+    },
+    (erro: { config?: Marcado }) => {
+      anotar(erro?.config);
+      return Promise.reject(erro);
+    },
+  );
 }
 
 /**

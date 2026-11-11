@@ -1494,6 +1494,8 @@ model ContaPagar {
   @@index([cartaoCreditoId, competencia])
   @@index([veiculoId])
   @@index([feriasMarcadaId])
+  @@index([recorrenteId])
+  @@index([beneficiarioAvulsoId])
   @@map("contas_pagar")
 }
 
@@ -1815,6 +1817,7 @@ model Abastecimento {
 
   @@index([veiculoId, data])
   @@index([galaoId, data])
+  @@index([funcionarioId])
   @@map("abastecimentos")
 }
 
@@ -1967,6 +1970,7 @@ model ItemPrevisaoFerias {
 
   @@index([previsaoId])
   @@index([dataLimite])
+  @@index([funcionarioId])
   @@map("itens_previsao_ferias")
 }
 
@@ -2005,6 +2009,7 @@ model FeriasMarcada {
 
   @@unique([codigo, periodoFim])
   @@index([inicio])
+  @@index([funcionarioId])
   @@map("ferias_marcadas")
 }
 
@@ -2882,6 +2887,7 @@ model Apr {
   @@index([status])
   @@index([inicioEm])
   @@index([criadoPorId])
+  @@index([modeloId])
   @@map("aprs")
 }
 
@@ -3733,6 +3739,7 @@ model LancamentoDePontos {
 
   @@index([competencia])
   @@index([funcionarioId, competencia])
+  @@index([coordenadorId])
   @@map("lancamentos_de_pontos")
 }
 
