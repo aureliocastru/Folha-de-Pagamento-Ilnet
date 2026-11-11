@@ -1,5 +1,7 @@
 import { Logger } from '@nestjs/common';
 import axios, { AxiosInstance } from 'axios';
+import { Agent } from 'node:https';
+import { EnderecoDoIxc } from './endereco-do-ixc';
 import type { AppConfig } from '../config/configuration';
 import { medidor } from '../health/medidor';
 
@@ -28,6 +30,9 @@ export function createIxcHttp(ixc: AppConfig['ixc']): AxiosInstance {
   const http = axios.create({
     baseURL: `https://${ixc.host}/webservice/v1`,
     timeout: ixc.timeoutMs,
+    // O endereço do IXC não depende de um DNS só (ver `EnderecoDoIxc`), e as
+    // conexões são reaproveitadas, como o Node já fazia por padrão.
+    httpsAgent: new Agent({ keepAlive: true, lookup: new EnderecoDoIxc().lookup }),
     headers: {
       Authorization: `Basic ${token}`,
       'Content-Type': 'application/json',
