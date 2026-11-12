@@ -1,11 +1,10 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { api, mensagemErro } from '../lib/api';
 import { semAcento } from '../lib/busca';
 import { emArvore } from '../lib/categorias';
 import type { CategoriaDespesa } from '../lib/types';
-import { useLugarDoPainel } from '../lib/lugar-do-painel';
+import { PainelDeEscolha } from './PainelDeEscolha';
 
 /** Uma opção de fora do cadastro — hoje só o "— tirar a categoria —". */
 export interface OpcaoExtra {
@@ -242,9 +241,6 @@ export function SeletorDeCategoria({
   );
 }
 
-/** Quantos nomes a lista mostra sem precisar da busca para caber. */
-const ALTURA_DA_LISTA = 'max-h-[19rem]';
-
 /**
  * Aparelho de toque (celular, tablet): sem mouse, e com teclado que sobe na
  * tela quando um campo ganha foco.
@@ -290,14 +286,6 @@ function ListaDeCategorias({
   onCriar: () => void;
   onFechar: () => void;
 }) {
-  const painel = useRef<HTMLDivElement>(null);
-  /*
-   * Onde a lista cai: embaixo do campo, ou em cima se não couber — numa linha
-   * de tabela lá no pé da página, "embaixo" é fora da janela —, e nunca atrás
-   * do teclado (ver `useLugarDoPainel`).
-   */
-  const lugar = useLugarDoPainel(ancora, painel, { larguraMinima: 260, remedir: busca });
-
   useEffect(() => {
     const aoTeclar = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onFechar();
@@ -335,18 +323,9 @@ function ListaDeCategorias({
     ...grupos.map((g) => ({ id: g.mae.id, nome: g.mae.nome, mae: g })),
   ].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 
-  return createPortal(
-    <>
-      {/* Clicar fora fecha. Transparente: a lista é consulta, e escurecer o
-          fundo esconderia justamente o débito que se está classificando. */}
-      <div onClick={onFechar} aria-hidden className="fixed inset-0 z-[55]" />
-
-      <div
-        ref={painel}
-        role="listbox"
-        style={lugar}
-        className="fixed z-[56] flex flex-col overflow-hidden rounded-xl border border-tinta-200 bg-papel shadow-2xl"
-      >
+  return (
+    <PainelDeEscolha ancora={ancora} remedir={busca} onFechar={onFechar}>
+      <>
         <div className="shrink-0 border-b border-tinta-200 p-2">
           {/* No computador a busca já abre com o cursor: digitar é o jeito
               mais rápido de achar. Na tela de toque, não — o foco levanta o
@@ -362,7 +341,7 @@ function ListaDeCategorias({
           />
         </div>
 
-        <div className={`rolagem-fina min-h-0 overflow-y-auto ${ALTURA_DA_LISTA}`}>
+        <div className="rolagem-fina lista-de-escolha min-h-0 overflow-y-auto">
           {termo ? (
             achados.length === 0 ? (
               <p className="px-3 py-6 text-center text-sm text-tinta-400">
@@ -473,13 +452,12 @@ function ListaDeCategorias({
         <button
           type="button"
           onClick={onCriar}
-          className="w-full border-t border-tinta-200 px-3 py-2.5 text-left text-sm font-semibold text-brand-700 transition hover:bg-brand-500/10 dark:text-brand-300"
+          className="criar-na-escolha w-full shrink-0 border-t border-tinta-200 px-3 py-2.5 text-left text-sm font-semibold text-brand-700 transition hover:bg-brand-500/10 dark:text-brand-300"
         >
           + Criar nova categoria…
         </button>
-      </div>
-    </>,
-    document.body,
+      </>
+    </PainelDeEscolha>
   );
 }
 
@@ -506,8 +484,8 @@ function Linha({
       aria-selected={marcada}
       onClick={onClick}
       className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition ${
-        filha ? 'pl-8' : ''
-      } ${grupo ? 'font-bold text-tinta-800' : 'text-tinta-700'} ${
+        filha ? 'linha-filha pl-8' : ''
+      } ${grupo ? 'linha-grupo font-bold text-tinta-800' : 'text-tinta-700'} ${
         marcada
           ? 'bg-brand-500/10 text-brand-800 dark:text-brand-200'
           : 'hover:bg-tinta-100'

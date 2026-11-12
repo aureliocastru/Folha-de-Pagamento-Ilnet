@@ -1170,6 +1170,43 @@
   background: transparent;
 }
 
+/*
+ * --- A lista de escolher (categoria, veículo, listas com busca) ---
+ *
+ * No computador, um painel curto junto do campo. No celular ela abre num balão
+ * no alto da tela (`PainelDeEscolha`) e ocupa o que houver: linhas da altura
+ * do dedo, um fio entre elas, letra de 16px e um ✓ na escolhida — sem fundo
+ * colorido nem recuo disputando o olho.
+ */
+.lista-de-escolha {
+  max-height: 19rem;
+}
+.escolha-celular .lista-de-escolha {
+  max-height: none;
+  flex: 1 1 auto;
+  overscroll-behavior: contain;
+}
+.escolha-celular [role='option'] {
+  @apply min-h-12 border-b border-tinta-100 bg-transparent px-4 py-2.5 text-[16px] text-tinta-800;
+}
+.escolha-celular [role='option'][aria-selected='true'] {
+  @apply font-semibold text-brand-700 dark:text-brand-300;
+}
+.escolha-celular [role='option'][aria-selected='true']:not(.linha-grupo)::after {
+  content: '✓';
+  @apply ml-2 shrink-0 text-[17px] font-bold;
+}
+/* O grupo é um título que abre; as de dentro vêm recuadas, sobre um fundo leve. */
+.escolha-celular .linha-grupo {
+  @apply font-semibold;
+}
+.escolha-celular .linha-filha {
+  @apply bg-tinta-50 pl-8;
+}
+.escolha-celular .criar-na-escolha {
+  @apply px-4 py-3 text-[15px];
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

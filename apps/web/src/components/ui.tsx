@@ -374,10 +374,14 @@ export function Bloco({
 }
 
 /**
- * O campo que acabou de receber o foco vai para o meio da janela.
+ * O campo que recebeu o foco fica à vista — e mais nada se mexe.
  *
- * Mesmo com a janela no lugar certo, o campo pode estar no fim de um
- * formulário que rola por dentro — e o teclado sobe justamente por cima dele.
+ * Levava o campo para o meio da janela a cada toque, mesmo quando ele já
+ * estava à vista: a tela andava sozinha de campo em campo (pedido do dono,
+ * 12/11/2026: "pra não mexer na posição da tela"). Agora só rola quando o
+ * teclado realmente cobriu o campo, só o que falta para ele aparecer, e só o
+ * miolo da janela — o `scrollIntoView` arrastava a página junto.
+ *
  * O atraso é o da animação do teclado: medir antes dela é medir a tela de
  * antes.
  */
@@ -385,13 +389,24 @@ function useCampoNoMeio(area: React.RefObject<HTMLElement | null>) {
   useEffect(() => {
     const el = area.current;
     if (!el) return;
+    let espera: ReturnType<typeof setTimeout> | undefined;
     const aoFocar = (e: FocusEvent) => {
       const alvo = e.target as HTMLElement | null;
       if (!alvo || !el.contains(alvo)) return;
-      setTimeout(() => alvo.scrollIntoView({ block: 'center', behavior: 'smooth' }), 280);
+      clearTimeout(espera);
+      espera = setTimeout(() => {
+        const folga = 12;
+        const a = alvo.getBoundingClientRect();
+        const m = el.getBoundingClientRect();
+        if (a.bottom > m.bottom - folga) el.scrollTop += a.bottom - m.bottom + folga;
+        else if (a.top < m.top + folga) el.scrollTop -= m.top + folga - a.top;
+      }, 320);
     };
     el.addEventListener('focusin', aoFocar);
-    return () => el.removeEventListener('focusin', aoFocar);
+    return () => {
+      clearTimeout(espera);
+      el.removeEventListener('focusin', aoFocar);
+    };
   }, [area]);
 }
 
@@ -424,17 +439,11 @@ export function Janela({
   children,
   larga = false,
   media = false,
-  noAlto = false,
 }: {
   titulo: string;
   onFechar: () => void;
   children: ReactNode;
-  /**
-   * No celular, a folha pendurada no alto da tela em vez de subir do pé. É a
-   * do "Lançar conta": o leitor da câmera e o que se preenche ficam onde os
-   * olhos estão, e não lá embaixo (pedido do dono, 20/10/2026). Com o teclado
-   * aberto nada muda: ela já se prende ao pedaço visível.
-   */
+  /** Sem efeito desde 12/11/2026: no celular toda janela fica no alto. */
   noAlto?: boolean;
   /**
    * Mais larga no computador, para um formulário em duas colunas caber na
@@ -552,14 +561,16 @@ export function Janela({
           se está preenchendo. As folgas de cima e de baixo respeitam a barra do
           iPhone e a faixa do gesto do sistema.
         */
-        className={`fixed inset-0 z-50 flex flex-col bg-black/80 px-3 backdrop-blur-sm ${
+        /*
+          Sempre no alto (12/11/2026): subindo do pé, o balão nascia onde o
+          teclado abre e tinha de pular para o meio a cada campo tocado. No
+          alto, o teclado sobe para o espaço vazio de baixo, o balão só encurta
+          pelo pé e a tela não sai do lugar.
+        */
+        className={`fixed inset-0 z-50 flex flex-col justify-start bg-black/80 px-3 backdrop-blur-sm ${
           teclado
-            ? noAlto
-              ? 'justify-start py-3'
-              : 'justify-center py-3'
-            : noAlto
-              ? 'justify-start pb-3 pt-[max(0.75rem,env(safe-area-inset-top))]'
-              : 'justify-end pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]'
+            ? 'py-3'
+            : 'pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-[max(0.75rem,env(safe-area-inset-top))]'
         }`}
       >
         <div
@@ -569,7 +580,7 @@ export function Janela({
           onInput={marcarMexido}
           onChange={marcarMexido}
           className={`surgir flex flex-col rounded-2xl border border-tinta-100 bg-papel shadow-2xl ${
-            teclado ? 'max-h-full' : 'max-h-[88vh]'
+            teclado ? 'max-h-full' : 'max-h-[88dvh]'
           }`}
         >
           <div className="faixa-titulo flex shrink-0 items-center justify-between gap-3 rounded-t-2xl py-2 pl-4 pr-2">

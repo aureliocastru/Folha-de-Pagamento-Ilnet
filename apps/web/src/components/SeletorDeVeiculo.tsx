@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { semAcento } from '../lib/busca';
-import { useLugarDoPainel } from '../lib/lugar-do-painel';
+import { PainelDeEscolha } from './PainelDeEscolha';
 
 export interface VeiculoDaLista {
   id: string;
@@ -176,8 +175,6 @@ function ListaDeVeiculos({
     ...(extra ? [extra] : []),
   ];
   const marcada = Math.min(destaque, Math.max(0, linhas.length - 1));
-  // Junto do campo, e nunca atrás do teclado — ver `useLugarDoPainel`.
-  const lugar = useLugarDoPainel(ancora, painel, { larguraMinima: 260, remedir: linhas.length });
 
   // A linha em destaque acompanha as setas, sem sair da área visível.
   useEffect(() => {
@@ -205,18 +202,14 @@ function ListaDeVeiculos({
     }
   }
 
-  return createPortal(
-    <>
-      {/* Clicar fora fecha, sem escurecer: a conta que se lança fica à vista. */}
-      <div onClick={onFechar} aria-hidden className="fixed inset-0 z-[55]" />
-
-      <div
-        ref={painel}
-        role="listbox"
-        onKeyDown={aoTeclar}
-        style={lugar}
-        className="fixed z-[56] flex flex-col overflow-hidden rounded-xl border border-tinta-200 bg-papel shadow-2xl"
-      >
+  return (
+    <PainelDeEscolha
+      ancora={ancora}
+      remedir={linhas.length}
+      onFechar={onFechar}
+      onKeyDown={aoTeclar}
+    >
+      <div ref={painel} className="contents">
         <div className="shrink-0 border-b border-tinta-200 p-2">
           <input
             autoFocus={!TELA_DE_TOQUE}
@@ -232,7 +225,7 @@ function ListaDeVeiculos({
           />
         </div>
 
-        <div className="rolagem-fina max-h-[19rem] min-h-0 overflow-y-auto">
+        <div className="rolagem-fina lista-de-escolha min-h-0 overflow-y-auto">
           {linhas.length === 0 ? (
             <p className="px-3 py-6 text-center text-sm text-tinta-400">
               Nenhum veículo com essa placa ou nome.
@@ -269,8 +262,7 @@ function ListaDeVeiculos({
           )}
         </div>
       </div>
-    </>,
-    document.body,
+    </PainelDeEscolha>
   );
 }
 
