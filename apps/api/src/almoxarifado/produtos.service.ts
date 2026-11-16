@@ -707,9 +707,8 @@ export class ProdutosService {
    * guardado aqui apontando para outra nota é sinal de que algo mudou no IXC,
    * e apagar a compra errada tiraria estoque de verdade.
    *
-   * A compra fechada é reaberta antes (o mesmo `PUT` que a fechou, com o
-   * status de aberta): o IXC só deixa mexer em compra aberta. Nunca lança —
-   * devolve o que conseguiu e, se parou, o porquê.
+   * O IXC só deixa mexer em compra aberta: a finalizada precisa ser reaberta
+   * antes. Nunca lança — devolve o que conseguiu e, se parou, o porquê.
    */
   async desfazerCompra(
     entradaId: number,
@@ -738,25 +737,35 @@ export class ProdutosService {
     }
 
     if (String(entrada.status ?? '').trim().toUpperCase() !== 'A') {
+      /*
+       * Compra finalizada: o IXC recusa editar ("somente … entradas de compra
+       * que nunca foram finalizadas") e recusa tirar produto ("Entrada já está
+       * finalizada!") — visto na #3546, 16/11/2026. A documentação não traz o
+       * reabrir da compra; traz o da venda (`vd_saida_alterar`, o botão
+       * Alterar de lá). Tenta-se o irmão dele, e relê-se: só conta se a
+       * compra voltou mesmo a aberta.
+       */
+      let tentativa = 'aceito';
       try {
-        await this.ixc.update('entrada', entradaId, {
-          ...montarEntrada({
-            tipoDocumentoId: numeroDoIxc(entrada.tipo_documento),
-            fornecedorId: numeroDoIxc(entrada.id_fornecedor),
-            condicaoPagamentoId: numeroDoIxc(entrada.condicoes_pagamento),
-            filialId: numeroDoIxc(entrada.filial_id),
-            data: dataDeEscrita(entrada.data_entrada),
-            dataEmissao: dataDeEscrita(entrada.data_emissao),
-            numeroNota: String(entrada.numero_nf ?? ''),
-            documento: String(entrada.documento ?? '') || undefined,
-            valorTotal: numeroDoIxc(entrada.valor_total),
-          }),
-          status: 'A',
-        });
+        await this.ixc.update('entrada_alterar', entradaId, { status: 'A' });
       } catch (err) {
-        // Segue: se o IXC deixar apagar mesmo fechada, melhor; se não, o erro
-        // do item diz o motivo de verdade.
-        this.logger.warn(`Compra #${entradaId}: o IXC não reabriu (${motivoDe(err)}).`);
+        tentativa = motivoDe(err);
+      }
+      const relida = await this.ixc
+        .getById<Record<string, unknown>>('entrada', 'entrada.id', entradaId)
+        .catch(() => null);
+      const status = String(relida?.status ?? '').trim().toUpperCase();
+      this.logger.log(
+        `Compra #${entradaId}: reabrir por entrada_alterar — ${tentativa}; status agora "${status}".`,
+      );
+      if (status !== 'A') {
+        return {
+          ok: false,
+          erro:
+            `a compra #${entradaId} já está finalizada no IXC, e ele não deixou reabrir daqui. ` +
+            'No IXC, em Entradas › Compras, selecione a compra e use "Alterar" para reabri-la; ' +
+            'depois clique em Desfazer de novo',
+        };
       }
     }
 
