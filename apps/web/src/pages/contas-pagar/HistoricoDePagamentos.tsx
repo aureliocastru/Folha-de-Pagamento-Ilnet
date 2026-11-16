@@ -4,6 +4,7 @@ import {
   Aviso,
   Bloco,
   CabecalhoPagina,
+  CampoDinheiro,
   Carregando,
   Pagina,
   Selo,
@@ -50,10 +51,40 @@ type Recorte = 'todos' | 'ressalva' | 'parciais';
  */
 const BOM_UTF8 = String.fromCharCode(0xfeff);
 
+/**
+ * Os filtros de escolher: faixa de valor pago, de que conta saiu, a forma e a
+ * categoria. Valem sobre o que já foi lido — nenhum deles relê o IXC.
+ */
+interface Filtros {
+  /** Valor pago mínimo e máximo, como o `CampoDinheiro` os dá ("2107.03" ou ""). */
+  valorDe: string;
+  valorAte: string;
+  conta: string;
+  forma: string;
+  categoria: string;
+}
+
+const SEM_FILTROS: Filtros = { valorDe: '', valorAte: '', conta: '', forma: '', categoria: '' };
+
+/** A conta de onde saiu, como a coluna "Saiu de" a escreve. */
+function contaDe(p: PagamentoFeito): string {
+  return p.caixa.nome ?? (p.caixa.id ? `caixa ${p.caixa.id}` : '');
+}
+
+/** O que há para escolher em cada lista: só o que aparece no período lido. */
+function opcoesDe(pagamentos: PagamentoFeito[], ler: (p: PagamentoFeito) => string | null | undefined) {
+  return [...new Set(pagamentos.map((p) => ler(p) ?? '').filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, 'pt-BR'),
+  );
+}
+
 export function HistoricoDePagamentos() {
   const [periodo, setPeriodo] = useState(ultimosDias(30));
   const [recorte, setRecorte] = useState<Recorte>('todos');
   const [busca, setBusca] = useState('');
+  const [filtros, setFiltros] = useState<Filtros>(SEM_FILTROS);
+  const mudar = (parte: Partial<Filtros>) => setFiltros((f) => ({ ...f, ...parte }));
+  const comFiltro = Object.values(filtros).some(Boolean);
   /** Pagamento cuja ficha estamos olhando. */
   const [detalhando, setDetalhando] = useState<PagamentoFeito | null>(null);
 
@@ -87,9 +118,18 @@ export function HistoricoDePagamentos() {
   });
 
   const pagamentos = useMemo(
-    () => filtrar(consulta.data?.pagamentos ?? [], recorte, busca),
-    [consulta.data, recorte, busca],
+    () => filtrar(consulta.data?.pagamentos ?? [], recorte, busca, filtros),
+    [consulta.data, recorte, busca, filtros],
   );
+
+  const opcoes = useMemo(() => {
+    const todos = consulta.data?.pagamentos ?? [];
+    return {
+      contas: opcoesDe(todos, contaDe),
+      formas: opcoesDe(todos, (p) => p.formaPagamento),
+      categorias: opcoesDe(todos, (p) => p.classificacao?.nome),
+    };
+  }, [consulta.data]);
 
   const resumo = consulta.data?.resumo;
 
@@ -145,6 +185,48 @@ export function HistoricoDePagamentos() {
         o filtro de conferência e o de parciais ficaram como botões, e cada
         linha já diz na cara se foi em dia, em atraso ou se tem algo torto.
       */}
+      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <label className="flex items-center gap-2 text-xs text-tinta-500">
+          Valor de
+          <CampoDinheiro
+            valor={filtros.valorDe}
+            onChange={(v) => mudar({ valorDe: v })}
+            className="campo num w-28"
+            placeholder="0,00"
+          />
+        </label>
+        <label className="flex items-center gap-2 text-xs text-tinta-500">
+          até
+          <CampoDinheiro
+            valor={filtros.valorAte}
+            onChange={(v) => mudar({ valorAte: v })}
+            className="campo num w-28"
+            placeholder="0,00"
+          />
+        </label>
+        <Escolha
+          rotulo="Saiu de"
+          todas="Todas as contas"
+          valor={filtros.conta}
+          opcoes={opcoes.contas}
+          onChange={(conta) => mudar({ conta })}
+        />
+        <Escolha
+          rotulo="Forma"
+          todas="Todas as formas"
+          valor={filtros.forma}
+          opcoes={opcoes.formas}
+          onChange={(forma) => mudar({ forma })}
+        />
+        <Escolha
+          rotulo="Categoria"
+          todas="Todas as categorias"
+          valor={filtros.categoria}
+          opcoes={opcoes.categorias}
+          onChange={(categoria) => mudar({ categoria })}
+        />
+      </div>
+
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <input
           value={busca}
@@ -178,11 +260,12 @@ export function HistoricoDePagamentos() {
             Só os parciais ({resumo.parciais.quantidade})
           </button>
         )}
-        {(recorte !== 'todos' || busca) && (
+        {(recorte !== 'todos' || busca || comFiltro) && (
           <button
             onClick={() => {
               setRecorte('todos');
               setBusca('');
+              setFiltros(SEM_FILTROS);
             }}
             className="btn btn-sutil btn-p"
           >
@@ -190,7 +273,13 @@ export function HistoricoDePagamentos() {
           </button>
         )}
         {consulta.data && (
-          <span className="ml-auto text-xs text-tinta-400">
+          <span className="ml-auto text-right text-xs text-tinta-400">
+            {(recorte !== 'todos' || busca || comFiltro) && pagamentos.length > 0 && (
+              <span className="num mr-3 text-tinta-600">
+                {pagamentos.length} pagamento{pagamentos.length === 1 ? '' : 's'} ·{' '}
+                {formatBRL(pagamentos.reduce((soma, p) => soma + p.valorPago, 0))}
+              </span>
+            )}
             Lido do IXC às {formatHora(consulta.data.lidoEm)}
           </span>
         )}
@@ -256,6 +345,40 @@ export function HistoricoDePagamentos() {
         />
       )}
     </Pagina>
+  );
+}
+
+/** Uma lista de escolher da barra de filtros. Some quando não há o que escolher. */
+function Escolha({
+  rotulo,
+  todas,
+  valor,
+  opcoes,
+  onChange,
+}: {
+  rotulo: string;
+  todas: string;
+  valor: string;
+  opcoes: string[];
+  onChange: (valor: string) => void;
+}) {
+  if (opcoes.length < 2 && !valor) return null;
+  return (
+    <label className="flex items-center gap-2 text-xs text-tinta-500">
+      {rotulo}
+      <select
+        value={valor}
+        onChange={(e) => onChange(e.target.value)}
+        className="campo w-auto max-w-[14rem]"
+      >
+        <option value="">{todas}</option>
+        {opcoes.map((o) => (
+          <option key={o} value={o}>
+            {o}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
@@ -546,6 +669,7 @@ function filtrar(
   pagamentos: PagamentoFeito[],
   recorte: Recorte,
   busca: string,
+  filtros: Filtros,
 ): PagamentoFeito[] {
   // Sem acento dos dois lados: quem procura o posto escreve "sao domin", e o
   // que está guardado é "Posto São Domingos". Comparando cru, a tela dizia
@@ -558,6 +682,13 @@ function filtrar(
       (recorte === 'ressalva' && !p.conferencia.fecha && !p.conferencia.conferidoPor) ||
       (recorte === 'parciais' && p.parcial);
     if (!passaRecorte) return false;
+
+    // Meio centavo de folga: os valores chegam do IXC em ponto flutuante.
+    if (filtros.valorDe && p.valorPago < Number(filtros.valorDe) - 0.005) return false;
+    if (filtros.valorAte && p.valorPago > Number(filtros.valorAte) + 0.005) return false;
+    if (filtros.conta && contaDe(p) !== filtros.conta) return false;
+    if (filtros.forma && p.formaPagamento !== filtros.forma) return false;
+    if (filtros.categoria && p.classificacao?.nome !== filtros.categoria) return false;
 
     return combina(
       [
