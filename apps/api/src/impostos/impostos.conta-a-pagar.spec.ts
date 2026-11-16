@@ -48,10 +48,18 @@ function guiaGravada(over: Record<string, unknown> = {}) {
   };
 }
 
-function montarServico(opts: { guia?: Record<string, unknown>; semFornecedor?: boolean } = {}) {
+function montarServico(
+  opts: {
+    guia?: Record<string, unknown>;
+    semFornecedor?: boolean;
+    categorias?: Array<{ id: string; nome: string; paiId: string | null }>;
+  } = {},
+) {
   const guia = opts.guia ?? guiaGravada();
 
   const prisma = {
+    categoriaDespesa: { findMany: jest.fn().mockResolvedValue(opts.categorias ?? []) },
+    classificacaoConta: { upsert: jest.fn().mockResolvedValue({}) },
     guia: {
       findUnique: jest.fn().mockResolvedValue(guia),
       update: jest.fn().mockResolvedValue({ ...guia, contaPagarId: 'conta-1' }),
@@ -114,6 +122,30 @@ describe('a guia entra na fila de pagamento', () => {
     });
     expect(criadas[0].observacao).toBe('DARF INSS · competência 07/2026');
     expect(r).toMatchObject({ idFnApagarIxc: 90001, jaExistia: false, aviso: null });
+  });
+
+  it('a conta já nasce na categoria Impostos — ou na subcategoria que o nome da guia diz', async () => {
+    const impostos = { id: 'c-imp', nome: 'Impostos', paiId: null };
+    const so = montarServico({ categorias: [{ id: 'c-en', nome: 'Energia', paiId: null }, impostos] });
+    await so.service.gerarContaAPagar('guia-1');
+    expect(so.prisma.classificacaoConta.upsert).toHaveBeenCalledWith({
+      where: { idFnApagar: 90001 },
+      create: { idFnApagar: 90001, categoriaId: 'c-imp' },
+      update: {},
+    });
+
+    const comFilha = montarServico({
+      categorias: [impostos, { id: 'c-inss', nome: 'INSS', paiId: 'c-imp' }, { id: 'c-fgts', nome: 'FGTS', paiId: 'c-imp' }],
+    });
+    await comFilha.service.gerarContaAPagar('guia-1');
+    expect(comFilha.prisma.classificacaoConta.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ create: { idFnApagar: 90001, categoriaId: 'c-inss' } }),
+    );
+
+    // Sem a categoria, a conta sai do mesmo jeito, só sem etiqueta.
+    const sem = montarServico();
+    await expect(sem.service.gerarContaAPagar('guia-1')).resolves.toMatchObject({ idFnApagarIxc: 90001 });
+    expect(sem.prisma.classificacaoConta.upsert).not.toHaveBeenCalled();
   });
 
   /*

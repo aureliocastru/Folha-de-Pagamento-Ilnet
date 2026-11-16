@@ -8,6 +8,7 @@ import {
 import { ClasseTributo, Prisma, StatusContaPagar, TipoGuia } from '@prisma/client';
 import { ContasPagarService } from '../financeiro/contas-pagar.service';
 import { FornecedorService } from '../financeiro/fornecedor.service';
+import { semAcento } from '../ixc/ixc.financeiro';
 import { PrismaService } from '../prisma/prisma.service';
 import { GravarGuiaDto } from './dto/guia.dto';
 import {
@@ -322,6 +323,44 @@ export class ImpostosService {
    * É idempotente de propósito: chamar duas vezes devolve a conta que já
    * existe. Imposto pago em dobro não se estorna — se compensa, meses depois.
    */
+  /**
+   * A conta do imposto já nasce na categoria "Impostos" — a categoria ativa
+   * com esse nome. Se ela tem subcategorias e uma delas aparece no nome da
+   * guia ("INSS" em "DARF INSS"), vale a subcategoria.
+   *
+   * Não troca a etiqueta de quem já tem, e nada daqui derruba o lançamento:
+   * a conta já está no IXC, e etiqueta que não colou se põe na tela.
+   */
+  private async etiquetarComoImposto(idFnApagar: number | null, rotulo: string): Promise<void> {
+    if (!idFnApagar) return;
+    try {
+      const ativas = await this.prisma.categoriaDespesa.findMany({
+        where: { ativa: true },
+        select: { id: true, nome: true, paiId: true },
+      });
+      const nome = (c: { nome: string }) => semAcento(c.nome).trim().toLowerCase();
+      const impostos =
+        ativas.find((c) => /^impostos?$/.test(nome(c))) ??
+        ativas.find((c) => !c.paiId && nome(c).startsWith('imposto'));
+      if (!impostos) {
+        this.logger.warn(`Título ${idFnApagar}: não há categoria "Impostos" para etiquetar a guia.`);
+        return;
+      }
+      const guia = ` ${semAcento(rotulo).toLowerCase()} `;
+      const filha = ativas.find((c) => c.paiId === impostos.id && guia.includes(` ${nome(c)} `));
+      await this.prisma.classificacaoConta.upsert({
+        where: { idFnApagar },
+        create: { idFnApagar, categoriaId: (filha ?? impostos).id },
+        // Vazio de propósito: já tendo etiqueta, ela fica como está.
+        update: {},
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Título ${idFnApagar}: a categoria de impostos não colou (${err instanceof Error ? err.message : String(err)}).`,
+      );
+    }
+  }
+
   async gerarContaAPagar(
     guiaId: string,
     usuarioId?: string,
@@ -333,6 +372,11 @@ export class ImpostosService {
     if (!guia) throw new NotFoundException('Guia não encontrada');
 
     if (guia.contaPagar) {
+      // Conta gerada antes de a etiqueta existir ganha a dela aqui.
+      await this.etiquetarComoImposto(
+        guia.contaPagar.idFnApagarIxc,
+        rotuloDaGuia(guia.tipo, guia.itens),
+      );
       return {
         guiaId: guia.id,
         contaPagarId: guia.contaPagar.id,
@@ -374,6 +418,8 @@ export class ImpostosService {
       where: { id: guia.id },
       data: { contaPagarId: conta.id },
     });
+
+    await this.etiquetarComoImposto(conta.idFnApagarIxc, rotulo);
 
     this.logger.log(
       `Guia ${rotulo} ${guia.competencia} virou conta a pagar ` +
