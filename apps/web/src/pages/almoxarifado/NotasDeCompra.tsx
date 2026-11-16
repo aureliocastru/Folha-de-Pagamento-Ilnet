@@ -18,6 +18,7 @@ import {
   dividirEmParcelas,
   hojeIso,
   lerQuantidade,
+  type IntervaloDasParcelas,
   type NotaDeCompra,
 } from '../../lib/notas-de-compra';
 import type { OpcoesDoEstoque } from '../../lib/types';
@@ -375,6 +376,7 @@ function LancarNota({
   /** Quantas parcelas: 0 = a nota não gera conta a pagar. */
   const [quantas, setQuantas] = useState(1);
   const [primeiroVencimento, setPrimeiroVencimento] = useState(hojeIso());
+  const [intervalo, setIntervalo] = useState<IntervaloDasParcelas>('mensal');
   const [parcelas, setParcelas] = useState<Array<{ vencimento: string; valor: string }>>([]);
 
   const opcoes = useQuery({
@@ -419,8 +421,8 @@ function LancarNota({
   // As parcelas se refazem quando muda o que as define; o que se acertou à
   // mão numa delas vale até lá.
   useEffect(() => {
-    setParcelas(dividirEmParcelas(total, quantas, primeiroVencimento));
-  }, [total, quantas, primeiroVencimento]);
+    setParcelas(dividirEmParcelas(total, quantas, primeiroVencimento, intervalo));
+  }, [total, quantas, primeiroVencimento, intervalo]);
 
   const somaDasParcelas =
     Math.round(parcelas.reduce((s, p) => s + Number(p.valor || 0), 0) * 100) / 100;
@@ -595,6 +597,26 @@ function LancarNota({
                 valor={primeiroVencimento}
                 onChange={(v) => v && setPrimeiroVencimento(v)}
               />
+            </div>
+          )}
+
+          {quantas > 1 && (
+            <div>
+              <label className="rotulo" htmlFor="nota-intervalo">
+                As outras vencem
+              </label>
+              <select
+                id="nota-intervalo"
+                value={intervalo}
+                onChange={(e) => setIntervalo(e.target.value as IntervaloDasParcelas)}
+                className="campo"
+              >
+                <option value="mensal">
+                  Todo dia {Number(primeiroVencimento.slice(8, 10))} de cada mês
+                </option>
+                <option value="30">De 30 em 30 dias</option>
+                <option value="15">De 15 em 15 dias</option>
+              </select>
             </div>
           )}
 

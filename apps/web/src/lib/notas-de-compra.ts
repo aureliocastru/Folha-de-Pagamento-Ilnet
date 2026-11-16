@@ -60,20 +60,38 @@ export function somarMeses(iso: string, meses: number): string {
   return `${alvo.getFullYear()}-${m}-${String(Math.min(dia, ultimo)).padStart(2, '0')}`;
 }
 
+/** O mesmo dia, `dias` à frente. */
+export function somarDias(iso: string, dias: number): string {
+  const [ano, mes, dia] = iso.split('-').map(Number);
+  const d = new Date(ano, mes - 1, dia + dias);
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 /**
- * O total dividido em parcelas mensais iguais; os centavos que sobram da
- * divisão vão na última, para a soma fechar com a nota.
+ * De quanto em quanto vencem as parcelas: todo mês no mesmo dia (o dia do
+ * primeiro vencimento), de 30 em 30 dias ou de 15 em 15.
+ */
+export type IntervaloDasParcelas = 'mensal' | '30' | '15';
+
+/**
+ * O total dividido em parcelas iguais; os centavos que sobram da divisão vão
+ * na última, para a soma fechar com a nota.
  */
 export function dividirEmParcelas(
   total: number,
   quantas: number,
   primeiroVencimento: string,
+  intervalo: IntervaloDasParcelas = 'mensal',
 ): Array<{ vencimento: string; valor: string }> {
   if (quantas <= 0 || !(total > 0) || !primeiroVencimento) return [];
   const centavos = Math.round(total * 100);
   const cada = Math.floor(centavos / quantas);
   return Array.from({ length: quantas }, (_, i) => ({
-    vencimento: somarMeses(primeiroVencimento, i),
+    vencimento:
+      intervalo === 'mensal'
+        ? somarMeses(primeiroVencimento, i)
+        : somarDias(primeiroVencimento, i * Number(intervalo)),
     valor: ((i === quantas - 1 ? centavos - cada * (quantas - 1) : cada) / 100).toFixed(2),
   }));
 }
