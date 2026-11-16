@@ -71,6 +71,18 @@ export function CampoDeData({
     if (!limpo) onChange('');
   }
 
+  /**
+   * Quem escreveu só o dia e o mês ("23/10") e deu Enter, ou saiu do campo,
+   * quis o ano de agora — pedido para todo campo de data (16/11/2026). O ano
+   * de dois algarismos ("23/10/26") também se completa.
+   */
+  function completar() {
+    if (digitado === null) return;
+    const iso = paraIso(comAno(digitado));
+    if (iso && dentro(iso, min, max)) onChange(iso);
+    setDigitado(null);
+  }
+
   return (
     /* `w-full` como o campo que ele substituiu: dentro de um rótulo em linha,
        quem manda na largura é a classe que veio de fora (no `input`). */
@@ -79,7 +91,14 @@ export function CampoDeData({
         id={id}
         value={escrito}
         onChange={(e) => aoDigitar(e.target.value)}
-        onBlur={() => setDigitado(null)}
+        onBlur={completar}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter') return;
+          // O Enter aqui fecha a data, e não o formulário em volta.
+          e.preventDefault();
+          completar();
+          setAberto(false);
+        }}
         onFocus={(e) => {
           e.currentTarget.select();
           abrirCalendario(e.currentTarget);
@@ -349,6 +368,15 @@ function paraIso(escrito: string): string | null {
     return null;
   }
   return emIso(data);
+}
+
+/** "23/10" → "23/10/2026" (o ano de agora); "23/10/26" → "23/10/2026". O resto fica como está. */
+export function comAno(escrito: string, agora = new Date()): string {
+  const [d, m, a] = escrito.split('/');
+  if (!d || !m || m.length < 2) return escrito;
+  if (!a) return `${d}/${m}/${agora.getFullYear()}`;
+  if (a.length === 2) return `${d}/${m}/${String(agora.getFullYear()).slice(0, 2)}${a}`;
+  return escrito;
 }
 
 /** A máscara de quem digita: só números, com as barras entrando sozinhas. */
