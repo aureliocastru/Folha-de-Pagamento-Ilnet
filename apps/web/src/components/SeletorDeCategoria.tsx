@@ -37,6 +37,12 @@ interface Props {
   id?: string;
   className?: string;
   title?: string;
+  /**
+   * Fechado, mostra só o nome da categoria, sem o grupo na frente. Para campo
+   * estreito, onde "Máquinas e Veículos › Manutenção" cortava justo o nome que
+   * se queria ler. O nome inteiro continua na dica do mouse.
+   */
+  semGrupo?: boolean;
 }
 
 /**
@@ -72,6 +78,7 @@ export function SeletorDeCategoria({
   id,
   className = 'campo',
   title,
+  semGrupo = false,
 }: Props) {
   const [criando, setCriando] = useState(false);
   const [nome, setNome] = useState('');
@@ -185,10 +192,15 @@ export function SeletorDeCategoria({
    * frente. "Expansão › Fazenda" cabe onde "Fazenda" sozinha deixaria a
    * dúvida — há "Manutenção" em dois grupos diferentes neste cadastro.
    */
-  const rotulo = escolhida
+  const inteiro = escolhida
     ? escolhida.pai
       ? `${escolhida.pai.nome} › ${escolhida.nome}`
       : escolhida.nome
+    : null;
+  const rotulo = escolhida
+    ? semGrupo
+      ? escolhida.nome
+      : inteiro
     : (extra?.rotulo ?? vazio);
 
   return (
@@ -197,7 +209,7 @@ export function SeletorDeCategoria({
         ref={botao}
         id={id}
         type="button"
-        title={title}
+        title={title ?? (semGrupo ? (inteiro ?? undefined) : undefined)}
         disabled={carregando || desabilitado}
         onClick={() => {
           // Abrir já com o grupo da categoria atual destrinchado: quem vai

@@ -2623,14 +2623,16 @@ function TelaDasNotas({
             key={n.chave}
             onFocus={() => setTocada(n.chave)}
             onPointerDown={() => setTocada(n.chave)}
-            className={`grid grid-cols-1 gap-3 rounded-xl border p-3 lg:items-start ${
+            // No computador a letra dos campos desce um ponto: são cinco numa
+            // linha. No celular fica como está — menos de 16px o iPhone dá zoom.
+            className={`grid grid-cols-1 gap-3 rounded-xl border p-3 lg:items-start lg:[&_.campo]:text-xs ${
               notas.length > 1 && n.chave === colando
                 ? 'border-brand-400'
                 : 'border-tinta-200'
             } ${
               temFrota
-                ? 'lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1.2fr)_8.5rem_minmax(0,1.2fr)_auto]'
-                : 'lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.4fr)_8.5rem_minmax(0,1.2fr)_auto]'
+                ? 'lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1.2fr)_7.5rem_minmax(0,1fr)_auto]'
+                : 'lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1.4fr)_7.5rem_minmax(0,1fr)_auto]'
             }`}
           >
             <div>
@@ -2642,6 +2644,7 @@ function TelaDasNotas({
                 categorias={categorias}
                 value={n.categoriaId}
                 vazio="A da conta"
+                semGrupo
                 carregando={carregandoCategorias}
                 onChange={(categoriaId) => mudar(n.chave, { categoriaId })}
               />
