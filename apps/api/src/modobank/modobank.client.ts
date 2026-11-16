@@ -454,7 +454,12 @@ export class ModobankClient {
   async boletoPelaChave(chave: string): Promise<SituacaoDoPagamento | null> {
     // A lista vem do mais novo para o mais velho, e a chave procurada é de
     // minutos atrás: a primeira página basta.
-    const r = await this.pedir<{ data?: Array<Record<string, unknown>> }>('get', '/billets');
+    // Sem a página o banco recusa a lista com "onz-0002" (16/11/2026), embora
+    // o manual não peça parâmetro nenhum aqui.
+    const r = await this.pedir<{ data?: Array<Record<string, unknown>> }>(
+      'get',
+      '/billets?page=1&perPage=50',
+    );
     const achado = (r.data ?? []).find((b) => b.idempotencyKey === chave);
     if (!achado) return null;
     return {
@@ -775,7 +780,11 @@ export function mensagemDoBanco(r: Pick<AxiosResponse, 'status' | 'data'>): stri
     return frase ? `HTTP ${r.status}: ${frase}` : `HTTP ${r.status}`;
   }
   const d = (r.data ?? {}) as Record<string, unknown>;
-  const partes = [texto(d.detail), texto(d.title), texto(d.message)].filter(Boolean);
+  // No erro de parâmetros (onz-0002) o detalhe é uma lista de objetos, um por
+  // campo recusado: sem abri-la, a frase saía "[object Object],[object Object]".
+  const frases = (v: unknown): string | null =>
+    v !== null && typeof v === 'object' ? JSON.stringify(v).slice(0, 400) : texto(v);
+  const partes = [frases(d.detail), frases(d.title), frases(d.message), frases(d.errors)].filter(Boolean);
   const tipo = texto(d.type);
   const codigo = tipo && /onz-\d+/i.test(tipo) ? tipo.match(/onz-\d+/i)![0] : null;
   const frase = partes[0] ?? `HTTP ${r.status}`;
