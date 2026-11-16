@@ -454,11 +454,18 @@ export class ModobankClient {
   async boletoPelaChave(chave: string): Promise<SituacaoDoPagamento | null> {
     // A lista vem do mais novo para o mais velho, e a chave procurada é de
     // minutos atrás: a primeira página basta.
-    // Sem a página o banco recusa a lista com "onz-0002" (16/11/2026), embora
-    // o manual não peça parâmetro nenhum aqui.
+    // O banco exige o período (`event_date_start` e `event_date_end`), embora
+    // o manual não peça parâmetro nenhum aqui: sem ele, "onz-0002" (16/11/2026).
+    // De ontem a amanhã, no dia de Brasília, cobre qualquer virada de dia.
+    const dia = (deslocamento: number) =>
+      new Date(Date.now() - 3 * 3_600_000 + deslocamento * 86_400_000).toISOString().slice(0, 10);
     const r = await this.pedir<{ data?: Array<Record<string, unknown>> }>(
       'get',
-      '/billets?page=1&perPage=50',
+      '/billets?' +
+        new URLSearchParams({
+          event_date_start: `${dia(-1)}T00:00:00.000-03:00`,
+          event_date_end: `${dia(1)}T23:59:59.999-03:00`,
+        }).toString(),
     );
     const achado = (r.data ?? []).find((b) => b.idempotencyKey === chave);
     if (!achado) return null;
