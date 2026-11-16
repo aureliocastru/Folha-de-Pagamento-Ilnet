@@ -61,7 +61,9 @@ export function CategoriasDeDentro({ fatias }: { fatias: FatiaDoRateio[] }) {
     <ul className="space-y-0.5 text-sm text-tinta-700">
       {fatias.map((f, i) => (
         <li key={f.classificacao?.id ?? i} className="flex justify-between gap-3">
-          <span>{f.classificacao ? nomeCompleto(f.classificacao) : 'Sem categoria'}</span>
+          <span title={f.classificacao ? nomeCompleto(f.classificacao) : undefined}>
+            {f.classificacao ? f.classificacao.nome : 'Sem categoria'}
+          </span>
           {fatias.length > 1 && <span className="valor">{formatBRL(f.valor)}</span>}
         </li>
       ))}

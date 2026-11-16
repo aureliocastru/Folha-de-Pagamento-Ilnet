@@ -2644,7 +2644,6 @@ function TelaDasNotas({
                 categorias={categorias}
                 value={n.categoriaId}
                 vazio="A da conta"
-                semGrupo
                 carregando={carregandoCategorias}
                 onChange={(categoriaId) => mudar(n.chave, { categoriaId })}
               />

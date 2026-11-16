@@ -341,11 +341,8 @@ function ClassificacaoDoPagamento({ pagamento }: { pagamento: PagamentoFeito }) 
     },
   });
 
-  const escrita = pagamento.classificacao
-    ? pagamento.classificacao.grupo
-      ? `${pagamento.classificacao.grupo.nome} · ${pagamento.classificacao.nome}`
-      : pagamento.classificacao.nome
-    : 'sem classificação';
+  // Só o nome, sem o grupo na frente — como em todo lugar que mostra categoria.
+  const escrita = pagamento.classificacao?.nome ?? 'sem classificação';
 
   if (!ehAdmin) return <>{escrita}</>;
 

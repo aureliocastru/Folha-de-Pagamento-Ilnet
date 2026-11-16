@@ -987,11 +987,7 @@ function FormularioPagamento({
     },
     {
       rotulo: 'A que se refere',
-      resumo: nomeDaCategoria
-        ? nomeDaCategoria.pai
-          ? `${nomeDaCategoria.pai.nome} › ${nomeDaCategoria.nome}`
-          : nomeDaCategoria.nome
-        : undefined,
+      resumo: nomeDaCategoria?.nome,
       falta: semCategoria
         ? 'Escolha a categoria: sem ela o gasto cai em "Sem categoria" no dashboard.'
         : undefined,
