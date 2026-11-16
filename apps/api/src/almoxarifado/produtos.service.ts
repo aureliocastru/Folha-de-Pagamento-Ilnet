@@ -81,6 +81,21 @@ interface Quem {
   nome: string;
 }
 
+function motivoDe(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * A data como o IXC a devolve ("AAAA-MM-DD", às vezes com hora) no formato em
+ * que ele a aceita de volta ("DD/MM/AAAA"). O que já vem assim passa direto.
+ */
+export function dataDeEscrita(lida: unknown): string {
+  const texto = String(lida ?? '').trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(texto);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  return /^\d{2}\/\d{2}\/\d{4}/.test(texto) ? texto.slice(0, 10) : hojeParaIxc();
+}
+
 /** O que ficou no IXC depois de lançar uma nota de compra (`lancarCompra`). */
 export interface CompraLancada {
   entradaId: number;
@@ -660,6 +675,91 @@ export class ProdutosService {
         `#${entradaId} no IXC (${compraAberta ? `aberta: ${compraAberta}` : 'fechada'}).`,
     );
     return { entradaId, almoxarifado: almox.nome, itens: resultado, compraAberta };
+  }
+
+  /**
+   * Desfaz uma compra lançada por `lancarCompra`: tira os produtos dela (é o
+   * que devolve o saldo) e apaga a compra no IXC.
+   *
+   * Só mexe na compra que tem o número da nota esperado — o número da compra
+   * guardado aqui apontando para outra nota é sinal de que algo mudou no IXC,
+   * e apagar a compra errada tiraria estoque de verdade.
+   *
+   * A compra fechada é reaberta antes (o mesmo `PUT` que a fechou, com o
+   * status de aberta): o IXC só deixa mexer em compra aberta. Nunca lança —
+   * devolve o que conseguiu e, se parou, o porquê.
+   */
+  async desfazerCompra(
+    entradaId: number,
+    numeroNota: string,
+    quem: Quem,
+  ): Promise<{ ok: boolean; erro?: string }> {
+    let entrada: Record<string, unknown> | null;
+    let itens: Array<Record<string, unknown>>;
+    try {
+      ({ entrada, itens } = await this.entradaCrua(entradaId));
+    } catch (err) {
+      return { ok: false, erro: `não deu para ler a compra #${entradaId} no IXC (${motivoDe(err)})` };
+    }
+    if (!entrada) return { ok: true }; // já não existe no IXC
+    if (String(entrada.numero_nf ?? '').trim() !== numeroNota.trim()) {
+      return {
+        ok: false,
+        erro:
+          `a compra #${entradaId} do IXC está com a nota "${String(entrada.numero_nf ?? '')}", ` +
+          `e não "${numeroNota}" — não mexi nela`,
+      };
+    }
+
+    if (String(entrada.status ?? '').trim().toUpperCase() !== 'A') {
+      try {
+        await this.ixc.update('entrada', entradaId, {
+          ...montarEntrada({
+            tipoDocumentoId: numeroDoIxc(entrada.tipo_documento),
+            fornecedorId: numeroDoIxc(entrada.id_fornecedor),
+            condicaoPagamentoId: numeroDoIxc(entrada.condicoes_pagamento),
+            filialId: numeroDoIxc(entrada.filial_id),
+            data: dataDeEscrita(entrada.data_entrada),
+            dataEmissao: dataDeEscrita(entrada.data_emissao),
+            numeroNota: String(entrada.numero_nf ?? ''),
+            documento: String(entrada.documento ?? '') || undefined,
+            valorTotal: numeroDoIxc(entrada.valor_total),
+          }),
+          status: 'A',
+        });
+      } catch (err) {
+        // Segue: se o IXC deixar apagar mesmo fechada, melhor; se não, o erro
+        // do item diz o motivo de verdade.
+        this.logger.warn(`Compra #${entradaId}: o IXC não reabriu (${motivoDe(err)}).`);
+      }
+    }
+
+    for (const i of itens) {
+      try {
+        await this.ixc.remove('movimento_produtos', numeroDoIxc(i.id));
+      } catch (err) {
+        this.estoque.esquecer();
+        return {
+          ok: false,
+          erro:
+            `o IXC não tirou o produto #${numeroDoIxc(i.id_produto)} da compra #${entradaId} ` +
+            `(${motivoDe(err)})`,
+        };
+      }
+    }
+    this.estoque.esquecer();
+    try {
+      await this.ixc.remove('entrada', entradaId);
+    } catch (err) {
+      return {
+        ok: false,
+        erro: `os produtos saíram do estoque, mas o IXC não apagou a compra #${entradaId} (${motivoDe(err)})`,
+      };
+    }
+    this.logger.log(
+      `${quem.nome} desfez a compra #${entradaId} (nota ${numeroNota}): ${itens.length} produto(s) fora do estoque.`,
+    );
+    return { ok: true };
   }
 
   /**

@@ -267,6 +267,13 @@ export class AlmoxarifadoController {
     return this.notas.lancar(dto, quem(req));
   }
 
+  /** Apaga do IXC o que a nota lançou: as contas a pagar, os produtos e a compra. */
+  @Post('notas/:id/desfazer')
+  @HttpCode(200)
+  desfazerNota(@Param('id', ParseUUIDPipe) id: string, @Req() req: Request) {
+    return this.notas.desfazer(id, quem(req));
+  }
+
   // -------------------------------------------------------------------------
   // Acerto dos saldos negativos — compra de acerto no IXC
   // -------------------------------------------------------------------------

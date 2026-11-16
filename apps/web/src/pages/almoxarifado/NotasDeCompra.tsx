@@ -31,6 +31,7 @@ export function NotasDeCompra() {
   const [lancando, setLancando] = useState(false);
   const [feita, setFeita] = useState<NotaDeCompra | null>(null);
   const [aberta, setAberta] = useState<NotaDeCompra | null>(null);
+  const [desfeita, setDesfeita] = useState<string | null>(null);
 
   const notas = useQuery({
     queryKey: ['almoxarifado', 'notas'],
@@ -59,6 +60,19 @@ export function NotasDeCompra() {
           }
         >
           {resumoDoLancamento(feita)}
+        </Aviso>
+      )}
+
+      {desfeita && (
+        <Aviso
+          tom="pago"
+          acao={
+            <button onClick={() => setDesfeita(null)} className="btn btn-sutil btn-p">
+              Fechar
+            </button>
+          }
+        >
+          {desfeita}
         </Aviso>
       )}
 
@@ -108,6 +122,15 @@ export function NotasDeCompra() {
       {aberta && (
         <Janela titulo={`NF ${aberta.numeroNota}`} onFechar={() => setAberta(null)} media>
           <DetalheDaNota nota={aberta} />
+          <DesfazerNota
+            nota={aberta}
+            onFechar={() => setAberta(null)}
+            onDesfeita={() => {
+              setAberta(null);
+              setFeita(null);
+              setDesfeita(`Nota ${aberta.numeroNota} desfeita: saiu do estoque e do IXC.`);
+            }}
+          />
         </Janela>
       )}
     </Pagina>
@@ -228,6 +251,82 @@ export function DetalheDaNota({ nota }: { nota: NotaDeCompra }) {
           </ul>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Desfazer a nota: apaga do IXC as contas a pagar que ela gerou, os produtos
+ * e a compra. Pede um segundo toque, dizendo o que vai sair.
+ */
+function DesfazerNota({
+  nota,
+  onFechar,
+  onDesfeita,
+}: {
+  nota: NotaDeCompra;
+  onFechar: () => void;
+  onDesfeita: () => void;
+}) {
+  const qc = useQueryClient();
+  const [confirmando, setConfirmando] = useState(false);
+  const contas = nota.parcelas.filter((p) => p.idFnApagar).length;
+
+  const desfazer = useMutation({
+    mutationFn: async () => api.post(`/almoxarifado/notas/${nota.id}/desfazer`),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['almoxarifado'] });
+      void qc.invalidateQueries({ queryKey: ['notas-de-compra'] });
+      void qc.invalidateQueries({ queryKey: ['contas-abertas'] });
+      onDesfeita();
+    },
+    // O que o IXC recusou pode ter deixado a nota pela metade: a lista relê.
+    onError: () => void qc.invalidateQueries({ queryKey: ['almoxarifado', 'notas'] }),
+  });
+
+  return (
+    <div className="mt-5 border-t border-tinta-200 pt-4">
+      {confirmando && (
+        <p className="mb-3 text-sm text-tinta-700">
+          Sai do estoque: {nota.itens.filter((i) => i.entrou).length} produto(s), com a compra #
+          {nota.entradaId} do IXC.
+          {contas > 0 && ` Sai do Contas a Pagar: ${contas} conta(s).`}
+        </p>
+      )}
+      {desfazer.isError && (
+        <p className="mb-3 text-sm text-rose-600">{mensagemErro(desfazer.error)}</p>
+      )}
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {confirmando ? (
+          <>
+            <button
+              type="button"
+              onClick={() => setConfirmando(false)}
+              disabled={desfazer.isPending}
+              className="btn btn-neutro"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => desfazer.mutate()}
+              disabled={desfazer.isPending}
+              className="btn btn-alerta"
+            >
+              {desfazer.isPending ? 'Desfazendo no IXC…' : 'Desfazer mesmo'}
+            </button>
+          </>
+        ) : (
+          <>
+            <button type="button" onClick={() => setConfirmando(true)} className="btn btn-alerta mr-auto">
+              Desfazer nota
+            </button>
+            <button type="button" onClick={onFechar} className="btn btn-neutro">
+              Fechar
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }

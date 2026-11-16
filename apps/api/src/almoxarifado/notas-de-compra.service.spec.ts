@@ -38,6 +38,15 @@ function montar(existente: Record<string, unknown> | null = null) {
         guardada = { ...guardada, ...data };
         return guardada;
       }),
+      delete: jest.fn(async () => {
+        guardada = null;
+        return {};
+      }),
+    },
+    contaPagar: {
+      findFirst: jest.fn(async ({ where }: { where: { idFnApagarIxc: number } }) => ({
+        id: `conta-${where.idFnApagarIxc}`,
+      })),
     },
     classificacaoConta: { upsert: jest.fn(async () => ({})) },
   };
@@ -54,6 +63,7 @@ function montar(existente: Record<string, unknown> | null = null) {
         motivo: null,
       })),
     })),
+    desfazerCompra: jest.fn(async () => ({ ok: true }) as { ok: boolean; erro?: string }),
   };
   let proximo = 9000;
   const contasPagar = {
@@ -62,8 +72,19 @@ function montar(existente: Record<string, unknown> | null = null) {
       idFnApagarIxc: ++proximo,
     })),
   };
-  const service = new NotasDeCompraService(prisma as never, produtos as never, contasPagar as never);
-  return { service, prisma, produtos, contasPagar };
+  (contasPagar as Record<string, unknown>).remover = jest.fn(async () => undefined);
+  /** Os títulos no IXC: todos em aberto, a menos que o teste diga outra coisa. */
+  const ixc = {
+    getById: jest.fn(async (): Promise<Record<string, unknown> | null> => ({ status: 'A', valor_pago: '0.00', valor_aberto: '100.00' })),
+    remove: jest.fn(async () => undefined),
+  };
+  const service = new NotasDeCompraService(
+    prisma as never,
+    produtos as never,
+    contasPagar as never,
+    ixc as never,
+  );
+  return { service, prisma, produtos, contasPagar: contasPagar as typeof contasPagar & { remover: jest.Mock }, ixc };
 }
 
 describe('a nota de compra do almoxarifado', () => {
@@ -132,6 +153,51 @@ describe('a nota de compra do almoxarifado', () => {
     const recusada = await service.recusar(nota.id, 'já foi paga no caixa', { nome: 'Chefe' });
     expect(recusada).toMatchObject({ situacao: 'RECUSADA', motivoDaRecusa: 'já foi paga no caixa' });
     expect(contasPagar.criarDespesa).not.toHaveBeenCalled();
+  });
+});
+
+describe('desfazer a nota', () => {
+  it('apaga as contas, desfaz a compra no IXC e a nota some', async () => {
+    const { service, prisma, produtos, contasPagar } = montar();
+    const nota = await service.lancar(PEDIDO, { nome: 'Almoxarife' });
+    await service.confirmar(nota.id, {}, { nome: 'Chefe' });
+
+    await expect(service.desfazer(nota.id, { nome: 'Almoxarife' })).resolves.toEqual({ desfeita: true });
+    expect(contasPagar.remover).toHaveBeenCalledTimes(2);
+    expect(produtos.desfazerCompra).toHaveBeenCalledWith(3600, '1234', { nome: 'Almoxarife' });
+    expect(prisma.notaDeCompra.delete).toHaveBeenCalledTimes(1);
+  });
+
+  it('uma conta já paga para tudo, antes de mexer em qualquer coisa', async () => {
+    const { service, prisma, produtos, contasPagar, ixc } = montar();
+    const nota = await service.lancar(PEDIDO, { nome: 'Almoxarife' });
+    await service.confirmar(nota.id, {}, { nome: 'Chefe' });
+    ixc.getById.mockResolvedValueOnce({ status: 'A' }).mockResolvedValueOnce({ status: 'P' });
+
+    await expect(service.desfazer(nota.id, { nome: 'Almoxarife' })).rejects.toThrow(/já foi paga/);
+    expect(contasPagar.remover).not.toHaveBeenCalled();
+    expect(produtos.desfazerCompra).not.toHaveBeenCalled();
+    expect(prisma.notaDeCompra.delete).not.toHaveBeenCalled();
+  });
+
+  it('compra que o IXC não desfaz deixa a nota aqui, já sem as contas', async () => {
+    const { service, prisma, produtos } = montar();
+    const nota = await service.lancar(PEDIDO, { nome: 'Almoxarife' });
+    await service.confirmar(nota.id, {}, { nome: 'Chefe' });
+    produtos.desfazerCompra.mockResolvedValueOnce({ ok: false, erro: 'o IXC não tirou o produto' });
+
+    await expect(service.desfazer(nota.id, { nome: 'Almoxarife' })).rejects.toThrow(/compra não foi desfeita/);
+    expect(prisma.notaDeCompra.delete).not.toHaveBeenCalled();
+    // De novo: não há mais conta para apagar, e a compra agora vai.
+    await expect(service.desfazer(nota.id, { nome: 'Almoxarife' })).resolves.toEqual({ desfeita: true });
+  });
+
+  it('nota sem conta nenhuma só desfaz a compra', async () => {
+    const { service, produtos, contasPagar } = montar();
+    const nota = await service.lancar({ ...PEDIDO, parcelas: [] }, { nome: 'Almoxarife' });
+    await service.desfazer(nota.id, { nome: 'Almoxarife' });
+    expect(contasPagar.remover).not.toHaveBeenCalled();
+    expect(produtos.desfazerCompra).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -6,6 +6,8 @@ import {
 } from '@nestjs/common';
 import { Prisma, type NotaDeCompra } from '@prisma/client';
 import { ContasPagarService } from '../financeiro/contas-pagar.service';
+import { IxcClient } from '../ixc/ixc.client';
+import { lerSituacaoContaPagar } from '../ixc/ixc.financeiro';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProdutosService, type CompraLancada } from './produtos.service';
 
@@ -59,6 +61,7 @@ export class NotasDeCompraService {
     private readonly prisma: PrismaService,
     private readonly produtos: ProdutosService,
     private readonly contasPagar: ContasPagarService,
+    private readonly ixc: IxcClient,
   ) {}
 
   async lancar(
@@ -240,6 +243,80 @@ export class NotasDeCompraService {
     return naTela(recusada);
   }
 
+  /**
+   * Desfaz a nota inteira, no IXC: apaga as contas a pagar que ela gerou,
+   * tira os produtos do estoque e apaga a compra — e só então a nota some
+   * daqui.
+   *
+   * A ordem protege o dinheiro: antes de tocar em qualquer coisa, cada título
+   * é lido no IXC, e um só que já tenha sido pago (inteiro ou em parte) para
+   * tudo — pagamento não se desfaz apagando. Depois vão as contas, e por último
+   * o estoque. Se o IXC recusar no meio, a nota fica, com o que ainda resta
+   * dela, e o Desfazer pode ser repetido: ele continua de onde parou.
+   */
+  async desfazer(id: string, quem: Quem): Promise<{ desfeita: true }> {
+    const nota = await this.prisma.notaDeCompra.findUnique({ where: { id } });
+    if (!nota) throw new NotFoundException('Nota não encontrada.');
+    const parcelas = lerParcelas(nota.parcelas);
+
+    for (const p of parcelas) {
+      if (!p.idFnApagar) continue;
+      const titulo = await this.ixc
+        .getById<Record<string, unknown>>('fn_apagar', 'fn_apagar.id', p.idFnApagar)
+        .catch((err: unknown) => {
+          throw new BadRequestException(
+            `Não deu para ler o título ${p.idFnApagar} no IXC (${motivoDe(err)}). Nada foi desfeito.`,
+          );
+        });
+      if (!titulo) continue;
+      const situacao = lerSituacaoContaPagar(titulo);
+      if (situacao.pago || situacao.valorPago > 0) {
+        throw new BadRequestException(
+          `A conta de ${dinheiro(p.valor)} desta nota (título ${p.idFnApagar}) já foi paga. ` +
+            'Nada foi desfeito — estorne o pagamento no IXC antes.',
+        );
+      }
+    }
+
+    for (const p of parcelas) {
+      if (!p.idFnApagar) continue;
+      const conta = await this.prisma.contaPagar.findFirst({
+        where: { idFnApagarIxc: p.idFnApagar },
+        select: { id: true },
+      });
+      try {
+        if (conta) await this.contasPagar.remover(conta.id);
+        else await this.ixc.remove('fn_apagar', p.idFnApagar);
+      } catch (err) {
+        throw new BadRequestException(
+          `O IXC não apagou a conta de ${dinheiro(p.valor)} (título ${p.idFnApagar}): ` +
+            `${motivoDe(err)}. O estoque não foi mexido.`,
+        );
+      }
+      p.idFnApagar = null;
+      await this.prisma.notaDeCompra.update({
+        where: { id },
+        data: {
+          parcelas: parcelas as unknown as Prisma.InputJsonValue,
+          // Sem as contas, a nota volta a ser uma nota esperando decisão.
+          situacao: nota.situacao === 'CONFIRMADA' ? 'AGUARDANDO' : nota.situacao,
+        },
+      });
+    }
+
+    const compra = await this.produtos.desfazerCompra(nota.idEntradaIxc, nota.numeroNota, quem);
+    if (!compra.ok) {
+      throw new BadRequestException(
+        `As contas a pagar da nota saíram, mas a compra não foi desfeita: ${compra.erro}. ` +
+          'Tente o Desfazer de novo, ou apague a compra no IXC (Entradas › Compras).',
+      );
+    }
+
+    await this.prisma.notaDeCompra.delete({ where: { id } });
+    this.logger.log(`${quem.nome} desfez a nota ${nota.numeroNota} de ${nota.fornecedorNome}.`);
+    return { desfeita: true };
+  }
+
   private async umaAguardando(id: string): Promise<NotaDeCompra> {
     const nota = await this.prisma.notaDeCompra.findUnique({ where: { id } });
     if (!nota) throw new NotFoundException('Nota não encontrada.');
@@ -250,6 +327,10 @@ export class NotasDeCompraService {
     }
     return nota;
   }
+}
+
+function motivoDe(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 function centavos(v: number): number {
