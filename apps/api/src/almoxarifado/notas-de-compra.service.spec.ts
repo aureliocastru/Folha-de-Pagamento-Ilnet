@@ -1,4 +1,5 @@
 import { NotasDeCompraService, conferirParcelas, totalDosItens } from './notas-de-compra.service';
+import { mesmaNota, numeroDaNotaParaIxc } from './produtos.service';
 
 /**
  * A nota de compra do almoxarifado. O que este arquivo protege:
@@ -164,7 +165,11 @@ describe('desfazer a nota', () => {
 
     await expect(service.desfazer(nota.id, { nome: 'Almoxarife' })).resolves.toEqual({ desfeita: true });
     expect(contasPagar.remover).toHaveBeenCalledTimes(2);
-    expect(produtos.desfazerCompra).toHaveBeenCalledWith(3600, '1234', { nome: 'Almoxarife' });
+    expect(produtos.desfazerCompra).toHaveBeenCalledWith(
+      3600,
+      { numeroNota: '1234', fornecedorId: 14 },
+      { nome: 'Almoxarife' },
+    );
     expect(prisma.notaDeCompra.delete).toHaveBeenCalledTimes(1);
   });
 
@@ -198,6 +203,25 @@ describe('desfazer a nota', () => {
     await service.desfazer(nota.id, { nome: 'Almoxarife' });
     expect(contasPagar.remover).not.toHaveBeenCalled();
     expect(produtos.desfazerCompra).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('o número da nota e o IXC', () => {
+  it('vai ao IXC só com os algarismos, e a nota guardada é a mesma', async () => {
+    expect(numeroDaNotaParaIxc(' 166.192.941 ')).toBe('166192941');
+    expect(numeroDaNotaParaIxc('NF-A12')).toBe('NF-A12');
+    const { service, produtos } = montar();
+    const nota = await service.lancar({ ...PEDIDO, numeroNota: '166.192.941' }, { nome: 'Almoxarife' });
+    expect(nota.numeroNota).toBe('166192941');
+    expect(produtos.lancarCompra.mock.calls[0][0]).toMatchObject({ numeroNota: '166192941' });
+  });
+
+  it('a compra que o IXC gravou com o número cortado ainda é reconhecida', () => {
+    // A #3546: digitado "166.192.941", gravado "166192".
+    expect(mesmaNota('166192', '166.192.941')).toBe(true);
+    expect(mesmaNota('166192941', '166192941')).toBe(true);
+    expect(mesmaNota('2427546', '166.192.941')).toBe(false);
+    expect(mesmaNota('', '166.192.941')).toBe(false);
   });
 });
 

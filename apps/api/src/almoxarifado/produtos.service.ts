@@ -81,6 +81,28 @@ interface Quem {
   nome: string;
 }
 
+/**
+ * O número da nota como vai ao IXC: só os algarismos, quando a nota é um
+ * número com pontuação. O campo de lá é numérico e corta no segundo ponto —
+ * "166.192.941" foi gravado "166192" (compra #3546, 16/11/2026).
+ */
+export function numeroDaNotaParaIxc(numero: string): string {
+  const limpo = numero.trim();
+  return /^[\d.\-/\s]+$/.test(limpo) ? limpo.replace(/\D/g, '') : limpo;
+}
+
+/**
+ * A compra do IXC é a desta nota? Compara pelos algarismos, e aceita o número
+ * que o IXC cortou (ver `numeroDaNotaParaIxc`): o de lá tem de ser o começo do
+ * daqui. Número vazio de um lado não prova nada.
+ */
+export function mesmaNota(noIxc: string, daNota: string): boolean {
+  if (noIxc.trim() === daNota.trim()) return true;
+  const a = noIxc.replace(/\D/g, '');
+  const b = daNota.replace(/\D/g, '');
+  return a.length >= 3 && b.startsWith(a);
+}
+
 function motivoDe(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -599,7 +621,7 @@ export class ProdutosService {
       filialId: almox.filialId,
       data,
       dataEmissao,
-      numeroNota: dados.numeroNota.trim(),
+      numeroNota: numeroDaNotaParaIxc(dados.numeroNota),
       valorTotal,
     };
 
@@ -691,9 +713,10 @@ export class ProdutosService {
    */
   async desfazerCompra(
     entradaId: number,
-    numeroNota: string,
+    nota: { numeroNota: string; fornecedorId: number },
     quem: Quem,
   ): Promise<{ ok: boolean; erro?: string }> {
+    const numeroNota = nota.numeroNota;
     let entrada: Record<string, unknown> | null;
     let itens: Array<Record<string, unknown>>;
     try {
@@ -702,12 +725,15 @@ export class ProdutosService {
       return { ok: false, erro: `não deu para ler a compra #${entradaId} no IXC (${motivoDe(err)})` };
     }
     if (!entrada) return { ok: true }; // já não existe no IXC
-    if (String(entrada.numero_nf ?? '').trim() !== numeroNota.trim()) {
+    if (
+      numeroDoIxc(entrada.id_fornecedor) !== nota.fornecedorId ||
+      !mesmaNota(String(entrada.numero_nf ?? ''), numeroNota)
+    ) {
       return {
         ok: false,
         erro:
-          `a compra #${entradaId} do IXC está com a nota "${String(entrada.numero_nf ?? '')}", ` +
-          `e não "${numeroNota}" — não mexi nela`,
+          `a compra #${entradaId} do IXC está com a nota "${String(entrada.numero_nf ?? '')}" do ` +
+          `fornecedor ${numeroDoIxc(entrada.id_fornecedor)}, e não "${numeroNota}" — não mexi nela`,
       };
     }
 

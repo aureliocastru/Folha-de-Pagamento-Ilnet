@@ -9,7 +9,7 @@ import { ContasPagarService } from '../financeiro/contas-pagar.service';
 import { IxcClient } from '../ixc/ixc.client';
 import { lerSituacaoContaPagar } from '../ixc/ixc.financeiro';
 import { PrismaService } from '../prisma/prisma.service';
-import { ProdutosService, type CompraLancada } from './produtos.service';
+import { numeroDaNotaParaIxc, ProdutosService, type CompraLancada } from './produtos.service';
 
 interface Quem {
   nome: string;
@@ -76,7 +76,8 @@ export class NotasDeCompraService {
     },
     quem: Quem,
   ): Promise<NotaNaTela> {
-    const numeroNota = dados.numeroNota.trim();
+    // Só os algarismos, como vai ao IXC: "166.192.941" e "166192941" são a mesma nota.
+    const numeroNota = numeroDaNotaParaIxc(dados.numeroNota);
     const total = totalDosItens(dados.itens);
     const parcelas = (dados.parcelas ?? []).map((p) => ({
       vencimento: p.vencimento.slice(0, 10),
@@ -304,7 +305,11 @@ export class NotasDeCompraService {
       });
     }
 
-    const compra = await this.produtos.desfazerCompra(nota.idEntradaIxc, nota.numeroNota, quem);
+    const compra = await this.produtos.desfazerCompra(
+      nota.idEntradaIxc,
+      { numeroNota: nota.numeroNota, fornecedorId: nota.idFornecedorIxc },
+      quem,
+    );
     if (!compra.ok) {
       throw new BadRequestException(
         `As contas a pagar da nota saíram, mas a compra não foi desfeita: ${compra.erro}. ` +
