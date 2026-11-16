@@ -81,6 +81,23 @@ interface Quem {
   nome: string;
 }
 
+/** O que ficou no IXC depois de lançar uma nota de compra (`lancarCompra`). */
+export interface CompraLancada {
+  entradaId: number;
+  almoxarifado: string;
+  itens: Array<{
+    produtoId: number;
+    descricao: string;
+    unidade: string;
+    quantidade: number;
+    valorUnitario: number;
+    entrou: boolean;
+    motivo: string | null;
+  }>;
+  /** Null = a compra foi fechada; o texto é o motivo de ter ficado aberta. */
+  compraAberta: string | null;
+}
+
 /**
  * Mexer nos produtos do estoque — no IXC.
  *
@@ -478,6 +495,200 @@ export class ProdutosService {
       },
       compraAberta,
     };
+  }
+
+  /**
+   * A nota fiscal de compra inteira: uma compra do IXC com vários produtos.
+   *
+   * É o `darEntrada` de muitos: a mesma compra (Entradas › Compras), aberta,
+   * recebendo os produtos um por vez — juntos o IXC recusa (ver
+   * `TransferenciasService`) — e fechada no fim. O tipo de documento e a
+   * condição de pagamento são copiados da última compra do fornecedor, ou da
+   * última da casa: ninguém escolhe isso na tela.
+   *
+   * Tudo o que pode ser recusado sem tocar no IXC é conferido antes de abrir a
+   * compra. Depois de aberta, produto recusado não derruba os outros: a compra
+   * fica aberta, e quem chamou recebe, de cada um, se entrou.
+   */
+  async lancarCompra(
+    dados: {
+      fornecedorId: number;
+      numeroNota: string;
+      /** "AAAA-MM-DD"; vazio é hoje. */
+      dataEmissao?: string | null;
+      almoxId: number;
+      itens: Array<{ produtoId: number; quantidade: number; valorUnitario: number }>;
+    },
+    quem: Quem,
+  ): Promise<CompraLancada> {
+    if (dados.itens.length === 0) {
+      throw new BadRequestException('A nota precisa de pelo menos um produto.');
+    }
+    const repetido = dados.itens.find(
+      (i, n) => dados.itens.findIndex((x) => x.produtoId === i.produtoId) !== n,
+    );
+    if (repetido) {
+      throw new BadRequestException(
+        `O produto #${repetido.produtoId} está duas vezes na nota. Some as quantidades numa linha só.`,
+      );
+    }
+    const dataEmissao = diaParaIxc(dados.dataEmissao);
+    const data = hojeParaIxc();
+
+    const [almoxarifados, unidades, modelo] = await Promise.all([
+      this.almoxarifados(),
+      this.unidades(),
+      this.modeloDeCompra(dados.fornecedorId),
+    ]);
+    const almox = almoxarifados.find((a) => a.id === dados.almoxId);
+    if (!almox || !almox.ativo) {
+      throw new BadRequestException(
+        'O sistema não enxerga esse almoxarifado no IXC, ou ele está desativado.',
+      );
+    }
+    if (!modelo) {
+      throw new BadRequestException(
+        'Não achei no IXC nenhuma compra para copiar o tipo de documento. ' +
+          'Lance a primeira pelo IXC (Entradas › Compras).',
+      );
+    }
+
+    const itens: Array<{
+      produtoId: number;
+      quantidade: number;
+      valorUnitario: number;
+      descricao: string;
+      unidade: { id: number; sigla: string };
+    }> = [];
+    for (const i of dados.itens) {
+      const bruto = await this.lerProduto(i.produtoId);
+      const descricao = String(bruto.descricao ?? '').trim() || `Produto ${i.produtoId}`;
+      if (String(bruto.ativo ?? 'S').toUpperCase() === 'N') {
+        throw new BadRequestException(`"${descricao}" está inativo no IXC. Tire-o da nota.`);
+      }
+      if (naoControlaEstoque(bruto)) {
+        throw new BadRequestException(
+          `"${descricao}" está como "não controla estoque" no IXC: a compra entraria e o saldo ` +
+            'não mudaria. Acerte o cadastro do produto antes.',
+        );
+      }
+      itens.push({ ...i, descricao, unidade: this.unidadeDoProduto(bruto, unidades) });
+    }
+
+    const valorTotal =
+      Math.round(itens.reduce((s, i) => s + i.quantidade * i.valorUnitario, 0) * 100) / 100;
+    const compra = {
+      tipoDocumentoId: modelo.tipoDocumentoId,
+      fornecedorId: dados.fornecedorId,
+      condicaoPagamentoId: modelo.condicaoPagamentoId,
+      filialId: almox.filialId,
+      data,
+      dataEmissao,
+      numeroNota: dados.numeroNota.trim(),
+      valorTotal,
+    };
+
+    let entradaId: number | null;
+    try {
+      ({ id: entradaId } = await this.ixc.create('entrada', montarEntrada(compra)));
+    } catch (err) {
+      const motivo = err instanceof Error ? err.message : String(err);
+      throw new BadRequestException(
+        `O IXC recusou abrir a compra (${motivo}). Nada foi lançado — o estoque está como antes.`,
+      );
+    }
+    if (!entradaId) {
+      throw new BadRequestException(
+        'O IXC não devolveu o número da compra — nada foi lançado. Tente de novo.',
+      );
+    }
+
+    const resultado: CompraLancada['itens'] = [];
+    for (const i of itens) {
+      let motivo: string | null = null;
+      try {
+        await this.ixc.create(
+          'movimento_produtos',
+          montarItemDaEntrada(entradaId, {
+            produtoId: i.produtoId,
+            unidadeId: i.unidade.id,
+            unidadeSigla: i.unidade.sigla,
+            almoxId: almox.id,
+            filialId: almox.filialId,
+            quantidade: i.quantidade,
+            valorUnitario: i.valorUnitario,
+            data,
+          }),
+        );
+      } catch (err) {
+        motivo = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `Nota ${compra.numeroNota} (compra #${entradaId}): o IXC recusou "${i.descricao}": ${motivo}`,
+        );
+      }
+      resultado.push({
+        produtoId: i.produtoId,
+        descricao: i.descricao,
+        unidade: i.unidade.sigla,
+        quantidade: i.quantidade,
+        valorUnitario: i.valorUnitario,
+        entrou: motivo === null,
+        motivo,
+      });
+    }
+
+    // Nenhum produto entrou: a compra vazia não fica para trás.
+    if (resultado.every((r) => !r.entrou)) {
+      const apagada = await this.ixc.remove('entrada', entradaId).then(
+        () => true,
+        () => false,
+      );
+      throw new BadRequestException(
+        `O IXC recusou todos os produtos da nota (${resultado[0].motivo}). O estoque não mudou` +
+          (apagada ? '.' : ` — apague a compra #${entradaId}, que ficou vazia no IXC.`),
+      );
+    }
+
+    const compraAberta = resultado.every((r) => r.entrou)
+      ? await this.fecharCompra(entradaId, montarEntrada(compra))
+      : 'nem todos os produtos entraram';
+
+    this.estoque.esquecer();
+    this.logger.log(
+      `${quem.nome} lançou a nota ${compra.numeroNota || '(sem número)'} em ${almox.nome}: ` +
+        `${resultado.filter((r) => r.entrou).length} de ${resultado.length} produto(s), compra ` +
+        `#${entradaId} no IXC (${compraAberta ? `aberta: ${compraAberta}` : 'fechada'}).`,
+    );
+    return { entradaId, almoxarifado: almox.nome, itens: resultado, compraAberta };
+  }
+
+  /**
+   * De que compra copiar o tipo de documento e a condição de pagamento: a
+   * última do fornecedor; sem nenhuma, a última da casa.
+   */
+  private async modeloDeCompra(
+    fornecedorId: number,
+  ): Promise<{ tipoDocumentoId: number; condicaoPagamentoId: number } | null> {
+    const serve = (m: { tipoDocumentoId: number; condicaoPagamentoId: number } | null) =>
+      m && m.tipoDocumentoId > 0 && m.condicaoPagamentoId > 0 ? m : null;
+    const doFornecedor = serve(await this.ultimaEntradaDoFornecedor(fornecedorId));
+    if (doFornecedor) return doFornecedor;
+    const recentes = await this.ixc.list<Record<string, unknown>>('entrada', {
+      qtype: 'entrada.id',
+      query: '0',
+      oper: '>',
+      rp: 20,
+      sortname: 'entrada.id',
+      sortorder: 'desc',
+    });
+    for (const e of recentes.registros) {
+      const m = serve({
+        tipoDocumentoId: numeroDoIxc(e.tipo_documento),
+        condicaoPagamentoId: numeroDoIxc(e.condicoes_pagamento),
+      });
+      if (m) return m;
+    }
+    return null;
   }
 
   /**

@@ -50,6 +50,7 @@ const TecnicosDeOs = telaSobDemanda(() => import('./pages/os/Tecnicos').then((m)
 const Modulos = telaSobDemanda(() => import('./pages/Modulos').then((m) => m.Modulos));
 const ContasPagarInicio = telaSobDemanda(() => import('./pages/contas-pagar/Inicio').then((m) => m.Inicio));
 const Estoque = telaSobDemanda(() => import('./pages/almoxarifado/Estoque').then((m) => m.Estoque));
+const NotasDeCompra = telaSobDemanda(() => import('./pages/almoxarifado/NotasDeCompra').then((m) => m.NotasDeCompra));
 const Conferencia = telaSobDemanda(() => import('./pages/almoxarifado/Conferencia').then((m) => m.Conferencia));
 const Almoxarifados = telaSobDemanda(() => import('./pages/almoxarifado/Almoxarifados').then((m) => m.Almoxarifados));
 const AlmoxarifadoDetalhe = telaSobDemanda(() => import('./pages/almoxarifado/AlmoxarifadoDetalhe').then((m) => m.AlmoxarifadoDetalhe));
@@ -208,7 +209,7 @@ const TELAS_DO_MODULO: Record<string, Array<{ preCarregar: () => void }>> = {
     MesesDaContabilidade, MesDaContabilidade, AjustesDaContabilidade,
   ],
   almoxarifado: [
-    Estoque, Conferencia, Almoxarifados, AlmoxarifadoDetalhe, PecasDoProduto, Transferir,
+    Estoque, NotasDeCompra, Conferencia, Almoxarifados, AlmoxarifadoDetalhe, PecasDoProduto, Transferir,
     Ferramentas, Comodato, Precos, FornecedoresDeCotacao, MinhaConta,
   ],
   os: [RegistrosDeOs, ConferenciaDeOs, Recolhidos, TecnicosDeOs, MateriaisDeOs, RelatorioDeOs, MinhaConta],
@@ -403,6 +404,7 @@ export default function App() {
       >
         <Route index element={<Navigate to="estoque" replace />} />
         <Route path="estoque" element={<Estoque />} />
+        <Route path="notas" element={<NotasDeCompra />} />
         <Route path="conferencia" element={<Conferencia />} />
         <Route path="almoxarifados" element={<Almoxarifados />} />
         <Route path="almoxarifados/:id" element={<AlmoxarifadoDetalhe />} />

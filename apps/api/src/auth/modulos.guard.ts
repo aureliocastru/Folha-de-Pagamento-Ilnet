@@ -90,6 +90,9 @@ const MODULO_DA_ROTA: Array<[string, ModuloId[]]> = [
   ['transferencias', ['contas-pagar']],
   ['caixa', ['contas-pagar']],
   ['a-receber', ['contas-pagar']],
+  // As notas de compra do almoxarifado esperando virar conta a pagar. Lançar
+  // é do almoxarifado (`almoxarifado/notas`); decidir é daqui.
+  ['notas-de-compra', ['contas-pagar']],
 
   ['funcionarios', ['folha']],
   ['diaristas', ['folha']],

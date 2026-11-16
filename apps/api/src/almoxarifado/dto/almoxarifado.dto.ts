@@ -1,6 +1,7 @@
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsIn,
@@ -313,4 +314,67 @@ export class DevolverDto {
   /** Em que estado ela voltou. */
   @IsOptional() @Transform(textoOuNulo) @IsString() @MaxLength(2000)
   observacao?: string | null;
+}
+
+/** Um produto da nota fiscal de compra. */
+export class ItemDaNotaDto {
+  @Transform(numero) @IsInt() @Min(1) produtoId!: number;
+
+  @Transform(numero) @IsNumber({ maxDecimalPlaces: 5 }) @Min(0.00001)
+  quantidade!: number;
+
+  @Transform(numero) @IsNumber({ maxDecimalPlaces: 2 }) @Min(0)
+  valorUnitario!: number;
+}
+
+/** Uma parcela a pagar da nota: vira conta só depois de confirmada. */
+export class ParcelaDaNotaDto {
+  @IsISO8601({ strict: true }) vencimento!: string;
+
+  @Transform(numero) @IsNumber({ maxDecimalPlaces: 2 }) @Min(0.01)
+  valor!: number;
+}
+
+/**
+ * A nota fiscal de compra que o almoxarife lança quando o material chega.
+ * Só o que a nota traz: de quem, o número, o dia, os produtos e as parcelas.
+ */
+export class NotaDeCompraDto {
+  @Transform(numero) @IsInt() @Min(1) fornecedorId!: number;
+
+  @Transform(texto) @IsString() @MinLength(1) @MaxLength(200)
+  fornecedorNome!: string;
+
+  @Transform(texto) @IsString()
+  @MinLength(1, { message: 'Falta o número da nota fiscal.' })
+  @MaxLength(40)
+  numeroNota!: string;
+
+  @IsISO8601({ strict: true }) dataEmissao!: string;
+
+  @Transform(numero) @IsInt() @Min(1) almoxId!: number;
+
+  @IsArray()
+  @ArrayMinSize(1, { message: 'A nota precisa de pelo menos um produto.' })
+  @ArrayMaxSize(100)
+  @ValidateNested({ each: true })
+  @Type(() => ItemDaNotaDto)
+  itens!: ItemDaNotaDto[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(48)
+  @ValidateNested({ each: true })
+  @Type(() => ParcelaDaNotaDto)
+  parcelas?: ParcelaDaNotaDto[];
+}
+
+/** A confirmação, no Contas a Pagar, de que as parcelas da nota viram contas. */
+export class ConfirmarNotaDto {
+  @IsOptional() @IsUUID() categoriaId?: string;
+}
+
+export class RecusarNotaDto {
+  @IsOptional() @Transform(texto) @IsString() @MaxLength(300)
+  motivo?: string;
 }

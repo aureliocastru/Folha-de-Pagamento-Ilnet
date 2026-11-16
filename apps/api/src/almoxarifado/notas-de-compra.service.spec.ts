@@ -1,0 +1,148 @@
+import { NotasDeCompraService, conferirParcelas, totalDosItens } from './notas-de-compra.service';
+
+/**
+ * A nota de compra do almoxarifado. O que este arquivo protege:
+ *
+ *  - lançar a nota põe os produtos no IXC e **não** cria conta a pagar;
+ *  - as contas só nascem na confirmação, uma por parcela, e nunca em dobro;
+ *  - a mesma nota do mesmo fornecedor não entra duas vezes no estoque.
+ */
+
+const PEDIDO = {
+  fornecedorId: 14,
+  fornecedorNome: 'Fornecedor Exemplo',
+  numeroNota: '1234',
+  dataEmissao: '2026-11-13',
+  almoxId: 1,
+  itens: [
+    { produtoId: 10, quantidade: 10, valorUnitario: 4.5 },
+    { produtoId: 20, quantidade: 2, valorUnitario: 77.5 },
+  ],
+  parcelas: [
+    { vencimento: '2026-12-13', valor: 100 },
+    { vencimento: '2027-01-13', valor: 100 },
+  ],
+};
+
+function montar(existente: Record<string, unknown> | null = null) {
+  let guardada: Record<string, unknown> | null = existente;
+  const prisma = {
+    notaDeCompra: {
+      findFirst: jest.fn(async () => existente),
+      findUnique: jest.fn(async () => guardada),
+      create: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        guardada = { id: 'nota-1', createdAt: new Date(), decididaPor: null, motivoDaRecusa: null, ...data };
+        return guardada;
+      }),
+      update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+        guardada = { ...guardada, ...data };
+        return guardada;
+      }),
+    },
+    classificacaoConta: { upsert: jest.fn(async () => ({})) },
+  };
+  const produtos = {
+    lancarCompra: jest.fn(async (d: typeof PEDIDO) => ({
+      entradaId: 3600,
+      almoxarifado: 'ILNET',
+      compraAberta: null,
+      itens: d.itens.map((i) => ({
+        ...i,
+        descricao: `Produto ${i.produtoId}`,
+        unidade: 'UND',
+        entrou: true,
+        motivo: null,
+      })),
+    })),
+  };
+  let proximo = 9000;
+  const contasPagar = {
+    criarDespesa: jest.fn(async (_dados: Record<string, unknown>) => ({
+      id: 'c',
+      idFnApagarIxc: ++proximo,
+    })),
+  };
+  const service = new NotasDeCompraService(prisma as never, produtos as never, contasPagar as never);
+  return { service, prisma, produtos, contasPagar };
+}
+
+describe('a nota de compra do almoxarifado', () => {
+  it('lançar põe os produtos no IXC e não cria conta: fica aguardando', async () => {
+    const { service, produtos, contasPagar } = montar();
+    const nota = await service.lancar(PEDIDO, { nome: 'Almoxarife' });
+    expect(produtos.lancarCompra).toHaveBeenCalledTimes(1);
+    expect(contasPagar.criarDespesa).not.toHaveBeenCalled();
+    expect(nota).toMatchObject({ situacao: 'AGUARDANDO', valorTotal: 200, entradaId: 3600 });
+  });
+
+  it('sem parcela nenhuma, não há o que confirmar', async () => {
+    const { service } = montar();
+    const nota = await service.lancar({ ...PEDIDO, parcelas: [] }, { nome: 'Almoxarife' });
+    expect(nota.situacao).toBe('SEM_CONTA');
+  });
+
+  it('parcelas que não somam o total param antes de tocar no IXC', async () => {
+    const { service, produtos } = montar();
+    await expect(
+      service.lancar(
+        { ...PEDIDO, parcelas: [{ vencimento: '2026-12-13', valor: 150 }] },
+        { nome: 'Almoxarife' },
+      ),
+    ).rejects.toThrow(/parcelas somam/);
+    expect(produtos.lancarCompra).not.toHaveBeenCalled();
+  });
+
+  it('a mesma nota do mesmo fornecedor não entra duas vezes', async () => {
+    const { service, produtos } = montar({
+      fornecedorNome: 'Fornecedor Exemplo',
+      lancadaPor: 'Outro',
+      idEntradaIxc: 3500,
+    });
+    await expect(service.lancar(PEDIDO, { nome: 'Almoxarife' })).rejects.toThrow(/já foi lançada/);
+    expect(produtos.lancarCompra).not.toHaveBeenCalled();
+  });
+
+  it('confirmar cria uma conta por parcela, e a que já virou conta não vira de novo', async () => {
+    const { service, contasPagar } = montar();
+    const nota = await service.lancar(PEDIDO, { nome: 'Almoxarife' });
+
+    // O IXC cai na segunda parcela: a primeira fica gravada.
+    contasPagar.criarDespesa
+      .mockResolvedValueOnce({ id: 'c', idFnApagarIxc: 9001 })
+      .mockRejectedValueOnce(new Error('IXC fora'));
+    await expect(service.confirmar(nota.id, {}, { nome: 'Chefe' })).rejects.toThrow(/parcela 2/);
+
+    const confirmada = await service.confirmar(nota.id, {}, { nome: 'Chefe' });
+    expect(contasPagar.criarDespesa).toHaveBeenCalledTimes(3);
+    expect(confirmada.situacao).toBe('CONFIRMADA');
+    expect(confirmada.parcelas.map((p) => p.idFnApagar)).toEqual([9001, expect.any(Number)]);
+    expect(contasPagar.criarDespesa.mock.calls[0][0]).toMatchObject({
+      idFornecedorIxc: 14,
+      valor: 100,
+      numeroNota: '1234',
+      observacao: 'NF 1234 · parcela 1/2 · 10 Produto 10, 2 Produto 20',
+    });
+
+    await expect(service.confirmar(nota.id, {}, { nome: 'Chefe' })).rejects.toThrow(/já foi decidida/);
+  });
+
+  it('recusar não cria conta nenhuma', async () => {
+    const { service, contasPagar } = montar();
+    const nota = await service.lancar(PEDIDO, { nome: 'Almoxarife' });
+    const recusada = await service.recusar(nota.id, 'já foi paga no caixa', { nome: 'Chefe' });
+    expect(recusada).toMatchObject({ situacao: 'RECUSADA', motivoDaRecusa: 'já foi paga no caixa' });
+    expect(contasPagar.criarDespesa).not.toHaveBeenCalled();
+  });
+});
+
+describe('as contas da nota', () => {
+  it('o total soma linha a linha, ao centavo', () => {
+    expect(totalDosItens([{ quantidade: 3, valorUnitario: 0.33 }, { quantidade: 1.5, valorUnitario: 10 }])).toBe(15.99);
+  });
+
+  it('parcelas fecham com o total ou são recusadas', () => {
+    expect(() => conferirParcelas([{ vencimento: '2026-12-01', valor: 15.99 }], 15.99)).not.toThrow();
+    expect(() => conferirParcelas([], 15.99)).not.toThrow();
+    expect(() => conferirParcelas([{ vencimento: '2026-12-01', valor: 15.98 }], 15.99)).toThrow();
+  });
+});

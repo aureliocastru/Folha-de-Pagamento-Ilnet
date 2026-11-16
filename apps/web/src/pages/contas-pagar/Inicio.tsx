@@ -26,6 +26,7 @@ import type {
 } from '../../lib/types';
 import { EditarConta, ExcluirConta, PagarEmMaos, SeloNoBanco } from './AcoesDaConta';
 import { DespesasNaoEnviadas } from './DespesasNaoEnviadas';
+import { NotasAguardando } from './NotasAguardando';
 import { DetalheDaConta } from './DetalheDaConta';
 import { NovaDespesa } from './NovaDespesa';
 import { TornarRecorrente } from './TornarRecorrente';
@@ -331,6 +332,10 @@ export function Inicio() {
       {/* Acima da lista de propósito: uma despesa que não chegou ao IXC não está
           nela, e é a primeira coisa a resolver. */}
       <DespesasNaoEnviadas />
+
+      {/* As notas que o almoxarife lançou: as parcelas só viram conta depois
+          de confirmadas aqui. */}
+      <NotasAguardando />
 
       {/*
         Marcar uma conta não pode mexer na lista: quem está mirando a próxima

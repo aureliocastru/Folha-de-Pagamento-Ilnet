@@ -4255,3 +4255,53 @@ model RastreadorDoTecnico {
   @@index([tecnicoIxcId])
   @@map("rastreadores_dos_tecnicos")
 }
+
+/// A nota fiscal de compra que o almoxarife lançou quando o material chegou.
+///
+/// O estoque é do IXC: os produtos entram lá, numa compra (Entradas ›
+/// Compras), no momento do lançamento — `idEntradaIxc`. O que mora aqui é o
+/// que o IXC não guarda: as parcelas que o almoxarife informou e que **ainda
+/// não são contas a pagar**. Elas só viram título depois que alguém do
+/// Contas a Pagar confirma a nota; até lá a nota fica `AGUARDANDO`.
+model NotaDeCompra {
+  id String @id @default(uuid())
+
+  numeroNota      String   @map("numero_nota")
+  idFornecedorIxc Int      @map("id_fornecedor_ixc")
+  /// O nome escrito: o cadastro de lá muda, e a nota continua dizendo de quem é.
+  fornecedorNome  String   @map("fornecedor_nome")
+  dataEmissao     DateTime @map("data_emissao") @db.Date
+
+  almoxId      Int    @map("almox_id")
+  almoxarifado String
+
+  valorTotal Decimal @map("valor_total") @db.Decimal(14, 2)
+
+  /// A compra no IXC, e por que ela ficou aberta (null = fechada).
+  idEntradaIxc Int     @map("id_entrada_ixc")
+  compraAberta String? @map("compra_aberta")
+
+  /// Os produtos: `{produtoId, descricao, unidade, quantidade, valorUnitario,
+  /// entrou, motivo}` — como o IXC respondeu a cada um.
+  itens    Json @default("[]")
+  /// As parcelas: `{vencimento: "AAAA-MM-DD", valor, idFnApagar?}`. O
+  /// `idFnApagar` aparece quando a parcela virou título, na confirmação.
+  parcelas Json @default("[]")
+
+  /// AGUARDANDO (tem parcela esperando confirmação), CONFIRMADA (as contas
+  /// foram criadas), RECUSADA (ninguém vai pagar por aqui) ou SEM_CONTA (a
+  /// nota foi lançada sem parcela nenhuma).
+  situacao String @default("AGUARDANDO")
+
+  lancadaPor     String    @map("lancada_por")
+  decididaPor    String?   @map("decidida_por")
+  decididaEm     DateTime? @map("decidida_em")
+  motivoDaRecusa String?   @map("motivo_da_recusa")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([situacao])
+  @@index([idFornecedorIxc, numeroNota])
+  @@map("notas_de_compra")
+}

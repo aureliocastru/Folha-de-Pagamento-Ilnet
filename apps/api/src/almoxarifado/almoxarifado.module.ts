@@ -8,6 +8,8 @@ import { ComodatoService } from './comodato.service';
 import { ConferenciaService } from './conferencia.service';
 import { EstoqueService } from './estoque.service';
 import { FerramentasService } from './ferramentas.service';
+import { NotasDeCompraController } from './notas-de-compra.controller';
+import { NotasDeCompraService } from './notas-de-compra.service';
 import { ProdutosService } from './produtos.service';
 import { SaidasService } from './saidas.service';
 import { TransferenciasService } from './transferencias.service';
@@ -25,7 +27,7 @@ import { TransferenciasService } from './transferencias.service';
  */
 @Module({
   imports: [IxcModule, FinanceiroModule],
-  controllers: [AlmoxarifadoController],
+  controllers: [AlmoxarifadoController, NotasDeCompraController],
   providers: [
     EstoqueService,
     FerramentasService,
@@ -36,6 +38,7 @@ import { TransferenciasService } from './transferencias.service';
     AcertoDeNegativosService,
     ConferenciaService,
     SaidasService,
+    NotasDeCompraService,
   ],
   // As ordens de serviço leem e mexem no mesmo estoque do IXC: a van do
   // técnico, a peça bipada, o comodato do contrato, a transferência.

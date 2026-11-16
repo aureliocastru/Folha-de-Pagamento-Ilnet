@@ -408,6 +408,8 @@ export interface EntradaDeCompra {
   filialId: number;
   /** "DD/MM/AAAA" */
   data: string;
+  /** "DD/MM/AAAA" — o dia impresso na nota, quando não é o da entrada. */
+  dataEmissao?: string;
   /** O número da nota, quando há uma. */
   numeroNota: string;
   valorTotal: number;
@@ -444,7 +446,7 @@ export function montarEntrada(e: EntradaDeCompra): Record<string, unknown> {
     id_fornecedor: String(idValido(e.fornecedorId, 'o fornecedor')),
     condicoes_pagamento: String(idValido(e.condicaoPagamentoId, 'a condição de pagamento')),
     filial_id: String(idValido(e.filialId, 'a filial')),
-    data_emissao: e.data,
+    data_emissao: e.dataEmissao ?? e.data,
     data_entrada: e.data,
     documento: (e.documento ?? e.numeroNota).slice(0, 40),
     numero_nf: e.numeroNota.slice(0, 40),

@@ -327,6 +327,9 @@ const almoxarifado: Modulo = {
   papeis: ['ADMIN', 'RH', 'VISUALIZADOR'],
   menu: [
     { to: 'estoque', label: 'Estoque', icone: IconeCaixa },
+    // A nota fiscal de compra, lançada quando o material chega: os produtos
+    // entram no IXC e as parcelas esperam a confirmação do Contas a Pagar.
+    { to: 'notas', label: 'Notas fiscais', icone: IconeRecibo },
     // O inventário na prateleira: conta-se o que tem, e a diferença é lançada
     // no IXC — o que faltou vai para Perdas e Falhas, o que sobrou volta de lá
     // ou entra por compra.

@@ -35,6 +35,7 @@ import {
   EntradaDeCompraDto,
   LigarUsuarioDto,
   MoverTudoDto,
+  NotaDeCompraDto,
   PadraoDoUsuarioDto,
   SaidaDeEstoqueDto,
   TransferenciaDto,
@@ -42,6 +43,7 @@ import {
 } from './dto/almoxarifado.dto';
 import { EstoqueService } from './estoque.service';
 import { FerramentasService } from './ferramentas.service';
+import { NotasDeCompraService } from './notas-de-compra.service';
 import { ProdutosService } from './produtos.service';
 import { SaidasService } from './saidas.service';
 import { TransferenciasService } from './transferencias.service';
@@ -112,6 +114,7 @@ export class AlmoxarifadoController {
     private readonly acerto: AcertoDeNegativosService,
     private readonly conferencia: ConferenciaService,
     private readonly saidas: SaidasService,
+    private readonly notas: NotasDeCompraService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -246,6 +249,22 @@ export class AlmoxarifadoController {
     @Req() req: Request,
   ) {
     return this.produtos.darEntrada(id, dto, quem(req));
+  }
+
+  // -------------------------------------------------------------------------
+  // Notas fiscais de compra — os produtos entram no IXC; as parcelas esperam
+  // a confirmação do Contas a Pagar
+  // -------------------------------------------------------------------------
+
+  @Get('notas')
+  notasDeCompra() {
+    return this.notas.listar();
+  }
+
+  @Post('notas')
+  @HttpCode(201)
+  lancarNota(@Body() dto: NotaDeCompraDto, @Req() req: Request) {
+    return this.notas.lancar(dto, quem(req));
   }
 
   // -------------------------------------------------------------------------
