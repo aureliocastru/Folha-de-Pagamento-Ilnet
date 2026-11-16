@@ -1,5 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import {
+  barrasDoBoleto,
+  boletoPeloCodigo,
   certificado,
   explicarFalhaDeRede,
   lerToken,
@@ -408,6 +410,33 @@ describe('PagamentosNoBancoService.enviar', () => {
         { valorDoTitulo: 1500, desconto: 0 },
       ),
     ).rejects.toThrow(/escolher o valor/);
+  });
+
+  it('banco não consulta o boleto: paga direto, com a linha e o valor do próprio código', async () => {
+    // Banco 237, vencimento 1234, R$ 1.532,40, campo livre de 25 dígitos.
+    const barras = '2379' + '1' + '1234' + '0000153240' + '1234567890123456789012345';
+    const lido = boletoPeloCodigo(barras)!;
+    expect(lido.valor).toBe(1532.4);
+    expect(lido.linhaDigitavel).toHaveLength(47);
+    // A linha montada volta ao mesmo código de barras.
+    expect(barrasDoBoleto(lido.linhaDigitavel)).toBe(barras);
+    expect(boletoPeloCodigo(lido.linhaDigitavel)).toEqual(lido);
+    expect(boletoPeloCodigo('8'.padEnd(48, '0'))).toBeNull();
+
+    const consultarBoleto = jest.fn(async () => {
+      throw new RecusaDoBanco('onz-0004', 400);
+    });
+    const pagarBoleto = jest.fn(async () => ({ idNoBanco: '991', status: 'PROCESSING' }));
+    const { service } = montarNoBanco({ banco: { consultarBoleto, pagarBoleto } });
+
+    await service.enviar(
+      4242,
+      { ...TITULO, chave_pix: '', codigo_barras: barras },
+      { valorDoTitulo: 1500, desconto: 0 },
+    );
+    expect(pagarBoleto).toHaveBeenCalledWith(
+      expect.objectContaining({ linhaDigitavel: lido.linhaDigitavel, valor: 1532.4 }),
+    );
   });
 });
 

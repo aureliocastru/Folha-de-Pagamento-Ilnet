@@ -14,6 +14,8 @@ import { lerSituacaoContaPagar } from '../ixc/ixc.financeiro';
 import {
   ModobankClient,
   RecusaDoBanco,
+  boletoPeloCodigo,
+  type BoletoNoBanco,
   type PagamentoAceito,
   type SituacaoDoPagamento,
 } from '../modobank/modobank.client';
@@ -424,7 +426,26 @@ export class PagamentosNoBancoService {
     endToEndIdDaConsulta: string | null;
   }> {
     if (como.forma === 'BOLETO') {
-      const boleto = await this.banco.consultarBoleto(como.codigo);
+      let boleto: BoletoNoBanco;
+      try {
+        boleto = await this.banco.consultarBoleto(como.codigo);
+      } catch (err) {
+        /*
+         * A consulta do boleto (`/billets/info`) vinha recusando todo boleto
+         * ("onz-0004"), e o suporte do banco mandou pagar direto em
+         * `/billets/payments` (16/11/2026). Sem a consulta, o boleto sai do
+         * próprio código: a linha de 47 e o valor impresso nele — ou o do
+         * título, se o código não traz valor. Não há o nome de quem recebe.
+         * Se o banco cobrar outro valor (juros de atraso), é ele que recusa.
+         */
+        const lido = err instanceof RecusaDoBanco ? boletoPeloCodigo(como.codigo) : null;
+        const valor = lido && lido.valor > 0 ? lido.valor : valorDoPix;
+        if (!lido || !(valor > 0)) throw err;
+        this.logger.warn(
+          `Banco não consultou o boleto (${mensagem(err)}); segue pelo código, ${moeda(valor)}.`,
+        );
+        return { destino: lido.linhaDigitavel, favorecido: null, valor, endToEndIdDaConsulta: null };
+      }
       if (boleto.valorLivre) {
         throw new BadRequestException(
           'Este boleto deixa quem paga escolher o valor (como fatura de cartão), ' +

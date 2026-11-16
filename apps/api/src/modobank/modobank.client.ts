@@ -614,6 +614,38 @@ export function barrasDoBoleto(digitos: string): string | null {
 }
 
 /**
+ * O boleto bancário lido do próprio código, sem perguntar ao banco: a linha
+ * digitável de 47 e o valor impresso nele. Aceita a linha de 47 ou o código de
+ * barras de 44. Null = não é boleto bancário (guia de arrecadação começa com 8).
+ *
+ * Valor zero é boleto sem valor no código — quem chama decide o que pagar.
+ */
+export function boletoPeloCodigo(codigo: string): { linhaDigitavel: string; valor: number } | null {
+  const digitos = codigo.replace(/\D/g, '');
+  if (digitos[0] === '8') return null;
+  const barras = digitos.length === 44 ? digitos : barrasDoBoleto(digitos);
+  if (!barras) return null;
+  const campos = [barras.slice(0, 4) + barras.slice(19, 24), barras.slice(24, 34), barras.slice(34, 44)];
+  const linhaDigitavel =
+    digitos.length === 47
+      ? digitos
+      : campos.map((c) => c + modulo10(c)).join('') + barras[4] + barras.slice(5, 19);
+  return { linhaDigitavel, valor: Number(barras.slice(9, 19)) / 100 };
+}
+
+/** Pesos 2 e 1 da direita para a esquerda, somando os algarismos de cada produto. */
+function modulo10(digitos: string): number {
+  let soma = 0;
+  let peso = 2;
+  for (let i = digitos.length - 1; i >= 0; i--) {
+    const produto = Number(digitos[i]) * peso;
+    soma += Math.floor(produto / 10) + (produto % 10);
+    peso = peso === 2 ? 1 : 2;
+  }
+  return (10 - (soma % 10)) % 10;
+}
+
+/**
  * A linha de 48 de uma guia de arrecadação (começa com 8: DARF, GPS, conta de
  * consumo) como código de barras de 44 — os quatro blocos de 11 sem o dígito
  * de conferência de cada um. Null = não é linha de arrecadação.
