@@ -1,3 +1,4 @@
+import { ajustarAbaixo } from '../../lib/parcelas';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { CampoDeData } from '../../components/CampoDeData';
@@ -641,9 +642,8 @@ function LancarNota({
                     <CampoDinheiro
                       valor={p.valor}
                       onChange={(v) =>
-                        setParcelas((atual) =>
-                          atual.map((x, i) => (i === n ? { ...x, valor: v } : x)),
-                        )
+                        // As de baixo se refazem para fechar a nota; as de cima ficam.
+                        setParcelas((atual) => ajustarAbaixo(atual, n, v, total))
                       }
                       className="campo num w-32 shrink-0"
                     />

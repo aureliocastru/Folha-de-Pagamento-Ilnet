@@ -16,6 +16,7 @@ import {
 import { api, mensagemErro } from '../../lib/api';
 import { useTermoAdiado } from '../../lib/busca';
 import { lerBoleto, lerPix } from '../../lib/codigo-de-pagamento';
+import { ajustarAbaixo } from '../../lib/parcelas';
 import { formatBRL, numeroDigitado, soFracao } from '../../lib/format';
 import { CampoDeData } from '../../components/CampoDeData';
 import {
@@ -2248,9 +2249,15 @@ export function NovaDespesa({
                                     valor={p.valor}
                                     onChange={(v) =>
                                       setParcelas((atual) =>
-                                        atual.map((x, j) =>
-                                          j === i ? { ...x, valor: v } : x,
-                                        ),
+                                        // Na nota parcelada, as de baixo se
+                                        // refazem para fechar o total; as de
+                                        // cima ficam. No consórcio cada uma é
+                                        // o boleto que chega.
+                                        modoParcela === 'consorcio'
+                                          ? atual.map((x, j) =>
+                                              j === i ? { ...x, valor: v } : x,
+                                            )
+                                          : ajustarAbaixo(atual, i, v, Number(valor) || 0),
                                       )
                                     }
                                     className="campo py-1"
