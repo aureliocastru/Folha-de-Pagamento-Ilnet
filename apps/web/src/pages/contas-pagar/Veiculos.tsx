@@ -86,6 +86,9 @@ interface Consumo {
   irregular: boolean;
   /** O último trecho está pior, mesmo com a média geral de pé. */
   ultimoIrregular: boolean;
+  /** A conta da média: km (ou horas) e litros que entraram nela. */
+  distancia: number | null;
+  litros: number | null;
 }
 
 /** O que há dentro de um galão, e por quanto saiu o litro. */
@@ -193,6 +196,10 @@ interface Ficha {
     }
   >;
 }
+
+/** O mês de um instante no horário de Brasília (UTC−3), como a API separa. */
+const mesDoInstante = (iso: string) =>
+  new Date(Date.parse(iso) - 3 * 3600_000).toISOString().slice(0, 7);
 
 const km = (n: number) => `${formatMedidor(n)} km`;
 /** O horímetro como no painel da máquina, com o ponto do décimo: "1252.6 h". */
@@ -333,8 +340,11 @@ export function Veiculos() {
   const [cadastrando, setCadastrando] = useState(false);
   const [abertoId, setAbertoId] = useState<string | null>(null);
   const [busca, setBusca] = useState('');
-  /** "AAAA-MM", ou null: o geral, desde sempre. */
-  const [competencia, setCompetencia] = useState<string | null>(null);
+  /**
+   * "AAAA-MM", ou null: o geral, desde sempre. Abre no mês de agora, e a
+   * ficha de cada veículo segue o que estiver escolhido aqui.
+   */
+  const [competencia, setCompetencia] = useState<string | null>(() => mesAtual());
 
   const lista = useQuery({
     queryKey: ['veiculos', 'todos', competencia ?? 'geral'],
@@ -565,7 +575,13 @@ export function Veiculos() {
       </Bloco>
 
       {cadastrando && <FormularioDoVeiculo onFechar={() => setCadastrando(false)} />}
-      {abertoId && <FichaDoVeiculo id={abertoId} onFechar={() => setAbertoId(null)} />}
+      {abertoId && (
+        <FichaDoVeiculo
+          id={abertoId}
+          competencia={competencia}
+          onFechar={() => setAbertoId(null)}
+        />
+      )}
     </Pagina>
   );
 }
@@ -1015,7 +1031,16 @@ function LancarAbastecimento({
  * conta e cada abastecimento — e os botões de lançar uma conta ou um
  * abastecimento nele.
  */
-function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) {
+function FichaDoVeiculo({
+  id,
+  competencia,
+  onFechar,
+}: {
+  id: string;
+  /** O mês escolhido na lista da frota ("AAAA-MM"), ou null: o geral. */
+  competencia: string | null;
+  onFechar: () => void;
+}) {
   const qc = useQueryClient();
   const [editando, setEditando] = useState(false);
   const [lancando, setLancando] = useState(false);
@@ -1023,8 +1048,13 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
   const [manutencao, setManutencao] = useState(false);
 
   const ficha = useQuery({
-    queryKey: ['veiculos', 'ficha', id],
-    queryFn: async () => (await api.get<Ficha>(`/veiculos/${id}`)).data,
+    queryKey: ['veiculos', 'ficha', id, competencia ?? 'geral'],
+    queryFn: async () =>
+      (
+        await api.get<Ficha>(`/veiculos/${id}`, {
+          params: competencia ? { competencia } : undefined,
+        })
+      ).data,
   });
 
   // O resumo da manutenção, para o botão dizer se há troca vencida. É a mesma
@@ -1078,6 +1108,12 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
   }
 
   const d = ficha.data;
+  // Os abastecimentos vêm todos (o lançamento precisa dos vizinhos pelo
+  // painel); a tela mostra só os do mês escolhido.
+  const doMes = <T extends { data: string }>(lista: T[]) =>
+    competencia ? lista.filter((a) => mesDoInstante(a.data) === competencia) : lista;
+  const abastecimentosDoMes = d ? doMes(d.abastecimentos) : [];
+  const saidasDoMes = d?.saidas ? doMes(d.saidas) : undefined;
 
   return (
     <Janela media titulo={d?.veiculo.apelido ?? 'Veículo'} onFechar={onFechar}>
@@ -1088,6 +1124,10 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
       ) : (
         <>
           <p className="mb-4 text-[13px] text-tinta-500">
+            <span className="font-semibold text-tinta-700 first-letter:uppercase">
+              {competencia ? mesPorExtenso(competencia) : 'Geral'}
+            </span>
+            {' · '}
             {identificacao(d.veiculo)}
             {d.veiculo.responsaveis.length > 0 &&
               ` · com ${nomesDosResponsaveis(d.veiculo.responsaveis)}`}
@@ -1208,6 +1248,11 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
                       )}
                     </p>
                     <p className="mt-0.5 text-xs text-tinta-500">
+                      {d.combustivel.consumo.distancia != null &&
+                        d.combustivel.consumo.litros != null &&
+                        (d.veiculo.tipo === 'MAQUINA'
+                          ? `${litros(d.combustivel.consumo.litros)} ÷ ${horas(d.combustivel.consumo.distancia)} · `
+                          : `${km(d.combustivel.consumo.distancia)} ÷ ${litros(d.combustivel.consumo.litros)} · `)}
                       de {d.combustivel.consumo.base} abastecimento(s) com medidor
                       {d.combustivel.consumo.ultimo != null &&
                         ` · no último trecho, ${formatConsumo(
@@ -1348,8 +1393,8 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
 
           <Segmento
             titulo="Abastecimentos"
-            resumo={`${d.abastecimentos.length} abastecimento(s) · ${formatBRL(d.combustivel.total)}`}
-            itens={d.abastecimentos}
+            resumo={`${abastecimentosDoMes.length} abastecimento(s) · ${formatBRL(d.combustivel.total)}`}
+            itens={abastecimentosDoMes}
             campos={(a) => [
               medida(a),
               a.valor != null ? formatBRL(a.valor) : 'na conferência',
@@ -1417,8 +1462,8 @@ function FichaDoVeiculo({ id, onFechar }: { id: string; onFechar: () => void }) 
           {d.veiculo.tipo === 'GALAO' && (
             <Segmento
               titulo="Saídas do galão"
-              resumo={`${d.saidas?.length ?? 0} saída(s)`}
-              itens={d.saidas ?? []}
+              resumo={`${saidasDoMes?.length ?? 0} saída(s)`}
+              itens={saidasDoMes ?? []}
               campos={(s) => [
                 s.veiculo?.apelido,
                 s.outroDestino,

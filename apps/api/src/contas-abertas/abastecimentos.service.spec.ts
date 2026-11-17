@@ -5,6 +5,7 @@ import {
   encaixar,
   mediaDeConsumo,
   resumirCombustivel,
+  resumirCombustivelDoMes,
 } from './abastecimentos.service';
 
 /**
@@ -880,5 +881,31 @@ describe('mediaDeConsumo', () => {
     );
     // 100 litros em 100 horas: um litro por hora.
     expect(r).toMatchObject({ medio: 1, ultimo: 1, unidade: 'litros_por_hora' });
+  });
+});
+
+describe('resumirCombustivelDoMes', () => {
+  // Outubro: um abastecimento; novembro: dois. Horário de Brasília.
+  const lista = [
+    { valor: 280, km: 47_500, litros: 40, data: new Date('2026-10-20T12:00:00Z') },
+    { valor: 287.22, km: 47_869, litros: 42.67, data: new Date('2026-11-03T11:32:00Z') },
+    { valor: 285.75, km: 48_074, litros: 42.46, data: new Date('2026-11-11T11:39:00Z') },
+  ];
+
+  it('soma só o mês, e a média começa no medidor de antes', () => {
+    const r = resumirCombustivelDoMes(lista, '2026-11');
+    expect(r.total).toBe(572.97);
+    expect(r.quantidade).toBe(2);
+    expect(r.litros).toBe(85.13);
+    // 47.500 → 48.074 = 574 km, pelos 85,13 L que entraram depois da partida.
+    expect(r.kmRodados).toBe(574);
+    expect(r.consumo).toMatchObject({ distancia: 574, litros: 85.13, medio: 6.74, base: 2 });
+    expect(r.consumo.ultimo).toBe(4.83);
+  });
+
+  it('mês sem abastecimento não tem média', () => {
+    const r = resumirCombustivelDoMes(lista, '2026-09');
+    expect(r.quantidade).toBe(0);
+    expect(r.consumo.medio).toBeNull();
   });
 });

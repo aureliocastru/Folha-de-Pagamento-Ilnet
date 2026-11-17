@@ -15,6 +15,8 @@ import { VinculoDoLoginService } from '../usuarios/vinculo-do-login.service';
 import {
   AbastecimentosService,
   mediaDeConsumo,
+  mediaDoMes,
+  instantesDoMes,
   type AbastecimentoNaTela,
   type SaidaDoGalao,
   type Consumo,
@@ -305,7 +307,14 @@ export class VeiculosService {
     ];
   }
 
-  async ficha(id: string): Promise<FichaDoVeiculo> {
+  /**
+   * Com a `competencia` ("AAAA-MM"), as contas, as categorias e o combustível
+   * são só daquele mês — o mesmo recorte da lista da frota. Os abastecimentos
+   * vêm todos: o lançamento precisa dos vizinhos pelo painel, e a tela separa
+   * os do mês.
+   */
+  async ficha(id: string, competencia?: string): Promise<FichaDoVeiculo> {
+    const mes = competencia == null ? null : validarCompetencia(competencia);
     const veiculo = await this.prisma.veiculo.findUnique({
       where: { id },
       include: {
@@ -372,7 +381,9 @@ export class VeiculosService {
         parteId: d.id,
         notasGuardadas: d._count.fotos,
       })),
-    ].sort((a, b) => b.dataVencimento.getTime() - a.dataVencimento.getTime());
+    ]
+      .filter((c) => !mes || mesDoGasto(c) === mes)
+      .sort((a, b) => b.dataVencimento.getTime() - a.dataVencimento.getTime());
 
     const etiquetas = await this.categorias.dosTitulos(
       lancadas
@@ -405,7 +416,7 @@ export class VeiculosService {
     }
 
     const [combustivel, abastecimentos, saidas] = await Promise.all([
-      this.abastecimentos.resumo(id),
+      this.abastecimentos.resumo(id, mes),
       this.abastecimentos.doVeiculo(id),
       veiculo.tipo === 'GALAO' ? this.abastecimentos.saidasDoGalao(id) : Promise.resolve([]),
     ]);
@@ -683,39 +694,6 @@ export function resumir(
  */
 export function mesDoGasto(c: { pagoEm: Date | null; dataVencimento: Date }): string {
   return (c.pagoEm ?? c.dataVencimento).toISOString().slice(0, 7);
-}
-
-/**
- * O mês "AAAA-MM" em instantes, no horário de Brasília (UTC−3): o
- * abastecimento guarda a hora em que foi lançado, e o lançado às 22h do dia 31
- * é do dia 31, e não do 1º do mês seguinte.
- */
-function instantesDoMes(mes: string): { gte: Date; lt: Date } {
-  const [ano, m] = mes.split('-').map(Number);
-  return {
-    gte: new Date(Date.UTC(ano, m - 1, 1, 3)),
-    lt: new Date(Date.UTC(ano, m, 1, 3)),
-  };
-}
-
-/**
- * A média de um mês: os abastecimentos dele, a partir do último medidor de
- * antes. O trecho que termina no mês é do mês — sem o ponto de partida, quem
- * abastece uma vez por mês nunca teria média nenhuma. A `base` conta só os do
- * mês: é o que a tela chama de "abastecimentos".
- */
-export function mediaDoMes(
-  lista: Array<Medida & { data: Date }>,
-  mes: string,
-  medidor: 'km' | 'horimetro',
-  ideal: number | null,
-): Consumo {
-  const { gte, lt } = instantesDoMes(mes);
-  const medido = (a: Medida) => (medidor === 'km' ? a.km : a.horimetro) != null;
-  const doMes = lista.filter((a) => a.data >= gte && a.data < lt && medido(a));
-  const antes = lista.filter((a) => a.data < gte && medido(a)).pop();
-  const consumo = mediaDeConsumo(antes && doMes.length > 0 ? [antes, ...doMes] : doMes, medidor, ideal);
-  return { ...consumo, base: doMes.length };
 }
 
 /** O maior dos dois medidores, ignorando o que não veio. */

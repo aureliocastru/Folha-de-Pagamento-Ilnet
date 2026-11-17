@@ -164,8 +164,8 @@ export class VeiculosController {
 
   /** O veículo com cada gasto, a soma por categoria e os abastecimentos. */
   @Get(':id')
-  ficha(@Param('id') id: string) {
-    return this.service.ficha(id);
+  ficha(@Param('id') id: string, @Query('competencia') competencia?: string) {
+    return this.service.ficha(id, competencia || undefined);
   }
 
   @Post()

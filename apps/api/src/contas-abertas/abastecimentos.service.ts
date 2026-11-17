@@ -203,6 +203,12 @@ export interface Consumo {
   irregular: boolean;
   /** O último trecho está pior do que o esperado, mesmo com a média de pé. */
   ultimoIrregular: boolean;
+  /**
+   * A conta da média, para conferir de olho: `distancia` (km, ou horas na
+   * máquina) e `litros` são os que entraram nela — `medio` é um pelo outro.
+   */
+  distancia: number | null;
+  litros: number | null;
 }
 
 type AbastecimentoCru = {
@@ -756,7 +762,8 @@ export class AbastecimentosService {
     }));
   }
 
-  async resumo(veiculoId: string): Promise<ResumoDoCombustivel> {
+  /** Com o `mes` ("AAAA-MM"), só aquele mês — a média, a partir do medidor de antes. */
+  async resumo(veiculoId: string, mes?: string | null): Promise<ResumoDoCombustivel> {
     const [veiculo, lista, precos] = await Promise.all([
       this.prisma.veiculo.findUnique({
         where: { id: veiculoId },
@@ -765,21 +772,23 @@ export class AbastecimentosService {
       this.prisma.abastecimento.findMany({
         where: { veiculoId },
         orderBy: [{ data: 'asc' }, { createdAt: 'asc' }],
-        select: { valor: true, km: true, horimetro: true, litros: true, galaoId: true },
+        select: { valor: true, km: true, horimetro: true, litros: true, galaoId: true, data: true },
       }),
       this.precosDosGaloes(),
     ]);
 
-    return resumirCombustivel(
-      lista.map((a) => ({
-        valor: valorDoAbastecimento(a, precos),
-        km: a.km,
-        horimetro: numero(a.horimetro),
-        litros: a.litros == null ? null : Number(a.litros),
-      })),
-      veiculo?.tipo === 'MAQUINA' ? 'horimetro' : 'km',
-      numero(veiculo?.consumoIdeal),
-    );
+    const medidor = veiculo?.tipo === 'MAQUINA' ? 'horimetro' : 'km';
+    const ideal = numero(veiculo?.consumoIdeal);
+    const todos = lista.map((a) => ({
+      valor: valorDoAbastecimento(a, precos),
+      km: a.km,
+      horimetro: numero(a.horimetro),
+      litros: a.litros == null ? null : Number(a.litros),
+      data: a.data,
+    }));
+    return mes
+      ? resumirCombustivelDoMes(todos, mes, medidor, ideal)
+      : resumirCombustivel(todos, medidor, ideal);
   }
 
   /**
@@ -1298,6 +1307,75 @@ export function resumirCombustivel(
 }
 
 /**
+ * O combustível de um mês. As somas são só do mês; a rodagem, o custo por km
+ * e a média começam no último medidor de antes dele — o trecho que termina no
+ * mês é do mês, e o combustível daquele ponto de partida não entra (a conta
+ * de `resumirCombustivel` já deixa o primeiro de fora).
+ */
+export function resumirCombustivelDoMes(
+  lista: Array<{
+    valor: number | null;
+    km?: number | null;
+    horimetro?: number | null;
+    litros?: number | null;
+    data: Date;
+  }>,
+  mes: string,
+  medidor: 'km' | 'horimetro' = 'km',
+  ideal: number | null = null,
+): ResumoDoCombustivel {
+  const { gte, lt } = instantesDoMes(mes);
+  const doMes = lista.filter((a) => a.data >= gte && a.data < lt);
+  const soMes = resumirCombustivel(doMes, medidor, ideal);
+  const temMedidor = (a: (typeof lista)[number]) =>
+    (medidor === 'km' ? a.km : a.horimetro) != null;
+  const antes = lista.filter((a) => a.data < gte && temMedidor(a)).pop();
+  if (!antes || !doMes.some(temMedidor)) return soMes;
+  const comPartida = resumirCombustivel([antes, ...doMes], medidor, ideal);
+  return {
+    ...soMes,
+    kmRodados: comPartida.kmRodados,
+    custoPorKm: comPartida.custoPorKm,
+    horasTrabalhadas: comPartida.horasTrabalhadas,
+    custoPorHora: comPartida.custoPorHora,
+    consumo: mediaDoMes(lista, mes, medidor, ideal),
+  };
+}
+
+/**
+ * O mês "AAAA-MM" em instantes, no horário de Brasília (UTC−3): o
+ * abastecimento guarda a hora em que foi lançado, e o lançado às 22h do dia 31
+ * é do dia 31, e não do 1º do mês seguinte.
+ */
+export function instantesDoMes(mes: string): { gte: Date; lt: Date } {
+  const [ano, m] = mes.split('-').map(Number);
+  return {
+    gte: new Date(Date.UTC(ano, m - 1, 1, 3)),
+    lt: new Date(Date.UTC(ano, m, 1, 3)),
+  };
+}
+
+/**
+ * A média de um mês: os abastecimentos dele, a partir do último medidor de
+ * antes. O trecho que termina no mês é do mês — sem o ponto de partida, quem
+ * abastece uma vez por mês nunca teria média nenhuma. A `base` conta só os do
+ * mês: é o que a tela chama de "abastecimentos".
+ */
+export function mediaDoMes(
+  lista: Array<{ km?: number | null; horimetro?: number | null; litros?: number | null; data: Date }>,
+  mes: string,
+  medidor: 'km' | 'horimetro',
+  ideal: number | null,
+): Consumo {
+  const { gte, lt } = instantesDoMes(mes);
+  const medido = (a: (typeof lista)[number]) => (medidor === 'km' ? a.km : a.horimetro) != null;
+  const doMes = lista.filter((a) => a.data >= gte && a.data < lt && medido(a));
+  const antes = lista.filter((a) => a.data < gte && medido(a)).pop();
+  const consumo = mediaDeConsumo(antes && doMes.length > 0 ? [antes, ...doMes] : doMes, medidor, ideal);
+  return { ...consumo, base: doMes.length };
+}
+
+/**
  * A média que o veículo está fazendo.
  *
  * A conta é a do posto: **o combustível de um abastecimento é o que leva o
@@ -1340,6 +1418,8 @@ export function mediaDeConsumo(
     ideal,
     irregular: false,
     ultimoIrregular: false,
+    distancia: null,
+    litros: null,
   };
   if (medidos.length < 2) return vazio;
 
@@ -1397,6 +1477,8 @@ export function mediaDeConsumo(
     ideal,
     irregular: pior(medio),
     ultimoIrregular: pior(ultimoTrecho),
+    distancia: arredondar(andados),
+    litros: arredondar(litrosDepois),
   };
 }
 
