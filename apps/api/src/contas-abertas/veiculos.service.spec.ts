@@ -139,8 +139,8 @@ describe('VeiculosService', () => {
     const ficha = await service.ficha('v1');
 
     expect(ficha.porCategoria).toEqual([
-      { nome: 'Veículos › Peças', valor: 350 },
-      { nome: 'Veículos › Mão de obra', valor: 100 },
+      { nome: 'Peças', valor: 350 },
+      { nome: 'Mão de obra', valor: 100 },
       { nome: 'Sem categoria', valor: 20 },
     ]);
     expect(ficha.veiculo.gasto).toBe(470);
@@ -206,7 +206,7 @@ describe('VeiculosService', () => {
       parteId: 'parte-1',
       notasGuardadas: 1,
     });
-    expect(ficha.porCategoria).toContainEqual({ nome: 'Veículos › Peças', valor: 120 });
+    expect(ficha.porCategoria).toContainEqual({ nome: 'Peças', valor: 120 });
   });
 
   it('veículo com parte numa conta dividida também não se apaga', async () => {

@@ -582,10 +582,10 @@ export class LeitorDoPacoteService {
     for (const p of pagamentos) {
       const vistas = new Map<string, string>();
       const etiqueta = etiquetas.get(p.idFnApagar);
-      if (etiqueta) vistas.set(etiqueta.id, etiqueta.grupo ? `${etiqueta.grupo.nome} › ${etiqueta.nome}` : etiqueta.nome);
+      if (etiqueta) vistas.set(etiqueta.id, etiqueta.nome);
       for (const fatia of rateios.get(p.idFnApagar) ?? []) {
         const c = fatia.classificacao;
-        if (c) vistas.set(c.id, c.grupo ? `${c.grupo.nome} › ${c.nome}` : c.nome);
+        if (c) vistas.set(c.id, c.nome);
       }
       p.categorias = [...vistas.entries()].map(([id, nome]) => ({ id, nome }));
       const grupos = [etiqueta?.grupo, ...(rateios.get(p.idFnApagar) ?? []).map((f) => f.classificacao?.grupo)];

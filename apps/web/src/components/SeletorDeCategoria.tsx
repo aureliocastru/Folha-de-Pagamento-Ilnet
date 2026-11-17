@@ -346,15 +346,12 @@ function ListaDeCategorias({
                 Nenhuma categoria com esse nome.
               </p>
             ) : (
-              achados.map(({ c, grupo }) => (
+              achados.map(({ c }) => (
                 <Linha
                   key={c.id}
                   marcada={c.id === value}
                   onClick={() => onEscolher(c.id)}
                 >
-                  {grupo && (
-                    <span className="text-tinta-400">{grupo} › </span>
-                  )}
                   {c.nome}
                 </Linha>
               ))

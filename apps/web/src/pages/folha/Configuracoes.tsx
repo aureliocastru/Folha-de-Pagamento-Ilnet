@@ -35,7 +35,7 @@ export function Configuracoes() {
   });
   const opcoesDeCategoria = (categorias.data ?? []).map((c) => ({
     valor: c.id,
-    rotulo: c.pai ? `${c.pai.nome} · ${c.nome}` : c.nome,
+    rotulo: c.nome,
   }));
 
   useEffect(() => {

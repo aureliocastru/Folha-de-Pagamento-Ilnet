@@ -398,11 +398,9 @@ export class VeiculosService {
     const porNome = new Map<string, number>();
     for (const g of gastos) {
       if (!contaNoGasto(g.situacao)) continue;
-      const nome = g.categoria
-        ? g.categoria.grupo
-          ? `${g.categoria.grupo.nome} › ${g.categoria.nome}`
-          : g.categoria.nome
-        : 'Sem categoria';
+      // Só o nome da categoria: a mãe serve para organizar o cadastro, não
+      // para ser lida aqui (pedido de 17/11/2026).
+      const nome = g.categoria ? g.categoria.nome : 'Sem categoria';
       porNome.set(nome, (porNome.get(nome) ?? 0) + g.valor);
     }
 

@@ -77,7 +77,7 @@ export class ConfiguracaoService {
 
     return {
       contas,
-      categorias: categorias.map((c) => ({ id: c.id, nome: c.pai ? `${c.pai.nome} › ${c.nome}` : c.nome })),
+      categorias: categorias.map((c) => ({ id: c.id, nome: c.nome })),
       planoDeContas: plano,
       ...Object.fromEntries(selecoes),
     };
