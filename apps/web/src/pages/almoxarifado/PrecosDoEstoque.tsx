@@ -54,7 +54,9 @@ const CHAVE = ['almoxarifado', 'precos-do-estoque'];
 export function PrecosDoEstoque() {
   const cliente = useQueryClient();
   const [busca, setBusca] = useState('');
-  const [soSuspeitos, setSoSuspeitos] = useState(false);
+  /** Só os de preço a corrigir, só os conferidos, ou todos. */
+  const [filtro, setFiltro] = useState<'todos' | 'suspeito' | 'conferido'>('todos');
+  const alternar = (f: 'suspeito' | 'conferido') => setFiltro((atual) => (atual === f ? 'todos' : f));
   const [editando, setEditando] = useState<number | null>(null);
 
   const lista = useQuery({
@@ -75,7 +77,7 @@ export function PrecosDoEstoque() {
   const termo = semAcento(busca.trim());
   const mostrados = (dados?.itens ?? []).filter(
     (i) =>
-      (!soSuspeitos || i.situacao === 'suspeito') &&
+      (filtro === 'todos' || i.situacao === filtro) &&
       (!termo || combina([i.descricao, String(i.produtoId)], termo)),
   );
 
@@ -110,10 +112,15 @@ export function PrecosDoEstoque() {
               valor={dados.suspeitos}
               detalhe={dados.suspeitos > 0 ? `${formatBRL(dados.valorSuspeito)} fora do valor` : undefined}
               alerta={dados.suspeitos > 0 ? 'confira' : undefined}
-              onClick={() => setSoSuspeitos((v) => !v)}
-              aberto={soSuspeitos}
+              onClick={() => alternar('suspeito')}
+              aberto={filtro === 'suspeito'}
             />
-            <Indicador rotulo="Conferidos" valor={dados.conferidos} />
+            <Indicador
+              rotulo="Conferidos"
+              valor={dados.conferidos}
+              onClick={() => alternar('conferido')}
+              aberto={filtro === 'conferido'}
+            />
           </div>
         )}
 
@@ -129,11 +136,19 @@ export function PrecosDoEstoque() {
             />
             <button
               type="button"
-              onClick={() => setSoSuspeitos((v) => !v)}
-              className={`btn btn-p ${soSuspeitos ? 'btn-ferramenta' : 'btn-neutro'}`}
-              aria-pressed={soSuspeitos}
+              onClick={() => alternar('suspeito')}
+              className={`btn btn-p ${filtro === 'suspeito' ? 'btn-ferramenta' : 'btn-neutro'}`}
+              aria-pressed={filtro === 'suspeito'}
             >
               Só os a corrigir
+            </button>
+            <button
+              type="button"
+              onClick={() => alternar('conferido')}
+              className={`btn btn-p ${filtro === 'conferido' ? 'btn-ferramenta' : 'btn-neutro'}`}
+              aria-pressed={filtro === 'conferido'}
+            >
+              Só os conferidos
             </button>
           </div>
 
