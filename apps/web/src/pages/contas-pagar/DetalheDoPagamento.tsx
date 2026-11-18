@@ -205,8 +205,6 @@ export function DetalheDoPagamento({
   );
 }
 
-const TROCA_LIGADA = false;
-
 interface ContaDePagamento {
   id: number;
   nome: string;
@@ -256,9 +254,9 @@ function DeOndeSaiu({ pagamento }: { pagamento: PagamentoFeito }) {
     feito ??
     pagamento.caixa.nome ??
     (pagamento.caixa.id ? `caixa ${pagamento.caixa.id}` : '—');
-  // Desligado até o estorno no IXC ser provado na base (ver ESTORNO_CONFERIDO
-  // na API): no 38114 ele apagou só a perna do banco.
-  const podeTrocar = TROCA_LIGADA && ehAdmin && !pagamento.parcial;
+  // Provado em 18/11/2026 no título de teste 38328: ModoBank > Bradesco >
+  // estorno, sem sobrar linha nenhuma.
+  const podeTrocar = ehAdmin && !pagamento.parcial;
   const mudou = conta !== String(pagamento.caixa.id ?? '') || dia !== pagamento.pagoEm.slice(0, 10);
 
   if (!aberto) {
