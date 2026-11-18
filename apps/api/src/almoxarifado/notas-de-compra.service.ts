@@ -10,6 +10,7 @@ import { IxcClient } from '../ixc/ixc.client';
 import { lerSituacaoContaPagar } from '../ixc/ixc.financeiro';
 import { PrismaService } from '../prisma/prisma.service';
 import { PatrimoniosService } from './patrimonios.service';
+import { PrecosDoEstoqueService } from './precos-do-estoque.service';
 import { numeroDaNotaParaIxc, ProdutosService, type CompraLancada } from './produtos.service';
 
 interface Quem {
@@ -64,6 +65,7 @@ export class NotasDeCompraService {
     private readonly contasPagar: ContasPagarService,
     private readonly ixc: IxcClient,
     private readonly patrimonios: PatrimoniosService,
+    private readonly precos: PrecosDoEstoqueService,
   ) {}
 
   async lancar(
@@ -112,6 +114,8 @@ export class NotasDeCompraService {
       quem,
     );
     await this.numerarPecas(compra, dados.almoxId, ultimaPeca, quem);
+    // O preço que se pagou vira o preço do produto — o mesmo no Estoque e na Contabilidade.
+    await this.precos.daNota(compra.itens, numeroNota, quem).catch(() => undefined);
 
     const nota = await this.prisma.notaDeCompra.create({
       data: {

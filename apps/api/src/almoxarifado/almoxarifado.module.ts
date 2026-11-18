@@ -11,6 +11,7 @@ import { FerramentasService } from './ferramentas.service';
 import { NotasDeCompraController } from './notas-de-compra.controller';
 import { NotasDeCompraService } from './notas-de-compra.service';
 import { PatrimoniosService } from './patrimonios.service';
+import { PrecosDoEstoqueService } from './precos-do-estoque.service';
 import { ProdutosService } from './produtos.service';
 import { SaidasService } from './saidas.service';
 import { TransferenciasService } from './transferencias.service';
@@ -41,6 +42,7 @@ import { TransferenciasService } from './transferencias.service';
     SaidasService,
     NotasDeCompraService,
     PatrimoniosService,
+    PrecosDoEstoqueService,
   ],
   // As ordens de serviço leem e mexem no mesmo estoque do IXC: a van do
   // técnico, a peça bipada, o comodato do contrato, a transferência.

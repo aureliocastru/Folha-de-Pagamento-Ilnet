@@ -51,6 +51,11 @@ export interface DadosDoEstoque {
   saldos: Array<Record<string, unknown>>;
   /** Movimentos com data depois do dia. */
   movimentosDepois: Array<Record<string, unknown>>;
+  /**
+   * O preço base que alguém conferiu na aba de preços do almoxarifado (ou que
+   * a nota gravou), por produto. Vale enquanto for o preço base de hoje.
+   */
+  conferidos?: Map<number, number>;
   /** Preço da última compra de verdade até o dia, por produto. */
   ultimaCompra: Map<number, { valor: number; dia: string | null }>;
   /** Nome dos almoxarifados que não aparecem nas linhas de saldo. */
@@ -60,7 +65,7 @@ export interface DadosDoEstoque {
   lidoEm: Date;
 }
 
-type OrigemDoCusto = 'Custo médio' | 'Última compra' | 'Preço base' | 'Sem custo';
+type OrigemDoCusto = 'Conferido' | 'Custo médio' | 'Última compra' | 'Preço base' | 'Sem custo';
 
 /** Abaixo disto o valor é acerto de estoque, e não preço. */
 export const MENOR_CUSTO_DE_VERDADE = 0.1;
@@ -84,9 +89,17 @@ export interface CustoDecidido {
  * custo médio, o preço base.
  */
 export function decidirCusto(
-  fontes: { ultimaCompra: number; custoMedio: number; precoBase: number },
+  fontes: { ultimaCompra: number; custoMedio: number; precoBase: number; conferido?: number | null },
   quantidade: number,
 ): CustoDecidido {
+  // Conferido por gente e ainda o preço do IXC: é o custo certo, sem discussão.
+  if (
+    fontes.conferido != null &&
+    fontes.conferido >= MENOR_CUSTO_DE_VERDADE &&
+    Math.abs(fontes.conferido - fontes.precoBase) < 0.005
+  ) {
+    return { custo: fontes.conferido, origem: 'Conferido', confirmado: true, motivo: null };
+  }
   const tem = (v: number) => v >= MENOR_CUSTO_DE_VERDADE;
   const concordam = (a: number, b: number) => tem(a) && tem(b) && Math.max(a, b) / Math.min(a, b) <= CONCORDAM;
   const { ultimaCompra: compra, custoMedio: medio, precoBase: base } = fontes;
@@ -213,7 +226,7 @@ export function estoqueNoDia(dados: DadosDoEstoque): {
       custoMedio: numero(cad?.custo_medio),
       precoBase: numero(cad?.preco_base),
     };
-    const decidido = decidirCusto(fontes, total);
+    const decidido = decidirCusto({ ...fontes, conferido: dados.conferidos?.get(produtoId) ?? null }, total);
 
     const item: ProdutoNoDia = {
       produtoId,

@@ -323,6 +323,16 @@ describe('05 — o custo que entra no total', () => {
     });
   });
 
+  it('o preço conferido no almoxarifado é o custo, enquanto for o preço base', () => {
+    expect(decidirCusto({ ultimaCompra: 300, custoMedio: 800000.24, precoBase: 320, conferido: 320 }, 1)).toMatchObject({
+      custo: 320,
+      origem: 'Conferido',
+      confirmado: true,
+    });
+    // O preço base mudou por fora depois de conferido: a marca não vale.
+    expect(decidirCusto({ ultimaCompra: 0, custoMedio: 0, precoBase: 0.01, conferido: 320 }, 327).origem).not.toBe('Conferido');
+  });
+
   it('não deixa dois números errados e iguais vencerem a compra', () => {
     // Access point: custo médio e preço base em R$ 800 mil, comprado por 300.
     expect(decidirCusto({ ultimaCompra: 300, custoMedio: 800000.24, precoBase: 800000.24 }, 1).confirmado).toBe(false);

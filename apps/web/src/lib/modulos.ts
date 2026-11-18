@@ -344,6 +344,9 @@ const almoxarifado: Modulo = {
     // Só o coordenador transfere; o almoxarife não vê a aba.
     { to: 'transferir', label: 'Transferir', icone: IconeTransferencia, somenteCoordenador: true },
     { to: 'ferramentas', label: 'Ferramentas', icone: IconeChaveInglesa },
+    // Um preço por produto (o preço base do IXC): os errados primeiro, e o
+    // valor de verdade do almoxarifado, o mesmo que vai para a contabilidade.
+    { to: 'precos-do-estoque', label: 'Preços do estoque', icone: IconeMoeda },
     { to: 'precos', label: 'Cotações de Preços', icone: IconePrecos },
     { to: 'fornecedores', label: 'Fornecedores', icone: IconePredio },
   ],

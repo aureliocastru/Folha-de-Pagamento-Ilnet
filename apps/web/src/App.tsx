@@ -55,6 +55,7 @@ const Conferencia = telaSobDemanda(() => import('./pages/almoxarifado/Conferenci
 const Almoxarifados = telaSobDemanda(() => import('./pages/almoxarifado/Almoxarifados').then((m) => m.Almoxarifados));
 const AlmoxarifadoDetalhe = telaSobDemanda(() => import('./pages/almoxarifado/AlmoxarifadoDetalhe').then((m) => m.AlmoxarifadoDetalhe));
 const PecasDoProduto = telaSobDemanda(() => import('./pages/almoxarifado/PecasDoProduto').then((m) => m.PecasDoProduto));
+const PrecosDoEstoque = telaSobDemanda(() => import('./pages/almoxarifado/PrecosDoEstoque').then((m) => m.PrecosDoEstoque));
 const Patrimonios = telaSobDemanda(() => import('./pages/almoxarifado/Patrimonios').then((m) => m.Patrimonios));
 const Transferir = telaSobDemanda(() => import('./pages/almoxarifado/Transferir').then((m) => m.Transferir));
 const Ferramentas = telaSobDemanda(() => import('./pages/almoxarifado/Ferramentas').then((m) => m.Ferramentas));
@@ -209,7 +210,7 @@ const TELAS_DO_MODULO: Record<string, Array<{ preCarregar: () => void }>> = {
     MesesDaContabilidade, MesDaContabilidade, AjustesDaContabilidade,
   ],
   almoxarifado: [
-    Estoque, NotasDeCompra, Conferencia, Almoxarifados, AlmoxarifadoDetalhe, PecasDoProduto, Patrimonios, Transferir,
+    Estoque, NotasDeCompra, Conferencia, Almoxarifados, AlmoxarifadoDetalhe, PecasDoProduto, Patrimonios, PrecosDoEstoque, Transferir,
     Ferramentas, Precos, FornecedoresDeCotacao, MinhaConta,
   ],
   os: [RegistrosDeOs, ConferenciaDeOs, Recolhidos, TecnicosDeOs, MateriaisDeOs, RelatorioDeOs, MinhaConta],
@@ -410,6 +411,7 @@ export default function App() {
         <Route path="almoxarifados/:id" element={<AlmoxarifadoDetalhe />} />
         <Route path="almoxarifados/:id/produtos/:produtoId" element={<PecasDoProduto />} />
         <Route path="patrimonios" element={<Patrimonios />} />
+        <Route path="precos-do-estoque" element={<PrecosDoEstoque />} />
         <Route path="transferir" element={<Transferir />} />
         <Route path="ferramentas" element={<Ferramentas />} />
         {/* O comodato virou parte da aba Patrimônios: o cliente está na linha e na busca. */}

@@ -86,14 +86,16 @@ function montar(existente: Record<string, unknown> | null = null) {
       linhas.map((l, n) => ({ patrimonioId: Number(l.id), numero: 37871 + n })),
     ),
   };
+  const precos = { daNota: jest.fn(async () => undefined) };
   const service = new NotasDeCompraService(
     prisma as never,
     produtos as never,
     contasPagar as never,
     ixc as never,
     patrimonios as never,
+    precos as never,
   );
-  return { service, prisma, produtos, contasPagar: contasPagar as typeof contasPagar & { remover: jest.Mock }, ixc, patrimonios };
+  return { service, prisma, produtos, contasPagar: contasPagar as typeof contasPagar & { remover: jest.Mock }, ixc, patrimonios, precos };
 }
 
 describe('a nota de compra do almoxarifado', () => {
@@ -144,6 +146,16 @@ describe('a nota de compra do almoxarifado', () => {
     expect(produtos.lancarCompra).toHaveBeenCalledTimes(1);
     expect(contasPagar.criarDespesa).not.toHaveBeenCalled();
     expect(nota).toMatchObject({ situacao: 'AGUARDANDO', valorTotal: 200, entradaId: 3600 });
+  });
+
+  it('o preço que a nota pagou vai para o preço do produto', async () => {
+    const { service, precos } = montar();
+    await service.lancar(PEDIDO, { nome: 'Almoxarife' });
+    expect(precos.daNota).toHaveBeenCalledWith(
+      expect.arrayContaining([expect.objectContaining({ produtoId: 10, valorUnitario: 4.5, entrou: true })]),
+      '1234',
+      { nome: 'Almoxarife' },
+    );
   });
 
   it('sem parcela nenhuma, não há o que confirmar', async () => {

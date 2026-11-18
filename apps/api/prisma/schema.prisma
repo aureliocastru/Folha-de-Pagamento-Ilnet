@@ -4332,3 +4332,23 @@ model NumeroDePatrimonio {
   @@index([idProdutoIxc])
   @@map("numeros_de_patrimonio")
 }
+
+// ---------------------------------------------------------------------------
+// Preço conferido — o preço base de um produto que alguém olhou e disse que
+// está certo (ou que a nota de compra gravou).
+//
+// O preço mora no IXC (`produtos.preco_base`); aqui fica só a marca de que ele
+// foi conferido, com quanto era. Se o preço do IXC mudar por fora, a marca
+// deixa de valer sozinha (o valor não bate mais) e o produto volta a ser
+// conferido pela tela.
+// ---------------------------------------------------------------------------
+
+model PrecoConferido {
+  idProdutoIxc Int      @id @map("id_produto_ixc")
+  preco        Decimal  @db.Decimal(14, 2)
+  /// "Fulano" ou "nota 1234 (Fulano)".
+  conferidoPor String   @map("conferido_por")
+  conferidoEm  DateTime @default(now()) @updatedAt @map("conferido_em")
+
+  @@map("precos_conferidos")
+}

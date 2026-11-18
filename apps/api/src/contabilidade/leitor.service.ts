@@ -732,10 +732,25 @@ export class LeitorDoPacoteService {
       }
     }
 
+    // O preço conferido na aba de preços do almoxarifado é o custo certo.
+    const conferidos = new Map(
+      (await this.prisma.precoConferido.findMany()).map((c) => [c.idProdutoIxc, Number(c.preco)]),
+    );
+
     await this.guardarRelatorio(
       ctx,
       5,
-      relatorioDeEstoque({ dia: ate, produtos, saldos, movimentosDepois, almoxarifados, unidades, lidoEm: ctx.lidoEm, ultimaCompra }),
+      relatorioDeEstoque({
+        dia: ate,
+        produtos,
+        saldos,
+        movimentosDepois,
+        almoxarifados,
+        unidades,
+        lidoEm: ctx.lidoEm,
+        ultimaCompra,
+        conferidos,
+      }),
     );
   }
 

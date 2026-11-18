@@ -38,6 +38,7 @@ import {
   NotaDeCompraDto,
   PadraoDoUsuarioDto,
   SaidaDeEstoqueDto,
+  PrecoDoEstoqueDto,
   SerieDoPatrimonioDto,
   TransferenciaDto,
   TransferirProdutoDto,
@@ -46,6 +47,7 @@ import { EstoqueService } from './estoque.service';
 import { FerramentasService } from './ferramentas.service';
 import { NotasDeCompraService } from './notas-de-compra.service';
 import { PatrimoniosService } from './patrimonios.service';
+import { PrecosDoEstoqueService } from './precos-do-estoque.service';
 import { ProdutosService } from './produtos.service';
 import { SaidasService } from './saidas.service';
 import { TransferenciasService } from './transferencias.service';
@@ -116,6 +118,7 @@ export class AlmoxarifadoController {
     private readonly acerto: AcertoDeNegativosService,
     private readonly conferencia: ConferenciaService,
     private readonly patrimonios: PatrimoniosService,
+    private readonly precos: PrecosDoEstoqueService,
     private readonly saidas: SaidasService,
     private readonly notas: NotasDeCompraService,
   ) {}
@@ -143,6 +146,22 @@ export class AlmoxarifadoController {
   // -------------------------------------------------------------------------
 
   /** Unidades, almoxarifados, tipos de documento e condições de pagamento do IXC. */
+  /** Os preços do estoque: um por produto (o preço base do IXC), os suspeitos primeiro. */
+  @Get('precos-do-estoque')
+  precosDoEstoque(@Query('recarregar') recarregar?: string) {
+    return this.precos.listar(ehSim(recarregar));
+  }
+
+  /** Grava o preço do produto no IXC e marca como conferido; sem `preco`, confirma o que está lá. */
+  @Patch('precos-do-estoque/:produtoId')
+  definirPrecoDoEstoque(
+    @Param('produtoId', ParseIntPipe) produtoId: number,
+    @Body() dto: PrecoDoEstoqueDto,
+    @Req() req: Request,
+  ) {
+    return this.precos.definir(produtoId, dto.preco, quem(req));
+  }
+
   @Get('produtos/opcoes')
   opcoesDosProdutos() {
     return this.produtos.opcoes();

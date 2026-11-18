@@ -170,6 +170,11 @@ export class PadraoDoUsuarioDto {
   @IsBoolean() padrao!: boolean;
 }
 
+/** O preço de um produto do estoque. Sem ele, confirma o que já está no IXC. */
+export class PrecoDoEstoqueDto {
+  @IsOptional() @IsNumber() @Min(0.1) preco?: number;
+}
+
 /** O número de série de fábrica de uma peça de patrimônio. Vazio apaga. */
 export class SerieDoPatrimonioDto {
   @IsString() @MaxLength(60) numeroSerie!: string;

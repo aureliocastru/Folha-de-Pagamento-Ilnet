@@ -119,9 +119,6 @@ export function Patrimonios() {
               </div>
               <div className="num text-2xl font-bold text-tinta-900">{dados.proximo}</div>
             </div>
-            {dados.semSerie > 0 && (
-              <div className="text-sm text-amber-600">{dados.semSerie} sem número de série</div>
-            )}
             <button
               type="button"
               onClick={() => reler.mutate()}
@@ -247,7 +244,7 @@ function JanelaDaPeca({ peca, onFechar }: { peca: PecaDoCatalogo; onFechar: () =
         </div>
 
         <dl className="divide-y divide-fio rounded-lg border border-fio">
-          <Dado rotulo="Série">{p.numeroSerie ?? <span className="text-amber-600">sem série</span>}</Dado>
+          {p.numeroSerie && <Dado rotulo="Série">{p.numeroSerie}</Dado>}
           {p.mac && <Dado rotulo="MAC">{p.mac}</Dado>}
           {d?.aquisicao && <Dado rotulo="Aquisição">{formatData(d.aquisicao)}</Dado>}
           {d?.valor != null && <Dado rotulo="Valor do bem">{formatBRL(d.valor)}</Dado>}
@@ -469,7 +466,7 @@ function LinhaDaPeca({
               {peca.numeroSerie ? (
                 <span className="num break-all text-tinta-800">{peca.numeroSerie}</span>
               ) : (
-                <span className="text-amber-600">sem série</span>
+                <span className="text-tinta-400">—</span>
               )}
               {peca.mac && <span className="num ml-2 break-all text-xs text-tinta-500">MAC {peca.mac}</span>}
             </>
