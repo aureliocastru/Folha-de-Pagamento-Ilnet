@@ -9,6 +9,7 @@ import { Prisma } from '@prisma/client';
 import { IxcClient } from '../ixc/ixc.client';
 import { PrismaService } from '../prisma/prisma.service';
 import { numeroDoIxc } from './estoque.mapper';
+import { ComodatoService } from './comodato.service';
 import { identidadeDaPeca, normalizarCodigo, situacaoDaPeca } from './mover-tudo';
 import { ProdutosService } from './produtos.service';
 
@@ -37,6 +38,8 @@ export interface PecaDoCatalogo {
   produto: string;
   almoxarifado: string | null;
   situacao: string;
+  /** Com quem está, quando está em comodato (lido do comodato do IXC). */
+  cliente: string | null;
 }
 
 /** Uma página da consulta. */
@@ -60,6 +63,17 @@ export interface MovimentoDaPeca {
   almoxarifado: string | null;
 }
 
+/** O login do cliente onde a ONU está ligada. */
+export interface LoginDaPeca {
+  usuario: string | null;
+  online: boolean;
+  ativo: boolean;
+  transmissor: string | null;
+  caixa: string | null;
+  porta: string | null;
+  ultimaConexao: string | null;
+}
+
 /** Tudo o que a janela da peça mostra. */
 export interface DetalheDaPeca {
   peca: PecaDoCatalogo;
@@ -75,6 +89,8 @@ export interface DetalheDaPeca {
   } | null;
   /** O número dado pelo sistema: quando, por quem, de que compra. */
   numeracao: { dadoPor: string; dadoEm: string; codigoAnterior: string | null; entradaId: number | null } | null;
+  /** O login onde a ONU está ligada (Provedor › Login do IXC). */
+  login: LoginDaPeca | null;
   movimentos: MovimentoDaPeca[];
   /** Data de aquisição e valor do bem, como o cadastro da peça os tem. */
   aquisicao: string | null;
@@ -112,6 +128,7 @@ export class PatrimoniosService implements OnApplicationBootstrap {
     private readonly prisma: PrismaService,
     private readonly ixc: IxcClient,
     private readonly produtos: ProdutosService,
+    private readonly comodatos: ComodatoService,
   ) {}
 
   /** A primeira abertura da aba não espera a leitura inteira do IXC. */
@@ -139,7 +156,7 @@ export class PatrimoniosService implements OnApplicationBootstrap {
       if (filtro.semSerie && p.numeroSerie) return false;
       if (termos.length === 0) return true;
       const codigos = [p.tombo, p.numeroSerie, p.mac].map(normalizarCodigo);
-      const nome = semAcentoMaiusculo(`${p.produto} ${p.almoxarifado ?? ''}`);
+      const nome = semAcentoMaiusculo(`${p.produto} ${p.almoxarifado ?? ''} ${p.cliente ?? ''}`);
       return termos.every((t) => {
         const codigo = normalizarCodigo(t);
         return (codigo !== '' && codigos.some((c) => c.includes(codigo))) || nome.includes(t);
@@ -170,10 +187,31 @@ export class PatrimoniosService implements OnApplicationBootstrap {
         ),
         this.produtos.paraMovimentar(),
       ]);
-      const cadastros = await this.produtos.cadastrosPorId(linhas.map((l) => numeroDoIxc(l.id_produto)));
+      const [cadastros, comodato] = await Promise.all([
+        this.produtos.cadastrosPorId(linhas.map((l) => numeroDoIxc(l.id_produto))),
+        // O cliente vem do comodato (a mesma leitura da aba Comodato, guardada lá).
+        this.comodatos.listar().catch((err: unknown) => {
+          this.logger.warn(`Patrimônios: o comodato não foi lido (${err instanceof Error ? err.message : String(err)}).`);
+          return null;
+        }),
+      ]);
       const nomesDosAlmox = new Map(almoxarifados.map((a) => [a.id, a.nome]));
+      const clientePorCodigo = new Map<string, string>();
+      for (const i of comodato?.itens ?? []) {
+        for (const codigo of [i.patrimonio, i.numeroSerie, i.mac]) {
+          const c = normalizarCodigo(codigo);
+          if (c.length >= 4 && !clientePorCodigo.has(c)) clientePorCodigo.set(c, i.cliente);
+        }
+      }
       const pecas = linhas
         .map((l) => pecaDoCatalogo(l, cadastros, nomesDosAlmox))
+        .map((p) => {
+          if (p.situacao !== 'em comodato') return p;
+          const achado = [p.tombo, p.numeroSerie, p.mac]
+            .map((c) => clientePorCodigo.get(normalizarCodigo(c)))
+            .find(Boolean);
+          return achado ? { ...p, cliente: achado } : p;
+        })
         // A mais nova no alto: é a que se procura. Pelo número não serve — o IXC
         // tem tombos fora da sequência da casa (29465555, 336108).
         .sort((a, b) => b.patrimonioId - a.patrimonioId);
@@ -217,39 +255,22 @@ export class PatrimoniosService implements OnApplicationBootstrap {
     // O filtro conferido de novo: coluna que o IXC não tem devolve tudo ou nada calado.
     const daPeca = movs.filter((m) => numeroDoIxc(m.id_patrimonio) === patrimonioId);
 
-    // O comodato em aberto é o último movimento "E" de comodato da peça.
-    const emprestimo = [...daPeca]
-      .reverse()
-      .find((m) => String(m.status_comodato ?? '').toUpperCase() === 'E' && numeroDoIxc(m.id_contrato) > 0);
-    let comodato: DetalheDaPeca['comodato'] = null;
-    if (emprestimo && String(linha.situacao ?? '').trim() === '4') {
-      const contratoId = numeroDoIxc(emprestimo.id_contrato);
-      const contrato = await this.ixc
-        .getById<Record<string, unknown>>('cliente_contrato', 'cliente_contrato.id', contratoId)
-        .catch(() => null);
-      const clienteId = contrato ? numeroDoIxc(contrato.id_cliente) || null : null;
-      const cliente = clienteId
-        ? await this.ixc.getById<Record<string, unknown>>('cliente', 'cliente.id', clienteId).catch(() => null)
-        : null;
-      const rua = [contrato?.endereco, contrato?.numero].map((x) => textoOuNulo(x)).filter(Boolean).join(', ');
-      const endereco = [rua, textoOuNulo(contrato?.complemento), textoOuNulo(contrato?.bairro)]
-        .filter(Boolean)
-        .join(' — ');
-      comodato = {
-        contratoId,
-        plano: textoOuNulo(contrato?.contrato),
-        contratoStatus: textoOuNulo(contrato?.status),
-        clienteId,
-        cliente: textoOuNulo(cliente?.razao) ?? textoOuNulo(cliente?.fantasia),
-        endereco: endereco || null,
-        desde: textoOuNulo(emprestimo.data)?.slice(0, 10) ?? null,
-      };
+    const codigos = [peca.tombo, peca.numeroSerie, peca.mac].map(normalizarCodigo).filter((c) => c.length >= 4);
+    const [comodatoLido, login] = await Promise.all([
+      peca.situacao === 'em comodato' ? this.comodatoDaPeca(codigos, daPeca) : Promise.resolve(null),
+      this.loginDaPeca(peca),
+    ]);
+    let comodato = comodatoLido;
+    // Sem comodato achado, o login onde a ONU está ligada diz de quem ela é.
+    if (!comodato && login?.clienteId) {
+      comodato = await this.daOndeOContratoDiz(login.contratoId, login.clienteId, null);
     }
 
     const valor = Number(String(linha.valor_bem ?? linha.valor ?? linha.valor_aquisicao ?? '').replace(',', '.'));
     return {
-      peca,
+      peca: { ...peca, cliente: comodato?.cliente ?? null },
       comodato,
+      login: login ? semDonoDoLogin(login) : null,
       numeracao: numeracao
         ? {
             dadoPor: numeracao.dadoPor,
@@ -262,6 +283,112 @@ export class PatrimoniosService implements OnApplicationBootstrap {
       aquisicao:
         dataOuNula(linha.data_aquisicao) ?? dataOuNula(linha.data_compra) ?? dataOuNula(linha.data_entrada),
       valor: Number.isFinite(valor) && valor > 0 ? valor : null,
+    };
+  }
+
+  /**
+   * Com quem a peça está: a linha do comodato do IXC que tem o tombo, a série
+   * ou o MAC dela (a leitura da aba de comodato, guardada); se não, o último
+   * comodato nos movimentos da peça.
+   */
+  private async comodatoDaPeca(
+    codigos: string[],
+    movimentos: Array<Record<string, unknown>>,
+  ): Promise<DetalheDaPeca['comodato']> {
+    const lido = await this.comodatos.listar().catch(() => null);
+    const item = lido?.itens.find((i) =>
+      [i.patrimonio, i.numeroSerie, i.mac].some((c) => codigos.includes(normalizarCodigo(c))),
+    );
+    if (item) {
+      return {
+        contratoId: item.contratoId,
+        plano: item.plano,
+        contratoStatus: item.contratoStatus,
+        clienteId: item.clienteId,
+        cliente: item.cliente,
+        endereco: item.endereco,
+        desde: item.desde,
+      };
+    }
+    const emprestimo = [...movimentos]
+      .reverse()
+      .find((m) => String(m.status_comodato ?? '').toUpperCase() === 'E' && numeroDoIxc(m.id_contrato) > 0);
+    if (!emprestimo) return null;
+    return this.daOndeOContratoDiz(
+      numeroDoIxc(emprestimo.id_contrato),
+      null,
+      textoOuNulo(emprestimo.data)?.slice(0, 10) ?? null,
+    );
+  }
+
+  /** Cliente, plano e endereço de instalação, lidos do contrato. */
+  private async daOndeOContratoDiz(
+    contratoId: number | null,
+    clienteDoLogin: number | null,
+    desde: string | null,
+  ): Promise<DetalheDaPeca['comodato']> {
+    const contrato = contratoId
+      ? await this.ixc
+          .getById<Record<string, unknown>>('cliente_contrato', 'cliente_contrato.id', contratoId)
+          .catch(() => null)
+      : null;
+    const clienteId = (contrato ? numeroDoIxc(contrato.id_cliente) : 0) || clienteDoLogin || null;
+    const cliente = clienteId
+      ? await this.ixc.getById<Record<string, unknown>>('cliente', 'cliente.id', clienteId).catch(() => null)
+      : null;
+    if (!contrato && !cliente) return null;
+    const rua = [contrato?.endereco, contrato?.numero].map((x) => textoOuNulo(x)).filter(Boolean).join(', ');
+    const endereco = [rua, textoOuNulo(contrato?.complemento), textoOuNulo(contrato?.bairro)].filter(Boolean).join(' — ');
+    return {
+      contratoId: contratoId ?? 0,
+      plano: textoOuNulo(contrato?.contrato),
+      contratoStatus: textoOuNulo(contrato?.status),
+      clienteId,
+      cliente: textoOuNulo(cliente?.razao) ?? textoOuNulo(cliente?.fantasia),
+      endereco: endereco || null,
+      desde,
+    };
+  }
+
+  /**
+   * O login (Provedor › Login) onde a ONU está ligada — o IXC acha pelo
+   * "MAC/Serial" do login, que é o número de série da ONU. Coluna que este IXC
+   * não tem responde vazio, e a conferência de novo fica aqui.
+   */
+  private async loginDaPeca(peca: PecaDoCatalogo): Promise<(LoginDaPeca & { clienteId: number | null; contratoId: number | null }) | null> {
+    const procurados = [peca.numeroSerie, peca.mac].filter((c): c is string => !!c && normalizarCodigo(c).length >= 6);
+    if (procurados.length === 0) return null;
+    const buscas = procurados.flatMap((valor) =>
+      ['onu_mac', 'mac'].map((coluna) =>
+        this.ixc
+          .list<Record<string, unknown>>('radusuarios', { qtype: `radusuarios.${coluna}`, query: valor, oper: '=', rp: 5 })
+          .then((r) => r.registros)
+          .catch(() => [] as Array<Record<string, unknown>>),
+      ),
+    );
+    const alvo = new Set(procurados.map(normalizarCodigo));
+    const achado = (await Promise.all(buscas))
+      .flat()
+      .find((l) => alvo.has(normalizarCodigo(l.onu_mac)) || alvo.has(normalizarCodigo(l.mac)));
+    if (!achado) return null;
+    const transmissorId = numeroDoIxc(achado.id_transmissor);
+    const transmissor = transmissorId
+      ? await this.ixc
+          .getById<Record<string, unknown>>('radpop_radio', 'radpop_radio.id', transmissorId)
+          .then((t) => textoOuNulo(t?.descricao) ?? textoOuNulo(t?.nome))
+          .catch(() => null)
+      : null;
+    const sim = (v: unknown) => ['S', '1', 'SIM', 'TRUE'].includes(String(v ?? '').trim().toUpperCase());
+    return {
+      usuario: textoOuNulo(achado.login),
+      online: sim(achado.online),
+      ativo: sim(achado.ativo),
+      transmissor: transmissor ?? (transmissorId ? `#${transmissorId}` : null),
+      caixa: textoOuNulo(achado.id_caixa_ftth),
+      porta: textoOuNulo(achado.ftth_porta),
+      ultimaConexao: dataOuNula(achado.ultima_conexao_inicial),
+      clienteId: numeroDoIxc(achado.id_cliente) || null,
+      contratoId: numeroDoIxc(achado.id_contrato) || null,
     };
   }
 
@@ -478,6 +605,7 @@ function pecaDoCatalogo(
       textoOuNulo(cadastros.get(produtoId)?.descricao) ?? textoOuNulo(l.descricao) ?? `Produto ${produtoId}`,
     almoxarifado: almoxId ? (almox.get(almoxId) ?? `Almoxarifado ${almoxId}`) : null,
     situacao: situacaoDaPeca(l.situacao).nome.replace(/ \(.*\)$/, ''),
+    cliente: null,
   };
 }
 
@@ -510,6 +638,11 @@ function movimentoDaPeca(m: Record<string, unknown>, almox: Map<number, string>)
     entrou,
     almoxarifado: almoxId ? (almox.get(almoxId) ?? `Almoxarifado ${almoxId}`) : null,
   };
+}
+
+function semDonoDoLogin(l: LoginDaPeca & { clienteId: number | null; contratoId: number | null }): LoginDaPeca {
+  const { clienteId: _c, contratoId: _t, ...resto } = l;
+  return resto;
 }
 
 function dataOuNula(v: unknown): string | null {

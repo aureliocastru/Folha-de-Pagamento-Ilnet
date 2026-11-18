@@ -16,6 +16,8 @@ interface PecaDoCatalogo {
   produto: string;
   almoxarifado: string | null;
   situacao: string;
+  /** Com quem está, quando está em comodato. */
+  cliente: string | null;
 }
 
 interface PaginaDoCatalogo {
@@ -38,6 +40,15 @@ interface DetalheDaPeca {
     desde: string | null;
   } | null;
   numeracao: { dadoPor: string; dadoEm: string; codigoAnterior: string | null; entradaId: number | null } | null;
+  login: {
+    usuario: string | null;
+    online: boolean;
+    ativo: boolean;
+    transmissor: string | null;
+    caixa: string | null;
+    porta: string | null;
+    ultimaConexao: string | null;
+  } | null;
   movimentos: Array<{ data: string | null; oque: string; entrou: boolean; almoxarifado: string | null }>;
   aquisicao: string | null;
   valor: number | null;
@@ -133,7 +144,7 @@ export function Patrimonios() {
             <input
               value={digitado}
               onChange={(e) => setDigitado(e.target.value)}
-              placeholder="Buscar por número, série, MAC ou produto…"
+              placeholder="Buscar por número, série, MAC, produto ou cliente…"
               className="campo min-w-0 flex-1 basis-56"
               autoComplete="off"
               aria-label="Buscar equipamento"
@@ -172,7 +183,7 @@ export function Patrimonios() {
                 <div className="hidden border-b border-fio md:grid md:grid-cols-[88px_minmax(0,2fr)_minmax(0,1.2fr)_minmax(0,1.5fr)_auto] md:gap-3 md:px-5">
                   <div className="th px-0">Número</div>
                   <div className="th px-0">Produto</div>
-                  <div className="th px-0">Onde</div>
+                  <div className="th px-0">Onde / cliente</div>
                   <div className="th px-0">Série</div>
                   <div className="th px-0 text-right">Ação</div>
                 </div>
@@ -268,6 +279,32 @@ function JanelaDaPeca({ peca, onFechar }: { peca: PecaDoCatalogo; onFechar: () =
               {d.comodato.desde ? ` · desde ${formatData(d.comodato.desde)}` : ''}
             </div>
           </div>
+        )}
+
+        {d?.login && (
+          <div className="rounded-lg border border-fio p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-tinta-500">Ligada no login</div>
+              <Selo tom={d.login.online ? 'pago' : 'neutro'} pequeno>
+                {d.login.online ? 'online' : 'offline'}
+              </Selo>
+            </div>
+            <div className="mt-1 break-all font-semibold text-tinta-900">{d.login.usuario ?? '—'}</div>
+            <div className="mt-1 text-xs text-tinta-500">
+              {[
+                d.login.transmissor && `transmissor ${d.login.transmissor}`,
+                d.login.caixa && `caixa ${d.login.caixa}${d.login.porta ? ` porta ${d.login.porta}` : ''}`,
+                d.login.ultimaConexao && `última conexão ${formatData(d.login.ultimaConexao)}`,
+                !d.login.ativo && 'login inativo',
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </div>
+          </div>
+        )}
+
+        {d && !d.comodato && !d.login && p.situacao === 'em comodato' && (
+          <Aviso tom="atencao">O IXC diz que está em comodato, mas não achei o contrato nem o login desta peça.</Aviso>
         )}
 
         {d && d.movimentos.length > 0 && (
@@ -390,7 +427,13 @@ function LinhaDaPeca({
       {/* No celular o lugar e a série descem para a segunda linha; no computador são colunas. */}
       <div className="order-4 flex min-w-0 basis-full flex-wrap items-center gap-x-3 gap-y-1 md:order-none md:contents">
         <div className="min-w-0 truncate text-xs text-tinta-500 md:text-sm md:text-tinta-600">
-          {peca.almoxarifado ?? '—'}
+          {peca.cliente ? (
+            <span className="font-semibold text-tinta-800" title="Em comodato com o cliente">
+              {peca.cliente}
+            </span>
+          ) : (
+            (peca.almoxarifado ?? '—')
+          )}
           {peca.situacao !== 'disponível' && (
             <span className="ml-2">
               <Selo tom="neutro" pequeno>

@@ -53,7 +53,12 @@ function montar(pecas: Record<number, Record<string, unknown>>, opcoes: { recusa
     paraMovimentar: jest.fn(async () => [[], [{ id: 4, nome: 'ILNET' }]]),
     cadastrosPorId: jest.fn(async () => new Map([[1392, { descricao: 'ONU SIMPLES AN5506-01-A' }]])),
   };
-  return { service: new PatrimoniosService(prisma as never, ixc as never, produtos as never), ixc, dados };
+  const comodatos = {
+    listar: jest.fn(async () => ({
+      itens: [{ patrimonio: '37870', numeroSerie: null, mac: null, cliente: 'MARIA DA SILVA' }],
+    })),
+  };
+  return { service: new PatrimoniosService(prisma as never, ixc as never, produtos as never, comodatos as never), ixc, dados };
 }
 
 describe('o número de patrimônio', () => {
@@ -109,7 +114,15 @@ describe('o número de patrimônio', () => {
     const { service } = montar(pecas);
     const r = await service.consultar({});
     expect(r.pecas.map((p) => p.tombo)).toEqual(['37870', '37850']);
-    expect(r.pecas[0]).toMatchObject({ produto: 'ONU SIMPLES AN5506-01-A', almoxarifado: 'ILNET', situacao: 'em comodato' });
+    expect(r.pecas[0]).toMatchObject({
+      produto: 'ONU SIMPLES AN5506-01-A',
+      almoxarifado: 'ILNET',
+      situacao: 'em comodato',
+      cliente: 'MARIA DA SILVA',
+    });
+    expect(r.pecas[1].cliente).toBeNull();
+    // Acha pelo nome do cliente, sem acento e em minúscula.
+    expect((await service.consultar({ busca: 'maria' })).pecas.map((p) => p.tombo)).toEqual(['37870']);
     expect(r.semSerie).toBe(1);
     expect((await service.consultar({ busca: 'bbf8' })).pecas.map((p) => p.tombo)).toEqual(['37850']);
     expect((await service.consultar({ busca: 'onu simples' })).total).toBe(2);

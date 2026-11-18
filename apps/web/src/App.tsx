@@ -59,7 +59,6 @@ const Patrimonios = telaSobDemanda(() => import('./pages/almoxarifado/Patrimonio
 const Transferir = telaSobDemanda(() => import('./pages/almoxarifado/Transferir').then((m) => m.Transferir));
 const Ferramentas = telaSobDemanda(() => import('./pages/almoxarifado/Ferramentas').then((m) => m.Ferramentas));
 const FornecedoresDeCotacao = telaSobDemanda(() => import('./pages/almoxarifado/Fornecedores').then((m) => m.Fornecedores));
-const Comodato = telaSobDemanda(() => import('./pages/almoxarifado/Comodato').then((m) => m.Comodato));
 const Precos = telaSobDemanda(() => import('./pages/almoxarifado/Precos').then((m) => m.Precos));
 const ContasPagarCategorias = telaSobDemanda(() => import('./pages/contas-pagar/Categorias').then((m) => m.Categorias));
 const ContasPagarDashboard = telaSobDemanda(() => import('./pages/contas-pagar/Dashboard').then((m) => m.Dashboard));
@@ -211,7 +210,7 @@ const TELAS_DO_MODULO: Record<string, Array<{ preCarregar: () => void }>> = {
   ],
   almoxarifado: [
     Estoque, NotasDeCompra, Conferencia, Almoxarifados, AlmoxarifadoDetalhe, PecasDoProduto, Patrimonios, Transferir,
-    Ferramentas, Comodato, Precos, FornecedoresDeCotacao, MinhaConta,
+    Ferramentas, Precos, FornecedoresDeCotacao, MinhaConta,
   ],
   os: [RegistrosDeOs, ConferenciaDeOs, Recolhidos, TecnicosDeOs, MateriaisDeOs, RelatorioDeOs, MinhaConta],
   mapa: [MapaAoVivo, Rastreadores, MinhaConta],
@@ -413,7 +412,8 @@ export default function App() {
         <Route path="patrimonios" element={<Patrimonios />} />
         <Route path="transferir" element={<Transferir />} />
         <Route path="ferramentas" element={<Ferramentas />} />
-        <Route path="comodato" element={<Comodato />} />
+        {/* O comodato virou parte da aba Patrimônios: o cliente está na linha e na busca. */}
+        <Route path="comodato" element={<Navigate to="/almoxarifado/patrimonios" replace />} />
         <Route path="precos" element={<Precos />} />
         <Route path="fornecedores" element={<FornecedoresDeCotacao />} />
         <Route path="minha-conta" element={<MinhaConta />} />
