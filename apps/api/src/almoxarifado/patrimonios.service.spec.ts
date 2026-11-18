@@ -33,8 +33,13 @@ function montar(pecas: Record<number, Record<string, unknown>>, opcoes: { recusa
       return {};
     }),
     getById: jest.fn(async (_t: string, _c: string, id: number) => pecas[id] ?? null),
+    listAll: jest.fn(async () => Object.values(pecas)),
   };
-  return { service: new PatrimoniosService(prisma as never, ixc as never), ixc, dados };
+  const produtos = {
+    paraMovimentar: jest.fn(async () => [[], [{ id: 4, nome: 'ILNET' }]]),
+    cadastrosPorId: jest.fn(async () => new Map([[1392, { descricao: 'ONU SIMPLES AN5506-01-A' }]])),
+  };
+  return { service: new PatrimoniosService(prisma as never, ixc as never, produtos as never), ixc, dados };
 }
 
 describe('o número de patrimônio', () => {
@@ -79,5 +84,21 @@ describe('o número de patrimônio', () => {
     expect(colunaDoTombo({ serial: 'ABCDE' })).toBe('serial');
     expect(colunaDoTombo({ serial: '', nro_patrimonio: 'XY12Z' })).toBe('nro_patrimonio');
     expect(colunaDoTombo({ id: '1' })).toBe('serial');
+  });
+
+  it('a consulta traz as numeradas do IXC, da maior para a menor, e acha por série ou produto', async () => {
+    const pecas: Record<number, Record<string, unknown>> = {
+      10: { id: '10', id_produto: '1392', id_almoxarifado: '4', serial: '37850', serial_fornecedor: 'FHTT0734BBF8', situacao: '1' },
+      11: { id: '11', id_produto: '1392', id_almoxarifado: '4', serial: '37870', serial_fornecedor: '', situacao: '4' },
+      12: { id: '12', id_produto: '1392', id_almoxarifado: '4', serial: 'M53I1', serial_fornecedor: '', situacao: '1' },
+    };
+    const { service } = montar(pecas);
+    const r = await service.consultar({});
+    expect(r.pecas.map((p) => p.tombo)).toEqual(['37870', '37850']);
+    expect(r.pecas[0]).toMatchObject({ produto: 'ONU SIMPLES AN5506-01-A', almoxarifado: 'ILNET', situacao: 'em comodato' });
+    expect(r.semSerie).toBe(1);
+    expect((await service.consultar({ busca: 'bbf8' })).pecas.map((p) => p.tombo)).toEqual(['37850']);
+    expect((await service.consultar({ busca: 'onu simples' })).total).toBe(2);
+    expect((await service.consultar({ todas: true })).total).toBe(3);
   });
 });

@@ -1,126 +1,169 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Aviso, Bloco, CabecalhoPagina, Carregando, Pagina, Selo, Vazio } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
-import { combina, semAcento } from '../../lib/busca';
-import type { PecaAchada } from '../../lib/types';
 
-/** Uma peça numerada pelo sistema, como a API a devolve. */
-interface PatrimonioNumerado {
-  numero: number;
+/** Uma peça do IXC, como a consulta da API a devolve. */
+interface PecaDoCatalogo {
   patrimonioId: number;
-  produtoId: number;
-  produto: string;
+  /** O número da casa, ou as 5 letras que o IXC sorteou. */
+  tombo: string | null;
+  numerada: boolean;
   numeroSerie: string | null;
   mac: string | null;
-  almoxId: number | null;
-  situacao: string | null;
-  codigoAnterior: string | null;
-  entradaId: number | null;
-  dadoPor: string;
-  dadoEm: string;
+  produtoId: number;
+  produto: string;
+  almoxarifado: string | null;
+  situacao: string;
 }
 
-interface Resposta {
-  pecas: PatrimonioNumerado[];
+interface PaginaDoCatalogo {
+  pecas: PecaDoCatalogo[];
+  total: number;
+  semSerie: number;
   proximo: number;
+  lidoEm: string;
 }
 
 const CHAVE = ['almoxarifado', 'patrimonios'];
 
 /**
- * Os equipamentos numerados — cada peça com o número que o almoxarife marca
- * nela, e o número de série de fábrica, que se cadastra aqui.
+ * Os equipamentos do IXC — o número que está marcado em cada um, o produto,
+ * onde está, e o número de série de fábrica, que se cadastra aqui.
  */
 export function Patrimonios() {
+  const cliente = useQueryClient();
+  const [digitado, setDigitado] = useState('');
   const [busca, setBusca] = useState('');
+  const [todas, setTodas] = useState(false);
   const [soSemSerie, setSoSemSerie] = useState(false);
+  const [pagina, setPagina] = useState(1);
   const [editando, setEditando] = useState<number | null>(null);
 
-  const lista = useQuery({
-    queryKey: CHAVE,
-    queryFn: async () => (await api.get<Resposta>('/almoxarifado/patrimonios')).data,
+  // A busca roda no servidor: espera a pessoa parar de digitar.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setBusca(digitado.trim());
+      setPagina(1);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [digitado]);
+
+  const consulta = useQuery({
+    queryKey: [...CHAVE, busca, todas, soSemSerie, pagina],
+    queryFn: async () =>
+      (
+        await api.get<PaginaDoCatalogo>('/almoxarifado/patrimonios', {
+          params: { busca: busca || undefined, todas: todas ? 1 : undefined, semSerie: soSemSerie ? 1 : undefined, pagina },
+        })
+      ).data,
+    placeholderData: (anterior) => anterior,
+  });
+  const reler = useMutation({
+    mutationFn: async () =>
+      (await api.get<PaginaDoCatalogo>('/almoxarifado/patrimonios', { params: { reler: 1 } })).data,
+    onSuccess: () => void cliente.invalidateQueries({ queryKey: CHAVE }),
   });
 
-  const todas = lista.data?.pecas ?? [];
-  const semSerie = todas.filter((p) => !p.numeroSerie).length;
-  const termo = semAcento(busca.trim());
-  const mostradas = todas.filter(
-    (p) =>
-      (!soSemSerie || !p.numeroSerie) &&
-      (!termo || combina([String(p.numero), p.produto, p.numeroSerie, p.mac, p.codigoAnterior], termo)),
-  );
+  const dados = consulta.data;
+  const atualizar = () => void cliente.invalidateQueries({ queryKey: CHAVE });
 
   return (
     <Pagina>
       <CabecalhoPagina secao="Almoxarifado" titulo="Patrimônios" />
 
       <div className="space-y-4">
-        {lista.data && (
-          <div className="card flex flex-wrap items-baseline gap-x-6 gap-y-1 px-4 py-3">
+        {dados && (
+          <div className="card flex flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
             <div>
               <div className="text-[11px] font-semibold uppercase tracking-wider text-tinta-500">
                 Próximo número
               </div>
-              <div className="num text-2xl font-bold text-tinta-900">{lista.data.proximo}</div>
+              <div className="num text-2xl font-bold text-tinta-900">{dados.proximo}</div>
             </div>
-            {semSerie > 0 && (
-              <div className="text-sm text-amber-600">{semSerie} sem número de série</div>
+            {dados.semSerie > 0 && (
+              <div className="text-sm text-amber-600">{dados.semSerie} sem número de série</div>
             )}
+            <button
+              type="button"
+              onClick={() => reler.mutate()}
+              disabled={reler.isPending}
+              className="btn btn-neutro btn-p ml-auto"
+            >
+              {reler.isPending ? 'Lendo o IXC…' : 'Atualizar do IXC'}
+            </button>
           </div>
         )}
 
-        <NumerarPecaDoIxc proximo={lista.data?.proximo} />
-
         <Bloco
           titulo={
-            termo || soSemSerie
-              ? `${mostradas.length} de ${todas.length} equipamentos`
-              : `${todas.length} ${todas.length === 1 ? 'equipamento' : 'equipamentos'}`
+            dados
+              ? `${dados.total} ${dados.total === 1 ? 'equipamento' : 'equipamentos'}`
+              : 'Equipamentos'
           }
         >
-          {lista.isLoading && <Carregando texto="Lendo os equipamentos…" />}
-          {lista.isError && <Aviso tom="erro">{mensagemErro(lista.error)}</Aviso>}
-          {lista.data && todas.length === 0 && (
-            <Vazio titulo="Nenhum equipamento numerado ainda">
-              Os equipamentos das próximas notas aparecem aqui.
-            </Vazio>
-          )}
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <input
+              value={digitado}
+              onChange={(e) => setDigitado(e.target.value)}
+              placeholder="Buscar por número, série, MAC ou produto…"
+              className="campo min-w-0 flex-1 basis-56"
+              autoComplete="off"
+              aria-label="Buscar equipamento"
+            />
+            <button
+              type="button"
+              onClick={() => {
+                setSoSemSerie((v) => !v);
+                setPagina(1);
+              }}
+              className={`btn btn-p ${soSemSerie ? 'btn-ferramenta' : 'btn-neutro'}`}
+              aria-pressed={soSemSerie}
+            >
+              Sem série
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setTodas((v) => !v);
+                setPagina(1);
+              }}
+              className={`btn btn-p ${todas ? 'btn-ferramenta' : 'btn-neutro'}`}
+              aria-pressed={todas}
+            >
+              Sem número também
+            </button>
+          </div>
 
-          {todas.length > 0 && (
+          {consulta.isLoading && <Carregando texto="Lendo os equipamentos no IXC…" />}
+          {consulta.isError && <Aviso tom="erro">{mensagemErro(consulta.error)}</Aviso>}
+          {dados && dados.pecas.length === 0 && <Vazio titulo="Nenhum equipamento com isso" />}
+
+          {dados && dados.pecas.length > 0 && (
             <>
-              <div className="mb-3 flex flex-wrap items-center gap-2">
-                <input
-                  value={busca}
-                  onChange={(e) => setBusca(e.target.value)}
-                  placeholder="Buscar por número, produto, série…"
-                  className="campo min-w-0 flex-1"
-                  autoComplete="off"
-                  aria-label="Buscar equipamento"
-                />
-                <button
-                  type="button"
-                  onClick={() => setSoSemSerie((v) => !v)}
-                  className={`btn btn-p ${soSemSerie ? 'btn-ferramenta' : 'btn-neutro'}`}
-                  aria-pressed={soSemSerie}
-                >
-                  Sem série
-                </button>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {dados.pecas.map((p) => (
+                  <CartaoDaPeca
+                    key={p.patrimonioId}
+                    peca={p}
+                    proximo={dados.proximo}
+                    aberto={editando === p.patrimonioId}
+                    onAbrir={() => setEditando(p.patrimonioId)}
+                    onFechar={() => setEditando(null)}
+                    onMudou={atualizar}
+                  />
+                ))}
               </div>
-
-              {mostradas.length === 0 ? (
-                <Vazio titulo="Nenhum equipamento com isso" />
-              ) : (
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                  {mostradas.map((p) => (
-                    <CartaoDaPeca
-                      key={p.patrimonioId}
-                      peca={p}
-                      aberto={editando === p.patrimonioId}
-                      onAbrir={() => setEditando(p.patrimonioId)}
-                      onFechar={() => setEditando(null)}
-                    />
-                  ))}
+              {dados.pecas.length < dados.total && (
+                <div className="mt-3 text-center">
+                  <button
+                    type="button"
+                    onClick={() => setPagina((n) => n + 1)}
+                    disabled={consulta.isFetching}
+                    className="btn btn-neutro"
+                  >
+                    {consulta.isFetching ? 'Carregando…' : `Mostrar mais (${dados.total - dados.pecas.length})`}
+                  </button>
                 </div>
               )}
             </>
@@ -133,16 +176,19 @@ export function Patrimonios() {
 
 function CartaoDaPeca({
   peca,
+  proximo,
   aberto,
   onAbrir,
   onFechar,
+  onMudou,
 }: {
-  peca: PatrimonioNumerado;
+  peca: PecaDoCatalogo;
+  proximo: number;
   aberto: boolean;
   onAbrir: () => void;
   onFechar: () => void;
+  onMudou: () => void;
 }) {
-  const cliente = useQueryClient();
   const [serie, setSerie] = useState(peca.numeroSerie ?? '');
   const gravar = useMutation({
     mutationFn: async (numeroSerie: string) =>
@@ -152,19 +198,15 @@ function CartaoDaPeca({
           { numeroSerie },
         )
       ).data,
-    onSuccess: (r) => {
-      cliente.setQueryData<Resposta>(CHAVE, (antes) =>
-        antes
-          ? {
-              ...antes,
-              pecas: antes.pecas.map((x) =>
-                x.patrimonioId === peca.patrimonioId ? { ...x, numeroSerie: r.numeroSerie } : x,
-              ),
-            }
-          : antes,
-      );
+    onSuccess: () => {
       onFechar();
+      onMudou();
     },
+  });
+  const numerar = useMutation({
+    mutationFn: async () =>
+      (await api.post<{ numero: number }>(`/almoxarifado/patrimonios/${peca.patrimonioId}/numero`)).data,
+    onSuccess: onMudou,
   });
 
   const enviar = (e: FormEvent) => {
@@ -182,10 +224,15 @@ function CartaoDaPeca({
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="num text-xl font-bold text-tinta-900">{peca.numero}</div>
+          {peca.numerada ? (
+            <div className="num text-xl font-bold text-tinta-900">{peca.tombo}</div>
+          ) : (
+            <div className="num text-sm text-tinta-500">sem número · {peca.tombo ?? '—'}</div>
+          )}
           <div className="text-sm font-semibold text-tinta-700">{peca.produto}</div>
+          {peca.almoxarifado && <div className="text-xs text-tinta-500">{peca.almoxarifado}</div>}
         </div>
-        {peca.situacao && peca.situacao !== 'disponível' && (
+        {peca.situacao !== 'disponível' && (
           <Selo tom="neutro" pequeno>
             {peca.situacao}
           </Selo>
@@ -217,111 +264,45 @@ function CartaoDaPeca({
           </div>
         </form>
       ) : (
-        <div className="mt-2 flex items-end justify-between gap-2">
-          <div className="min-w-0 text-sm">
-            {peca.numeroSerie ? (
-              <div className="num break-all text-tinta-800">{peca.numeroSerie}</div>
-            ) : (
-              <div className="text-amber-600">sem número de série</div>
-            )}
-            {peca.mac && <div className="num break-all text-xs text-tinta-500">MAC {peca.mac}</div>}
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setSerie(peca.numeroSerie ?? '');
-              gravar.reset();
-              onAbrir();
-            }}
-            className="btn btn-ferramenta btn-p shrink-0"
-          >
-            {peca.numeroSerie ? 'Editar série' : 'Pôr série'}
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * Peça que veio sem número — a de compra lançada direto no IXC, com as 5
- * letras sorteadas: acha-se pelo código e recebe o próximo número.
- */
-function NumerarPecaDoIxc({ proximo }: { proximo?: number }) {
-  const cliente = useQueryClient();
-  const [codigo, setCodigo] = useState('');
-  const [feito, setFeito] = useState<string | null>(null);
-
-  const achar = useMutation({
-    mutationFn: async (c: string) =>
-      (await api.get<PecaAchada>('/almoxarifado/patrimonios/onde', { params: { codigo: c } })).data,
-    onMutate: () => setFeito(null),
-  });
-  const numerar = useMutation({
-    mutationFn: async (patrimonioId: number) =>
-      (await api.post<{ numero: number }>(`/almoxarifado/patrimonios/${patrimonioId}/numero`)).data,
-    onSuccess: (r) => {
-      setFeito(`${achar.data?.descricao ?? 'A peça'} agora é o patrimônio ${r.numero}.`);
-      achar.reset();
-      setCodigo('');
-      void cliente.invalidateQueries({ queryKey: CHAVE });
-    },
-  });
-
-  const peca = achar.data;
-  const jaNumerada = peca?.numeroPatrimonial ? /^\d+$/.test(peca.numeroPatrimonial) : false;
-
-  return (
-    <Bloco titulo="Numerar peça do IXC">
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (codigo.trim()) achar.mutate(codigo.trim());
-        }}
-        className="flex gap-2"
-      >
-        <input
-          value={codigo}
-          onChange={(e) => setCodigo(e.target.value)}
-          placeholder="Código da peça (ex.: M53I1), série ou MAC"
-          className="campo min-w-0 flex-1"
-          autoComplete="off"
-          aria-label="Código da peça"
-        />
-        <button type="submit" className="btn btn-ferramenta btn-p" disabled={achar.isPending}>
-          {achar.isPending ? 'Procurando…' : 'Procurar'}
-        </button>
-      </form>
-
-      {achar.isError && <div className="mt-2 text-sm text-rose-500">{mensagemErro(achar.error)}</div>}
-      {feito && <div className="mt-2 text-sm font-semibold text-emerald-500">{feito}</div>}
-
-      {peca && (
-        <div className="mt-3 rounded-xl border-2 border-brand-500 bg-brand-500/10 p-3">
-          <div className="text-sm font-semibold text-tinta-900">{peca.descricao}</div>
-          <div className="num text-xs text-tinta-500">
-            código {peca.numeroPatrimonial ?? '—'} · {peca.almoxarifado || 'sem almoxarifado'} · {peca.situacao}
-          </div>
-          {numerar.isError && <div className="mt-2 text-xs text-rose-500">{mensagemErro(numerar.error)}</div>}
-          <div className="mt-3 flex gap-2">
-            {jaNumerada ? (
-              <div className="text-sm text-tinta-600">Esta peça já tem número.</div>
-            ) : (
-              <button
-                type="button"
-                className="btn btn-ok btn-p"
-                onClick={() => numerar.mutate(peca.patrimonioId)}
-                disabled={numerar.isPending}
-              >
-                {numerar.isPending ? 'Numerando…' : `Dar o número ${proximo ?? ''}`.trim()}
-              </button>
-            )}
-            <button type="button" className="btn btn-neutro btn-p" onClick={() => achar.reset()}>
-              Cancelar
+        <>
+          <div className="mt-2 flex items-end justify-between gap-2">
+            <div className="min-w-0 text-sm">
+              {peca.numeroSerie ? (
+                <div className="num break-all text-tinta-800">{peca.numeroSerie}</div>
+              ) : (
+                <div className="text-amber-600">sem número de série</div>
+              )}
+              {peca.mac && <div className="num break-all text-xs text-tinta-500">MAC {peca.mac}</div>}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setSerie(peca.numeroSerie ?? '');
+                gravar.reset();
+                onAbrir();
+              }}
+              className="btn btn-ferramenta btn-p shrink-0"
+            >
+              {peca.numeroSerie ? 'Editar série' : 'Pôr série'}
             </button>
           </div>
-        </div>
+          {!peca.numerada && (
+            <div className="mt-2">
+              <button
+                type="button"
+                onClick={() => numerar.mutate()}
+                disabled={numerar.isPending}
+                className="btn btn-ok btn-p"
+              >
+                {numerar.isPending ? 'Numerando…' : `Dar o número ${proximo}`}
+              </button>
+              {numerar.isError && (
+                <div className="mt-1 text-xs text-rose-500">{mensagemErro(numerar.error)}</div>
+              )}
+            </div>
+          )}
+        </>
       )}
-    </Bloco>
+    </div>
   );
 }

@@ -425,11 +425,25 @@ export class AlmoxarifadoController {
     return this.transferencias.acharPeca(codigo ?? '');
   }
 
-  /** As peças que o sistema numerou (37871 em diante), com série e MAC lidos agora do IXC. */
+  /**
+   * Os equipamentos do IXC para consultar: os numerados (ou todos, com
+   * `todas=1`), com busca por número, série, MAC ou produto, 60 por página.
+   */
   @Get('patrimonios')
-  async patrimoniosNumerados() {
-    const [pecas, proximo] = await Promise.all([this.patrimonios.listar(), this.patrimonios.proximoNumero()]);
-    return { pecas, proximo };
+  consultarPatrimonios(
+    @Query('busca') busca?: string,
+    @Query('todas') todas?: string,
+    @Query('semSerie') semSerie?: string,
+    @Query('pagina') pagina?: string,
+    @Query('reler') reler?: string,
+  ) {
+    return this.patrimonios.consultar({
+      busca,
+      todas: ehSim(todas),
+      semSerie: ehSim(semSerie),
+      pagina: Number(pagina) || 1,
+      reler: ehSim(reler),
+    });
   }
 
   /** Dá o próximo número da casa a uma peça que veio sem ele (compra lançada no IXC). */

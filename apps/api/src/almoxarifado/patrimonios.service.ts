@@ -1,9 +1,16 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  type OnApplicationBootstrap,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { IxcClient } from '../ixc/ixc.client';
 import { PrismaService } from '../prisma/prisma.service';
 import { numeroDoIxc } from './estoque.mapper';
-import { identidadeDaPeca, situacaoDaPeca } from './mover-tudo';
+import { identidadeDaPeca, normalizarCodigo, situacaoDaPeca } from './mover-tudo';
+import { ProdutosService } from './produtos.service';
 
 /**
  * O primeiro número que o sistema dá. Até 37870 a casa já marcou nos
@@ -18,23 +25,33 @@ interface Quem {
   nome: string;
 }
 
-/** Uma peça numerada, como a aba Patrimônios a mostra. */
-export interface PatrimonioNaTela {
-  numero: number;
+/** Uma peça do IXC na consulta da aba: o que se procura e o que se mostra. */
+export interface PecaDoCatalogo {
   patrimonioId: number;
-  produtoId: number;
-  produto: string;
-  /** O número de série de fábrica (`serial_fornecedor`), lido agora do IXC. */
+  /** O tombo: o número da casa, ou as 5 letras que o IXC sorteou. */
+  tombo: string | null;
+  numerada: boolean;
   numeroSerie: string | null;
   mac: string | null;
-  almoxId: number | null;
-  /** "disponível", "em comodato"… — null quando o IXC não respondeu pela peça. */
-  situacao: string | null;
-  codigoAnterior: string | null;
-  entradaId: number | null;
-  dadoPor: string;
-  dadoEm: string;
+  produtoId: number;
+  produto: string;
+  almoxarifado: string | null;
+  situacao: string;
 }
+
+/** Uma página da consulta. */
+export interface PaginaDoCatalogo {
+  pecas: PecaDoCatalogo[];
+  /** Quantas combinam com a busca (todas as páginas). */
+  total: number;
+  semSerie: number;
+  proximo: number;
+  /** Quando o IXC foi lido — a consulta guarda a leitura por alguns minutos. */
+  lidoEm: string;
+}
+
+const CATALOGO_VALE_MS = 10 * 60_000;
+const POR_PAGINA = 60;
 
 /** O que aconteceu com cada peça que a nota criou. */
 export interface PecaNumerada {
@@ -52,15 +69,101 @@ export interface PecaNumerada {
  * sai o número seguinte. E é aqui que se cadastra o número de série de fábrica.
  */
 @Injectable()
-export class PatrimoniosService {
+export class PatrimoniosService implements OnApplicationBootstrap {
   private readonly logger = new Logger(PatrimoniosService.name);
   /** Uma numeração por vez: duas notas ao mesmo tempo não disputam o mesmo número. */
   private fila: Promise<unknown> = Promise.resolve();
+  /** Todas as peças do IXC, lidas de uma vez: são milhares, e a busca da aba roda em cima disto. */
+  private catalogo: { em: number; pecas: PecaDoCatalogo[] } | null = null;
+  private lendo: Promise<{ em: number; pecas: PecaDoCatalogo[] }> | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly ixc: IxcClient,
+    private readonly produtos: ProdutosService,
   ) {}
+
+  /** A primeira abertura da aba não espera a leitura inteira do IXC. */
+  onApplicationBootstrap(): void {
+    if (process.env.NODE_ENV === 'test') return;
+    setTimeout(() => void this.lerCatalogo().catch(() => undefined), 60_000).unref?.();
+  }
+
+  /**
+   * A consulta da aba: as peças do IXC, com busca por tombo, série, MAC ou
+   * produto. Por padrão só as numeradas (o tombo é número); `todas` traz também
+   * as que ainda estão com as 5 letras do IXC.
+   */
+  async consultar(filtro: {
+    busca?: string;
+    todas?: boolean;
+    semSerie?: boolean;
+    pagina?: number;
+    reler?: boolean;
+  }): Promise<PaginaDoCatalogo> {
+    const [cat, proximo] = await Promise.all([this.lerCatalogo(filtro.reler), this.proximoNumero()]);
+    const termos = semAcentoMaiusculo(filtro.busca ?? '').split(/\s+/).filter(Boolean);
+    const base = cat.pecas.filter((p) => filtro.todas || p.numerada);
+    const achadas = base.filter((p) => {
+      if (filtro.semSerie && p.numeroSerie) return false;
+      if (termos.length === 0) return true;
+      const codigos = [p.tombo, p.numeroSerie, p.mac].map(normalizarCodigo);
+      const nome = semAcentoMaiusculo(`${p.produto} ${p.almoxarifado ?? ''}`);
+      return termos.every((t) => {
+        const codigo = normalizarCodigo(t);
+        return (codigo !== '' && codigos.some((c) => c.includes(codigo))) || nome.includes(t);
+      });
+    });
+    const pagina = Math.max(1, Math.floor(filtro.pagina ?? 1));
+    return {
+      pecas: achadas.slice(0, pagina * POR_PAGINA),
+      total: achadas.length,
+      semSerie: base.filter((p) => !p.numeroSerie).length,
+      proximo,
+      lidoEm: new Date(cat.em).toISOString(),
+    };
+  }
+
+  private lerCatalogo(reler = false): Promise<{ em: number; pecas: PecaDoCatalogo[] }> {
+    if (!reler && this.catalogo && Date.now() - this.catalogo.em < CATALOGO_VALE_MS) {
+      return Promise.resolve(this.catalogo);
+    }
+    if (this.lendo) return this.lendo;
+    this.lendo = (async () => {
+      const inicio = Date.now();
+      const [linhas, [, almoxarifados]] = await Promise.all([
+        this.ixc.listAll<Record<string, unknown>>(
+          'patrimonio',
+          { qtype: 'patrimonio.id', query: '0', oper: '>', sortname: 'patrimonio.id', sortorder: 'desc' },
+          { pageSize: 1000, maxPages: 200 },
+        ),
+        this.produtos.paraMovimentar(),
+      ]);
+      const cadastros = await this.produtos.cadastrosPorId(linhas.map((l) => numeroDoIxc(l.id_produto)));
+      const nomesDosAlmox = new Map(almoxarifados.map((a) => [a.id, a.nome]));
+      const pecas = linhas
+        .map((l) => pecaDoCatalogo(l, cadastros, nomesDosAlmox))
+        .sort(
+          (a, b) =>
+            Number(b.numerada) - Number(a.numerada) ||
+            (a.numerada ? Number(b.tombo) - Number(a.tombo) : b.patrimonioId - a.patrimonioId),
+        );
+      this.logger.log(
+        `Patrimônios: ${pecas.length} peças lidas do IXC em ${Math.round((Date.now() - inicio) / 1000)} s.`,
+      );
+      this.catalogo = { em: Date.now(), pecas };
+      return this.catalogo;
+    })().finally(() => {
+      this.lendo = null;
+    });
+    return this.lendo;
+  }
+
+  /** A peça mudou aqui: a consulta guardada passa a dizer o mesmo, sem reler o IXC inteiro. */
+  private atualizarNoCatalogo(patrimonioId: number, mudanca: Partial<PecaDoCatalogo>): void {
+    const p = this.catalogo?.pecas.find((x) => x.patrimonioId === patrimonioId);
+    if (p) Object.assign(p, mudanca);
+  }
 
   /** O maior `patrimonio.id` do IXC agora — as peças que a nota criar vêm depois dele. */
   async ultimaPeca(): Promise<number> {
@@ -132,48 +235,6 @@ export class PatrimoniosService {
     return feita;
   }
 
-  /** As peças numeradas pelo sistema, da mais nova para a mais velha, com o que o IXC diz delas agora. */
-  async listar(): Promise<PatrimonioNaTela[]> {
-    const numeradas = await this.prisma.numeroDePatrimonio.findMany({ orderBy: { numero: 'desc' }, take: 2000 });
-    const linhas = new Map<number, Record<string, unknown>>();
-    // De 200 em 200: o IN do id vai inteiro no filtro.
-    for (let i = 0; i < numeradas.length; i += 200) {
-      const ids = numeradas.slice(i, i + 200).map((n) => n.idPatrimonioIxc);
-      const r = await this.ixc
-        .list<Record<string, unknown>>('patrimonio', {
-          qtype: 'patrimonio.id',
-          query: '0',
-          oper: '>',
-          rp: 200,
-          sortname: 'patrimonio.id',
-          gridParam: [{ TB: 'patrimonio.id', OP: 'IN', P: ids.join(',') }],
-        })
-        .catch((err: unknown) => {
-          this.logger.warn(`Patrimônios: o IXC não respondeu pelas peças (${err instanceof Error ? err.message : String(err)}).`);
-          return { registros: [] as Array<Record<string, unknown>> };
-        });
-      for (const l of r.registros) linhas.set(numeroDoIxc(l.id), l);
-    }
-    return numeradas.map((n) => {
-      const l = linhas.get(n.idPatrimonioIxc);
-      const peca = l ? identidadeDaPeca(l) : null;
-      return {
-        numero: n.numero,
-        patrimonioId: n.idPatrimonioIxc,
-        produtoId: n.idProdutoIxc,
-        produto: n.produto,
-        numeroSerie: peca?.numeroSerie ?? null,
-        mac: peca?.mac ?? null,
-        almoxId: l ? numeroDoIxc(l.id_almoxarifado) || null : null,
-        situacao: l ? situacaoDaPeca(l.situacao).nome.replace(/ \(.*\)$/, '') : null,
-        codigoAnterior: n.codigoAnterior,
-        entradaId: n.idEntradaIxc,
-        dadoPor: n.dadoPor,
-        dadoEm: n.createdAt.toISOString(),
-      };
-    });
-  }
-
   /** Grava o número de série de fábrica da peça no IXC, e relê para conferir. */
   async gravarSerie(patrimonioId: number, serie: string, quem: Quem): Promise<{ numeroSerie: string | null }> {
     const valor = serie.trim().replace(/\s+/g, ' ');
@@ -198,6 +259,7 @@ export class PatrimoniosService {
         `O IXC respondeu, mas a peça continua com a série "${relida.numeroSerie ?? ''}". Nada mudou.`,
       );
     }
+    this.atualizarNoCatalogo(patrimonioId, { numeroSerie: relida.numeroSerie });
     this.logger.log(`${quem.nome} gravou a série "${valor}" na peça #${patrimonioId}.`);
     return { numeroSerie: relida.numeroSerie };
   }
@@ -251,6 +313,7 @@ export class PatrimoniosService {
       this.logger.warn(`Peça #${patrimonioId} (${origem.produto}): o número ${numero} não colou no IXC (${erro}).`);
       return { patrimonioId, numero: null, erro };
     }
+    this.atualizarNoCatalogo(patrimonioId, { tombo: String(numero), numerada: true });
     this.logger.log(
       `${quem.nome}: peça #${patrimonioId} (${origem.produto}) recebeu o número ${numero}` +
         `${anterior ? ` (era ${anterior})` : ''}, coluna ${coluna}.`,
@@ -288,6 +351,32 @@ export function colunaDoTombo(l: Record<string, unknown>): string {
     COLUNAS_DO_TOMBO.find((c) => c in l) ??
     'serial'
   );
+}
+
+function pecaDoCatalogo(
+  l: Record<string, unknown>,
+  cadastros: Map<number, Record<string, unknown>>,
+  almox: Map<number, string>,
+): PecaDoCatalogo {
+  const peca = identidadeDaPeca(l);
+  const produtoId = numeroDoIxc(l.id_produto);
+  const almoxId = numeroDoIxc(l.id_almoxarifado);
+  return {
+    patrimonioId: peca.patrimonioId,
+    tombo: peca.numeroPatrimonial,
+    numerada: !!peca.numeroPatrimonial && /^\d+$/.test(peca.numeroPatrimonial),
+    numeroSerie: peca.numeroSerie,
+    mac: peca.mac,
+    produtoId,
+    produto:
+      textoOuNulo(cadastros.get(produtoId)?.descricao) ?? textoOuNulo(l.descricao) ?? `Produto ${produtoId}`,
+    almoxarifado: almoxId ? (almox.get(almoxId) ?? `Almoxarifado ${almoxId}`) : null,
+    situacao: situacaoDaPeca(l.situacao).nome.replace(/ \(.*\)$/, ''),
+  };
+}
+
+function semAcentoMaiusculo(t: string): string {
+  return t.normalize('NFD').replace(/\p{M}/gu, '').toUpperCase().trim();
 }
 
 function textoOuNulo(v: unknown): string | null {
