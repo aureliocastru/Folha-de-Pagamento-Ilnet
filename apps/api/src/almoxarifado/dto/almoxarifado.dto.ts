@@ -170,6 +170,11 @@ export class PadraoDoUsuarioDto {
   @IsBoolean() padrao!: boolean;
 }
 
+/** O número de série de fábrica de uma peça de patrimônio. Vazio apaga. */
+export class SerieDoPatrimonioDto {
+  @IsString() @MaxLength(60) numeroSerie!: string;
+}
+
 /** Mover tudo o que um almoxarifado tem para outro. */
 export class MoverTudoDto {
   @Transform(numero) @IsInt() @Min(1) para!: number;

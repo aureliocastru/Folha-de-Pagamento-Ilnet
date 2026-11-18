@@ -55,6 +55,7 @@ const Conferencia = telaSobDemanda(() => import('./pages/almoxarifado/Conferenci
 const Almoxarifados = telaSobDemanda(() => import('./pages/almoxarifado/Almoxarifados').then((m) => m.Almoxarifados));
 const AlmoxarifadoDetalhe = telaSobDemanda(() => import('./pages/almoxarifado/AlmoxarifadoDetalhe').then((m) => m.AlmoxarifadoDetalhe));
 const PecasDoProduto = telaSobDemanda(() => import('./pages/almoxarifado/PecasDoProduto').then((m) => m.PecasDoProduto));
+const Patrimonios = telaSobDemanda(() => import('./pages/almoxarifado/Patrimonios').then((m) => m.Patrimonios));
 const Transferir = telaSobDemanda(() => import('./pages/almoxarifado/Transferir').then((m) => m.Transferir));
 const Ferramentas = telaSobDemanda(() => import('./pages/almoxarifado/Ferramentas').then((m) => m.Ferramentas));
 const FornecedoresDeCotacao = telaSobDemanda(() => import('./pages/almoxarifado/Fornecedores').then((m) => m.Fornecedores));
@@ -209,7 +210,7 @@ const TELAS_DO_MODULO: Record<string, Array<{ preCarregar: () => void }>> = {
     MesesDaContabilidade, MesDaContabilidade, AjustesDaContabilidade,
   ],
   almoxarifado: [
-    Estoque, NotasDeCompra, Conferencia, Almoxarifados, AlmoxarifadoDetalhe, PecasDoProduto, Transferir,
+    Estoque, NotasDeCompra, Conferencia, Almoxarifados, AlmoxarifadoDetalhe, PecasDoProduto, Patrimonios, Transferir,
     Ferramentas, Comodato, Precos, FornecedoresDeCotacao, MinhaConta,
   ],
   os: [RegistrosDeOs, ConferenciaDeOs, Recolhidos, TecnicosDeOs, MateriaisDeOs, RelatorioDeOs, MinhaConta],
@@ -409,6 +410,7 @@ export default function App() {
         <Route path="almoxarifados" element={<Almoxarifados />} />
         <Route path="almoxarifados/:id" element={<AlmoxarifadoDetalhe />} />
         <Route path="almoxarifados/:id/produtos/:produtoId" element={<PecasDoProduto />} />
+        <Route path="patrimonios" element={<Patrimonios />} />
         <Route path="transferir" element={<Transferir />} />
         <Route path="ferramentas" element={<Ferramentas />} />
         <Route path="comodato" element={<Comodato />} />

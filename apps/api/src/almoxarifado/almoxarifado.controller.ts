@@ -38,12 +38,14 @@ import {
   NotaDeCompraDto,
   PadraoDoUsuarioDto,
   SaidaDeEstoqueDto,
+  SerieDoPatrimonioDto,
   TransferenciaDto,
   TransferirProdutoDto,
 } from './dto/almoxarifado.dto';
 import { EstoqueService } from './estoque.service';
 import { FerramentasService } from './ferramentas.service';
 import { NotasDeCompraService } from './notas-de-compra.service';
+import { PatrimoniosService } from './patrimonios.service';
 import { ProdutosService } from './produtos.service';
 import { SaidasService } from './saidas.service';
 import { TransferenciasService } from './transferencias.service';
@@ -113,6 +115,7 @@ export class AlmoxarifadoController {
     private readonly transferencias: TransferenciasService,
     private readonly acerto: AcertoDeNegativosService,
     private readonly conferencia: ConferenciaService,
+    private readonly patrimonios: PatrimoniosService,
     private readonly saidas: SaidasService,
     private readonly notas: NotasDeCompraService,
   ) {}
@@ -420,6 +423,30 @@ export class AlmoxarifadoController {
   @Get('patrimonios/onde')
   ondeEstaAPeca(@Query('codigo') codigo?: string) {
     return this.transferencias.acharPeca(codigo ?? '');
+  }
+
+  /** As peças que o sistema numerou (37871 em diante), com série e MAC lidos agora do IXC. */
+  @Get('patrimonios')
+  async patrimoniosNumerados() {
+    const [pecas, proximo] = await Promise.all([this.patrimonios.listar(), this.patrimonios.proximoNumero()]);
+    return { pecas, proximo };
+  }
+
+  /** Dá o próximo número da casa a uma peça que veio sem ele (compra lançada no IXC). */
+  @Post('patrimonios/:id/numero')
+  @HttpCode(200)
+  darNumeroDePatrimonio(@Param('id', ParseIntPipe) id: number, @Req() req: Request) {
+    return this.patrimonios.darNumero(id, quem(req));
+  }
+
+  /** Grava no IXC o número de série de fábrica da peça. */
+  @Patch('patrimonios/:id/serie')
+  serieDoPatrimonio(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SerieDoPatrimonioDto,
+    @Req() req: Request,
+  ) {
+    return this.patrimonios.gravarSerie(id, dto.numeroSerie, quem(req));
   }
 
   /**

@@ -9,6 +9,7 @@ import { ContasPagarService } from '../financeiro/contas-pagar.service';
 import { IxcClient } from '../ixc/ixc.client';
 import { lerSituacaoContaPagar } from '../ixc/ixc.financeiro';
 import { PrismaService } from '../prisma/prisma.service';
+import { PatrimoniosService } from './patrimonios.service';
 import { numeroDaNotaParaIxc, ProdutosService, type CompraLancada } from './produtos.service';
 
 interface Quem {
@@ -62,6 +63,7 @@ export class NotasDeCompraService {
     private readonly produtos: ProdutosService,
     private readonly contasPagar: ContasPagarService,
     private readonly ixc: IxcClient,
+    private readonly patrimonios: PatrimoniosService,
   ) {}
 
   async lancar(
@@ -96,6 +98,9 @@ export class NotasDeCompraService {
       );
     }
 
+    // As peças que a nota criar vêm depois desta — é por ela que se acham para numerar.
+    const ultimaPeca = await this.patrimonios.ultimaPeca().catch(() => null);
+
     const compra = await this.produtos.lancarCompra(
       {
         fornecedorId: dados.fornecedorId,
@@ -106,6 +111,7 @@ export class NotasDeCompraService {
       },
       quem,
     );
+    await this.numerarPecas(compra, dados.almoxId, ultimaPeca, quem);
 
     const nota = await this.prisma.notaDeCompra.create({
       data: {
@@ -125,6 +131,45 @@ export class NotasDeCompraService {
       },
     });
     return naTela(nota);
+  }
+
+  /**
+   * Cada peça de patrimônio que a nota criou recebe o próximo número da casa
+   * (37871 em diante) — é o que o almoxarife marca no equipamento. Falha aqui
+   * não desfaz a nota: o estoque já entrou, e a peça sem número se numera
+   * depois pela aba Patrimônios.
+   */
+  private async numerarPecas(
+    compra: CompraLancada,
+    almoxId: number,
+    ultimaPeca: number | null,
+    quem: Quem,
+  ): Promise<void> {
+    for (const item of compra.itens) {
+      if (!item.patrimonio || !item.entrou) continue;
+      if (ultimaPeca === null) {
+        item.pecas = [{ patrimonioId: 0, numero: null, erro: 'não deu para ler o IXC antes da nota' }];
+        continue;
+      }
+      try {
+        const linhas = await this.patrimonios.pecasCriadas(ultimaPeca, item.produtoId, almoxId);
+        item.pecas = await this.patrimonios.numerar(
+          linhas,
+          { produto: item.descricao, entradaId: compra.entradaId },
+          quem,
+        );
+        if (linhas.length !== item.quantidade) {
+          this.logger.warn(
+            `Nota (compra #${compra.entradaId}): "${item.descricao}" entrou ${item.quantidade}, ` +
+              `e o IXC criou ${linhas.length} peça(s).`,
+          );
+        }
+      } catch (err) {
+        const motivo = err instanceof Error ? err.message : String(err);
+        this.logger.warn(`Compra #${compra.entradaId}: as peças de "${item.descricao}" não foram numeradas (${motivo}).`);
+        item.pecas = [{ patrimonioId: 0, numero: null, erro: motivo }];
+      }
+    }
   }
 
   /** As notas lançadas, da mais nova para a mais velha. */

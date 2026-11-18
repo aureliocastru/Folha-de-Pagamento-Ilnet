@@ -79,16 +79,65 @@ function montar(existente: Record<string, unknown> | null = null) {
     getById: jest.fn(async (): Promise<Record<string, unknown> | null> => ({ status: 'A', valor_pago: '0.00', valor_aberto: '100.00' })),
     remove: jest.fn(async () => undefined),
   };
+  const patrimonios = {
+    ultimaPeca: jest.fn(async () => 32067),
+    pecasCriadas: jest.fn(async (): Promise<Array<Record<string, unknown>>> => []),
+    numerar: jest.fn(async (linhas: Array<Record<string, unknown>>) =>
+      linhas.map((l, n) => ({ patrimonioId: Number(l.id), numero: 37871 + n })),
+    ),
+  };
   const service = new NotasDeCompraService(
     prisma as never,
     produtos as never,
     contasPagar as never,
     ixc as never,
+    patrimonios as never,
   );
-  return { service, prisma, produtos, contasPagar: contasPagar as typeof contasPagar & { remover: jest.Mock }, ixc };
+  return { service, prisma, produtos, contasPagar: contasPagar as typeof contasPagar & { remover: jest.Mock }, ixc, patrimonios };
 }
 
 describe('a nota de compra do almoxarifado', () => {
+  it('a peça de patrimônio que a nota cria recebe o número da casa, e ele fica na nota', async () => {
+    const { service, produtos, patrimonios } = montar();
+    produtos.lancarCompra.mockImplementationOnce(async (d: typeof PEDIDO) => ({
+      entradaId: 3600,
+      almoxarifado: 'ILNET',
+      compraAberta: null,
+      itens: d.itens.map((i) => ({
+        ...i,
+        descricao: `Produto ${i.produtoId}`,
+        unidade: 'UND',
+        entrou: true,
+        motivo: null,
+        ...(i.produtoId === 20 ? { patrimonio: true } : {}),
+      })),
+    }));
+    patrimonios.pecasCriadas.mockResolvedValueOnce([{ id: '32068' }, { id: '32069' }]);
+    const nota = await service.lancar(PEDIDO, { nome: 'Almoxarife' });
+    // Só o produto de patrimônio, e procurado depois da última peça de antes da nota.
+    expect(patrimonios.pecasCriadas).toHaveBeenCalledTimes(1);
+    expect(patrimonios.pecasCriadas).toHaveBeenCalledWith(32067, 20, 1);
+    expect(nota.itens.find((i) => i.produtoId === 20)?.pecas).toEqual([
+      { patrimonioId: 32068, numero: 37871 },
+      { patrimonioId: 32069, numero: 37872 },
+    ]);
+    expect(nota.itens.find((i) => i.produtoId === 10)?.pecas).toBeUndefined();
+  });
+
+  it('numerar falhar não derruba a nota: o estoque já entrou', async () => {
+    const { service, produtos, patrimonios } = montar();
+    produtos.lancarCompra.mockImplementationOnce(async (d: typeof PEDIDO) => ({
+      entradaId: 3600,
+      almoxarifado: 'ILNET',
+      compraAberta: null,
+      itens: d.itens.map((i) => ({ ...i, descricao: 'X', unidade: 'UND', entrou: true, motivo: null, patrimonio: true })),
+    }));
+    patrimonios.pecasCriadas.mockRejectedValue(new Error('IXC fora'));
+    const nota = await service.lancar(PEDIDO, { nome: 'Almoxarife' });
+    expect(nota.situacao).toBe('AGUARDANDO');
+    expect(nota.itens[0].pecas?.[0]).toMatchObject({ numero: null, erro: 'IXC fora' });
+  });
+
   it('lançar põe os produtos no IXC e não cria conta: fica aguardando', async () => {
     const { service, produtos, contasPagar } = montar();
     const nota = await service.lancar(PEDIDO, { nome: 'Almoxarife' });

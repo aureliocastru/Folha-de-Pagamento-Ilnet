@@ -13,6 +13,25 @@ export interface ItemDaNota {
   /** O IXC aceitou este produto na compra. */
   entrou: boolean;
   motivo: string | null;
+  /** É de patrimônio: o IXC cria uma peça por unidade. */
+  patrimonio?: boolean;
+  /** O número dado a cada peça que a nota criou — o que se marca no equipamento. */
+  pecas?: Array<{ patrimonioId: number; numero: number | null; erro?: string }>;
+}
+
+/** "37871 a 37873", "37871, 37874" — os números da peça, como se diz ao almoxarife. */
+export function numerosDasPecas(i: ItemDaNota): string {
+  const ns = (i.pecas ?? []).flatMap((p) => (p.numero ? [p.numero] : [])).sort((a, b) => a - b);
+  if (ns.length === 0) return '';
+  const seguidos = ns.every((n, k) => k === 0 || n === ns[k - 1] + 1);
+  return seguidos && ns.length > 2 ? `${ns[0]} a ${ns[ns.length - 1]}` : ns.join(', ');
+}
+
+/** Peças de patrimônio sem número: o IXC não criou, ou o número não colou. */
+export function pecasSemNumero(i: ItemDaNota): number {
+  if (!i.patrimonio || !i.entrou) return 0;
+  const numeradas = (i.pecas ?? []).filter((p) => p.numero).length;
+  return Math.max(0, Math.round(i.quantidade) - numeradas);
 }
 
 export interface ParcelaDaNota {

@@ -19,6 +19,8 @@ import {
   dividirEmParcelas,
   hojeIso,
   lerQuantidade,
+  numerosDasPecas,
+  pecasSemNumero,
   type IntervaloDasParcelas,
   type NotaDeCompra,
 } from '../../lib/notas-de-compra';
@@ -150,6 +152,14 @@ function resumoDoLancamento(n: NotaDeCompra): string {
       `O IXC recusou: ${recusados.map((i) => `${i.descricao} (${i.motivo})`).join('; ')}.`,
     );
   }
+  const numeradas = n.itens.filter((i) => numerosDasPecas(i));
+  if (numeradas.length > 0) {
+    partes.push(
+      `Marque nos equipamentos: ${numeradas.map((i) => `${i.descricao} — ${numerosDasPecas(i)}`).join('; ')}.`,
+    );
+  }
+  const faltam = n.itens.reduce((s, i) => s + pecasSemNumero(i), 0);
+  if (faltam > 0) partes.push(`${faltam} peça(s) ficaram sem número — veja na aba Patrimônios.`);
   if (n.compraAberta) partes.push(`A compra ficou aberta no IXC — ${n.compraAberta}.`);
   if (n.situacao === 'AGUARDANDO') {
     partes.push(
@@ -217,6 +227,16 @@ export function DetalheDaNota({ nota }: { nota: NotaDeCompra }) {
                   {i.descricao}
                   {!i.entrou && (
                     <div className="text-xs text-rose-600">não entrou no IXC: {i.motivo}</div>
+                  )}
+                  {numerosDasPecas(i) && (
+                    <div className="num text-xs font-semibold text-sky-500">
+                      Patrimônio {numerosDasPecas(i)}
+                    </div>
+                  )}
+                  {pecasSemNumero(i) > 0 && (
+                    <div className="text-xs text-amber-600">
+                      {pecasSemNumero(i)} peça(s) sem número de patrimônio
+                    </div>
                   )}
                 </td>
                 <td className="td num text-right">

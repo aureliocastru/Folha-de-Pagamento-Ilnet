@@ -4305,3 +4305,30 @@ model NotaDeCompra {
   @@index([idFornecedorIxc, numeroNota])
   @@map("notas_de_compra")
 }
+
+// ---------------------------------------------------------------------------
+// Número de patrimônio — o tombo que o almoxarife marca no equipamento.
+//
+// A peça nasce no IXC com um código de 5 letras sorteado; a casa numera os
+// equipamentos em sequência, e até 37870 já foram usados. Cada número dado
+// pelo sistema fica aqui: é daqui que sai o próximo (nunca dois iguais — o
+// número é a chave), e é esta a lista da aba Patrimônios.
+// ---------------------------------------------------------------------------
+
+model NumeroDePatrimonio {
+  numero          Int     @id
+  /// `patrimonio.id` no IXC — a peça que recebeu o número.
+  idPatrimonioIxc Int     @unique @map("id_patrimonio_ixc")
+  idProdutoIxc    Int     @map("id_produto_ixc")
+  produto         String
+  /// O código que o IXC tinha posto antes (as 5 letras), para achar a peça velha.
+  codigoAnterior  String? @map("codigo_anterior")
+  /// A compra de onde a peça veio, quando foi a nota que a criou.
+  idEntradaIxc    Int?    @map("id_entrada_ixc")
+  dadoPor         String  @map("dado_por")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([idProdutoIxc])
+  @@map("numeros_de_patrimonio")
+}

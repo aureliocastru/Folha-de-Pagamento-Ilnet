@@ -532,6 +532,13 @@ const COLUNAS_DA_ENTRADA: Record<string, string> = Object.fromEntries(
 );
 
 export interface ItemDaEntrada extends Omit<ItemMovimentado, 'tipoProduto'> {
+  /**
+   * `produtos.tipo`. Com "P" o IXC cria uma peça de patrimônio por unidade,
+   * como faz a compra lançada na tela dele (#3553, 18/11/2026) — vazio, a
+   * quantidade entra sem peça nenhuma. Vazio é o que o acerto de negativos e
+   * a conferência mandam.
+   */
+  tipoProduto?: string;
   almoxId: number;
   filialId: number;
   valorUnitario: number;
@@ -569,6 +576,7 @@ export function montarItemDaEntrada(
     filial_id: String(idValido(item.filialId, 'a filial')),
     fator_conversao: '1.000000000',
     data: item.data,
+    tipo_produto: String(item.tipoProduto ?? '').trim().toUpperCase(),
   };
 }
 

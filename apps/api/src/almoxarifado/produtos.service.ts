@@ -130,6 +130,10 @@ export interface CompraLancada {
     valorUnitario: number;
     entrou: boolean;
     motivo: string | null;
+    /** É de patrimônio (`produtos.tipo` P): o IXC cria uma peça por unidade. */
+    patrimonio?: boolean;
+    /** Os números de patrimônio dados às peças que a nota criou — o que se marca no equipamento. */
+    pecas?: Array<{ patrimonioId: number; numero: number | null; erro?: string }>;
   }>;
   /** Null = a compra foi fechada; o texto é o motivo de ter ficado aberta. */
   compraAberta: string | null;
@@ -596,6 +600,7 @@ export class ProdutosService {
       valorUnitario: number;
       descricao: string;
       unidade: { id: number; sigla: string };
+      tipo: string;
     }> = [];
     for (const i of dados.itens) {
       const bruto = await this.lerProduto(i.produtoId);
@@ -609,7 +614,12 @@ export class ProdutosService {
             'não mudaria. Acerte o cadastro do produto antes.',
         );
       }
-      itens.push({ ...i, descricao, unidade: this.unidadeDoProduto(bruto, unidades) });
+      itens.push({
+        ...i,
+        descricao,
+        unidade: this.unidadeDoProduto(bruto, unidades),
+        tipo: String(bruto.tipo ?? '').trim().toUpperCase(),
+      });
     }
 
     const valorTotal =
@@ -655,6 +665,8 @@ export class ProdutosService {
             quantidade: i.quantidade,
             valorUnitario: i.valorUnitario,
             data,
+            // Como o item que a tela do IXC grava (#3553): com "P" ele cria as peças.
+            tipoProduto: i.tipo,
           }),
         );
       } catch (err) {
@@ -671,6 +683,7 @@ export class ProdutosService {
         valorUnitario: i.valorUnitario,
         entrou: motivo === null,
         motivo,
+        ...(i.tipo === 'P' ? { patrimonio: true } : {}),
       });
     }
 
