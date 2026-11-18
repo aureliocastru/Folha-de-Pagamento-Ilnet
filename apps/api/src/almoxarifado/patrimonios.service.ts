@@ -143,11 +143,9 @@ export class PatrimoniosService implements OnApplicationBootstrap {
       const nomesDosAlmox = new Map(almoxarifados.map((a) => [a.id, a.nome]));
       const pecas = linhas
         .map((l) => pecaDoCatalogo(l, cadastros, nomesDosAlmox))
-        .sort(
-          (a, b) =>
-            Number(b.numerada) - Number(a.numerada) ||
-            (a.numerada ? Number(b.tombo) - Number(a.tombo) : b.patrimonioId - a.patrimonioId),
-        );
+        // A mais nova no alto: é a que se procura. Pelo número não serve — o IXC
+        // tem tombos fora da sequência da casa (29465555, 336108).
+        .sort((a, b) => b.patrimonioId - a.patrimonioId);
       this.logger.log(
         `Patrimônios: ${pecas.length} peças lidas do IXC em ${Math.round((Date.now() - inicio) / 1000)} s.`,
       );

@@ -86,7 +86,7 @@ describe('o número de patrimônio', () => {
     expect(colunaDoTombo({ id: '1' })).toBe('serial');
   });
 
-  it('a consulta traz as numeradas do IXC, da maior para a menor, e acha por série ou produto', async () => {
+  it('a consulta traz as numeradas do IXC, da mais nova para a mais velha, e acha por série ou produto', async () => {
     const pecas: Record<number, Record<string, unknown>> = {
       10: { id: '10', id_produto: '1392', id_almoxarifado: '4', serial: '37850', serial_fornecedor: 'FHTT0734BBF8', situacao: '1' },
       11: { id: '11', id_produto: '1392', id_almoxarifado: '4', serial: '37870', serial_fornecedor: '', situacao: '4' },
