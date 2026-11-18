@@ -445,3 +445,14 @@ export class AnexarNotaDto {
   /** O que aparece na lista de arquivos do título, no IXC. */
   @IsOptional() @IsString() @MaxLength(100) descricao?: string;
 }
+
+/** Trocar a conta (e o dia) de um pagamento já feito: estorna e baixa de novo. */
+export class RefazerBaixaDto {
+  @Transform(({ value }) => Number(value))
+  @IsInt()
+  @Min(1)
+  contaPagamento!: number;
+
+  /** O dia em que o dinheiro saiu. Vazio = o mesmo de agora. */
+  @IsOptional() @IsISO8601() data?: string;
+}

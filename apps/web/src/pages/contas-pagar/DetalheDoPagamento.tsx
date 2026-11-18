@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState, type ReactNode } from 'react';
+import { CampoDeData } from '../../components/CampoDeData';
 import { AnexarNotaAoTitulo, NotasDoTitulo } from '../../components/NotasDoTitulo';
 import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
 import { CategoriasDeDentro } from '../../components/SeloDaCategoria';
@@ -156,10 +157,7 @@ export function DetalheDoPagamento({
           <Dado rotulo="Vencimento">
             {pagamento.vencimento ? formatData(pagamento.vencimento) : '—'}
           </Dado>
-          <Dado rotulo="De onde saiu">
-            {pagamento.caixa.nome ??
-              (pagamento.caixa.id ? `caixa ${pagamento.caixa.id}` : '—')}
-          </Dado>
+          <DeOndeSaiu pagamento={pagamento} />
           {/* Só o que difere do valor lá de cima. */}
           {Math.abs(pagamento.valor - pagamento.valorPago) >= 0.005 && (
             <Dado rotulo="Valor do título">{formatBRL(pagamento.valor)}</Dado>
@@ -204,6 +202,128 @@ export function DetalheDoPagamento({
         </div>
       </div>
     </Janela>
+  );
+}
+
+interface ContaDePagamento {
+  id: number;
+  nome: string;
+  ativa: boolean;
+}
+
+/**
+ * De onde o dinheiro saiu — e, para o administrador, a troca da conta.
+ *
+ * A baixa dada na conta errada (ModoBank, quando o dinheiro saiu do Bradesco)
+ * não fecha a conciliação do IXC com o extrato. Trocar é estornar a baixa no
+ * IXC e baixar de novo na conta certa, no mesmo dia e pelo mesmo valor.
+ */
+function DeOndeSaiu({ pagamento }: { pagamento: PagamentoFeito }) {
+  const qc = useQueryClient();
+  const { usuario } = useAuth();
+  const ehAdmin = usuario?.role === 'ADMIN';
+  const [aberto, setAberto] = useState(false);
+  const [conta, setConta] = useState(String(pagamento.caixa.id ?? ''));
+  const [dia, setDia] = useState(pagamento.pagoEm.slice(0, 10));
+  const [feito, setFeito] = useState<string | null>(null);
+
+  const contas = useQuery({
+    queryKey: ['contas-pagamento'],
+    queryFn: async () =>
+      (await api.get<ContaDePagamento[]>('/contas-abertas/contas-pagamento')).data,
+    enabled: ehAdmin && aberto,
+  });
+
+  const trocar = useMutation({
+    mutationFn: async () =>
+      (
+        await api.post<{ contaPagamento: number; avisos: string[] }>(
+          `/contas-abertas/${pagamento.idFnApagar}/refazer-baixa`,
+          { contaPagamento: Number(conta), data: dia },
+        )
+      ).data,
+    onSuccess: () => {
+      const nome = contas.data?.find((c) => String(c.id) === conta)?.nome ?? `conta ${conta}`;
+      setFeito(`${nome}, em ${formatData(dia)}`);
+      setAberto(false);
+      void qc.invalidateQueries({ queryKey: ['pagamentos-feitos'] });
+    },
+  });
+
+  const nomeAtual =
+    feito ??
+    pagamento.caixa.nome ??
+    (pagamento.caixa.id ? `caixa ${pagamento.caixa.id}` : '—');
+  const podeTrocar = ehAdmin && !pagamento.parcial;
+  const mudou = conta !== String(pagamento.caixa.id ?? '') || dia !== pagamento.pagoEm.slice(0, 10);
+
+  if (!aberto) {
+    return (
+      <Dado rotulo="De onde saiu">
+        <span className="inline-flex items-center gap-2">
+          {nomeAtual}
+          {podeTrocar && (
+            <button
+              type="button"
+              onClick={() => {
+                trocar.reset();
+                setAberto(true);
+              }}
+              className="btn btn-neutro btn-p"
+              title="Estorna a baixa no IXC e baixa de novo na conta escolhida"
+            >
+              Trocar
+            </button>
+          )}
+        </span>
+      </Dado>
+    );
+  }
+
+  const opcoes = (contas.data ?? []).filter(
+    (c) => c.ativa || String(c.id) === conta,
+  );
+
+  return (
+    <div className="my-2 rounded-xl border-2 border-brand-500 bg-brand-500/10 p-3 shadow-lg ring-4 ring-brand-500/15">
+      <div className="rotulo">De onde saiu</div>
+      <select
+        value={conta}
+        onChange={(e) => setConta(e.target.value)}
+        disabled={contas.isLoading || trocar.isPending}
+        className="campo"
+      >
+        {contas.isLoading && <option value={conta}>Carregando…</option>}
+        {opcoes.map((c) => (
+          <option key={c.id} value={String(c.id)}>
+            {c.nome}
+          </option>
+        ))}
+      </select>
+      <div className="rotulo mt-2">Dia em que saiu</div>
+      <CampoDeData valor={dia} onChange={setDia} disabled={trocar.isPending} />
+      {trocar.isError && (
+        <p className="mt-2 text-sm text-rose-600">{mensagemErro(trocar.error)}</p>
+      )}
+      <div className="mt-3 flex flex-wrap justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => setAberto(false)}
+          disabled={trocar.isPending}
+          className="btn btn-neutro btn-p"
+        >
+          Cancelar
+        </button>
+        <button
+          type="button"
+          onClick={() => trocar.mutate()}
+          disabled={!mudou || !dia || !conta || trocar.isPending}
+          className="btn btn-primario btn-p"
+        >
+          {trocar.isPending ? 'Trocando no IXC…' : 'Estornar e baixar de novo'}
+        </button>
+      </div>
+    </div>
   );
 }
 

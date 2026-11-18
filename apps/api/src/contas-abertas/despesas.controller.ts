@@ -14,7 +14,9 @@ import {
   Res,
   StreamableFile,
 } from '@nestjs/common';
+import { UserRole } from '@prisma/client';
 import type { Request, Response } from 'express';
+import { Roles } from '../auth/roles.decorator';
 import { FornecedorService } from '../financeiro/fornecedor.service';
 import { DespesasService } from './despesas.service';
 import { EdicaoNasParcelasService } from './edicao-nas-parcelas.service';
@@ -27,6 +29,7 @@ import {
   NumeroNotaFiscalDto,
   PagarLoteDto,
   PagarTituloDto,
+  RefazerBaixaDto,
 } from './dto/despesa.dto';
 import { HistoricoPagamentosService } from './historico-pagamentos.service';
 import { NotasFiscaisService } from './notas-fiscais.service';
@@ -86,6 +89,25 @@ export class DespesasController {
     const r = await this.pagamentos.pagar(idFnApagar, dto, usuarioNome(req));
     this.historico.esquecerLeituras();
     return r;
+  }
+
+  /**
+   * Troca a conta de um pagamento já feito: estorna a baixa no IXC e dá de
+   * novo, na conta certa. É mexer no que já entrou em relatório — de ADMIN.
+   */
+  @Post('contas-abertas/:idFnApagar/refazer-baixa')
+  @HttpCode(200)
+  @Roles(UserRole.ADMIN)
+  async refazerBaixa(
+    @Param('idFnApagar', ParseIntPipe) idFnApagar: number,
+    @Body() dto: RefazerBaixaDto,
+    @Req() req: Request,
+  ) {
+    try {
+      return await this.pagamentos.refazerBaixa(idFnApagar, dto, usuarioNome(req));
+    } finally {
+      this.historico.esquecerLeituras();
+    }
   }
 
   /**

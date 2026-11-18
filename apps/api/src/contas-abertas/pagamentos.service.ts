@@ -685,6 +685,199 @@ export class PagamentosService {
   }
 
   /**
+   * Troca a conta (e, se for o caso, o dia) de um pagamento que já saiu.
+   *
+   * O IXC não deixa editar uma baixa: o caminho é o mesmo que se faz à mão lá —
+   * estornar o pagamento e dar a baixa de novo. É para fechar a conciliação
+   * quando a baixa foi dada numa conta e o dinheiro saiu de outra (o 38114 foi
+   * baixado na ModoBank e pago pelo Bradesco).
+   *
+   * Tudo o que pode recusar é conferido **antes** do estorno: depois dele o
+   * título está em aberto, e uma recusa ali deixaria uma conta paga aparecendo
+   * como devida. Se a baixa nova falhar assim mesmo, a mensagem diz exatamente
+   * isso e o que falta fazer.
+   */
+  async refazerBaixa(
+    idFnApagar: number,
+    opcoes: { contaPagamento: number; data?: string },
+    usuarioNome?: string,
+  ): Promise<ResultadoDoPagamento & { estornado: number }> {
+    const raw = await this.ixc.getById<Record<string, unknown>>(
+      'fn_apagar',
+      'fn_apagar.id',
+      idFnApagar,
+    );
+    if (!raw) {
+      throw new BadRequestException(`O título ${idFnApagar} não existe mais no IXC.`);
+    }
+    const situacao = lerSituacaoContaPagar(raw);
+    if (!situacao.pago) {
+      throw new BadRequestException(
+        `O título ${idFnApagar} não está pago no IXC — não há baixa para trocar.`,
+      );
+    }
+    if (situacao.valorAberto > 0.005) {
+      throw new BadRequestException(
+        `O título ${idFnApagar} foi pago só em parte. Troque a conta pelo IXC.`,
+      );
+    }
+
+    const contaAtual = parseIxcId(raw.conta_pagamento) ?? parseIxcId(raw.id_contas);
+    const diaAtual = String(raw.debito_data ?? '').slice(0, 10);
+    const dia =
+      opcoes.data?.slice(0, 10) ||
+      (/^\d{4}-\d{2}-\d{2}$/.test(diaAtual) ? diaAtual : undefined);
+    if (!dia) {
+      throw new BadRequestException(
+        `O título ${idFnApagar} não tem o dia do pagamento no IXC. Informe o dia.`,
+      );
+    }
+    if (contaAtual === opcoes.contaPagamento && dia === diaAtual) {
+      throw new BadRequestException('A conta e o dia são os mesmos de agora: nada a trocar.');
+    }
+
+    // Pago pelo ModoBank daqui, com o banco confirmando: o dinheiro saiu de lá.
+    const peloBanco = await this.prisma.pagamentoNoBanco.findFirst({
+      where: { idFnApagar, situacao: 'PAGO' },
+      select: { id: true },
+    });
+    if (peloBanco) {
+      throw new BadRequestException(
+        `O título ${idFnApagar} foi pago pelo ModoBank daqui, e o banco confirmou. ` +
+          'O dinheiro saiu de lá — a conta não muda.',
+      );
+    }
+
+    const conta = await this.contaDePagamento(opcoes.contaPagamento);
+    if (conta.planejamento === null) {
+      throw new ServiceUnavailableException(
+        `Não deu para ler no IXC a conta do razão da conta ${opcoes.contaPagamento}` +
+          `${conta.nome ? ` (${conta.nome})` : ''}. Nada foi mudado.`,
+      );
+    }
+
+    const movimento = await this.movimentoDaBaixa(idFnApagar);
+
+    // O que saiu de verdade, para a baixa nova sair igual.
+    const valorDoTitulo = parseIxcDecimal(raw.valor);
+    const totalPago = parseIxcDecimal(raw.valor_total_pago) || situacao.valorPago;
+    const desconto =
+      totalPago > 0 && totalPago < valorDoTitulo - 0.005
+        ? Math.round((valorDoTitulo - totalPago) * 100) / 100
+        : 0;
+    const valorPago = totalPago > valorDoTitulo + 0.005 ? totalPago : undefined;
+
+    // --- O estorno: o mesmo "Estornar pagamento" da tela do IXC ---
+    let recusaDoEstorno: string | null = null;
+    try {
+      await this.ixc.remove('fn_apagar_baixas', movimento);
+    } catch (err) {
+      recusaDoEstorno = err instanceof Error ? err.message : String(err);
+    }
+    const estornado = await this.ixc
+      .getById<Record<string, unknown>>('fn_apagar', 'fn_apagar.id', idFnApagar)
+      .catch(() => null);
+    if (!estornado || lerSituacaoContaPagar(estornado).pago) {
+      throw new ServiceUnavailableException(
+        `O IXC não estornou o pagamento do título ${idFnApagar}` +
+          (recusaDoEstorno ? ` (${recusaDoEstorno})` : '') +
+          '. Nada foi mudado: ele continua pago na conta de antes.',
+      );
+    }
+    this.logger.log(
+      `Título ${idFnApagar}: baixa ${movimento} estornada (conta ${contaAtual}, ` +
+        `${diaAtual}) por ${usuarioNome ?? '?'} para refazer na conta ` +
+        `${opcoes.contaPagamento} em ${dia}.`,
+    );
+
+    // --- A baixa nova ---
+    try {
+      const r = await this.pagar(
+        idFnApagar,
+        {
+          contaPagamento: opcoes.contaPagamento,
+          data: dia,
+          jaSaiu: true,
+          desconto: desconto || undefined,
+          valorPago,
+          historico: textoOuNull(raw.historico) ?? undefined,
+        },
+        usuarioNome,
+      );
+      if (!r.paga) {
+        throw new Error('o título continua em aberto depois da baixa');
+      }
+      return { ...r, estornado: movimento };
+    } catch (err) {
+      const motivo = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `Título ${idFnApagar}: estornado, mas a baixa nova não saiu (${motivo}).`,
+      );
+      throw new ServiceUnavailableException(
+        `O pagamento do título ${idFnApagar} foi estornado, mas a baixa nova não ` +
+          `saiu (${motivo}). Ele está EM ABERTO no IXC: pague por Contas a pagar ` +
+          `com a conta ${conta.nome ?? opcoes.contaPagamento}, ` +
+          `dia ${dia.split('-').reverse().join('/')}, marcando que já saiu.`,
+      );
+    }
+  }
+
+  /**
+   * O id da linha-mãe da baixa do título em `fn_movim_finan` — o que o estorno
+   * do pagar (`DELETE fn_apagar_baixas/{id}`) pede.
+   *
+   * A baixa é uma linha-mãe (a perna do banco) e as filhas que apontam para
+   * ela; a filha do título traz o número dele em `documento`. Só se aceita um
+   * movimento cujas filhas sejam todas deste título: estornar um movimento que
+   * também pagou outro título desfaria o pagamento do outro.
+   */
+  private async movimentoDaBaixa(idFnApagar: number): Promise<number> {
+    const filhas = await this.ixc.list<Record<string, unknown>>('fn_movim_finan', {
+      qtype: 'fn_movim_finan.documento',
+      query: String(idFnApagar),
+      oper: '=',
+      rp: 100,
+      sortname: 'fn_movim_finan.id',
+      sortorder: 'desc',
+    });
+    const maes = new Set<number>();
+    for (const l of filhas.registros) {
+      if (String(l.tipo_lanc ?? '').trim() !== 'P') continue;
+      if (String(l.documento ?? '').trim() !== String(idFnApagar)) continue;
+      const mae = parseIxcId(l.id_movim_finan);
+      if (mae && mae !== parseIxcId(l.id)) maes.add(mae);
+    }
+    if (maes.size !== 1) {
+      throw new BadRequestException(
+        maes.size === 0
+          ? `Não achei no IXC o movimento da baixa do título ${idFnApagar}. Troque a conta pelo IXC.`
+          : `O título ${idFnApagar} tem ${maes.size} baixas no IXC. Troque a conta pelo IXC.`,
+      );
+    }
+    const [mae] = maes;
+
+    const doMovimento = await this.ixc.list<Record<string, unknown>>('fn_movim_finan', {
+      qtype: 'fn_movim_finan.id_movim_finan',
+      query: String(mae),
+      oper: '=',
+      rp: 100,
+      sortname: 'fn_movim_finan.id',
+      sortorder: 'asc',
+    });
+    const outras = doMovimento.registros.filter(
+      (l) =>
+        parseIxcId(l.id) !== mae &&
+        String(l.documento ?? '').trim() !== String(idFnApagar),
+    );
+    if (doMovimento.registros.length === 0 || outras.length > 0) {
+      throw new BadRequestException(
+        `A baixa do título ${idFnApagar} no IXC também paga outra coisa. Troque a conta pelo IXC.`,
+      );
+    }
+    return mae;
+  }
+
+  /**
    * Paga várias contas em mãos de uma vez.
    *
    * Uma a uma, e o que já saiu fica de pé se a seguinte falhar: são pagamentos
