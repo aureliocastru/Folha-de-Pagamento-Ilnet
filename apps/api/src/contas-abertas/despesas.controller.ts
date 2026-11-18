@@ -110,6 +110,18 @@ export class DespesasController {
     }
   }
 
+  /** O "Estornar" da aba Pagamentos do título no IXC: ele volta a ficar aberto. */
+  @Post('contas-abertas/:idFnApagar/estornar')
+  @HttpCode(200)
+  @Roles(UserRole.ADMIN)
+  async estornar(@Param('idFnApagar', ParseIntPipe) idFnApagar: number) {
+    try {
+      return await this.pagamentos.estornarPagamento(idFnApagar);
+    } finally {
+      this.historico.esquecerLeituras();
+    }
+  }
+
   /**
    * Anexa a nota a um título no IXC.
    *

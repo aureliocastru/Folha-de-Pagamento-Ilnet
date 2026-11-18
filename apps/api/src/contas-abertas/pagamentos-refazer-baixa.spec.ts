@@ -1,10 +1,17 @@
 import { PagamentosService } from './pagamentos.service';
 
 /**
- * Trocar a conta de um pagamento já feito é estornar no IXC e baixar de novo.
- * O que este arquivo protege é a ordem: tudo que pode recusar recusa antes do
- * estorno, e o estorno só vale se o IXC de fato reabriu o título — senão a
- * baixa nova pagaria a conta duas vezes.
+ * Trocar a conta de um pagamento já feito, do jeito que se faz no IXC:
+ * abre a conta > Pagamentos > seleciona o pagamento > Estornar > a conta volta
+ * a ficar aberta > muda a conta ou o dia > paga de novo.
+ *
+ * O que este arquivo protege:
+ *  - o Estornar vai na linha que a aba Pagamentos mostra (a filha), nunca na
+ *    mãe dela — com o id da mãe, em 18/11/2026, o IXC apagou só a mãe e o
+ *    38114 ficou pago e sem estorno possível;
+ *  - baixa que não está inteira (mãe faltando, saída junto com outro título)
+ *    é recusada antes de qualquer escrita;
+ *  - só se paga de novo se o IXC de fato reabriu o título.
  */
 
 const CFG = {
@@ -31,42 +38,45 @@ const PAGO = {
   tipo_pagamento: 'Pix',
 };
 
-function montar(opts: { outroTituloNaBaixa?: boolean; estornoNaoPega?: boolean } = {}) {
+const MAE = { id: '1788308', id_movim_finan: '1788308', tipo_lanc: 'M', documento: '' };
+const FILHA = { id: '1788309', id_movim_finan: '1788308', tipo_lanc: 'P', documento: '38114' };
+
+function montar(
+  opts: { outroTituloNaSaida?: boolean; semMae?: boolean; estornoNaoPega?: boolean } = {},
+) {
   let titulo: Record<string, unknown> = { ...PAGO };
+  let linhas: Array<Record<string, string>> = opts.semMae ? [FILHA] : [MAE, FILHA];
+  if (opts.outroTituloNaSaida) {
+    linhas.push({ id: '1788310', id_movim_finan: '1788308', tipo_lanc: 'P', documento: '38112' });
+  }
+
   const ixc = {
     getById: jest.fn(async (recurso: string) => {
-      if (recurso === 'contas') return { id: '15', conta: 'Conta Banco Bradesco', id_planejamento: '10064' };
+      if (recurso === 'contas') {
+        return { id: '15', conta: 'Conta Banco Bradesco', id_planejamento: '10064' };
+      }
       if (recurso === 'filial') return { id: '1', filial: 'Matriz' };
       if (recurso === 'fornecedor') return { id: '88', razao: 'FULANO' };
       return titulo;
     }),
-    list: jest.fn(async (_r: string, p: { qtype: string }) => {
-      if (p.qtype === 'fn_movim_finan.documento') {
-        return {
-          total: 1,
-          page: 1,
-          registros: [{ id: '1788309', id_movim_finan: '1788308', tipo_lanc: 'P', documento: '38114' }],
-        };
-      }
-      const registros = [
-        { id: '1788308', tipo_lanc: 'M', documento: '' },
-        { id: '1788309', tipo_lanc: 'P', documento: '38114' },
-      ];
-      if (opts.outroTituloNaBaixa) registros.push({ id: '1788310', tipo_lanc: 'P', documento: '38112' });
+    list: jest.fn(async (_r: string, p: { qtype: string; query: string }) => {
+      const coluna = p.qtype.replace('fn_movim_finan.', '');
+      const registros = linhas.filter((l) => l[coluna] === p.query);
       return { total: registros.length, page: 1, registros };
     }),
-    remove: jest.fn(async () => {
-      if (!opts.estornoNaoPega) {
-        titulo = {
-          ...titulo,
-          status: 'A',
-          valor_aberto: '156.52',
-          valor_total_pago: '0',
-          valor_pago: '0',
-          data_pagamento: '0000-00-00 00:00:00',
-          debito_data: '0000-00-00',
-        };
-      }
+    // O Estornar do IXC: na filha, leva as duas linhas e reabre o título.
+    remove: jest.fn(async (_r: string, id: number) => {
+      if (opts.estornoNaoPega || String(id) !== FILHA.id) return {};
+      linhas = linhas.filter((l) => l.id_movim_finan !== FILHA.id_movim_finan);
+      titulo = {
+        ...titulo,
+        status: 'A',
+        valor_aberto: '156.52',
+        valor_total_pago: '0',
+        valor_pago: '0',
+        data_pagamento: '0000-00-00 00:00:00',
+        debito_data: '0000-00-00',
+      };
       return {};
     }),
     action: jest.fn(async () => {
@@ -81,35 +91,27 @@ function montar(opts: { outroTituloNaBaixa?: boolean; estornoNaoPega?: boolean }
     diaria: { findFirst: jest.fn().mockResolvedValue(null) },
     pagamentoNoBanco: { findFirst: jest.fn().mockResolvedValue(null) },
   };
-  const contasPagar = { acompanharTitulo: jest.fn() };
   const service = new PagamentosService(
     ixc as never,
     { obter: jest.fn().mockResolvedValue(CFG) } as never,
     prisma as never,
-    contasPagar as never,
+    { acompanharTitulo: jest.fn() } as never,
   );
   return { service, ixc };
 }
 
-describe('PagamentosService.refazerBaixa desligado', () => {
-  it('recusa sem tocar no IXC', async () => {
-    const { service, ixc } = montar();
-    await expect(service.refazerBaixa(38114, { contaPagamento: 15 })).rejects.toThrow('desligada');
-    expect(ixc.remove).not.toHaveBeenCalled();
-    expect(ixc.action).not.toHaveBeenCalled();
-  });
-});
-
-// Volta quando o estorno certo for provado na base (ESTORNO_CONFERIDO).
-describe.skip('PagamentosService.refazerBaixa', () => {
-  it('estorna a baixa do título e baixa de novo na conta escolhida, no mesmo dia', async () => {
+describe('PagamentosService.refazerBaixa', () => {
+  it('estorna a linha da aba Pagamentos e paga de novo na conta escolhida, no mesmo dia', async () => {
     const { service, ixc } = montar();
 
     const r = await service.refazerBaixa(38114, { contaPagamento: 15 }, 'Henrico');
 
-    expect(ixc.remove).toHaveBeenCalledWith('fn_apagar_baixas', 1788308);
+    // A filha, que é a linha que o IXC mostra em Pagamentos — nunca a mãe.
+    expect(ixc.remove).toHaveBeenCalledTimes(1);
+    expect(ixc.remove).toHaveBeenCalledWith('fn_apagar_baixas', 1788309);
     expect(r.paga).toBe(true);
-    expect(r.estornado).toBe(1788308);
+    expect(r.estornado).toBe(1788309);
+    expect(r.avisos).toEqual([]);
     const [, baixa] = ixc.action.mock.calls[0] as unknown as [string, Record<string, unknown>];
     expect(baixa.conta_).toBe(15);
     expect(baixa.id_conta).toBe(10064);
@@ -119,16 +121,35 @@ describe.skip('PagamentosService.refazerBaixa', () => {
     );
   });
 
-  it('não estorna a baixa que também pagou outro título', async () => {
-    const { service, ixc } = montar({ outroTituloNaBaixa: true });
+  it('troca o dia quando pedido', async () => {
+    const { service, ixc } = montar();
+
+    await service.refazerBaixa(38114, { contaPagamento: 18, data: '2026-11-11' });
+
+    const [, baixa] = ixc.action.mock.calls[0] as unknown as [string, Record<string, unknown>];
+    expect(baixa.data).toBe('11/11/2026');
+  });
+
+  it('com a linha do banco faltando (o caso do 38114), não estorna nada', async () => {
+    const { service, ixc } = montar({ semMae: true });
 
     await expect(service.refazerBaixa(38114, { contaPagamento: 15 })).rejects.toThrow(
-      'também paga outra coisa',
+      'não existe mais',
+    );
+    expect(ixc.remove).not.toHaveBeenCalled();
+    expect(ixc.action).not.toHaveBeenCalled();
+  });
+
+  it('não estorna a saída que também pagou outro título', async () => {
+    const { service, ixc } = montar({ outroTituloNaSaida: true });
+
+    await expect(service.refazerBaixa(38114, { contaPagamento: 15 })).rejects.toThrow(
+      'junto com outro',
     );
     expect(ixc.remove).not.toHaveBeenCalled();
   });
 
-  it('com o estorno sem efeito, não dá a baixa nova', async () => {
+  it('com o estorno sem efeito, não paga de novo', async () => {
     const { service, ixc } = montar({ estornoNaoPega: true });
 
     await expect(service.refazerBaixa(38114, { contaPagamento: 15 })).rejects.toThrow(
@@ -144,5 +165,17 @@ describe.skip('PagamentosService.refazerBaixa', () => {
       'nada a trocar',
     );
     expect(ixc.remove).not.toHaveBeenCalled();
+  });
+});
+
+describe('PagamentosService.estornarPagamento', () => {
+  it('estorna pela linha da aba Pagamentos e deixa o título aberto', async () => {
+    const { service, ixc } = montar();
+
+    const r = await service.estornarPagamento(38114);
+
+    expect(ixc.remove).toHaveBeenCalledWith('fn_apagar_baixas', 1788309);
+    expect(r.estornado).toBe(1788309);
+    expect(ixc.action).not.toHaveBeenCalled();
   });
 });
