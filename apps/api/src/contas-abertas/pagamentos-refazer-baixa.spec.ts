@@ -91,7 +91,17 @@ function montar(opts: { outroTituloNaBaixa?: boolean; estornoNaoPega?: boolean }
   return { service, ixc };
 }
 
-describe('PagamentosService.refazerBaixa', () => {
+describe('PagamentosService.refazerBaixa desligado', () => {
+  it('recusa sem tocar no IXC', async () => {
+    const { service, ixc } = montar();
+    await expect(service.refazerBaixa(38114, { contaPagamento: 15 })).rejects.toThrow('desligada');
+    expect(ixc.remove).not.toHaveBeenCalled();
+    expect(ixc.action).not.toHaveBeenCalled();
+  });
+});
+
+// Volta quando o estorno certo for provado na base (ESTORNO_CONFERIDO).
+describe.skip('PagamentosService.refazerBaixa', () => {
   it('estorna a baixa do título e baixa de novo na conta escolhida, no mesmo dia', async () => {
     const { service, ixc } = montar();
 

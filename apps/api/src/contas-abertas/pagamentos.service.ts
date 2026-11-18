@@ -119,6 +119,9 @@ export interface ResultadoDoPagamento {
  */
 const ENDPOINT_BAIXA = 'botao_pagar_26409';
 
+/** A troca de conta de pagamento feito só roda com o estorno provado na base. */
+export const ESTORNO_CONFERIDO = false;
+
 /**
  * Pagar uma conta do IXC daqui.
  *
@@ -702,6 +705,17 @@ export class PagamentosService {
     opcoes: { contaPagamento: number; data?: string },
     usuarioNome?: string,
   ): Promise<ResultadoDoPagamento & { estornado: number }> {
+    /*
+     * Desligado em 18/11/2026: no 38114 o DELETE em fn_apagar_baixas/{mãe}
+     * apagou só a linha-mãe do movimento (a perna do banco) e deixou o título
+     * pago e a filha da despesa. Até achar o estorno certo, não mexe em nada.
+     */
+    if (!ESTORNO_CONFERIDO) {
+      throw new BadRequestException(
+        'A troca de conta de pagamento feito está desligada enquanto o estorno ' +
+          'no IXC é conferido. Troque pelo IXC.',
+      );
+    }
     const raw = await this.ixc.getById<Record<string, unknown>>(
       'fn_apagar',
       'fn_apagar.id',
