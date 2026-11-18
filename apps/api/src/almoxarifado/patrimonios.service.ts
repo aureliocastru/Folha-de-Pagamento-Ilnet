@@ -50,6 +50,37 @@ export interface PaginaDoCatalogo {
   lidoEm: string;
 }
 
+/** Um passo da vida da peça, lido de `movimento_produtos`. */
+export interface MovimentoDaPeca {
+  /** "AAAA-MM-DD" */
+  data: string | null;
+  /** "Compra #3553", "Comodato no contrato #2294", "Transferência", "OS #81234"… */
+  oque: string;
+  entrou: boolean;
+  almoxarifado: string | null;
+}
+
+/** Tudo o que a janela da peça mostra. */
+export interface DetalheDaPeca {
+  peca: PecaDoCatalogo;
+  /** Com quem está, quando está em comodato. */
+  comodato: {
+    contratoId: number;
+    plano: string | null;
+    contratoStatus: string | null;
+    clienteId: number | null;
+    cliente: string | null;
+    endereco: string | null;
+    desde: string | null;
+  } | null;
+  /** O número dado pelo sistema: quando, por quem, de que compra. */
+  numeracao: { dadoPor: string; dadoEm: string; codigoAnterior: string | null; entradaId: number | null } | null;
+  movimentos: MovimentoDaPeca[];
+  /** Data de aquisição e valor do bem, como o cadastro da peça os tem. */
+  aquisicao: string | null;
+  valor: number | null;
+}
+
 const CATALOGO_VALE_MS = 10 * 60_000;
 const POR_PAGINA = 60;
 
@@ -155,6 +186,83 @@ export class PatrimoniosService implements OnApplicationBootstrap {
       this.lendo = null;
     });
     return this.lendo;
+  }
+
+  /**
+   * A peça aberta na aba: onde está, com qual cliente (se em comodato), de que
+   * compra veio e por onde passou — lido agora do IXC, só desta peça.
+   */
+  async detalhar(patrimonioId: number): Promise<DetalheDaPeca> {
+    const linha = await this.lerPeca(patrimonioId);
+    const [movs, numeracao, [, almoxarifados], cadastros] = await Promise.all([
+      this.ixc
+        .listAll<Record<string, unknown>>(
+          'movimento_produtos',
+          {
+            qtype: 'movimento_produtos.id_patrimonio',
+            query: String(patrimonioId),
+            oper: '=',
+            sortname: 'movimento_produtos.id',
+            sortorder: 'asc',
+          },
+          { pageSize: 200, maxPages: 3 },
+        )
+        .catch(() => [] as Array<Record<string, unknown>>),
+      this.prisma.numeroDePatrimonio.findUnique({ where: { idPatrimonioIxc: patrimonioId } }),
+      this.produtos.paraMovimentar(),
+      this.produtos.cadastrosPorId([numeroDoIxc(linha.id_produto)]),
+    ]);
+    const nomesDosAlmox = new Map(almoxarifados.map((a) => [a.id, a.nome]));
+    const peca = pecaDoCatalogo(linha, cadastros, nomesDosAlmox);
+    // O filtro conferido de novo: coluna que o IXC não tem devolve tudo ou nada calado.
+    const daPeca = movs.filter((m) => numeroDoIxc(m.id_patrimonio) === patrimonioId);
+
+    // O comodato em aberto é o último movimento "E" de comodato da peça.
+    const emprestimo = [...daPeca]
+      .reverse()
+      .find((m) => String(m.status_comodato ?? '').toUpperCase() === 'E' && numeroDoIxc(m.id_contrato) > 0);
+    let comodato: DetalheDaPeca['comodato'] = null;
+    if (emprestimo && String(linha.situacao ?? '').trim() === '4') {
+      const contratoId = numeroDoIxc(emprestimo.id_contrato);
+      const contrato = await this.ixc
+        .getById<Record<string, unknown>>('cliente_contrato', 'cliente_contrato.id', contratoId)
+        .catch(() => null);
+      const clienteId = contrato ? numeroDoIxc(contrato.id_cliente) || null : null;
+      const cliente = clienteId
+        ? await this.ixc.getById<Record<string, unknown>>('cliente', 'cliente.id', clienteId).catch(() => null)
+        : null;
+      const rua = [contrato?.endereco, contrato?.numero].map((x) => textoOuNulo(x)).filter(Boolean).join(', ');
+      const endereco = [rua, textoOuNulo(contrato?.complemento), textoOuNulo(contrato?.bairro)]
+        .filter(Boolean)
+        .join(' — ');
+      comodato = {
+        contratoId,
+        plano: textoOuNulo(contrato?.contrato),
+        contratoStatus: textoOuNulo(contrato?.status),
+        clienteId,
+        cliente: textoOuNulo(cliente?.razao) ?? textoOuNulo(cliente?.fantasia),
+        endereco: endereco || null,
+        desde: textoOuNulo(emprestimo.data)?.slice(0, 10) ?? null,
+      };
+    }
+
+    const valor = Number(String(linha.valor_bem ?? linha.valor ?? linha.valor_aquisicao ?? '').replace(',', '.'));
+    return {
+      peca,
+      comodato,
+      numeracao: numeracao
+        ? {
+            dadoPor: numeracao.dadoPor,
+            dadoEm: numeracao.createdAt.toISOString(),
+            codigoAnterior: numeracao.codigoAnterior,
+            entradaId: numeracao.idEntradaIxc,
+          }
+        : null,
+      movimentos: daPeca.map((m) => movimentoDaPeca(m, nomesDosAlmox)).reverse(),
+      aquisicao:
+        dataOuNula(linha.data_aquisicao) ?? dataOuNula(linha.data_compra) ?? dataOuNula(linha.data_entrada),
+      valor: Number.isFinite(valor) && valor > 0 ? valor : null,
+    };
   }
 
   /** A peça mudou aqui: a consulta guardada passa a dizer o mesmo, sem reler o IXC inteiro. */
@@ -371,6 +479,44 @@ function pecaDoCatalogo(
     almoxarifado: almoxId ? (almox.get(almoxId) ?? `Almoxarifado ${almoxId}`) : null,
     situacao: situacaoDaPeca(l.situacao).nome.replace(/ \(.*\)$/, ''),
   };
+}
+
+function movimentoDaPeca(m: Record<string, unknown>, almox: Map<number, string>): MovimentoDaPeca {
+  const entrou = String(m.tipo ?? '').toUpperCase() === 'E';
+  const comodato = String(m.status_comodato ?? '').toUpperCase();
+  const contrato = numeroDoIxc(m.id_contrato);
+  const entrada = numeroDoIxc(m.id_entrada);
+  const os = numeroDoIxc(m.id_oss_chamado);
+  const oque =
+    entrada > 0
+      ? `Compra #${entrada}`
+      : contrato > 0 && comodato === 'E'
+        ? `Comodato no contrato #${contrato}`
+        : contrato > 0
+          ? `Volta do comodato do contrato #${contrato}`
+          : numeroDoIxc(m.id_transf_almox_item) > 0
+            ? entrou
+              ? 'Transferência (chegou)'
+              : 'Transferência (saiu)'
+            : os > 0
+              ? `OS #${os}`
+              : entrou
+                ? 'Entrada'
+                : 'Saída';
+  const almoxId = numeroDoIxc(m.id_almox);
+  return {
+    data: dataOuNula(m.data),
+    oque,
+    entrou,
+    almoxarifado: almoxId ? (almox.get(almoxId) ?? `Almoxarifado ${almoxId}`) : null,
+  };
+}
+
+function dataOuNula(v: unknown): string | null {
+  const t = String(v ?? '').trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(t) && !t.startsWith('0000')) return t.slice(0, 10);
+  const br = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(t);
+  return br ? `${br[3]}-${br[2]}-${br[1]}` : null;
 }
 
 function semAcentoMaiusculo(t: string): string {

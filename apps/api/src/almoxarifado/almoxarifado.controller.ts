@@ -446,6 +446,12 @@ export class AlmoxarifadoController {
     });
   }
 
+  /** A peça aberta: onde está, com qual cliente, de que compra veio e por onde passou. */
+  @Get('patrimonios/:id')
+  detalheDoPatrimonio(@Param('id', ParseIntPipe) id: number) {
+    return this.patrimonios.detalhar(id);
+  }
+
   /** Dá o próximo número da casa a uma peça que veio sem ele (compra lançada no IXC). */
   @Post('patrimonios/:id/numero')
   @HttpCode(200)

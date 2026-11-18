@@ -32,8 +32,22 @@ function montar(pecas: Record<number, Record<string, unknown>>, opcoes: { recusa
       pecas[id] = { ...corpo };
       return {};
     }),
-    getById: jest.fn(async (_t: string, _c: string, id: number) => pecas[id] ?? null),
-    listAll: jest.fn(async () => Object.values(pecas)),
+    getById: jest.fn(async (t: string, _c: string, id: number) =>
+      t === 'cliente_contrato'
+        ? { id: String(id), id_cliente: '77', contrato: 'FIBRA 300', status: 'A', endereco: 'Rua A', numero: '12', bairro: 'Centro' }
+        : t === 'cliente'
+          ? { id: '77', razao: 'FULANO DE TAL' }
+          : (pecas[id] ?? null),
+    ),
+    listAll: jest.fn(async (t: string) =>
+      t === 'movimento_produtos'
+        ? [
+            { id: '1', id_patrimonio: '10', tipo: 'E', id_entrada: '3553', data: '2026-11-10', id_almox: '4' },
+            { id: '2', id_patrimonio: '10', tipo: 'S', id_contrato: '2294', status_comodato: 'E', data: '2026-11-15', id_almox: '4' },
+            { id: '3', id_patrimonio: '99', tipo: 'S', id_entrada: '1' },
+          ]
+        : Object.values(pecas),
+    ),
   };
   const produtos = {
     paraMovimentar: jest.fn(async () => [[], [{ id: 4, nome: 'ILNET' }]]),
@@ -100,5 +114,14 @@ describe('o número de patrimônio', () => {
     expect((await service.consultar({ busca: 'bbf8' })).pecas.map((p) => p.tombo)).toEqual(['37850']);
     expect((await service.consultar({ busca: 'onu simples' })).total).toBe(2);
     expect((await service.consultar({ todas: true })).total).toBe(3);
+  });
+
+  it('o detalhe diz com qual cliente a peça está, e por onde ela passou', async () => {
+    const pecas = { 10: { id: '10', id_produto: '1392', id_almoxarifado: '4', serial: '36800', situacao: '4' } };
+    const { service } = montar(pecas as Record<number, Record<string, unknown>>);
+    const d = await service.detalhar(10);
+    expect(d.comodato).toMatchObject({ contratoId: 2294, cliente: 'FULANO DE TAL', plano: 'FIBRA 300', endereco: 'Rua A, 12 — Centro', desde: '2026-11-15' });
+    expect(d.movimentos.map((m) => m.oque)).toEqual(['Comodato no contrato #2294', 'Compra #3553']);
+    expect(d.peca).toMatchObject({ tombo: '36800', situacao: 'em comodato', almoxarifado: 'ILNET' });
   });
 });
