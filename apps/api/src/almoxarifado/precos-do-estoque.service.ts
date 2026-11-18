@@ -179,62 +179,23 @@ export class PrecosDoEstoqueService {
    * Grava o preço no IXC (o preço base do produto) e marca como conferido.
    * Sem `preco`, confirma o que já está lá.
    */
-  async definir(
-    produtoId: number,
-    preco: number | undefined,
-    quem: Quem,
-  ): Promise<{
-    preco: number;
-    custoMedio: number | null;
-    custoMedioCorrigido: boolean;
-    custosAntes: Record<string, unknown>;
-    custosDepois: Record<string, unknown>;
-  }> {
-    const lerCustos = async () => {
-      const c = (await this.produtos.cadastrosPorId([produtoId])).get(produtoId);
-      return { custo_medio: c?.custo_medio, custo_medio_total: c?.custo_medio_total, valor_custo: c?.valor_custo };
-    };
-    const [detalhe, custosAntes, saldo] = await Promise.all([
-      this.produtos.detalhar(produtoId),
-      lerCustos(),
-      this.estoque.saldosDoProduto(produtoId).catch(() => null),
-    ]);
-    const custoAntes = numeroDoIxc(custosAntes.custo_medio);
+  async definir(produtoId: number, preco: number | undefined, quem: Quem): Promise<{ preco: number }> {
+    const detalhe = await this.produtos.detalhar(produtoId);
     const atual = detalhe.precoBase;
     const novo = preco === undefined ? atual : arredondar(preco);
     if (!Number.isFinite(novo) || novo < MENOR_PRECO_DE_VERDADE) {
       throw new BadRequestException('O preço precisa ser de R$ 0,10 para cima.');
     }
-    const mudaPreco = Math.abs(novo - atual) >= 0.005;
-    // O custo médio vai junto: é dele que o relatório de estoque do IXC tira o valor.
-    const mudaCusto = Math.abs(novo - custoAntes) >= 0.005;
-    if (mudaPreco || mudaCusto) {
-      await this.produtos.editar(
-        produtoId,
-        { precoBase: novo, custoMedio: novo, saldoParaCusto: Math.max(0, saldo?.total ?? 0) },
-        quem,
-      );
+    if (Math.abs(novo - atual) >= 0.005) {
+      await this.produtos.editar(produtoId, { precoBase: novo }, quem);
       const relido = (await this.produtos.detalhar(produtoId)).precoBase;
       if (Math.abs(relido - novo) >= 0.005) {
         throw new BadRequestException(`O IXC respondeu, mas o preço continua ${relido}. Nada mudou.`);
       }
     }
-    const custosDepois = mudaCusto ? await lerCustos() : custosAntes;
-    const custoDepois = numeroDoIxc(custosDepois.custo_medio);
-    const custoMedioCorrigido = Math.abs(custoDepois - novo) < 0.005;
-    if (mudaCusto && !custoMedioCorrigido) {
-      this.logger.warn(
-        `Produto #${produtoId}: o preço gravou, mas o IXC manteve o custo médio em ${custoAntes} (pedi ${novo}). ` +
-          `Antes ${JSON.stringify(custosAntes)}, depois ${JSON.stringify(custosDepois)}.`,
-      );
-    }
     await this.marcar(produtoId, novo, quem.nome);
-    this.logger.log(
-      `${quem.nome} conferiu o preço do produto #${produtoId}: ${atual} → ${novo}` +
-        (mudaCusto ? ` (custo médio ${custoAntes} → ${custoDepois})` : '') +
-        '.',
-    );
-    return { preco: novo, custoMedio: custoDepois || null, custoMedioCorrigido, custosAntes, custosDepois };
+    this.logger.log(`${quem.nome} conferiu o preço do produto #${produtoId}: ${atual} → ${novo}.`);
+    return { preco: novo };
   }
 
   /**

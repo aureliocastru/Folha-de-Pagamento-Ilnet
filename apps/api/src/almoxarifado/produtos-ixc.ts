@@ -99,14 +99,6 @@ function dataParaEscrita(valor: string): string {
 export interface EdicaoDoProduto {
   descricao?: string;
   precoBase?: number;
-  /**
-   * O custo médio do cadastro. O IXC o recalcula a cada entrada, e nesta base
-   * ele se estragou com entradas de R$ 0,01 em estoque negativo (R$ 55 mi no
-   * roteador OIW 2442): o preço conferido o põe de volta no lugar.
-   */
-  custoMedio?: number;
-  /** O saldo da casa, para o custo médio total (custo × saldo) ir junto. */
-  saldoParaCusto?: number;
   ativo?: boolean;
   /** `unidades.id` — a unidade padrão do produto. */
   unidadeId?: number;
@@ -159,16 +151,6 @@ export function montarEdicaoProduto(
   }
   if (mudancas.precoBase !== undefined) {
     corpo.preco_base = valorParaIxc(precoValido(mudancas.precoBase));
-  }
-  if (mudancas.custoMedio !== undefined) {
-    const custo = precoValido(mudancas.custoMedio);
-    corpo.custo_medio = valorParaIxc(custo);
-    // Os três andam juntos no cadastro: só o custo médio, o IXC o manteve
-    // (OIW 2442, 18/11/2026) — ele pode vir do total.
-    corpo.valor_custo = valorParaIxc(custo);
-    if (mudancas.saldoParaCusto !== undefined && mudancas.saldoParaCusto > 0) {
-      corpo.custo_medio_total = valorParaIxc(Math.round(custo * mudancas.saldoParaCusto * 100) / 100);
-    }
   }
   if (mudancas.ativo !== undefined) {
     // "S"/"N": é como a tabela de saldos do IXC documenta `produto_ativo`,

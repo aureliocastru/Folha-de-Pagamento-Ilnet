@@ -115,13 +115,6 @@ describe('montarEdicaoProduto', () => {
   });
 });
 
-describe('montarEdicaoProduto — custo médio', () => {
-  it('o preço conferido põe o custo médio estragado de volta no lugar', () => {
-    const corpo = montarEdicaoProduto({ ...PRODUTO_NO_IXC, custo_medio: '55591058.2016' }, { precoBase: 40, custoMedio: 40 });
-    expect(corpo).toMatchObject({ preco_base: '40.00', custo_medio: '40.00' });
-  });
-});
-
 describe('fiscalQueFalta', () => {
   it('diz o nome do que falta, e nada quando está completo', () => {
     expect(fiscalQueFalta(PRODUTO_NO_IXC)).toEqual([]);
