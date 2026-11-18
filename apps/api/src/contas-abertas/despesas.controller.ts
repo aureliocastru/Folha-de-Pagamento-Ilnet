@@ -111,6 +111,20 @@ export class DespesasController {
   }
 
   /**
+   * Reparo: recria a linha-mãe de uma baixa que foi apagada sozinha (o 38114,
+   * em 18/11/2026) e religa a filha, para o Estornar do IXC voltar a funcionar.
+   */
+  @Post('contas-abertas/reparo/baixa/:idFilha')
+  @HttpCode(200)
+  @Roles(UserRole.ADMIN)
+  recriarMaeDaBaixa(
+    @Param('idFilha', ParseIntPipe) idFilha: number,
+    @Body('contaRazao', ParseIntPipe) contaRazao: number,
+  ) {
+    return this.pagamentos.recriarMaeDaBaixa(idFilha, contaRazao);
+  }
+
+  /**
    * Anexa a nota a um título no IXC.
    *
    * Rota própria, e não um campo da criação da despesa: assim a nota também

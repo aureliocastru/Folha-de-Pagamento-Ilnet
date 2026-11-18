@@ -892,6 +892,124 @@ export class PagamentosService {
   }
 
   /**
+   * Recria a linha-mãe de uma baixa do pagar que foi apagada sozinha, e religa
+   * a filha a ela.
+   *
+   * Existe por causa do 38114 (18/11/2026): o DELETE em fn_apagar_baixas com o
+   * id da mãe apagou só a mãe, e o "Estornar" do IXC passou a falhar porque a
+   * filha aponta para uma linha que não existe. Com a mãe de volta, igual à
+   * que era, o estorno de lá volta a funcionar.
+   *
+   * Só age se a mãe apontada pela filha de fato não existe — numa baixa sã não
+   * faz nada. Cada escrita é relida antes da seguinte, e para na primeira que
+   * não pegou.
+   */
+  async recriarMaeDaBaixa(
+    idFilha: number,
+    contaRazao: number,
+  ): Promise<{ maeNova: number; mae: Record<string, unknown>; filha: Record<string, unknown> }> {
+    const linha = async (id: number) =>
+      (
+        await this.ixc.list<Record<string, unknown>>('fn_movim_finan', {
+          qtype: 'fn_movim_finan.id',
+          query: String(id),
+          oper: '=',
+          rp: 1,
+          sortname: 'fn_movim_finan.id',
+        })
+      ).registros.find((l) => String(l.id) === String(id)) ?? null;
+
+    const filha = await linha(idFilha);
+    if (!filha || String(filha.tipo_lanc ?? '').trim() !== 'P') {
+      throw new BadRequestException(`A linha ${idFilha} não é a filha de uma baixa do pagar.`);
+    }
+    const maeAntiga = parseIxcId(filha.id_movim_finan);
+    if (!maeAntiga || maeAntiga === idFilha) {
+      throw new BadRequestException(`A linha ${idFilha} não aponta para uma mãe.`);
+    }
+    if (await linha(maeAntiga)) {
+      throw new BadRequestException(
+        `A mãe ${maeAntiga} da linha ${idFilha} existe: não há o que recriar.`,
+      );
+    }
+    const valor = parseIxcDecimal(filha.debito);
+    if (valor < 0.01) {
+      throw new BadRequestException(`A linha ${idFilha} não tem débito.`);
+    }
+    const [ano, mes, dia] = String(filha.data ?? '').slice(0, 10).split('-');
+    const dataBr = `${dia}/${mes}/${ano}`;
+    // Dinheiro com vírgula: com ponto o IXC descarta o separador.
+    const valorIxc = valor.toFixed(2).replace('.', ',');
+
+    const corpo = (id_movim_finan: string) => ({
+      filial_id: String(filha.filial_id ?? '1'),
+      id_conta: String(contaRazao),
+      data: dataBr,
+      data2: '',
+      documento: '',
+      debito: '',
+      credito: valorIxc,
+      historico: String(filha.historico ?? ''),
+      historico2: '',
+      tipo_lanc: 'M',
+      id_movim_finan,
+      id_entrada: '',
+      id_saida: '',
+      ultima_atualizacao: '',
+    });
+
+    // 1. A mãe nova.
+    const criada = await this.ixc.create('fn_movim_finan', corpo(''));
+    const maeNova = criada.id;
+    if (!maeNova) {
+      throw new ServiceUnavailableException(
+        `O IXC não devolveu o id da linha nova (${JSON.stringify(criada.raw).slice(0, 300)}).`,
+      );
+    }
+    let mae = await linha(maeNova);
+    if (
+      !mae ||
+      String(mae.id_conta) !== String(contaRazao) ||
+      Math.abs(parseIxcDecimal(mae.credito) - valor) > 0.005
+    ) {
+      throw new ServiceUnavailableException(
+        `A linha ${maeNova} foi criada, mas não ficou como devia: ${JSON.stringify(mae)}.`,
+      );
+    }
+    this.logger.warn(`Reparo: mãe ${maeNova} criada no lugar da ${maeAntiga} (filha ${idFilha}).`);
+
+    // 2. A mãe aponta para si mesma, como toda mãe de baixa.
+    await this.ixc.update('fn_movim_finan', maeNova, corpo(String(maeNova)));
+    mae = await linha(maeNova);
+    if (!mae || parseIxcId(mae.id_movim_finan) !== maeNova) {
+      throw new ServiceUnavailableException(
+        `A linha ${maeNova} não passou a apontar para si mesma: ${JSON.stringify(mae)}.`,
+      );
+    }
+
+    // 3. A filha, inteira, com a mãe nova. O PUT reescreve a linha.
+    const filhaNova: Record<string, unknown> = { ...filha, id_movim_finan: String(maeNova) };
+    delete filhaNova.id;
+    filhaNova.data = dataBr;
+    filhaNova.debito = valorIxc;
+    filhaNova.credito = '';
+    await this.ixc.update('fn_movim_finan', idFilha, filhaNova);
+    const filhaDepois = await linha(idFilha);
+    if (
+      !filhaDepois ||
+      parseIxcId(filhaDepois.id_movim_finan) !== maeNova ||
+      Math.abs(parseIxcDecimal(filhaDepois.debito) - valor) > 0.005
+    ) {
+      throw new ServiceUnavailableException(
+        `A mãe ${maeNova} existe, mas a filha ${idFilha} não ficou ligada a ela: ` +
+          `${JSON.stringify(filhaDepois)}.`,
+      );
+    }
+    this.logger.warn(`Reparo: filha ${idFilha} religada à mãe ${maeNova}.`);
+    return { maeNova, mae, filha: filhaDepois };
+  }
+
+  /**
    * Paga várias contas em mãos de uma vez.
    *
    * Uma a uma, e o que já saiu fica de pé se a seguinte falhar: são pagamentos
