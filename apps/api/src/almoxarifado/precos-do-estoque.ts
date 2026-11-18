@@ -40,7 +40,13 @@ const longe = (a: number, b: number) => Math.max(a, b) / Math.min(a, b) > CONCOR
 const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 export function avaliarPreco(f: FontesDoPreco): AvaliacaoDoPreco {
-  const sugestao = tem(f.ultimaCompra) ? arredondar(f.ultimaCompra) : tem(f.custoMedio) ? arredondar(f.custoMedio) : null;
+  // Sugestão absurda não é sugestão: o custo médio do IXC chega a R$ 55 mi num roteador.
+  const plausivel = (v: number) => tem(v) && v <= PRECO_ALTO_DEMAIS;
+  const sugestao = plausivel(f.ultimaCompra)
+    ? arredondar(f.ultimaCompra)
+    : plausivel(f.custoMedio)
+      ? arredondar(f.custoMedio)
+      : null;
   if (f.conferido !== null && Math.abs(f.conferido - f.preco) < 0.005 && tem(f.preco)) {
     return { situacao: 'conferido', motivo: null, sugestao: null };
   }
@@ -53,14 +59,15 @@ export function avaliarPreco(f: FontesDoPreco): AvaliacaoDoPreco {
   }
   // Preço e compra iguais e errados acontecem (a mesma nota digitada errado copiada nos dois).
   if (f.preco > PRECO_ALTO_DEMAIS) {
-    return { situacao: 'suspeito', motivo: `Preço de ${brl(f.preco)} por unidade — alto demais`, sugestao: sugestao && sugestao <= PRECO_ALTO_DEMAIS ? sugestao : null };
+    return { situacao: 'suspeito', motivo: `Preço de ${brl(f.preco)} por unidade — alto demais`, sugestao };
   }
   if (tem(f.ultimaCompra)) {
     return longe(f.preco, f.ultimaCompra)
       ? { situacao: 'suspeito', motivo: `Longe da última compra (${brl(f.ultimaCompra)})`, sugestao }
       : { situacao: 'ok', motivo: null, sugestao: null };
   }
-  if (tem(f.custoMedio) && longe(f.preco, f.custoMedio)) {
+  // Custo médio absurdo não acusa ninguém: ele é que está errado.
+  if (plausivel(f.custoMedio) && longe(f.preco, f.custoMedio)) {
     return { situacao: 'suspeito', motivo: `Sem compra, e longe do custo médio (${brl(f.custoMedio)})`, sugestao };
   }
   return { situacao: 'ok', motivo: null, sugestao: null };

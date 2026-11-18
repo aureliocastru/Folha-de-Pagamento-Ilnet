@@ -131,7 +131,7 @@ export function PrecosDoEstoque() {
 
           {mostrados.length > 0 && (
             <div className="-mx-3.5 md:-mx-5">
-              <div className="hidden border-b border-fio md:grid md:grid-cols-[minmax(0,2.4fr)_90px_110px_120px_120px_290px] md:gap-3 md:px-5">
+              <div className="hidden border-b border-fio md:grid md:grid-cols-[minmax(0,1fr)_110px_120px_120px_130px_340px] md:gap-3 md:px-5">
                 <div className="th px-0">Produto</div>
                 <div className="th px-0 text-right">Tem</div>
                 <div className="th px-0 text-right">Preço</div>
@@ -190,7 +190,7 @@ function LinhaDoPreco({
 
   return (
     <div
-      className={`linha flex flex-wrap items-center gap-x-3 gap-y-1 px-3.5 py-1.5 text-sm md:grid md:grid-cols-[minmax(0,2.4fr)_90px_110px_120px_120px_290px] md:px-5 ${
+      className={`linha flex flex-wrap items-center gap-x-3 gap-y-1 px-3.5 py-1.5 text-sm md:grid md:grid-cols-[minmax(0,1fr)_110px_120px_120px_130px_340px] md:px-5 ${
         aberta ? 'bg-brand-500/10 outline outline-2 -outline-offset-2 outline-brand-500' : ''
       }`}
     >
@@ -198,21 +198,25 @@ function LinhaDoPreco({
         <div className="truncate font-semibold text-tinta-800" title={item.descricao}>
           {item.descricao}
         </div>
-        {suspeito && item.motivo && <div className="text-xs text-amber-600">{item.motivo}</div>}
+        {suspeito && item.motivo && (
+          <div className="truncate text-xs text-amber-600" title={item.motivo}>
+            {item.motivo}
+          </div>
+        )}
         {item.situacao === 'conferido' && item.conferidoPor && (
-          <div className="text-xs text-tinta-500">
+          <div className="truncate text-xs text-tinta-500">
             conferido por {item.conferidoPor}
             {item.conferidoEm ? ` em ${formatData(item.conferidoEm.slice(0, 10))}` : ''}
           </div>
         )}
       </div>
-      <div className="num text-xs text-tinta-500 md:text-right md:text-sm md:text-tinta-700">
+      <div className="num whitespace-nowrap text-xs text-tinta-500 md:text-right md:text-sm md:text-tinta-700">
         {quantidade(item.quantidade)} {item.unidade ?? ''}
       </div>
-      <div className={`num md:text-right ${suspeito ? 'font-semibold text-amber-600' : 'text-tinta-900'}`}>
+      <div className={`num whitespace-nowrap md:text-right ${suspeito ? 'font-semibold text-amber-600' : 'text-tinta-900'}`}>
         {formatBRL(item.preco)}
       </div>
-      <div className="num text-xs text-tinta-500 md:text-right md:text-sm">
+      <div className="num whitespace-nowrap text-xs text-tinta-500 md:text-right md:text-sm">
         {item.ultimaCompra ? (
           <span title={item.ultimaCompra.dia ? `em ${formatData(item.ultimaCompra.dia)}` : undefined}>
             <span className="md:hidden">compra </span>
@@ -222,7 +226,7 @@ function LinhaDoPreco({
           <span className="hidden md:inline">—</span>
         )}
       </div>
-      <div className={`num md:text-right ${suspeito ? 'text-tinta-500 line-through' : 'font-semibold text-tinta-900'}`}>
+      <div className={`num whitespace-nowrap md:text-right ${suspeito ? 'text-tinta-500 line-through' : 'font-semibold text-tinta-900'}`}>
         {formatBRL(item.valor)}
       </div>
       <div className="ml-auto md:ml-0">
@@ -237,7 +241,7 @@ function LinhaDoPreco({
             </button>
           </form>
         ) : (
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2 whitespace-nowrap md:flex-nowrap">
             {suspeito && item.sugestao !== null && (
               <button
                 type="button"

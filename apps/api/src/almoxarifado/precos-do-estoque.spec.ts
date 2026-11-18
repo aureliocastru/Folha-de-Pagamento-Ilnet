@@ -29,6 +29,12 @@ describe('o preço do produto do estoque', () => {
     });
   });
 
+  it('custo médio absurdo não vira sugestão nem acusa o preço', () => {
+    // O roteador OIW 2442 da base: preço R$ 40, custo médio R$ 55.591.058,20.
+    expect(avaliarPreco({ ...base, preco: 40, custoMedio: 55591058.2 })).toMatchObject({ situacao: 'ok' });
+    expect(avaliarPreco({ ...base, preco: 0.01, custoMedio: 55591058.2 }).sugestao).toBeNull();
+  });
+
   it('sem compra, o custo médio é a referência', () => {
     expect(avaliarPreco({ ...base, preco: 10, custoMedio: 50 }).situacao).toBe('suspeito');
     expect(avaliarPreco({ ...base, preco: 10, custoMedio: 11 }).situacao).toBe('ok');
