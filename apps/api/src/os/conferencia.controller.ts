@@ -67,6 +67,20 @@ export class ConferenciaController {
     return this.conferencia.conferir(osId, dto, quem(req));
   }
 
+  /**
+   * Tira um aparelho do comodato do contrato da OS, no IXC; a peça volta para
+   * o almoxarifado ILNET. Devolve o comodato do contrato relido.
+   */
+  @Post('os/:osId/comodato/:comodatoId/devolver')
+  @HttpCode(200)
+  devolverComodato(
+    @Req() req: Request,
+    @Param('osId', ParseIntPipe) osId: number,
+    @Param('comodatoId', ParseIntPipe) comodatoId: number,
+  ) {
+    return this.conferencia.devolverComodato(osId, comodatoId, quem(req));
+  }
+
   /** A imagem de um arquivo da OS, do IXC. Não muda: o navegador pode guardar. */
   @Get('arquivos/:id')
   async arquivo(

@@ -1,4 +1,5 @@
 import {
+  assuntoForaDaConferencia,
   ehDia,
   ehInstalacao,
   ehRetirada,
@@ -115,6 +116,16 @@ describe('o tipo de serviço, pelo nome do assunto da base', () => {
   it('reconhece a retirada de equipamento, e não a de cabo', () => {
     expect(ehRetirada('RETIRADA DE EQUIPAMENTO')).toBe(true);
     expect(ehRetirada('Retirada de Cabo')).toBe(false);
+  });
+
+  /* Pedido de 18/11/2026: a pós-venda não entra na conferência. */
+  it('a pós-venda fica de fora, escrita de qualquer jeito, e os outros assuntos de pós-venda não', () => {
+    for (const nome of ['PÓS VENDA', 'Pós Venda', ' pos  venda ']) {
+      expect(assuntoForaDaConferencia(nome)).toBe(true);
+    }
+    for (const nome of ['RETORNO PÓS VENDA FIBRA', 'FINALIZAÇÃO PÓS VENDA', 'AUDITORIA TECNICA PÓS VENDA', null]) {
+      expect(assuntoForaDaConferencia(nome)).toBe(false);
+    }
   });
 });
 

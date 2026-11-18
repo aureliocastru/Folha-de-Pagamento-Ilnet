@@ -8,6 +8,8 @@ import {
   SITUACAO_DA_CONFERENCIA,
   diaNaTela,
   horaDoIxc,
+  type ComodatoDevolvido,
+  type ComodatoDoContrato,
   type ConferenciaNaTela,
   type DiaNaConferencia,
   type FilaDaConferencia,
@@ -26,6 +28,11 @@ import { ehAssinatura, type ArquivoDaOs } from '../../lib/os';
  * sistema olha antes e põe no topo as que têm aviso (sem foto, instalação sem
  * aparelho, aparelho em outro contrato, retirada não baixada). O chefe abre, vê as fotos, os aparelhos da OS e o comodato do
  * contrato lado a lado, e diz: conferida, ou com problema (com o motivo).
+ * A OS de pós-venda não entra na fila.
+ *
+ * O aparelho que sobrou no comodato do contrato (a ONU velha, depois da troca)
+ * sai dali mesmo, com o botão ao lado dele: baixa no IXC, e a peça volta para o
+ * almoxarifado ILNET.
  *
  * O problema volta para o técnico, que vê no celular e responde. Quem conferiu
  * marca resolvida depois — e o relatório do mês conta quem acertou de primeira.
@@ -512,29 +519,7 @@ function DetalheDaOs({
           )}
         </Bloco>
 
-        <Bloco titulo={`Comodato do contrato ${o.contratoId} agora`}>
-          {o.comodatoDoContrato.length === 0 ? (
-            <p className="text-[13px] text-tinta-500">Nenhum aparelho emprestado.</p>
-          ) : (
-            <ul className="space-y-2">
-              {o.comodatoDoContrato.map((c) => (
-                <li key={c.comodatoId} className="text-[13px]">
-                  <p className="font-medium text-tinta-800">{c.descricao ?? `Produto ${c.produtoId}`}</p>
-                  <p className="text-tinta-500">
-                    {[
-                      c.numeroSerie && `série ${c.numeroSerie}`,
-                      c.mac && `MAC ${c.mac}`,
-                      c.numeroPatrimonial && `patrimônio ${c.numeroPatrimonial}`,
-                      c.desde && `desde ${c.desde.split('-').reverse().join('/')}`,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Bloco>
+        <ComodatoAgora osId={o.id} contratoId={o.contratoId} comodato={o.comodatoDoContrato} />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
@@ -614,6 +599,101 @@ function DetalheDaOs({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * O comodato do contrato agora, com um botão em cada aparelho para tirá-lo do
+ * contrato no IXC — a peça volta para o almoxarifado ILNET. É o acerto da ONU
+ * velha que ficou no contrato depois da troca, sem precisar ir ao IXC.
+ */
+function ComodatoAgora({
+  osId,
+  contratoId,
+  comodato,
+}: {
+  osId: number;
+  contratoId: number;
+  comodato: ComodatoDoContrato[];
+}) {
+  const qc = useQueryClient();
+  const [feito, setFeito] = useState<{ texto: string; aviso: string | null } | null>(null);
+  const devolver = useMutation({
+    mutationFn: async (c: ComodatoDoContrato) =>
+      (await api.post<ComodatoDevolvido>(`/os/conferencia/os/${osId}/comodato/${c.comodatoId}/devolver`)).data,
+    onSuccess: (r, c) => {
+      // O aparelho sai da lista na hora; a OS é relida por trás, para os avisos.
+      qc.setQueryData<OsParaConferir>(['os', 'conferencia', 'os', osId], (antes) =>
+        antes ? { ...antes, comodatoDoContrato: r.comodatoDoContrato } : antes,
+      );
+      void qc.invalidateQueries({ queryKey: ['os', 'conferencia', 'os', osId] });
+      void qc.invalidateQueries({ queryKey: ['os', 'conferencia', 'dia'] });
+      setFeito({ texto: `${c.descricao ?? 'Aparelho'} saiu do contrato e voltou para ${r.destino}.`, aviso: r.aviso });
+    },
+    onError: () => setFeito(null),
+  });
+
+  function tirar(c: ComodatoDoContrato) {
+    const qual = [c.descricao ?? `Produto ${c.produtoId}`, c.numeroSerie && `série ${c.numeroSerie}`]
+      .filter(Boolean)
+      .join(', ');
+    if (!confirm(`Tirar ${qual} do comodato do contrato ${contratoId} no IXC?\n\nO aparelho volta para o almoxarifado ILNET.`)) {
+      return;
+    }
+    devolver.mutate(c);
+  }
+
+  return (
+    <Bloco titulo={`Comodato do contrato ${contratoId} agora`}>
+      {comodato.length === 0 ? (
+        <p className="text-[13px] text-tinta-500">Nenhum aparelho emprestado.</p>
+      ) : (
+        <ul className="space-y-2">
+          {comodato.map((c) => {
+            const tirando = devolver.isPending && devolver.variables?.comodatoId === c.comodatoId;
+            return (
+              <li key={c.comodatoId} className="flex items-start justify-between gap-3 text-[13px]">
+                <div className="min-w-0">
+                  <p className="font-medium text-tinta-800">{c.descricao ?? `Produto ${c.produtoId}`}</p>
+                  <p className="text-tinta-500">
+                    {[
+                      c.numeroSerie && `série ${c.numeroSerie}`,
+                      c.mac && `MAC ${c.mac}`,
+                      c.numeroPatrimonial && `patrimônio ${c.numeroPatrimonial}`,
+                      c.desde && `desde ${c.desde.split('-').reverse().join('/')}`,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => tirar(c)}
+                  disabled={devolver.isPending}
+                  title="Baixa o comodato no IXC; o aparelho volta para o almoxarifado ILNET"
+                  className="btn btn-alerta btn-p shrink-0"
+                >
+                  {tirando ? 'Tirando…' : 'Tirar do comodato'}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {feito && (
+        <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-1.5 text-[13px] text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-200">
+          {feito.texto}
+        </p>
+      )}
+      {feito?.aviso && (
+        <p className="mt-2 rounded-lg bg-amber-50 px-3 py-1.5 text-[13px] text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">
+          {feito.aviso}
+        </p>
+      )}
+      {devolver.isError && (
+        <p className="mt-2 text-[13px] text-rose-600 dark:text-rose-300">{mensagemErro(devolver.error)}</p>
+      )}
+    </Bloco>
   );
 }
 

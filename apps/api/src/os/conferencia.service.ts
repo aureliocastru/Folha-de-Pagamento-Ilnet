@@ -1,9 +1,13 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import type { ConferenciaDeOs, Prisma } from '@prisma/client';
-import { emParalelo } from '../almoxarifado/mover-tudo';
+import { ehAlmoxDaBase, NOME_DO_ALMOX_DA_BASE, numeroDoIxc } from '../almoxarifado/estoque.mapper';
+import { emParalelo, situacaoDaPeca } from '../almoxarifado/mover-tudo';
+import { ProdutosService } from '../almoxarifado/produtos.service';
 import { tipoPeloConteudo } from '../arquivos/data-url';
+import { IxcClient } from '../ixc/ixc.client';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  assuntoForaDaConferencia,
   DIAS_NA_FILA,
   diaDoFechamento,
   ehDia,
@@ -28,6 +32,7 @@ import {
 import { OsDoIxcService } from './os-do-ixc.service';
 import {
   hojeNaData,
+  montarBaixaDeComodato,
   type ArquivoDaOs,
   type AssuntoDoIxc,
   type ComodatoDoContrato,
@@ -133,6 +138,16 @@ export interface ProblemaNaTela {
   respondidaEm: string | null;
 }
 
+/** O que a conferência fez ao tirar um aparelho do comodato do contrato. */
+export interface ComodatoDevolvido {
+  /** O comodato do contrato, relido do IXC depois da baixa. */
+  comodatoDoContrato: ComodatoDoContrato[];
+  /** O almoxarifado para onde a peça voltou. */
+  destino: string;
+  /** O que não bateu na releitura da peça, quando algo não bateu. */
+  aviso: string | null;
+}
+
 /** O que a leitura de uma OS para conferir traz do IXC. */
 interface Leitura {
   assunto: AssuntoDoIxc | null;
@@ -155,9 +170,13 @@ interface Leitura {
  * não baixada.
  * As OS com aviso sobem na lista; quem decide se está certa é o chefe.
  *
- * **Aqui fica só o veredito.** Nada é escrito no IXC: a OS, as fotos e o
- * comodato são lidos de lá, na hora. A OS com problema volta para o técnico,
- * que vê no celular e responde; quem conferiu marca resolvida depois.
+ * **Aqui fica o veredito.** A OS, as fotos e o comodato são lidos do IXC, na
+ * hora. A OS com problema volta para o técnico, que vê no celular e responde;
+ * quem conferiu marca resolvida depois.
+ *
+ * A única escrita no IXC é tirar um aparelho do comodato do contrato
+ * (`devolverComodato`): a ONU velha que ficou lá depois da troca se acerta
+ * dali mesmo, e a peça volta para o almoxarifado da base.
  */
 @Injectable()
 export class ConferenciaService {
@@ -168,6 +187,8 @@ export class ConferenciaService {
     private readonly prisma: PrismaService,
     private readonly doIxc: OsDoIxcService,
     private readonly tecnicos: TecnicosService,
+    private readonly ixc: IxcClient,
+    private readonly produtos: ProdutosService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -178,12 +199,13 @@ export class ConferenciaService {
   async fila(agora = new Date()): Promise<FilaDaConferencia> {
     const hoje = hojeNaData(agora);
     const inicio = somarDias(hoje, -(DIAS_NA_FILA - 1));
-    const [fechadas, deCampo, problemasAbertos] = await Promise.all([
+    const [fechadas, deCampo, nomesDosAssuntos, problemasAbertos] = await Promise.all([
       this.doIxc.fechadasEntre(inicio, hoje),
       this.tecnicosDeCampo(),
+      this.doIxc.nomesDosAssuntos(),
       this.prisma.conferenciaDeOs.count({ where: { situacao: 'PROBLEMA' } }),
     ]);
-    const doCampo = fechadas.filter((os) => deCampo.has(os.tecnicoId));
+    const doCampo = paraConferir(fechadas, deCampo, nomesDosAssuntos);
     const conferencias = await this.prisma.conferenciaDeOs.findMany({
       where: { osIxcId: { in: doCampo.map((os) => os.id) } },
       select: { osIxcId: true, situacao: true },
@@ -217,7 +239,7 @@ export class ConferenciaService {
       this.tecnicosDeCampo(),
       this.doIxc.nomesDosAssuntos(),
     ]);
-    const lista = fechadas.filter((os) => deCampo.has(os.tecnicoId));
+    const lista = paraConferir(fechadas, deCampo, nomesDosAssuntos);
     const ids = lista.map((os) => os.id);
     const [clientes, conferencias, foraDoIxc] = await Promise.all([
       this.doIxc.nomesDosClientes(lista.map((os) => os.clienteId)),
@@ -389,6 +411,69 @@ export class ConferenciaService {
     return conferenciaNaTela(salva)!;
   }
 
+  /**
+   * Tira um aparelho do comodato do contrato da OS, no IXC, e a peça volta
+   * para o almoxarifado da base ("ILNET"). Pedido de 18/11/2026: quem confere
+   * vê ali a ONU velha que ficou no contrato depois da troca, e acerta dali
+   * mesmo, sem ir ao IXC.
+   *
+   * É a mesma baixa da retirada do técnico (`baixar_comodato_23069`), só que
+   * para a base, e não para a van. A linha tem de ser do contrato da OS e
+   * estar emprestada agora — relida do IXC, e não do que a tela mostrou. Se o
+   * IXC responder erro, relê antes de dizer que não foi: a baixa pode ter
+   * passado. Depois, relê a peça; o que não bater volta como aviso.
+   */
+  async devolverComodato(osId: number, comodatoId: number, quem: { nome: string }): Promise<ComodatoDevolvido> {
+    const os = await this.doIxc.osFechada(osId);
+    if (!os) throw new NotFoundException(`A OS ${osId} não foi achada no IXC.`);
+    const [comodatos, [, almoxarifados]] = await Promise.all([
+      this.doIxc.comodatosDoContrato(os.contratoId),
+      this.produtos.paraMovimentar(),
+    ]);
+    const linha = comodatos.find((c) => c.comodatoId === comodatoId);
+    if (!linha) {
+      throw new BadRequestException(
+        `Esse aparelho já não está emprestado no contrato ${os.contratoId} no IXC — ` +
+          'alguém pode ter baixado por lá. Abra a OS de novo para ver o comodato de agora.',
+      );
+    }
+    const base = almoxarifados.find((a) => a.ativo && ehAlmoxDaBase(a.nome));
+    if (!base) {
+      throw new BadRequestException(
+        `Não achei o almoxarifado "${NOME_DO_ALMOX_DA_BASE}" ativo no IXC (ou ele não está liberado ` +
+          'para o sistema). É para lá que o aparelho volta — libere na aba Almoxarifados.',
+      );
+    }
+
+    const filialId = base.filialId || os.filialId;
+    const baixa = montarBaixaDeComodato({
+      comodatoId,
+      almoxId: base.id,
+      almoxNome: base.nome,
+      filialId,
+      filialNome: await this.doIxc.nomeDaFilial(filialId),
+    });
+    try {
+      await this.ixc.action('baixar_comodato_23069', baixa);
+    } catch (e) {
+      const depois = await this.doIxc.comodato(comodatoId).catch(() => null);
+      if (!depois || depois.status === 'E') throw e;
+    }
+    this.sinaisGuardados.delete(osId);
+    this.logger.log(
+      `${quem.nome} tirou do comodato do contrato ${os.contratoId} (conferência da OS ${osId}): ` +
+        `${linha.descricao ?? `produto ${linha.produtoId}`}, patrimônio ${linha.numeroPatrimonial ?? '?'} ` +
+        `(linha ${comodatoId}), de volta para "${base.nome}".`,
+    );
+
+    const [agora, aviso] = await Promise.all([
+      this.doIxc.comodatosDoContrato(os.contratoId),
+      this.conferirDevolucao(linha, base),
+    ]);
+    if (aviso) this.logger.warn(`OS ${osId}, comodato ${comodatoId}: ${aviso}`);
+    return { comodatoDoContrato: agora, destino: base.nome, aviso };
+  }
+
   /** As OS com problema ainda aberto, de qualquer dia — a mais antiga primeiro. */
   async problemas(): Promise<ProblemaNaTela[]> {
     const linhas = await this.prisma.conferenciaDeOs.findMany({
@@ -454,6 +539,34 @@ export class ConferenciaService {
     );
   }
 
+  /**
+   * A baixa passou de verdade? A linha não pode estar mais emprestada, e a
+   * peça tem de estar na prateleira do almoxarifado da base. A falha de leitura
+   * não vira aviso: o IXC já aceitou, e o aviso é só para o que se leu errado.
+   */
+  private async conferirDevolucao(
+    linha: ComodatoDoContrato,
+    base: { id: number; nome: string },
+  ): Promise<string | null> {
+    const [depois, peca] = await Promise.all([
+      this.doIxc.comodato(linha.comodatoId).catch(() => null),
+      linha.patrimonioId ? this.doIxc.patrimonio(linha.patrimonioId).catch(() => null) : Promise.resolve(null),
+    ]);
+    if (depois?.status === 'E') {
+      return 'O IXC aceitou a baixa, mas relida a linha ainda está emprestada no contrato. Confira no contrato, no IXC.';
+    }
+    if (!peca) return null;
+    const situacao = situacaoDaPeca(peca.situacao);
+    const almoxId = numeroDoIxc(peca.id_almoxarifado);
+    if (almoxId !== base.id || !situacao.naPrateleira) {
+      return (
+        `O IXC baixou o comodato, mas relida a peça está "${situacao.nome}" no almoxarifado #${almoxId}, ` +
+        `e não em "${base.nome}". Confira para onde ela foi.`
+      );
+    }
+    return null;
+  }
+
   /** Quantos itens anotados pelo celular daqui ainda não estão no IXC, por OS. */
   private async itensForaDoIxc(ids: number[]): Promise<Map<number, number>> {
     if (ids.length === 0) return new Map();
@@ -508,6 +621,22 @@ export class ConferenciaService {
       contratoId: os.contratoId,
     };
   }
+}
+
+/**
+ * As OS fechadas que a conferência mostra: de técnico de campo (com van), e
+ * fora dos assuntos que não se conferem (a pós-venda, ver
+ * `assuntoForaDaConferencia`). A fila e a lista do dia passam as duas por
+ * aqui, para o "faltam" de um dia bater com a lista dele.
+ */
+function paraConferir(
+  fechadas: OsFechada[],
+  deCampo: Map<number, string>,
+  assuntos: Map<number, string>,
+): OsFechada[] {
+  return fechadas.filter(
+    (os) => deCampo.has(os.tecnicoId) && !assuntoForaDaConferencia(assuntos.get(os.assuntoId)),
+  );
 }
 
 /**

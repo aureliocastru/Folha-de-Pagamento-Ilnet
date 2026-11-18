@@ -118,6 +118,17 @@ export function ehAlmoxDeRecolhidos(nome: string | null | undefined): boolean {
   return nomeComparavel(nome) === nomeComparavel(NOME_DO_ALMOX_DE_RECOLHIDOS);
 }
 
+/**
+ * O almoxarifado da base, no escritório (#4 no IXC). É para onde volta o
+ * aparelho que a conferência de OS tira do comodato de um contrato — pedido de
+ * 18/11/2026. Pelo nome, como os outros daqui.
+ */
+export const NOME_DO_ALMOX_DA_BASE = 'ILNET';
+
+export function ehAlmoxDaBase(nome: string | null | undefined): boolean {
+  return nomeComparavel(nome) === nomeComparavel(NOME_DO_ALMOX_DA_BASE);
+}
+
 /** Um item do estoque, com o saldo de cada almoxarifado. */
 export interface ItemDeEstoque {
   produtoId: number;

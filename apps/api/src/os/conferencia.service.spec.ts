@@ -41,6 +41,11 @@ function fechada(id: number, dados: Partial<OsFechada> = {}): OsFechada {
 
 function montar() {
   const conferencias: Linha[] = [];
+  const comodatos = [linhaDeComodato(501, 31483, 'FHTTBFFA3D50'), linhaDeComodato(502, 37817, 'FHTT058A9F18')];
+  const pecas = new Map<number, Record<string, unknown>>([
+    [31483, { situacao: '4', id_almoxarifado: '29' }],
+    [37817, { situacao: '4', id_almoxarifado: '29' }],
+  ]);
   const os = [
     fechada(1),
     // Instalação sem aparelho: sobe na lista.
@@ -49,6 +54,8 @@ function montar() {
     fechada(3, { tecnicoId: 99 }),
     // De outro dia.
     fechada(4, { fechamento: '2026-10-22 09:00:00' }),
+    // Pós-venda: fica de fora, mesmo de técnico de campo (pedido de 18/11/2026).
+    fechada(6, { assuntoId: 118, fechamento: '2026-10-23 12:00:00' }),
   ];
   const combina = (l: Linha, where: Record<string, unknown>) =>
     Object.entries(where).every(([k, v]) => {
@@ -95,14 +102,41 @@ function montar() {
       os.filter((o) => o.fechamento!.slice(0, 10) >= inicio && o.fechamento!.slice(0, 10) <= fim),
     ),
     osFechada: jest.fn(async (id: number) => os.find((o) => o.id === id) ?? null),
-    nomesDosAssuntos: jest.fn(async () => new Map([[1, 'Inst Fibra'], [14, 'Suporte Técnico']])),
+    nomesDosAssuntos: jest.fn(
+      async () => new Map([[1, 'Inst Fibra'], [14, 'Suporte Técnico'], [118, 'PÓS VENDA']]),
+    ),
     nomesDosClientes: jest.fn(async (ids: number[]) => new Map(ids.map((id) => [id, `Cliente ${id}`]))),
     assunto: jest.fn(async () => ({ fotosExigidas: 0, assinaturaObrigatoria: false, aparelhosExigidos: 0 })),
     arquivosDaOs: jest.fn(async (id: number) => [{ id: 100 + id, osId: id, descricao: 'Caixa', classificacao: 'P' }]),
     aparelhosDaOs: jest.fn(async () => []),
     mensagensDaOs: jest.fn(async () => []),
-    comodatosDoContrato: jest.fn(async () => []),
+    // O contrato 2294 tem a ONU velha (linha 501) e a nova (502), emprestadas.
+    comodatosDoContrato: jest.fn(async (contratoId: number) =>
+      contratoId === 2294 ? comodatos.filter((c) => c.status === 'E') : [],
+    ),
+    comodato: jest.fn(async (id: number) => comodatos.find((c) => c.comodatoId === id) ?? null),
+    patrimonio: jest.fn(async (id: number) => pecas.get(id) ?? null),
+    nomeDaFilial: jest.fn(async () => 'ILNET'),
     materiaisDetalhadosDaOs: jest.fn(async () => []),
+  };
+  // A baixa do IXC: a linha deixa de estar emprestada e a peça vai para o almoxarifado mandado.
+  const ixc = {
+    action: jest.fn(async (_endpoint: string, corpo: Record<string, unknown>) => {
+      const linha = comodatos.find((c) => c.comodatoId === Number(corpo.id))!;
+      linha.status = 'D';
+      pecas.set(linha.patrimonioId!, { situacao: '1', id_almoxarifado: String(corpo.id_almox) });
+      return { type: 'success' };
+    }),
+  };
+  const produtos = {
+    paraMovimentar: jest.fn(async () => [
+      [],
+      [
+        { id: 1, nome: 'Almoxarifado Principal', filialId: 1, ativo: true },
+        { id: 4, nome: 'ILNET', filialId: 1, ativo: true },
+        { id: 29, nome: 'CLEYSON', filialId: 1, ativo: true },
+      ],
+    ]),
   };
   const tecnicos = {
     lista: jest.fn(async () => [
@@ -112,8 +146,29 @@ function montar() {
     ]),
     doLogin: jest.fn(async (usuarioId: string) => ({ ixcId: usuarioId === 'u-rafael' ? 81 : 57 })),
   };
-  const service = new ConferenciaService(prisma as never, doIxc as never, tecnicos as never);
-  return { service, prisma, doIxc, tecnicos, conferencias };
+  const service = new ConferenciaService(
+    prisma as never,
+    doIxc as never,
+    tecnicos as never,
+    ixc as never,
+    produtos as never,
+  );
+  return { service, prisma, doIxc, tecnicos, ixc, produtos, conferencias, comodatos, pecas };
+}
+
+function linhaDeComodato(comodatoId: number, patrimonioId: number, numeroSerie: string) {
+  return {
+    comodatoId,
+    produtoId: 12,
+    descricao: 'ONU SIMPLES AN5506-01-A',
+    quantidade: 1,
+    patrimonioId,
+    numeroPatrimonial: String(patrimonioId),
+    mac: null,
+    numeroSerie,
+    desde: '2026-01-09',
+    status: 'E',
+  };
 }
 
 const chefe = { nome: 'Werick' };
@@ -144,6 +199,12 @@ describe('ConferenciaService.doDia', () => {
     expect(t.doIxc.aparelhosDaOs).toHaveBeenCalledTimes(2);
   });
 
+  it('a OS de pós-venda fica de fora da lista, mesmo de técnico de campo', async () => {
+    const t = montar();
+    const dia = await t.service.doDia('2026-10-23');
+    expect(dia.os.map((o) => o.id)).not.toContain(6);
+  });
+
   it('o dia em outro formato não vale', async () => {
     const t = montar();
     await expect(t.service.doDia('23/10/2026')).rejects.toThrow(BadRequestException);
@@ -156,6 +217,7 @@ describe('ConferenciaService.fila', () => {
     await t.service.conferir(1, { situacao: 'CONFERIDA' }, chefe);
     const fila = await t.service.fila(new Date('2026-10-23T15:00:00Z'));
 
+    // A pós-venda (OS 6) não conta: o "faltam" bate com a lista do dia.
     expect(fila.dias[0]).toEqual({ dia: '2026-10-23', total: 2, conferidas: 1, problemas: 0, pendentes: 1 });
     expect(fila.dias[1]).toEqual({ dia: '2026-10-22', total: 1, conferidas: 0, problemas: 0, pendentes: 1 });
     expect(fila.dias).toHaveLength(7);
@@ -222,5 +284,63 @@ describe('ConferenciaService.relatorio', () => {
     expect(r).toMatchObject({ conferidas: 2, dePrimeira: 1, comProblema: 1, abertas: 1 });
     expect((await t.service.relatorio('2026-09')).conferidas).toBe(0);
     await expect(t.service.relatorio('10/2026')).rejects.toThrow(BadRequestException);
+  });
+});
+
+describe('ConferenciaService.devolverComodato', () => {
+  it('baixa a linha no IXC para o almoxarifado ILNET, e devolve o comodato relido', async () => {
+    const t = montar();
+    const r = await t.service.devolverComodato(1, 501, chefe);
+
+    expect(t.ixc.action).toHaveBeenCalledTimes(1);
+    expect(t.ixc.action).toHaveBeenCalledWith('baixar_comodato_23069', {
+      id: '501',
+      id_almox: '4',
+      id_almox_label: 'ILNET',
+      id_filial_baixa: '1',
+      id_filial_baixa_label: 'ILNET',
+    });
+    expect(r.destino).toBe('ILNET');
+    expect(r.aviso).toBeNull();
+    expect(r.comodatoDoContrato.map((c) => c.comodatoId)).toEqual([502]);
+  });
+
+  it('a linha que não está emprestada no contrato da OS não se baixa', async () => {
+    const t = montar();
+    t.comodatos[0].status = 'D';
+    await expect(t.service.devolverComodato(1, 501, chefe)).rejects.toThrow(/já não está emprestado/);
+    // Uma linha de outro contrato, com o número de uma OS deste.
+    await expect(t.service.devolverComodato(1, 999, chefe)).rejects.toThrow(BadRequestException);
+    expect(t.ixc.action).not.toHaveBeenCalled();
+  });
+
+  it('sem o almoxarifado ILNET ativo, não baixa', async () => {
+    const t = montar();
+    t.produtos.paraMovimentar.mockResolvedValueOnce([[], [{ id: 4, nome: 'ILNET', filialId: 1, ativo: false }]]);
+    await expect(t.service.devolverComodato(1, 501, chefe)).rejects.toThrow(/"ILNET" ativo/);
+    expect(t.ixc.action).not.toHaveBeenCalled();
+  });
+
+  it('o IXC respondeu erro mas baixou: vale; não baixou: o erro sobe', async () => {
+    const t = montar();
+    const baixar = t.ixc.action.getMockImplementation()!;
+    t.ixc.action.mockImplementationOnce(async (e, c) => {
+      await baixar(e, c);
+      throw new Error('tempo esgotado');
+    });
+    await expect(t.service.devolverComodato(1, 501, chefe)).resolves.toMatchObject({ aviso: null });
+
+    t.ixc.action.mockRejectedValueOnce(new Error('IXC recusou'));
+    await expect(t.service.devolverComodato(1, 502, chefe)).rejects.toThrow('IXC recusou');
+  });
+
+  it('a peça relida fora do ILNET vira aviso', async () => {
+    const t = montar();
+    t.ixc.action.mockImplementationOnce(async (_e, corpo) => {
+      t.comodatos.find((c) => c.comodatoId === Number(corpo.id))!.status = 'D';
+      return { type: 'success' };
+    });
+    const r = await t.service.devolverComodato(1, 501, chefe);
+    expect(r.aviso).toMatch(/almoxarifado #29, e não em "ILNET"/);
   });
 });

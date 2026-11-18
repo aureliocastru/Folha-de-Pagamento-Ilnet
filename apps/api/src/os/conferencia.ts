@@ -173,6 +173,23 @@ export function ehRetirada(nome: string | null): boolean {
   return /retirada de equip|recolh/.test(normalizado(nome));
 }
 
+/**
+ * Os assuntos que não entram na conferência, pelo nome — comparado sem
+ * acento, sem caixa e sem espaço sobrando.
+ *
+ * Pedido de 18/11/2026: a OS de pós-venda fica de fora (eram 34 das 242 que
+ * fecharam de 12 a 18/11). É o nome exato, como no mapa: "Retorno Pós Venda
+ * Fibra", "Finalização Pós Venda" e "Auditoria Técnica Pós Venda" são outros
+ * assuntos no IXC, e continuam na conferência — o retorno é visita de
+ * técnico, e pode trocar aparelho.
+ */
+export const ASSUNTOS_FORA_DA_CONFERENCIA = ['pos venda'];
+
+/** A OS deste assunto fica fora da conferência? */
+export function assuntoForaDaConferencia(nome: string | null | undefined): boolean {
+  return ASSUNTOS_FORA_DA_CONFERENCIA.includes(normalizado(nome ?? null).replace(/\s+/g, ' ').trim());
+}
+
 // ---------------------------------------------------------------------------
 // Os avisos
 // ---------------------------------------------------------------------------

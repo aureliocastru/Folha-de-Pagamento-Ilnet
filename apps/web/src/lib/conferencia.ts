@@ -92,6 +92,15 @@ export interface ComodatoDoContrato {
   desde: string | null;
 }
 
+/** O que a API devolve ao tirar um aparelho do comodato do contrato. */
+export interface ComodatoDevolvido {
+  comodatoDoContrato: ComodatoDoContrato[];
+  /** O almoxarifado para onde a peça voltou ("ILNET"). */
+  destino: string;
+  /** O que não bateu quando a peça foi relida no IXC. */
+  aviso: string | null;
+}
+
 export interface Coordenada {
   latitude: number;
   longitude: number;
