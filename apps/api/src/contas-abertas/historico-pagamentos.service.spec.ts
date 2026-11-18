@@ -84,10 +84,11 @@ function montarServico(opts: {
         return { total, page: 1, registros: [] };
       }
       const pagina = Number(params.page ?? 1);
+      const rp = Number(params.rp ?? 100);
       return {
         total: brutos.length,
         page: pagina,
-        registros: pagina === 1 ? brutos : [],
+        registros: brutos.slice((pagina - 1) * rp, pagina * rp),
       };
     }),
     getById: jest.fn(async (_r: string, _campo: string, id: number | string) => {
@@ -316,6 +317,33 @@ describe('a data que o histórico mostra', () => {
  * todo dia. E a marca vale para *o que foi conferido*: ressalva nova, aviso
  * de volta.
  */
+describe('um período com muito pagamento', () => {
+  /*
+   * "Este ano" nesta base são 4427 títulos baixados. A leitura parava em 4000,
+   * em ordem de baixa, e sumia com outubro e novembro inteiros — sem aviso de
+   * que o total estava errado além do "parou em 4000".
+   */
+  it('lê todas as páginas do período, sem parar em 4000', async () => {
+    const brutos = Array.from({ length: 4427 }, (_, i) =>
+      titulo({
+        id: String(30000 + i),
+        data_pagamento: `${String(1 + Math.floor((i * 30) / 4427)).padStart(2, '0')}/08/2026`,
+      }),
+    );
+    const { service, ixc } = montarServico({ brutos, semBaixas: true });
+
+    const r = await service.listar(agosto());
+
+    expect(r.pagamentos).toHaveLength(4427);
+    expect(r.avisos.join(' ')).not.toContain('parou');
+    // O fim do período vai junto, para o total do IXC ser o do período.
+    const pedido = ixc.list.mock.calls.find(([, p]) => p.page === 2)?.[1];
+    expect(pedido?.gridParam).toEqual([
+      expect.objectContaining({ OP: 'BE', P2: expect.stringContaining('2026-08-31') }),
+    ]);
+  });
+});
+
 describe('a ressalva já conferida', () => {
   /** Um título pago cujo status ficou parado: é o que acende "confira". */
   const comRessalva = () => titulo({ status: 'A' });

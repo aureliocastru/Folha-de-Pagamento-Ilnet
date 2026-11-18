@@ -60,9 +60,17 @@ export interface HistoricoPagamentosResposta {
  * tem muito pagamento; o teto existe para um período largo não travar a tela — e
  * o aviso conta que houve corte, em vez de mostrar um total parcial como se
  * fosse o total.
+ *
+ * Pela coluna da baixa a leitura já vem só do período, e um ano desta base são
+ * uns 4500 títulos: o teto dela é largo. Por status (sem filtro de data), ela
+ * percorre o histórico inteiro, e o teto fica no que sempre foi.
  */
-const TETO_DE_TITULOS = 4000;
+const TETO_DE_TITULOS = 30000;
+const TETO_POR_STATUS = 4000;
 const PAGINA = 500;
+
+/** Quantas páginas da janela se pedem ao IXC ao mesmo tempo. */
+const PAGINAS_EM_PARALELO = 4;
 
 /**
  * Quantas perguntas avulsas ao IXC vão ao mesmo tempo.
@@ -392,7 +400,7 @@ export class HistoricoPagamentosService implements OnModuleInit, OnModuleDestroy
 
     if (leitura.cortado) {
       avisos.push(
-        `A leitura parou em ${TETO_DE_TITULOS} títulos. Há mais movimento no ` +
+        `A leitura parou em ${leitura.brutos.length} títulos. Há mais movimento no ` +
           'IXC do que cabe nesta tela — os totais abaixo são só do que veio. ' +
           'Escolha um período mais curto para ver o que falta.',
       );
@@ -659,32 +667,68 @@ export class HistoricoPagamentosService implements OnModuleInit, OnModuleDestroy
     filtro: FiltroDeBaixa,
     periodo: Periodo,
   ): Promise<Leitura> {
-    const brutos: Array<Record<string, unknown>> = [];
-    let pagina = 1;
-    let cortado = false;
-
-    while (brutos.length < TETO_DE_TITULOS) {
-      const res = await this.ixc.list<Record<string, unknown>>('fn_apagar', {
+    /*
+     * Além do "baixa >= início", o fim do período vai no `grid_param` (BE, com
+     * P e P2). Só com o início, o total que o IXC devolve é o de tudo que foi
+     * baixado dali até hoje; com o fim também, ele é o do período — e é por
+     * ele que se sabe quantas páginas pedir, todas, em vez de parar num teto.
+     * Foi o teto de 4000 que fez "Este ano" perder os pagamentos de outubro e
+     * novembro (a base baixou 4427 títulos de janeiro a novembro de 2026).
+     */
+    const fim =
+      filtro.formato === 'iso'
+        ? `${formatarData(periodo.ate, 'iso')} 23:59:59`
+        : formatarData(periodo.ate, 'br');
+    const pagina = (page: number) =>
+      this.ixc.list<Record<string, unknown>>('fn_apagar', {
         qtype: `fn_apagar.${filtro.campo}`,
         query: formatarData(periodo.de, filtro.formato),
         oper: '>=',
         sortname: `fn_apagar.${filtro.campo}`,
         sortorder: 'asc',
-        page: pagina,
+        page,
         rp: PAGINA,
+        gridParam: [
+          {
+            TB: `fn_apagar.${filtro.campo}`,
+            OP: 'BE',
+            P: formatarData(periodo.de, filtro.formato),
+            P2: fim,
+          },
+        ],
       });
 
-      if (res.registros.length === 0) break;
-      brutos.push(...res.registros);
-
-      // A página que já passou do fim do período encerra a leitura: o que vem
-      // depois dela é mais recente ainda.
-      if (paginaPassouDoPeriodo(res.registros, filtro.campo, periodo)) break;
-      if (res.registros.length < PAGINA) break;
-
-      pagina += 1;
-      if (brutos.length >= TETO_DE_TITULOS) cortado = true;
+    const primeira = await pagina(1);
+    const brutos: Array<Record<string, unknown>> = [...primeira.registros];
+    const total = Number(primeira.total) || 0;
+    const ultima = Math.min(
+      Math.ceil(total / PAGINA),
+      Math.ceil(TETO_DE_TITULOS / PAGINA),
+    );
+    let acabou =
+      primeira.registros.length < PAGINA ||
+      // Se o IXC ignorou o fim do período, a ordem crescente ainda encerra a
+      // leitura na primeira página que passou dele.
+      paginaPassouDoPeriodo(primeira.registros, filtro.campo, periodo);
+    for (let proxima = 2; !acabou && proxima <= ultima; proxima += PAGINAS_EM_PARALELO) {
+      const lote: number[] = [];
+      for (let p = proxima; p < proxima + PAGINAS_EM_PARALELO && p <= ultima; p++) {
+        lote.push(p);
+      }
+      for (const res of await Promise.all(lote.map(pagina))) {
+        brutos.push(...res.registros);
+        if (
+          res.registros.length < PAGINA ||
+          paginaPassouDoPeriodo(res.registros, filtro.campo, periodo)
+        ) {
+          acabou = true;
+          break;
+        }
+      }
     }
+    // Corte de verdade é só o período ter mais páginas que o teto e a leitura
+    // não ter chegado ao fim dele.
+    const cortado = !acabou && Math.ceil(total / PAGINA) > ultima;
 
     return {
       brutos,
@@ -710,7 +754,7 @@ export class HistoricoPagamentosService implements OnModuleInit, OnModuleDestroy
     let cortado = false;
 
     for (const status of [...STATUS_DE_PAGO, 'A'] as const) {
-      const restante = TETO_DE_TITULOS - brutos.length;
+      const restante = TETO_POR_STATUS - brutos.length;
       if (restante <= 0) {
         cortado = true;
         break;
