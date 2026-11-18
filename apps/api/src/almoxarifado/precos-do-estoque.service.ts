@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { IxcClient } from '../ixc/ixc.client';
 import { PrismaService } from '../prisma/prisma.service';
+import { ComodatoService } from './comodato.service';
 import { numeroDoIxc } from './estoque.mapper';
 import { EstoqueService } from './estoque.service';
 import {
@@ -23,6 +24,8 @@ export interface PrecoNaTela {
   unidade: string | null;
   /** Quanto a casa tem, somados os almoxarifados (sem Perdas e Saídas). */
   quantidade: number;
+  /** Quantos estão com clientes (comodato). */
+  naRua: number;
   /** O preço base do IXC — o que vale em toda parte. */
   preco: number;
   /** quantidade × preço. */
@@ -44,6 +47,17 @@ export interface PrecosNaTela {
   valorSuspeito: number;
   suspeitos: number;
   conferidos: number;
+  /**
+   * O que está na rua: emprestado a cliente (comodato), pelo mesmo preço.
+   * Fica fora do guardado — não está em almoxarifado nenhum.
+   */
+  naRua: {
+    /** Pelo preço que se confia. */
+    valor: number;
+    /** O dos produtos de preço a corrigir, como está hoje. */
+    aConferir: number;
+    equipamentos: number;
+  } | null;
   lidoEm: string;
 }
 
@@ -66,20 +80,38 @@ export class PrecosDoEstoqueService {
     private readonly ixc: IxcClient,
     private readonly estoque: EstoqueService,
     private readonly produtos: ProdutosService,
+    private readonly comodatos: ComodatoService,
   ) {}
 
   async listar(recarregar = false): Promise<PrecosNaTela> {
-    const [estoque, compras, conferidos] = await Promise.all([
+    const [estoque, compras, conferidos, comodato] = await Promise.all([
       this.estoque.listar({ recarregar }),
       this.ultimasCompras(recarregar),
       this.prisma.precoConferido.findMany(),
+      this.comodatos.listar(recarregar).catch((err: unknown) => {
+        this.logger.warn(`Preços: o comodato não foi lido (${err instanceof Error ? err.message : String(err)}).`);
+        return null;
+      }),
     ]);
     // O inativo não existe; serviço e o que não controla estoque não são prateleira.
+    // Quantos de cada produto estão com clientes: produto só na rua também tem preço a acertar.
+    const qtdNaRua = new Map<number, number>();
+    for (const c of comodato?.itens ?? []) qtdNaRua.set(c.produtoId, (qtdNaRua.get(c.produtoId) ?? 0) + c.quantidade);
     const daCasa = estoque.itens.filter(
-      (i) => i.ativo && !i.servico && i.controlaEstoque !== false && i.total > 0,
+      (i) =>
+        i.ativo && !i.servico && i.controlaEstoque !== false && (i.total > 0 || (qtdNaRua.get(i.produtoId) ?? 0) > 0),
     );
-    const cadastros = await this.produtos.cadastrosPorId(daCasa.map((i) => i.produtoId));
+    const idsNaRua = (comodato?.itens ?? []).map((i) => i.produtoId);
+    const cadastros = await this.produtos.cadastrosPorId([...daCasa.map((i) => i.produtoId), ...idsNaRua]);
     const conferidoPorProduto = new Map(conferidos.map((c) => [c.idProdutoIxc, c]));
+    const precoDoCadastro = new Map(estoque.itens.map((i) => [i.produtoId, i.precoBase ?? 0]));
+    const confia = (produtoId: number, preco: number) =>
+      avaliarPreco({
+        preco,
+        ultimaCompra: compras.get(produtoId)?.valor ?? 0,
+        custoMedio: numeroDoIxc(cadastros.get(produtoId)?.custo_medio),
+        conferido: conferidoPorProduto.has(produtoId) ? Number(conferidoPorProduto.get(produtoId)!.preco) : null,
+      }).situacao !== 'suspeito';
 
     const itens = daCasa.map((i): PrecoNaTela => {
       const preco = i.precoBase ?? 0;
@@ -97,9 +129,10 @@ export class PrecosDoEstoqueService {
         produtoId: i.produtoId,
         descricao: i.descricao,
         unidade: i.unidade,
-        quantidade: i.total,
+        quantidade: Math.max(0, i.total),
+        naRua: Math.round(qtdNaRua.get(i.produtoId) ?? 0),
         preco,
-        valor: arredondar(i.total * preco),
+        valor: arredondar(Math.max(0, i.total) * preco),
         ultimaCompra: compra,
         custoMedio,
         ...avaliado,
@@ -110,12 +143,30 @@ export class PrecosDoEstoqueService {
 
     // Os suspeitos primeiro, o de maior valor no alto: é o que mais erra o total.
     const ordem: Record<SituacaoDoPreco, number> = { suspeito: 0, ok: 1, conferido: 2 };
-    itens.sort((a, b) => ordem[a.situacao] - ordem[b.situacao] || b.valor - a.valor || a.descricao.localeCompare(b.descricao, 'pt-BR'));
+    // O peso de um preço errado é tudo o que ele mede: o guardado e o da rua.
+    const peso = (i: PrecoNaTela) => i.valor + i.naRua * i.preco;
+    itens.sort((a, b) => ordem[a.situacao] - ordem[b.situacao] || peso(b) - peso(a) || a.descricao.localeCompare(b.descricao, 'pt-BR'));
 
     const soma = (l: PrecoNaTela[]) => arredondar(l.reduce((s, i) => s + i.valor, 0));
     const suspeitos = itens.filter((i) => i.situacao === 'suspeito');
+    let naRua: PrecosNaTela['naRua'] = null;
+    if (comodato) {
+      let valor = 0;
+      let aConferir = 0;
+      let equipamentos = 0;
+      for (const i of comodato.itens) {
+        const preco = precoDoCadastro.get(i.produtoId) ?? numeroDoIxc(cadastros.get(i.produtoId)?.preco_base);
+        const v = i.quantidade * preco;
+        equipamentos += i.quantidade;
+        if (confia(i.produtoId, preco)) valor += v;
+        else aConferir += v;
+      }
+      naRua = { valor: arredondar(valor), aConferir: arredondar(aConferir), equipamentos: Math.round(equipamentos) };
+    }
+
     return {
       itens,
+      naRua,
       valorConfiavel: soma(itens.filter((i) => i.situacao !== 'suspeito')),
       valorSuspeito: soma(suspeitos),
       suspeitos: suspeitos.length,

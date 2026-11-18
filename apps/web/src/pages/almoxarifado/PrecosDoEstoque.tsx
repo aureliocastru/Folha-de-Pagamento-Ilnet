@@ -23,6 +23,7 @@ interface PrecoNaTela {
   descricao: string;
   unidade: string | null;
   quantidade: number;
+  naRua: number;
   preco: number;
   valor: number;
   ultimaCompra: { valor: number; dia: string | null } | null;
@@ -40,6 +41,7 @@ interface PrecosNaTela {
   valorSuspeito: number;
   suspeitos: number;
   conferidos: number;
+  naRua: { valor: number; aConferir: number; equipamentos: number } | null;
   lidoEm: string;
 }
 
@@ -91,8 +93,18 @@ export function PrecosDoEstoque() {
 
       <div className="space-y-4">
         {dados && (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Indicador rotulo="Valor do almoxarifado" valor={formatBRL(dados.valorConfiavel)} acento />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Indicador rotulo="Guardado nos almoxarifados" valor={formatBRL(dados.valorConfiavel)} acento />
+            {dados.naRua && (
+              <Indicador
+                rotulo="Na rua (comodato)"
+                valor={formatBRL(dados.naRua.valor)}
+                detalhe={
+                  `${dados.naRua.equipamentos.toLocaleString('pt-BR')} com clientes` +
+                  (dados.naRua.aConferir > 0 ? ` · + ${formatBRL(dados.naRua.aConferir)} a conferir` : '')
+                }
+              />
+            )}
             <Indicador
               rotulo="Preços a corrigir"
               valor={dados.suspeitos}
@@ -133,7 +145,7 @@ export function PrecosDoEstoque() {
             <div className="-mx-3.5 md:-mx-5">
               <div className="hidden border-b border-fio md:grid md:grid-cols-[minmax(0,1fr)_110px_120px_120px_130px_340px] md:gap-3 md:px-5">
                 <div className="th px-0">Produto</div>
-                <div className="th px-0 text-right">Tem</div>
+                <div className="th px-0 text-right">Guardado</div>
                 <div className="th px-0 text-right">Preço</div>
                 <div className="th px-0 text-right">Última compra</div>
                 <div className="th px-0 text-right">Valor</div>
@@ -212,6 +224,11 @@ function LinhaDoPreco({
       </div>
       <div className="num whitespace-nowrap text-xs text-tinta-500 md:text-right md:text-sm md:text-tinta-700">
         {quantidade(item.quantidade)} {item.unidade ?? ''}
+        {item.naRua > 0 && (
+          <div className="text-[11px] text-tinta-500" title="Com clientes, em comodato">
+            + {item.naRua.toLocaleString('pt-BR')} na rua
+          </div>
+        )}
       </div>
       <div className={`num whitespace-nowrap md:text-right ${suspeito ? 'font-semibold text-amber-600' : 'text-tinta-900'}`}>
         {formatBRL(item.preco)}

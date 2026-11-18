@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Aviso,
   Bloco,
@@ -48,6 +49,7 @@ export function Estoque() {
   /** O produto aberto na janela de saída (e do histórico de saídas). */
   const [saindo, setSaindo] = useState<number | null>(null);
   const [cadastrando, setCadastrando] = useState(false);
+  const navegar = useNavigate();
 
   const lista = useQuery({
     queryKey: ['almoxarifado', 'estoque', almox],
@@ -60,6 +62,23 @@ export function Estoque() {
     // O servidor guarda a leitura do IXC por um minuto; insistir aqui só
     // encheria a tela de espera para receber a mesma resposta.
     staleTime: 60_000,
+  });
+  /* O valor da casa vem da aba de preços: o mesmo preço, só o que se confia
+     no total, e o que está com clientes à parte. Com um almoxarifado
+     escolhido, o valor é o dele, pela conta de sempre. */
+  const precos = useQuery({
+    queryKey: ['almoxarifado', 'precos-do-estoque'],
+    queryFn: async () =>
+      (
+        await api.get<{
+          valorConfiavel: number;
+          valorSuspeito: number;
+          suspeitos: number;
+          naRua: { valor: number; aConferir: number; equipamentos: number } | null;
+        }>('/almoxarifado/precos-do-estoque')
+      ).data,
+    staleTime: 60_000,
+    enabled: !almox,
   });
 
   /*
@@ -174,7 +193,7 @@ export function Estoque() {
 
       {lista.isError && <Aviso tom="erro">{mensagemErro(lista.error)}</Aviso>}
 
-      <div className="surgir surgir-1 mb-4 grid grid-cols-2 gap-2.5 sm:gap-4 lg:grid-cols-4">
+      <div className="surgir surgir-1 mb-4 grid grid-cols-2 gap-2.5 sm:gap-4 lg:grid-cols-5">
         <Indicador
           acento
           rotulo="Itens em estoque"
@@ -191,10 +210,34 @@ export function Estoque() {
           rotulo="Zerados"
           valor={dados?.resumo.semNenhum ?? '—'}
         />
-        <Indicador
-          rotulo="Valor guardado"
-          valor={formatBRL(dados?.resumo.valorEmEstoque)}
-        />
+        {!almox && precos.data ? (
+          <>
+            <Indicador
+              rotulo="Valor guardado"
+              valor={formatBRL(precos.data.valorConfiavel)}
+              detalhe={
+                precos.data.valorSuspeito > 0
+                  ? `+ ${formatBRL(precos.data.valorSuspeito)} em ${precos.data.suspeitos} preços a corrigir`
+                  : undefined
+              }
+              onClick={() => navegar('/almoxarifado/precos-do-estoque')}
+            />
+            {precos.data.naRua && (
+              <Indicador
+                rotulo="Na rua (comodato)"
+                valor={formatBRL(precos.data.naRua.valor)}
+                detalhe={
+                  precos.data.naRua.aConferir > 0
+                    ? `+ ${formatBRL(precos.data.naRua.aConferir)} a corrigir`
+                    : `${precos.data.naRua.equipamentos.toLocaleString('pt-BR')} com clientes`
+                }
+                onClick={() => navegar('/almoxarifado/precos-do-estoque')}
+              />
+            )}
+          </>
+        ) : (
+          <Indicador rotulo="Valor guardado" valor={formatBRL(dados?.resumo.valorEmEstoque)} />
+        )}
       </div>
 
       <Bloco
