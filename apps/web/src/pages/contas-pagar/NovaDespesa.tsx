@@ -297,6 +297,14 @@ export function NovaDespesa({
   const [lendo, setLendo] = useState<'boleto' | 'pix' | null>(null);
   /** O "Ler código" do alto foi tocado: falta dizer se é QR ou código de barras. */
   const [escolhendoLeitura, setEscolhendoLeitura] = useState(false);
+  /**
+   * Em vez da câmera, colar: o boleto copiado do e-mail, o Pix copia e cola
+   * mandado no WhatsApp. Aberto quando o celular não entregou a área de
+   * transferência sozinho — aí o campo recebe o "Colar" do dedo.
+   */
+  const [colandoCodigo, setColandoCodigo] = useState<'boleto' | 'pix' | null>(null);
+  const [codigoColado, setCodigoColado] = useState('');
+  const [erroDoColado, setErroDoColado] = useState<string | null>(null);
   /** O que o último código lido preencheu, dito embaixo do botão. */
   const [lidoDoCodigo, setLidoDoCodigo] = useState<string | null>(null);
 
@@ -1032,6 +1040,82 @@ export function NovaDespesa({
       .catch(() => dizer(null, p?.nome ?? null, 'o banco não disse o valor — confira'));
   }
 
+  /**
+   * O código colado vai pelo mesmo caminho do lido pela câmera, e preenche o
+   * mesmo: valor, vencimento, quem recebe.
+   *
+   * O botão tocado só decide o que o texto não diz sozinho. "0002…" é Pix copia
+   * e cola e 44, 47 ou 48 dígitos é boleto, mesmo que se tenha tocado no outro;
+   * no Pix, o resto só vale se tiver cara de chave (e-mail, telefone, CPF,
+   * CNPJ, aleatória), com o tipo pelo formato — um "bom dia" que ficou copiado
+   * não vira chave. Devolve o que está errado, ou null quando usou.
+   */
+  function usarCodigoColado(texto: string, pedido: 'boleto' | 'pix'): string | null {
+    const limpo = texto.trim();
+    if (!limpo) return 'Não veio nada para colar.';
+    if (/^0002/.test(limpo)) {
+      usarCodigoLido('pix', limpo);
+      return null;
+    }
+    const soNumeros = /^[+\d\s()./-]+$/.test(limpo);
+    const n = digitos(limpo).length;
+    if (soNumeros && [44, 47, 48].includes(n)) {
+      usarCodigoLido('boleto', digitos(limpo));
+      return null;
+    }
+    if (pedido === 'boleto' || (soNumeros && n > 14)) {
+      return soNumeros
+        ? `${n} dígitos. O código de barras tem 44, 47 ou 48 — confira se copiou inteiro.`
+        : 'Isso não é um código de barras de boleto.';
+    }
+    const ehChave =
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(limpo) ||
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(limpo) ||
+      (soNumeros && n >= 10 && n <= 14);
+    if (!ehChave) return 'Isso não é um Pix: nem copia e cola, nem chave.';
+    setTipoPagamento('Pix');
+    setChavePix(limpo);
+    setTipoChavePix('');
+    setLidoDoCodigo('Chave Pix colada');
+    return null;
+  }
+
+  function fecharColar() {
+    setColandoCodigo(null);
+    setCodigoColado('');
+    setErroDoColado(null);
+  }
+
+  /** Usou o colado: some tudo e fica só o recado do que foi preenchido. */
+  function tentarColado(texto: string, pedido: 'boleto' | 'pix'): boolean {
+    const erro = usarCodigoColado(texto, pedido);
+    setErroDoColado(erro);
+    if (erro) return false;
+    fecharColar();
+    setEscolhendoLeitura(false);
+    return true;
+  }
+
+  /**
+   * Tenta pegar a área de transferência direto — no iPhone aparece o balão
+   * "Colar" e um toque basta. Sem permissão, ou sem nada copiado, abre o
+   * campo para colar com o dedo.
+   */
+  async function colarCodigo(pedido: 'boleto' | 'pix') {
+    setLidoDoCodigo(null);
+    setErroDoColado(null);
+    setCodigoColado('');
+    let texto = '';
+    try {
+      texto = (await navigator.clipboard?.readText?.()) ?? '';
+    } catch {
+      // Negou ou o navegador não deixa: o campo abaixo recebe o colar.
+    }
+    if (texto.trim() && tentarColado(texto, pedido)) return;
+    setCodigoColado(texto.trim());
+    setColandoCodigo(pedido);
+  }
+
   /*
    * No celular, uma pergunta por vez — e a revisão no fim.
    *
@@ -1267,8 +1351,58 @@ export function NovaDespesa({
       */}
       {(edicao || a.mostrar(0)) && leitorDeCodigoSuportado() && (
         <div className="mb-3">
-          {escolhendoLeitura ? (
-            <div className="flex flex-wrap items-center gap-2">
+          {escolhendoLeitura && colandoCodigo ? (
+            <div>
+              <label className="rotulo" htmlFor="codigo-colado">
+                {colandoCodigo === 'pix' ? 'Pix copia e cola ou chave' : 'Código de barras do boleto'}
+              </label>
+              {/* Colar com o dedo já usa: o onPaste não espera o "Usar". */}
+              <input
+                id="codigo-colado"
+                value={codigoColado}
+                onChange={(e) => {
+                  setCodigoColado(e.target.value);
+                  setErroDoColado(null);
+                }}
+                onPaste={(e) => {
+                  const texto = e.clipboardData.getData('text');
+                  if (!texto.trim()) return;
+                  // Escrito à mão aqui, e não pelo onChange — que apagaria o aviso
+                  // de que o colado não serve logo depois de ele aparecer.
+                  e.preventDefault();
+                  if (!tentarColado(texto, colandoCodigo)) setCodigoColado(texto.trim());
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') tentarColado(codigoColado, colandoCodigo);
+                }}
+                autoFocus
+                autoComplete="off"
+                inputMode={colandoCodigo === 'boleto' ? 'numeric' : 'text'}
+                placeholder="Toque e segure aqui e escolha Colar"
+                className="campo"
+              />
+              {erroDoColado && (
+                <p className="ajuda font-semibold text-rose-600 dark:text-rose-300">
+                  {erroDoColado}
+                </p>
+              )}
+              <div className="mt-2 flex justify-end gap-2">
+                <button type="button" onClick={fecharColar} className="btn btn-neutro">
+                  Voltar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => tentarColado(codigoColado, colandoCodigo)}
+                  disabled={!codigoColado.trim()}
+                  className="btn btn-primario"
+                >
+                  Usar
+                </button>
+              </div>
+            </div>
+          ) : escolhendoLeitura ? (
+            // No celular, duas colunas: a câmera em cima, o colar embaixo.
+            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
               <button
                 type="button"
                 onClick={() => {
@@ -1277,7 +1411,7 @@ export function NovaDespesa({
                 }}
                 className="btn btn-primario"
               >
-                QR Code (Pix)
+                Ler QR do Pix
               </button>
               <button
                 type="button"
@@ -1287,12 +1421,26 @@ export function NovaDespesa({
                 }}
                 className="btn btn-primario"
               >
-                Código de barras (boleto)
+                Ler código de barras
+              </button>
+              <button
+                type="button"
+                onClick={() => void colarCodigo('pix')}
+                className="btn btn-ferramenta"
+              >
+                Colar Pix
+              </button>
+              <button
+                type="button"
+                onClick={() => void colarCodigo('boleto')}
+                className="btn btn-ferramenta"
+              >
+                Colar código de barras
               </button>
               <button
                 type="button"
                 onClick={() => setEscolhendoLeitura(false)}
-                className="btn btn-neutro"
+                className="btn btn-neutro col-span-2"
               >
                 Cancelar
               </button>
