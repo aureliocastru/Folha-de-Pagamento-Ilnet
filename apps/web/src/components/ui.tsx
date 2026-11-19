@@ -823,6 +823,19 @@ export function FotoAmpliada({
   useEffect(() => {
     const aoTeclar = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onFechar();
+      /*
+       * Com o cursor num campo — o valor e os litros do rodapé —, a tecla é
+       * para o campo: o "0" de 2.157,00 voltava a foto ao tamanho de selo, o
+       * "-" a afastava e as setas trocavam de nota em vez de andar no texto.
+       * Quem digita com a foto ampliada precisa dela como está.
+       */
+      const alvo = e.target;
+      if (
+        alvo instanceof HTMLElement &&
+        (alvo.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(alvo.tagName))
+      ) {
+        return;
+      }
       // Sem o `preventDefault`, a seta ainda rola a foto ampliada por baixo.
       if (e.key === 'ArrowLeft' && onAnterior) {
         e.preventDefault();

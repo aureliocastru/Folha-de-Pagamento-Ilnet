@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState, type ReactNode } from 'react';
+import { useSyncExternalStore, useState, type ReactNode } from 'react';
 import { useAssistente } from '../../components/Assistente';
 import { CampoDeData } from '../../components/CampoDeData';
 import { FotoDaNota } from '../../components/FotoDaNota';
@@ -652,11 +652,56 @@ function LinhaAConferir({
 }
 
 /**
+ * O que já foi digitado do valor e dos litros de cada nota, por abastecimento.
+ *
+ * Fica fora do componente de propósito: a nota em tela cheia é uma janela que
+ * se desmonta ao fechar, e o que estava escrito nos campos do rodapé se perdia
+ * junto. Aqui o rascunho sobrevive ao Fechar — e é o mesmo da linha da lista,
+ * então o que se digita ao lado da foto aparece nos campos da linha e vice-versa.
+ * Só guarda o que foi mexido; o que não foi vem do próprio abastecimento. Salvou,
+ * o rascunho sai e os campos voltam a mostrar o que está gravado.
+ */
+type RascunhoDaNota = { valor?: string; litros?: string };
+const rascunhosDaNota = new Map<string, RascunhoDaNota>();
+const ouvintesDoRascunho = new Set<() => void>();
+
+function mexerNoRascunho(id: string, parte: RascunhoDaNota | null) {
+  if (parte) rascunhosDaNota.set(id, { ...rascunhosDaNota.get(id), ...parte });
+  else rascunhosDaNota.delete(id);
+  ouvintesDoRascunho.forEach((avisar) => avisar());
+}
+
+function useRascunhoDaNota(a: Abastecimento) {
+  const rascunho = useSyncExternalStore(
+    (avisar) => {
+      ouvintesDoRascunho.add(avisar);
+      return () => void ouvintesDoRascunho.delete(avisar);
+    },
+    () => rascunhosDaNota.get(a.id),
+  );
+  return {
+    // `??` e não `||`: campo apagado de propósito (vazio) é rascunho, não falta dele.
+    valor: rascunho?.valor ?? (a.valor != null ? a.valor.toFixed(2) : ''),
+    /*
+     * Os litros também se leem na nota, e é a mesma linha do papel: "45,99 Lts
+     * de Gasolina C — 6,86 — 312,79". Quem abastece nem sempre olha a bomba, e
+     * sem os litros não há média de consumo nenhuma — a conferência é a última
+     * chance de pegá-los, com o papel à vista.
+     */
+    litros: rascunho?.litros ?? (a.litros != null ? a.litros.toFixed(2) : ''),
+    setValor: (valor: string) => mexerNoRascunho(a.id, { valor }),
+    setLitros: (litros: string) => mexerNoRascunho(a.id, { litros }),
+    descartar: () => mexerNoRascunho(a.id, null),
+  };
+}
+
+/**
  * O campo de pôr (ou corrigir) o valor lido na nota.
  *
  * Aparece em dois lugares: na linha da fila e, `naFoto`, no rodapé da nota
  * aberta em tela cheia — que é onde o valor de verdade se lê, ampliado. Lá o
- * botão fecha a foto ao salvar: o trabalho daquela nota acabou.
+ * botão fecha a foto ao salvar: o trabalho daquela nota acabou. Fechar sem
+ * salvar mantém o que foi digitado (ver `useRascunhoDaNota`).
  */
 function ValorDaNota({
   abastecimento,
@@ -669,18 +714,7 @@ function ValorDaNota({
   aoSalvar?: () => void;
 }) {
   const qc = useQueryClient();
-  const [valor, setValor] = useState(
-    abastecimento.valor != null ? abastecimento.valor.toFixed(2) : '',
-  );
-  /*
-   * Os litros também se leem na nota, e é a mesma linha do papel: "45,99 Lts
-   * de Gasolina C — 6,86 — 312,79". Quem abastece nem sempre olha a bomba, e
-   * sem os litros não há média de consumo nenhuma — a conferência é a última
-   * chance de pegá-los, com o papel à vista.
-   */
-  const [litros, setLitros] = useState(
-    abastecimento.litros != null ? abastecimento.litros.toFixed(2) : '',
-  );
+  const { valor, litros, setValor, setLitros, descartar } = useRascunhoDaNota(abastecimento);
 
   const salvar = useMutation({
     mutationFn: async () => {
@@ -691,6 +725,7 @@ function ValorDaNota({
       });
     },
     onSuccess: () => {
+      descartar();
       void qc.invalidateQueries({ queryKey: ['veiculos'] });
       aoSalvar?.();
     },
