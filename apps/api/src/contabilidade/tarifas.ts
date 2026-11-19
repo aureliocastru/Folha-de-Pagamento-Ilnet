@@ -18,9 +18,12 @@ import { centavos, diaDoIxc, idDoIxc, numero, texto } from './ixc-leitura';
  *   rentabilidade: sempre a conta 240 "Taxas (despesas)", `id_movim_finan` = a
  *   mãe.
  *
- * Pela API o par não sai de uma vez: o `POST` da filha responde ok e grava o
- * `id_movim_finan` com o id dela mesma (teste de 19/11/2026), e é um `PUT`
- * com o id da mãe que a amarra (`ligarFilha` no serviço).
+ * A filha não se grava em `fn_movim_finan`: ali o `POST` e o `PUT` respondem
+ * ok e gravam o `id_movim_finan` com o id da própria linha, solta (teste de
+ * 19/11/2026, 1797107/1797108). A tela do IXC grava as abas por formulários
+ * próprios — `fn_movim_finan_debito` e `fn_movim_finan_credito`, com conta,
+ * data, documento, valor, histórico, `id_movim_finan` e tipo (visto na tela,
+ * no 1797071 e no 1785311) —, e é por eles que a filha vai.
  *
  * Histórico "Tarifas" ou "Rentabilidade", documento vazio, dos dois lados.
  * Os pares conferidos (o 1797070 e outros dos três bancos, de tarifa e de
@@ -164,19 +167,28 @@ export function corpoDaMae(linha: LinhaDeTarifa, banco: BancoDasTarifas): Record
   });
 }
 
-/** A filha: a conta 240, ligada à mãe, com o valor do outro lado. */
-export function corpoDaFilha(
-  linha: LinhaDeTarifa,
-  banco: BancoDasTarifas,
-  idMae: number,
-): Record<string, string> {
+/** O formulário da aba do IXC por onde a filha é gravada. */
+export const FORMULARIO_DA_FILHA: Record<TipoDaTarifa, string> = {
+  tarifa: 'fn_movim_finan_debito',
+  rentabilidade: 'fn_movim_finan_credito',
+};
+
+/**
+ * A filha: a conta 240, ligada à mãe, com o valor do outro lado — os campos
+ * que o formulário da aba tem, nem um a mais.
+ */
+export function corpoDaFilha(linha: LinhaDeTarifa, idMae: number): Record<string, string> {
   const tarifa = linha.tipo === 'tarifa';
-  return corpo(linha, banco, {
-    idConta: CONTA_DAS_TARIFAS,
-    lado: tarifa ? 'debito' : 'credito',
-    tipoLanc: tarifa ? 'D' : 'C',
-    idMovimFinan: String(idMae),
-  });
+  const valor = formatValorBaixaIxc(linha.valor);
+  return {
+    id_conta: String(CONTA_DAS_TARIFAS),
+    data: dataDoIxc(linha.dia),
+    documento: '',
+    ...(tarifa ? { debito: valor } : { credito: valor }),
+    historico: HISTORICO[linha.tipo],
+    id_movim_finan: String(idMae),
+    tipo_lanc: tarifa ? 'D' : 'C',
+  };
 }
 
 /** Uma tarifa ou rentabilidade que já está no IXC. */
@@ -308,12 +320,6 @@ export function ehAFilhaSolta(mae: Record<string, unknown>, filha: Record<string
     cents(tipo === 'tarifa' ? filha.debito : filha.credito) === valor &&
     cents(tipo === 'tarifa' ? filha.credito : filha.debito) === 0
   );
-}
-
-/** O pedido que a mãe representa: banco, dia, tipo e valor dela. */
-export function linhaDaMae(mae: Record<string, unknown>, bancos: BancoDasTarifas[]): LinhaDeTarifa | null {
-  const t = lerTarifaNoIxc(mae, [], bancos);
-  return t ? { banco: t.banco, dia: t.dia, tipo: t.tipo, valor: t.valor } : null;
 }
 
 /** Mesmo banco, dia, tipo e valor: é o mesmo lançamento. */

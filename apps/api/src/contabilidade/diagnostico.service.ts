@@ -16,6 +16,10 @@ export const TABELAS_DA_CONTABILIDADE = new Set([
   'fn_areceber',
   'fn_areceber_baixas',
   'fn_movim_finan',
+  // As abas "Lançamentos a débito/crédito" da tela do IXC: é por elas que as
+  // tarifas gravam a linha da 240 (`tarifas.ts`).
+  'fn_movim_finan_debito',
+  'fn_movim_finan_credito',
   'vd_saida',
   'fn_apagar',
   'fn_apagar_arquivos',

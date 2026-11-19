@@ -118,15 +118,6 @@ export class ContabilidadeController {
     return this.tarifas.apagar(idMae, idFilha);
   }
 
-  /** Liga à linha do banco a 240 que o IXC gravou solta, e confere o par. */
-  @Post('tarifas/:idMae/ligar/:idFilha')
-  religarTarifa(
-    @Param('idMae', ParseIntPipe) idMae: number,
-    @Param('idFilha', ParseIntPipe) idFilha: number,
-  ) {
-    return this.tarifas.religar(idMae, idFilha);
-  }
-
   // --- Os períodos ---
 
   @Get('pacotes')

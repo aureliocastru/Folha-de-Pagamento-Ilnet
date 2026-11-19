@@ -45,7 +45,7 @@ interface Pendente {
 
 type Resultado =
   | { situacao: 'lancado' | 'ja-existia'; lancamento: TarifaNoIxc }
-  | { situacao: 'conferir'; idMae: number; problemas: string[] };
+  | { situacao: 'conferir'; idMae: number; problemas: string[]; idFilhaSolta?: number };
 
 const NOME_DO_TIPO: Record<Tipo, string> = { tarifa: 'Tarifa', rentabilidade: 'Rentabilidade' };
 const RASCUNHO = 'contabilidade.tarifas.rascunho';
@@ -108,6 +108,8 @@ export function TarifasDosBancos() {
   const [valor, setValor] = useState('');
   const [pendentes, setPendentes] = useState<Pendente[]>(() => ler<Pendente[]>(RASCUNHO, []));
   const [erros, setErros] = useState<Record<string, string>>({});
+  /** O que a conferência recusou e ficou no IXC: a linha do banco e a 240 solta. */
+  const [recusados, setRecusados] = useState<Record<string, { idMae: number; filha?: number }>>({});
   const [aviso, setAviso] = useState<{ tom: 'atencao' | 'erro' | 'pago'; texto: string } | null>(null);
   const [lancando, setLancando] = useState<string | null>(null);
   const [rodada, setRodada] = useState(0);
@@ -195,6 +197,7 @@ export function TarifasDosBancos() {
         });
         if (data.situacao === 'conferir') {
           setErros({ [p.chave]: `Confira no IXC (lançamento ${data.idMae}): ${data.problemas.join('; ')}.` });
+          setRecusados((r) => ({ ...r, [p.chave]: { idMae: data.idMae, filha: data.idFilhaSolta } }));
           setAviso({ tom: 'erro', texto: 'Parei: um lançamento não ficou como devia no IXC.' });
           break;
         }
@@ -221,6 +224,23 @@ export function TarifasDosBancos() {
   const apagar = useMutation({
     mutationFn: async (t: TarifaNoIxc) => (await api.delete(`/contabilidade/tarifas/${t.idMae}`)).data,
     onSuccess: () => {
+      setAviso(null);
+      void qc.invalidateQueries({ queryKey: ['contabilidade', 'tarifas'] });
+    },
+    onError: (e) => setAviso({ tom: 'erro', texto: mensagemErro(e) }),
+  });
+
+  // Desfaz no IXC o que a conferência recusou: a 240 solta primeiro, depois a
+  // linha do banco. A linha volta para a lista sem erro, pronta para lançar.
+  const desfazer = useMutation({
+    mutationFn: async (chave: string) => {
+      const r = recusados[chave];
+      await api.delete(`/contabilidade/tarifas/${r.idMae}`, { params: r.filha ? { filha: r.filha } : {} });
+      return chave;
+    },
+    onSuccess: (chave) => {
+      setRecusados(({ [chave]: _, ...resto }) => resto);
+      setErros(({ [chave]: _, ...resto }) => resto);
       setAviso(null);
       void qc.invalidateQueries({ queryKey: ['contabilidade', 'tarifas'] });
     },
@@ -358,6 +378,16 @@ export function TarifasDosBancos() {
                   </button>
                 </div>
                 {erros[p.chave] && <p className="mt-1 text-xs text-rose-600 dark:text-rose-300">{erros[p.chave]}</p>}
+                {recusados[p.chave] && (
+                  <button
+                    type="button"
+                    className="btn btn-alerta btn-p mt-2"
+                    disabled={desfazer.isPending || lancando !== null}
+                    onClick={() => desfazer.mutate(p.chave)}
+                  >
+                    {desfazer.isPending ? 'Apagando…' : 'Apagar do IXC'}
+                  </button>
+                )}
               </li>
             ))}
           </ul>

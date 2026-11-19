@@ -14,8 +14,8 @@ import {
   corpoDaFilha,
   corpoDaMae,
   ehAFilhaSolta,
+  FORMULARIO_DA_FILHA,
   lerTarifaNoIxc,
-  linhaDaMae,
   mesmoLancamento,
   podeApagar,
   problemaDaLinha,
@@ -37,7 +37,7 @@ const DIAS_NA_LISTA = 62;
 export type ResultadoDaTarifa =
   | { situacao: 'lancado'; lancamento: TarifaNoIxc }
   | { situacao: 'ja-existia'; lancamento: TarifaNoIxc }
-  | { situacao: 'conferir'; idMae: number; problemas: string[] };
+  | { situacao: 'conferir'; idMae: number; problemas: string[]; idFilhaSolta?: number };
 
 function hojeEmBrasilia(agora = new Date()): string {
   return agora.toLocaleDateString('en-CA', { timeZone: 'America/Sao_Paulo' });
@@ -217,30 +217,31 @@ export class TarifasDoBancoService {
       );
     }
 
-    const corpoFilha = corpoDaFilha(linha, banco, mae.id);
+    const formulario = FORMULARIO_DA_FILHA[linha.tipo];
+    const corpoFilha = corpoDaFilha(linha, mae.id);
     let idFilha: number | null = null;
     let falhaDaFilha: string | null = null;
     try {
-      const filha = await this.ixc.create(TABELA, corpoFilha);
+      const filha = await this.ixc.create(formulario, corpoFilha);
       idFilha = filha.id;
-      this.logger.log(`Tarifa (${rotulo}): filha ${JSON.stringify(corpoFilha)} → ${JSON.stringify(filha.raw).slice(0, 300)}`);
+      this.logger.log(
+        `Tarifa (${rotulo}): filha ${formulario} ${JSON.stringify(corpoFilha)} → ${JSON.stringify(filha.raw).slice(0, 300)}`,
+      );
     } catch (err) {
       falhaDaFilha = err instanceof Error ? err.message : String(err);
       this.logger.error(`Tarifa (${rotulo}): filha deu erro (${falhaDaFilha})`);
     }
-    // Erro de rede ou resposta sem número: a filha pode ter sido gravada mesmo
-    // assim, solta. Procura antes de concluir qualquer coisa.
-    if (idFilha === null) idFilha = await this.acharFilhaSolta(mae.id);
 
+    // Sem número (erro de rede, resposta estranha): a filha pode ter entrado
+    // mesmo assim — ligada (a releitura acha) ou solta (procura aqui).
     if (idFilha === null) {
       const { filhas } = await this.lerPar(mae.id);
-      if (filhas.length === 0) {
+      idFilha = filhas.length > 0 ? Number(filhas[0].id) : await this.acharFilhaSolta(mae.id);
+      if (idFilha === null) {
         // A mãe sozinha fica no razão do banco sem contrapartida: sai.
         await this.desfazerMaeSozinha(mae.id);
         throw new ConflictException(`O IXC recusou a linha da conta 240${falhaDaFilha ? `: ${falhaDaFilha}` : '.'}`);
       }
-    } else {
-      await this.ligarFilha(mae.id, idFilha, linha, banco, rotulo);
     }
     return this.conferir(linha, banco, bancos, mae.id, idFilha, rotulo);
   }
@@ -251,7 +252,7 @@ export class TarifasDoBancoService {
     banco: BancoDasTarifas,
     bancos: BancoDasTarifas[],
     idMae: number,
-    idFilha: number | null,
+    idFilha: number,
     rotulo: string,
   ): Promise<ResultadoDaTarifa> {
     const { mae: relida, filhas } = await this.lerPar(idMae);
@@ -259,38 +260,15 @@ export class TarifasDoBancoService {
       `Tarifa (${rotulo}): relido mãe ${JSON.stringify(relida)} filhas ${JSON.stringify(filhas)}`,
     );
     const problemas = conferirPar(linha, banco, idMae, relida, filhas);
-    if (idFilha !== null && !filhas.some((f) => String(f.id) === String(idFilha))) {
-      problemas.push(`a linha ${idFilha} da conta 240 ficou solta`);
-    }
+    const solta = !filhas.some((f) => String(f.id) === String(idFilha));
+    if (solta) problemas.push(`a linha ${idFilha} da conta 240 ficou solta`);
     if (problemas.length > 0) {
       this.logger.error(`Tarifa (${rotulo}): conferência achou ${problemas.join('; ')}`);
-      return { situacao: 'conferir', idMae, problemas };
+      return { situacao: 'conferir', idMae, problemas, ...(solta ? { idFilhaSolta: idFilha } : {}) };
     }
     const lancamento = lerTarifaNoIxc(relida!, filhas, bancos);
     if (!lancamento) return { situacao: 'conferir', idMae, problemas: ['o par relido não se leu'] };
     return { situacao: 'lancado', lancamento };
-  }
-
-  /**
-   * Liga a filha à mãe. O `POST` grava a filha apontando para ela mesma
-   * (`ehAFilhaSolta`); o `PUT` com os mesmos campos e o `id_movim_finan` da
-   * mãe é o que amarra o par.
-   */
-  private async ligarFilha(
-    idMae: number,
-    idFilha: number,
-    linha: LinhaDeTarifa,
-    banco: BancoDasTarifas,
-    rotulo: string,
-  ): Promise<void> {
-    const atual = await this.ixc.getById<Record<string, unknown>>(TABELA, `${TABELA}.id`, idFilha);
-    if (!atual || String(atual.id_movim_finan) === String(idMae)) return;
-    const corpo = corpoDaFilha(linha, banco, idMae);
-    const r = await this.ixc.update(TABELA, idFilha, corpo);
-    this.logger.log(
-      `Tarifa (${rotulo}): ligar filha ${idFilha} à mãe ${idMae} — antes ${JSON.stringify(atual)}, ` +
-        `PUT ${JSON.stringify(corpo)} → ${JSON.stringify(r).slice(0, 300)}`,
-    );
   }
 
   /** A filha que o IXC gravou solta logo depois desta mãe, se houver uma. */
@@ -316,31 +294,6 @@ export class TarifasDoBancoService {
     );
     const solta = candidatas.find((f) => ehAFilhaSolta(mae, f) && String(f.id_movim_finan) === String(f.id));
     return solta ? Number(solta.id) : null;
-  }
-
-  /**
-   * Liga de novo uma filha que ficou solta à mãe dela — o conserto de um par
-   * que a conferência recusou (o teste 1797107/1797108).
-   */
-  async religar(idMae: number, idFilha: number): Promise<ResultadoDaTarifa> {
-    const [mae, filha] = await Promise.all([
-      this.ixc.getById<Record<string, unknown>>(TABELA, `${TABELA}.id`, idMae),
-      this.ixc.getById<Record<string, unknown>>(TABELA, `${TABELA}.id`, idFilha),
-    ]);
-    if (!mae || !filha) throw new NotFoundException('A linha do banco ou a da 240 não está no IXC.');
-    const bancos = await this.bancos();
-    const linha = linhaDaMae(mae, bancos);
-    const banco = bancos.find((b) => b.id === linha?.banco);
-    if (!linha || !banco || !podeApagar(mae, [], bancos.map((b) => b.razaoId)) || !ehAFilhaSolta(mae, filha)) {
-      throw new BadRequestException('Essas duas linhas não formam um par de tarifa ou rentabilidade.');
-    }
-    const { filhas } = await this.lerPar(idMae);
-    if (filhas.some((f) => String(f.id) !== String(idFilha))) {
-      throw new BadRequestException(`A linha do banco ${idMae} já tem outra linha na 240.`);
-    }
-    const rotulo = `religar ${idMae}/${idFilha}`;
-    await this.ligarFilha(idMae, idFilha, linha, banco, rotulo);
-    return this.conferir(linha, banco, bancos, idMae, idFilha, rotulo);
   }
 
   /** Apaga a mãe que ficou sem filha. */
