@@ -12,6 +12,7 @@ import { ExtratoDoBancoService } from './extrato-do-banco.service';
 import { LeitorDoPacoteService } from './leitor.service';
 import { PacoteZipService } from './pacote-zip.service';
 import { PacoteContabilService } from './pacote.service';
+import { TarifasDoBancoService } from './tarifas.service';
 
 /**
  * Contabilidade — o que a contabilidade pede todo mês, reunido num lugar só.
@@ -35,6 +36,7 @@ import { PacoteContabilService } from './pacote.service';
     LeitorDoPacoteService,
     PacoteContabilService,
     PacoteZipService,
+    TarifasDoBancoService,
   ],
 })
 export class ContabilidadeModule {}

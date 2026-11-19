@@ -97,6 +97,7 @@ const RecibosDaFolha = telaSobDemanda(() => import('./pages/rh/RecibosDaFolha').
 const AjustesDaContabilidade = telaSobDemanda(() => import('./pages/contabilidade/Ajustes').then((m) => m.AjustesDaContabilidade));
 const MesDaContabilidade = telaSobDemanda(() => import('./pages/contabilidade/Mes').then((m) => m.MesDaContabilidade));
 const MesesDaContabilidade = telaSobDemanda(() => import('./pages/contabilidade/Meses').then((m) => m.MesesDaContabilidade));
+const TarifasDosBancos = telaSobDemanda(() => import('./pages/contabilidade/Tarifas').then((m) => m.TarifasDosBancos));
 const Patrocinados = telaSobDemanda(() => import('./pages/patrocinio/Patrocinados').then((m) => m.Patrocinados));
 const PatrocinadoAberto = telaSobDemanda(() => import('./pages/patrocinio/Patrocinado').then((m) => m.PatrocinadoAberto));
 const ContratoPadrao = telaSobDemanda(() => import('./pages/patrocinio/ContratoPadrao').then((m) => m.ContratoPadrao));
@@ -386,6 +387,7 @@ export default function App() {
           <Route path="meses" element={<MesesDaContabilidade />} />
           <Route path="meses/:id" element={<MesDaContabilidade />} />
           <Route path="ajustes" element={<AjustesDaContabilidade />} />
+          <Route path="tarifas" element={<TarifasDosBancos />} />
         </Route>
       </Route>
 

@@ -25,6 +25,7 @@ import {
   ConfiguracaoDto,
   EncerrarContratoDto,
   EnviarArquivoDto,
+  LancarTarifaDto,
   LerDeNovoDto,
   MarcarDto,
   MarcarVariosDto,
@@ -32,6 +33,7 @@ import {
 import { ExtratoDoBancoService } from './extrato-do-banco.service';
 import { PacoteZipService } from './pacote-zip.service';
 import { PacoteContabilService } from './pacote.service';
+import { TarifasDoBancoService } from './tarifas.service';
 
 function usuarioId(req: Request): string | undefined {
   return (req.user as { id?: string } | undefined)?.id;
@@ -59,6 +61,7 @@ export class ContabilidadeController {
     private readonly zip: PacoteZipService,
     private readonly configuracao: ConfiguracaoService,
     private readonly extratos: ExtratoDoBancoService,
+    private readonly tarifas: TarifasDoBancoService,
   ) {}
 
   /** Uma página crua de uma tabela do IXC, para conferir um relatório. */
@@ -80,6 +83,32 @@ export class ContabilidadeController {
   @Get('banco/lancamentos/:id')
   lancamentoDoBanco(@Param('id') id: string) {
     return this.extratos.detalheCru(id);
+  }
+
+  // --- Tarifas e rentabilidade dos bancos, lançadas no IXC ---
+
+  /** Os bancos em que se lançam tarifas (Sicoob, ModoBank, Bradesco). */
+  @Get('tarifas/bancos')
+  bancosDasTarifas() {
+    return this.tarifas.bancos();
+  }
+
+  /** O que já está no IXC no período. Só leitura. */
+  @Get('tarifas')
+  tarifasLancadas(@Query('de') de = '', @Query('ate') ate = '') {
+    return this.tarifas.lancadas(de, ate);
+  }
+
+  /** Lança uma tarifa ou rentabilidade (a tela manda o lote uma por vez). */
+  @Post('tarifas')
+  lancarTarifa(@Body() dto: LancarTarifaDto) {
+    return this.tarifas.lancar(dto);
+  }
+
+  /** Apaga uma tarifa ou rentabilidade: a 240 primeiro, a linha do banco depois. */
+  @Delete('tarifas/:idMae')
+  apagarTarifa(@Param('idMae', ParseIntPipe) idMae: number) {
+    return this.tarifas.apagar(idMae);
   }
 
   // --- Os períodos ---

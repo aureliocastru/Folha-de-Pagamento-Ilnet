@@ -3,6 +3,7 @@ import {
   ArrayMaxSize,
   IsArray,
   IsBoolean,
+  IsIn,
   IsInt,
   IsNumber,
   IsObject,
@@ -162,4 +163,23 @@ export class ConfiguracaoDto {
 
 export function papelValido(papel: string): boolean {
   return (PAPEIS as readonly string[]).includes(papel);
+}
+
+/** Uma tarifa ou rentabilidade para lançar no IXC. */
+export class LancarTarifaDto {
+  /** `contas.id` do banco. */
+  @IsInt()
+  @Min(1)
+  banco!: number;
+
+  @Matches(DIA, { message: 'O dia precisa ser AAAA-MM-DD.' })
+  dia!: string;
+
+  @IsIn(['tarifa', 'rentabilidade'], { message: 'Tarifa ou rentabilidade.' })
+  tipo!: 'tarifa' | 'rentabilidade';
+
+  @IsNumber({ maxDecimalPlaces: 2 }, { message: 'Valor inválido.' })
+  @Min(0.01, { message: 'O valor precisa ser maior que zero.' })
+  @Max(1_000_000)
+  valor!: number;
 }
