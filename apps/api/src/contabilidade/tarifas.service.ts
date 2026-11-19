@@ -331,11 +331,18 @@ export class TarifasDoBancoService {
       aApagar.push(solta);
     }
 
+    // A filha ligada sai pelo formulário da aba, como o Deletar da aba na tela
+    // do IXC: o DELETE em `fn_movim_finan` responde ok e não a apaga (teste
+    // 1797117/1797118). A solta é uma linha à parte, e sai por ali mesmo.
     const apagados: number[] = [];
     for (const f of aApagar) {
       const id = Number(f.id);
-      const r = await this.ixc.remove(TABELA, id);
-      this.logger.log(`Tarifa: apagar filha ${id} → ${JSON.stringify(r).slice(0, 200)}`);
+      const ligada = String(f.id_movim_finan) === String(idMae);
+      const formulario = ligada
+        ? FORMULARIO_DA_FILHA[String(f.tipo_lanc).toUpperCase() === 'C' ? 'rentabilidade' : 'tarifa']
+        : TABELA;
+      const r = await this.ixc.remove(formulario, id);
+      this.logger.log(`Tarifa: apagar filha ${id} (${formulario}) → ${JSON.stringify(r).slice(0, 200)}`);
       apagados.push(id);
     }
     const depois = await this.lerPar(idMae);

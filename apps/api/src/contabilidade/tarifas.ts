@@ -130,7 +130,7 @@ export function problemaDaLinha(linha: LinhaDeTarifa, hoje: string): string | nu
 function corpo(
   linha: LinhaDeTarifa,
   banco: BancoDasTarifas,
-  campos: { idConta: number; lado: 'debito' | 'credito'; tipoLanc: string; idMovimFinan: string },
+  campos: { idConta: number; lado: 'debito' | 'credito' | null; tipoLanc: string; idMovimFinan: string },
 ): Record<string, string> {
   const valor = formatValorBaixaIxc(linha.valor);
   return {
@@ -152,16 +152,16 @@ function corpo(
 }
 
 /**
- * A mãe: a perna do banco.
+ * A mãe: a perna do banco, **sem valor**.
  *
- * Na tela do IXC o débito e o crédito dela ficam travados e se enchem quando a
- * filha é salva. Aqui o valor já vai no lado certo — a releitura confere que
- * ele não dobrou nem ficou zerado.
+ * Na tela do IXC o débito e o crédito dela ficam travados: é o formulário da
+ * aba que soma nela o valor de cada filha salva. Mandada com o valor, ela
+ * ficava com o dobro (teste 1797117, 19/11/2026: R$ 0,01 virou R$ 0,02).
  */
 export function corpoDaMae(linha: LinhaDeTarifa, banco: BancoDasTarifas): Record<string, string> {
   return corpo(linha, banco, {
     idConta: banco.razaoId,
-    lado: linha.tipo === 'tarifa' ? 'credito' : 'debito',
+    lado: null,
     tipoLanc: 'M',
     idMovimFinan: '',
   });
@@ -217,6 +217,12 @@ function tipoDaMae(mae: Record<string, unknown>): TipoDaTarifa | null {
   const credito = numero(mae.credito);
   if (credito > 0 && debito === 0) return 'tarifa';
   if (debito > 0 && credito === 0) return 'rentabilidade';
+  // Sem valor: a mãe que ficou sem filha (ela nasce zerada). O histórico diz
+  // o que ela ia ser, para aparecer na lista como "Conferir" e poder sair.
+  if (debito === 0 && credito === 0) {
+    if (/rentab/i.test(texto(mae.historico))) return 'rentabilidade';
+    if (/tarif/i.test(texto(mae.historico))) return 'tarifa';
+  }
   return null;
 }
 
@@ -311,13 +317,17 @@ export function ehAFilhaSolta(mae: Record<string, unknown>, filha: Record<string
   const aponta = idDoIxc(filha.id_movim_finan);
   if (aponta !== null && aponta !== idFilha && aponta !== idMae) return false;
   const cents = (v: unknown) => Math.round(numero(v) * 100);
+  // A mãe nasce zerada e só ganha valor quando a filha entra ligada: com a
+  // filha solta ela continua em zero, e aí qualquer valor da filha serve.
   const valor = cents(tipo === 'tarifa' ? mae.credito : mae.debito);
+  const daFilha = cents(tipo === 'tarifa' ? filha.debito : filha.credito);
   return (
     idDoIxc(filha.id_conta) === CONTA_DAS_TARIFAS &&
     texto(filha.tipo_lanc).toUpperCase() === (tipo === 'tarifa' ? 'D' : 'C') &&
     diaDoIxc(filha.data) === diaDoIxc(mae.data) &&
     texto(filha.historico).toLowerCase() === texto(mae.historico).toLowerCase() &&
-    cents(tipo === 'tarifa' ? filha.debito : filha.credito) === valor &&
+    daFilha > 0 &&
+    (valor === 0 || daFilha === valor) &&
     cents(tipo === 'tarifa' ? filha.credito : filha.debito) === 0
   );
 }

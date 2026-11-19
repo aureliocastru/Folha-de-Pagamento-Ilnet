@@ -71,7 +71,7 @@ function casa(l: Linha, campo: string, op: string, p: string): boolean {
   throw new Error(`operador ${op}`);
 }
 
-function montar(opts: { linhas?: Linha[]; dobraAMae?: boolean; recusaFilha?: boolean; filhaSolta?: boolean } = {}) {
+function montar(opts: { linhas?: Linha[]; somaDuasVezes?: boolean; recusaFilha?: boolean; filhaSolta?: boolean } = {}) {
   const linhas: Linha[] = [...(opts.linhas ?? [])];
   let proximo = 1797100;
   const ordem: string[] = [];
@@ -99,21 +99,35 @@ function montar(opts: { linhas?: Linha[]; dobraAMae?: boolean; recusaFilha?: boo
       ordem.push(ehFilha ? `filha ${recurso}→${String(corpo.id_movim_finan)}` : `mae ${recurso}`);
       if (ehFilha && opts.recusaFilha) throw new Error(`IXC (/${recurso}): Conta inválida`);
       const id = proximo++;
-      linhas.push(comoOIxcGuarda(corpo, id, recurso !== 'fn_movim_finan' && !opts.filhaSolta));
-      if (ehFilha && opts.dobraAMae) {
-        const mae = linhas.find((l) => l.id === String(corpo.id_movim_finan))!;
-        mae.credito = (Number(mae.credito) * 2).toFixed(2);
-      }
+      const ligada = recurso !== 'fn_movim_finan' && !opts.filhaSolta;
+      const linha = comoOIxcGuarda(corpo, id, ligada);
+      linhas.push(linha);
+      // O formulário da aba soma o valor da filha na mãe (teste 1797117).
+      if (ehFilha && ligada) somarNaMae(linha, opts.somaDuasVezes ? 2 : 1);
       return { id, raw: { type: 'success', id } };
     }),
     update: jest.fn(),
-    remove: jest.fn(async (_recurso: string, id: number) => {
-      ordem.push(`apaga ${id}`);
+    remove: jest.fn(async (recurso: string, id: number) => {
+      ordem.push(`apaga ${id}${recurso === 'fn_movim_finan' ? '' : ` ${recurso}`}`);
       const i = linhas.findIndex((l) => l.id === String(id));
-      if (i >= 0) linhas.splice(i, 1);
+      if (i < 0) return { type: 'success' };
+      const l = linhas[i];
+      const ligada = l.id_movim_finan !== l.id;
+      // Em `fn_movim_finan` a filha ligada não sai, e a resposta é ok.
+      if (ligada && recurso === 'fn_movim_finan') return { type: 'success' };
+      if (ligada) somarNaMae(l, -1);
+      linhas.splice(i, 1);
       return { type: 'success' };
     }),
   };
+
+  function somarNaMae(filha: Linha, vezes: number) {
+    const mae = linhas.find((l) => l.id === filha.id_movim_finan);
+    if (!mae) return;
+    const lado = filha.tipo_lanc === 'C' ? 'debito' : 'credito';
+    const daFilha = Number(filha.tipo_lanc === 'C' ? filha.credito : filha.debito);
+    mae[lado] = (Number(mae[lado]) + vezes * daFilha).toFixed(2);
+  }
 
   const service = new TarifasDoBancoService(ixc as unknown as IxcClient);
   return { service, ixc, linhas, ordem };
@@ -142,7 +156,7 @@ describe('os bancos das tarifas', () => {
 });
 
 describe('o corpo do par', () => {
-  it('tarifa: mãe M no banco com crédito, filha D na 240 com débito — como o 1797070', () => {
+  it('tarifa: mãe M no banco sem valor (a aba soma), filha D na 240 com débito — como o 1797070', () => {
     const linha = { banco: 18, dia: '2026-11-01', tipo: 'tarifa' as const, valor: 7.7 };
     const mae = corpoDaMae(linha, MODOBANK);
     expect(mae).toMatchObject({
@@ -150,7 +164,7 @@ describe('o corpo do par', () => {
       data: '01/11/2026',
       documento: '',
       debito: '',
-      credito: '7,70',
+      credito: '',
       historico: 'Tarifas',
       tipo_lanc: 'M',
       id_movim_finan: '',
@@ -170,7 +184,7 @@ describe('o corpo do par', () => {
 
   it('rentabilidade: mãe com débito, filha C na 240 com crédito', () => {
     const linha = { banco: 18, dia: '2026-10-26', tipo: 'rentabilidade' as const, valor: 1234.5 };
-    expect(corpoDaMae(linha, MODOBANK)).toMatchObject({ debito: '1234,50', credito: '', historico: 'Rentabilidade', tipo_lanc: 'M' });
+    expect(corpoDaMae(linha, MODOBANK)).toMatchObject({ debito: '', credito: '', historico: 'Rentabilidade', tipo_lanc: 'M' });
     expect(corpoDaFilha(linha, 9)).toEqual({
       id_conta: '240',
       data: '26/10/2026',
@@ -236,8 +250,8 @@ describe('lançar', () => {
     expect(ixc.create).not.toHaveBeenCalled();
   });
 
-  it('o IXC dobrando o valor da mãe é pego na releitura', async () => {
-    const { service } = montar({ dobraAMae: true });
+  it('a mãe com o dobro do valor é pega na releitura (o teste 1797117, de R$ 0,01 que virou 0,02)', async () => {
+    const { service } = montar({ somaDuasVezes: true });
     const r = await service.lancar({ banco: 18, dia: '2026-11-02', tipo: 'tarifa', valor: 5.2 });
     expect(r.situacao).toBe('conferir');
     if (r.situacao === 'conferir') expect(r.problemas.join(' ')).toMatch(/crédito 10\.40/);
@@ -268,7 +282,7 @@ describe('apagar', () => {
   it('tira a filha, confere, e só então a mãe', async () => {
     const { service, ordem, linhas } = montar({ linhas: parFeitoNoIxc(1797070) });
     expect(await service.apagar(1797070)).toEqual({ apagados: [1797071, 1797070] });
-    expect(ordem).toEqual(['apaga 1797071', 'apaga 1797070']);
+    expect(ordem).toEqual(['apaga 1797071 fn_movim_finan_debito', 'apaga 1797070']);
     expect(linhas).toEqual([]);
   });
 
