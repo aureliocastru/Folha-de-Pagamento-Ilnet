@@ -105,10 +105,26 @@ export class ContabilidadeController {
     return this.tarifas.lancar(dto);
   }
 
-  /** Apaga uma tarifa ou rentabilidade: a 240 primeiro, a linha do banco depois. */
+  /**
+   * Apaga uma tarifa ou rentabilidade: a 240 primeiro, a linha do banco depois.
+   * `filha` é a 240 que ficou solta numa gravação recusada pela conferência.
+   */
   @Delete('tarifas/:idMae')
-  apagarTarifa(@Param('idMae', ParseIntPipe) idMae: number) {
-    return this.tarifas.apagar(idMae);
+  apagarTarifa(@Param('idMae', ParseIntPipe) idMae: number, @Query('filha') filha?: string) {
+    const idFilha = filha ? Number(filha) : undefined;
+    if (idFilha !== undefined && !(Number.isInteger(idFilha) && idFilha > 0)) {
+      throw new BadRequestException('Linha da 240 inválida.');
+    }
+    return this.tarifas.apagar(idMae, idFilha);
+  }
+
+  /** Liga à linha do banco a 240 que o IXC gravou solta, e confere o par. */
+  @Post('tarifas/:idMae/ligar/:idFilha')
+  religarTarifa(
+    @Param('idMae', ParseIntPipe) idMae: number,
+    @Param('idFilha', ParseIntPipe) idFilha: number,
+  ) {
+    return this.tarifas.religar(idMae, idFilha);
   }
 
   // --- Os períodos ---

@@ -40,8 +40,14 @@ const CONTAS = [
 type Linha = Record<string, string>;
 type Condicao = { TB: string; OP: string; P: string };
 
-/** "7,70" → "7.70"; "01/11/2026" → "2026-11-01" — como o IXC devolve na leitura. */
-function comoOIxcGuarda(corpo: Record<string, unknown>, id: number): Linha {
+/**
+ * "7,70" → "7.70"; "01/11/2026" → "2026-11-01" — como o IXC devolve na leitura.
+ *
+ * No `POST` o `id_movim_finan` vira o id da própria linha, seja o que for que
+ * se mande (o teste 1797107/1797108 de 19/11/2026); no `PUT` ele fica o que
+ * foi mandado.
+ */
+function comoOIxcGuarda(corpo: Record<string, unknown>, id: number, comoPut = false): Linha {
   const valor = (v: unknown) => (String(v ?? '') ? Number(String(v).replace(',', '.')).toFixed(2) : '0.00');
   const [d, m, a] = String(corpo.data).split('/');
   return {
@@ -50,7 +56,7 @@ function comoOIxcGuarda(corpo: Record<string, unknown>, id: number): Linha {
     data: `${a}-${m}-${d}`,
     debito: valor(corpo.debito),
     credito: valor(corpo.credito),
-    id_movim_finan: String(corpo.id_movim_finan || id),
+    id_movim_finan: comoPut ? String(corpo.id_movim_finan) : String(id),
   };
 }
 
@@ -65,7 +71,7 @@ function casa(l: Linha, campo: string, op: string, p: string): boolean {
   throw new Error(`operador ${op}`);
 }
 
-function montar(opts: { linhas?: Linha[]; dobraAMae?: boolean; recusaFilha?: boolean } = {}) {
+function montar(opts: { linhas?: Linha[]; dobraAMae?: boolean; recusaFilha?: boolean; putNaoLiga?: boolean } = {}) {
   const linhas: Linha[] = [...(opts.linhas ?? [])];
   let proximo = 1797100;
   const ordem: string[] = [];
@@ -88,7 +94,7 @@ function montar(opts: { linhas?: Linha[]; dobraAMae?: boolean; recusaFilha?: boo
       listar(recurso, params),
     ),
     getById: jest.fn(async (_recurso: string, _campo: string, id: number) => linhas.find((l) => l.id === String(id)) ?? null),
-    create: jest.fn(async (_recurso: string, corpo: Record<string, unknown>) => {
+    create: jest.fn(async (_recurso: string, corpo: Record<string, unknown>): Promise<{ id: number | null; raw: Record<string, unknown> }> => {
       const ehFilha = corpo.tipo_lanc !== 'M';
       ordem.push(ehFilha ? `filha→${String(corpo.id_movim_finan)}` : 'mae');
       if (ehFilha && opts.recusaFilha) throw new Error('IXC (/fn_movim_finan): Conta inválida');
@@ -99,6 +105,12 @@ function montar(opts: { linhas?: Linha[]; dobraAMae?: boolean; recusaFilha?: boo
         mae.credito = (Number(mae.credito) * 2).toFixed(2);
       }
       return { id, raw: { type: 'success', id } };
+    }),
+    update: jest.fn(async (_recurso: string, id: number, corpo: Record<string, unknown>) => {
+      ordem.push(`liga ${id}→${String(corpo.id_movim_finan)}`);
+      const i = linhas.findIndex((l) => l.id === String(id));
+      if (i >= 0 && !opts.putNaoLiga) linhas[i] = comoOIxcGuarda(corpo, id, true);
+      return { type: 'success' };
     }),
     remove: jest.fn(async (_recurso: string, id: number) => {
       ordem.push(`apaga ${id}`);
@@ -189,7 +201,7 @@ describe('lançar', () => {
     const { service, ordem, linhas } = montar();
     const r = await service.lancar({ banco: 18, dia: '2026-11-02', tipo: 'tarifa', valor: 5.2 });
     expect(r.situacao).toBe('lancado');
-    expect(ordem).toEqual(['mae', 'filha→1797100']);
+    expect(ordem).toEqual(['mae', 'filha→1797100', 'liga 1797101→1797100']);
     expect(linhas.map((l) => [l.tipo_lanc, l.id_conta, l.debito, l.credito])).toEqual([
       ['M', '12833', '0.00', '5.20'],
       ['D', '240', '5.20', '0.00'],
@@ -272,6 +284,72 @@ describe('apagar', () => {
     const { service, linhas } = montar({ linhas: [mae] });
     expect(await service.apagar(1797070)).toEqual({ apagados: [1797070] });
     expect(linhas).toEqual([]);
+  });
+
+  it('a 240 que ficou solta sai antes da linha do banco', async () => {
+    const { service, ordem, linhas } = montar({ linhas: testeSolto() });
+    expect(await service.apagar(1797107, 1797108)).toEqual({ apagados: [1797108, 1797107] });
+    expect(ordem).toEqual(['apaga 1797108', 'apaga 1797107']);
+    expect(linhas).toEqual([]);
+  });
+
+  it('não apaga como "solta" a 240 de outro lançamento', async () => {
+    const [mae, filha] = testeSolto();
+    const { service, ixc } = montar({ linhas: [mae, { ...filha, id_movim_finan: '1700000' }] });
+    await expect(service.apagar(1797107, 1797108)).rejects.toThrow(BadRequestException);
+    expect(ixc.remove).not.toHaveBeenCalled();
+  });
+});
+
+/** Como o teste de 19/11/2026 ficou no IXC: a 240 gravada apontando para ela mesma. */
+function testeSolto(): Linha[] {
+  const base = { data: '2026-11-19', historico: 'Tarifas', documento: '' };
+  return [
+    { ...base, id: '1797107', id_movim_finan: '1797107', tipo_lanc: 'M', id_conta: '12833', debito: '0.00', credito: '0.01' },
+    { ...base, id: '1797108', id_movim_finan: '1797108', tipo_lanc: 'D', id_conta: '240', debito: '0.01', credito: '0.00' },
+  ];
+}
+
+describe('a 240 solta', () => {
+  beforeAll(() => {
+    jest.useFakeTimers({ now: new Date('2026-11-19T15:00:00-03:00'), doNotFake: ['nextTick', 'setImmediate'] });
+  });
+  afterAll(() => jest.useRealTimers());
+
+  it('religar amarra a 1797108 à 1797107 por PUT e confere o par', async () => {
+    const { service, ordem, linhas } = montar({ linhas: testeSolto() });
+    const r = await service.religar(1797107, 1797108);
+    expect(r.situacao).toBe('lancado');
+    expect(ordem).toEqual(['liga 1797108→1797107']);
+    expect(linhas[1]).toMatchObject({ id: '1797108', id_movim_finan: '1797107', tipo_lanc: 'D', id_conta: '240', debito: '0.01' });
+  });
+
+  it('religar recusa a 240 de outro valor ou de outro lançamento', async () => {
+    const [mae, filha] = testeSolto();
+    for (const outra of [{ ...filha, debito: '0.02' }, { ...filha, id_movim_finan: '1700000' }, { ...filha, data: '2026-11-18' }]) {
+      const { service, ixc } = montar({ linhas: [mae, outra] });
+      await expect(service.religar(1797107, 1797108)).rejects.toThrow(BadRequestException);
+      expect(ixc.update).not.toHaveBeenCalled();
+    }
+  });
+
+  it('o PUT que não liga é pego na releitura, com o número da 240 solta', async () => {
+    const { service } = montar({ putNaoLiga: true });
+    const r = await service.lancar({ banco: 18, dia: '2026-11-02', tipo: 'tarifa', valor: 5.2 });
+    expect(r.situacao).toBe('conferir');
+    if (r.situacao === 'conferir') expect(r.problemas.join('; ')).toMatch(/a linha 1797101 da conta 240 ficou solta/);
+  });
+
+  it('a 240 gravada sem o IXC devolver o número é achada e amarrada', async () => {
+    const { service, ixc, ordem } = montar();
+    const criar = ixc.create.getMockImplementation()!;
+    ixc.create.mockImplementation(async (recurso: string, corpo: Record<string, unknown>) => {
+      const r = await criar(recurso, corpo);
+      return corpo.tipo_lanc === 'M' ? r : { id: null, raw: { type: 'success' } };
+    });
+    const r = await service.lancar({ banco: 18, dia: '2026-11-02', tipo: 'tarifa', valor: 5.2 });
+    expect(r.situacao).toBe('lancado');
+    expect(ordem).toEqual(['mae', 'filha→1797100', 'liga 1797101→1797100']);
   });
 });
 

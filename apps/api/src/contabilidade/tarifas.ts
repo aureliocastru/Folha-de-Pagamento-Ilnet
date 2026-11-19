@@ -18,6 +18,10 @@ import { centavos, diaDoIxc, idDoIxc, numero, texto } from './ixc-leitura';
  *   rentabilidade: sempre a conta 240 "Taxas (despesas)", `id_movim_finan` = a
  *   mãe.
  *
+ * Pela API o par não sai de uma vez: o `POST` da filha responde ok e grava o
+ * `id_movim_finan` com o id dela mesma (teste de 19/11/2026), e é um `PUT`
+ * com o id da mãe que a amarra (`ligarFilha` no serviço).
+ *
  * Histórico "Tarifas" ou "Rentabilidade", documento vazio, dos dois lados.
  * Os pares conferidos (o 1797070 e outros dos três bancos, de tarifa e de
  * rentabilidade) têm uma filha só, sempre na 240.
@@ -275,6 +279,41 @@ export function lerTarifaNoIxc(
     fechado,
     podeApagar: podeApagar(mae, minhas, bancos.map((b) => b.razaoId)),
   };
+}
+
+/**
+ * A linha da 240 que o IXC gravou solta é a filha desta mãe: mesmo dia,
+ * mesmo histórico, o valor do outro lado, e apontando para ela mesma (ou já
+ * para a mãe). Uma filha de outra mãe nunca passa.
+ *
+ * É o que o `POST fn_movim_finan` faz com a filha: responde ok e grava o
+ * `id_movim_finan` com o id da própria linha, ignorando o que foi mandado
+ * (visto em 19/11/2026 no teste de R$ 0,01: mãe 1797107, filha 1797108).
+ */
+export function ehAFilhaSolta(mae: Record<string, unknown>, filha: Record<string, unknown>): boolean {
+  const idMae = idDoIxc(mae.id);
+  const idFilha = idDoIxc(filha.id);
+  if (idMae === null || idFilha === null || idMae === idFilha) return false;
+  const tipo = tipoDaMae(mae);
+  if (!tipo) return false;
+  const aponta = idDoIxc(filha.id_movim_finan);
+  if (aponta !== null && aponta !== idFilha && aponta !== idMae) return false;
+  const cents = (v: unknown) => Math.round(numero(v) * 100);
+  const valor = cents(tipo === 'tarifa' ? mae.credito : mae.debito);
+  return (
+    idDoIxc(filha.id_conta) === CONTA_DAS_TARIFAS &&
+    texto(filha.tipo_lanc).toUpperCase() === (tipo === 'tarifa' ? 'D' : 'C') &&
+    diaDoIxc(filha.data) === diaDoIxc(mae.data) &&
+    texto(filha.historico).toLowerCase() === texto(mae.historico).toLowerCase() &&
+    cents(tipo === 'tarifa' ? filha.debito : filha.credito) === valor &&
+    cents(tipo === 'tarifa' ? filha.credito : filha.debito) === 0
+  );
+}
+
+/** O pedido que a mãe representa: banco, dia, tipo e valor dela. */
+export function linhaDaMae(mae: Record<string, unknown>, bancos: BancoDasTarifas[]): LinhaDeTarifa | null {
+  const t = lerTarifaNoIxc(mae, [], bancos);
+  return t ? { banco: t.banco, dia: t.dia, tipo: t.tipo, valor: t.valor } : null;
 }
 
 /** Mesmo banco, dia, tipo e valor: é o mesmo lançamento. */
