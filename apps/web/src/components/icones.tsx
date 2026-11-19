@@ -386,6 +386,15 @@ export function IconeLupa({ className }: IconeProps) {
   );
 }
 
+/** O funil do botão Filtrar. */
+export function IconeFiltro({ className }: IconeProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M4 5h16l-6.2 7.6v5.9l-3.6 1.8v-7.7z" />
+    </svg>
+  );
+}
+
 export function IconeLixeira({ className }: IconeProps) {
   return (
     <svg {...base} className={className}>

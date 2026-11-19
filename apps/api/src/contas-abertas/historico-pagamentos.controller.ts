@@ -36,6 +36,8 @@ export class HistoricoPagamentosController {
 
   @Get()
   listar(@Query() query: PeriodoPagamentosDto) {
+    // Com texto na busca, o período não vale: procura-se no histórico todo.
+    if (query.busca?.trim()) return this.service.buscar(query.busca);
     return this.service.listar(resolverPeriodo(query), {
       atualizar: !!query.atualizar,
     });

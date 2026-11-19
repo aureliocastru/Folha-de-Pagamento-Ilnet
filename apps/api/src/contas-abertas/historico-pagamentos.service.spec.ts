@@ -1,5 +1,6 @@
 import { HistoricoPagamentosService } from './historico-pagamentos.service';
 import type { BaixaNoIxc } from './baixas-do-ixc.mapper';
+import { semAcento } from './historico-pagamentos.busca';
 
 /**
  * Esta tela diz quanto saiu do caixa num período, e a pergunta que decide tudo é
@@ -501,5 +502,132 @@ describe('a leitura guardada do IXC', () => {
     const b = await service.listar(agosto());
 
     expect(b.pagamentos[0].fornecedor.nome).not.toBe('MEXIDO NA TELA');
+  });
+});
+
+/*
+ * Quem procura um pagamento quase nunca sabe o mês dele. A busca da tela
+ * peneirava só o período carregado, e o pagamento de três meses atrás "não
+ * existia". Com texto, a pergunta vai ao IXC sem data nenhuma.
+ */
+describe('a busca no histórico todo', () => {
+  type Pergunta = { TB: string; OP: string; P: string };
+
+  /** O IXC de mentira que entende as perguntas da busca. */
+  function ixcQueProcura(
+    ixc: ReturnType<typeof montarServico>['ixc'],
+    titulos: Array<Record<string, unknown>>,
+  ) {
+    ixc.list.mockImplementation(async (_recurso: string, params: Record<string, unknown>) => {
+      if (params.rp === 1) {
+        return { total: params.qtype === 'fn_apagar.id' ? 900 : 400, page: 1, registros: [] };
+      }
+      const [p] = params.gridParam as Pergunta[];
+      const coluna = p.TB.replace('fn_apagar.', '');
+      const achados = titulos.filter((t) => {
+        const valor = String(t[coluna] ?? '');
+        if (p.OP === 'L') return semAcento(valor).includes(semAcento(p.P));
+        if (p.OP === 'IN') return p.P.split(',').includes(valor);
+        if (p.OP === '=') return Number(valor) === Number(p.P);
+        return false;
+      });
+      return {
+        total: achados.length,
+        page: 1,
+        registros: achados.slice(0, Number(params.rp)),
+      };
+    });
+  }
+
+  function perguntasFeitas(ixc: ReturnType<typeof montarServico>['ixc']): Pergunta[] {
+    return ixc.list.mock.calls.flatMap(([, p]) => (p.gridParam as Pergunta[] | undefined) ?? []);
+  }
+
+  it('acha o pagamento de anos atrás, sem período nenhum', async () => {
+    const { service, ixc, baixas } = montarServico({});
+    ixcQueProcura(ixc, [
+      titulo({ id: '1001', obs: 'Plano de celular', data_pagamento: '10/03/2023', debito_data: '09/03/2023' }),
+      titulo({ id: '1002', obs: 'Outra coisa' }),
+    ]);
+
+    const r = await service.buscar('celular');
+
+    expect(r.pagamentos.map((p) => p.idFnApagar)).toEqual([1001]);
+    expect(r.pagamentos[0].pagoEm.toISOString().slice(0, 10)).toBe('2023-03-09');
+    // Nenhuma janela de datas na pergunta, e nenhuma leitura de período.
+    expect(perguntasFeitas(ixc).some((p) => p.OP === 'BE')).toBe(false);
+    expect(baixas.daJanela).not.toHaveBeenCalled();
+  });
+
+  it('acha o fornecedor pelo nome, sem acento, pelo código dele', async () => {
+    const { service, ixc, contasAbertas } = montarServico({});
+    contasAbertas.nomesDosFornecedores.mockResolvedValue(
+      new Map([
+        [77, 'POSTO SÃO FULANO'],
+        [78, 'OUTRO FORNECEDOR'],
+      ]),
+    );
+    ixcQueProcura(ixc, [
+      titulo({ id: '2001', id_fornecedor: '77', fornecedor: 'POSTO SÃO FULANO' }),
+      titulo({ id: '2002', id_fornecedor: '78', fornecedor: 'OUTRO FORNECEDOR' }),
+    ]);
+
+    const r = await service.buscar('sao ful');
+
+    expect(r.pagamentos.map((p) => p.idFnApagar)).toEqual([2001]);
+    expect(perguntasFeitas(ixc)).toContainEqual({ TB: 'fn_apagar.id_fornecedor', OP: 'IN', P: '77' });
+  });
+
+  it('acha pelo valor escrito como a tela mostra', async () => {
+    const { service, ixc } = montarServico({});
+    ixcQueProcura(ixc, [
+      titulo({ id: '3001', valor: '2330.00', valor_total_pago: '2330.00' }),
+      titulo({ id: '3002', valor: '99.00', valor_total_pago: '99.00' }),
+    ]);
+
+    const r = await service.buscar('2.330,00');
+
+    expect(r.pagamentos.map((p) => p.idFnApagar)).toEqual([3001]);
+    expect(perguntasFeitas(ixc)).toContainEqual({ TB: 'fn_apagar.valor', OP: '=', P: '2330.00' });
+  });
+
+  it('pergunta também sem acento, e o cancelado fica de fora', async () => {
+    const { service, ixc } = montarServico({});
+    ixcQueProcura(ixc, [
+      titulo({ id: '4001', obs: 'Manutenção do trator' }),
+      titulo({ id: '4002', obs: 'Manutenção do pipa', status: 'C' }),
+    ]);
+
+    const r = await service.buscar('manutenção');
+
+    expect(r.pagamentos.map((p) => p.idFnApagar)).toEqual([4001]);
+    expect(perguntasFeitas(ixc)).toContainEqual({ TB: 'fn_apagar.obs', OP: 'L', P: 'manutencao' });
+  });
+
+  it('devolve os 200 mais recentes e avisa que há mais', async () => {
+    const { service, ixc } = montarServico({});
+    ixcQueProcura(
+      ixc,
+      Array.from({ length: 250 }, (_, i) =>
+        titulo({
+          id: String(5000 + i),
+          obs: 'Diária de campo',
+          debito_data: new Date(Date.UTC(2025, 0, 1 + i)).toISOString().slice(0, 10),
+        }),
+      ),
+    );
+
+    const r = await service.buscar('diaria');
+
+    expect(r.pagamentos).toHaveLength(200);
+    expect(r.pagamentos[0].idFnApagar).toBe(5249);
+    expect(r.avisos.join(' ')).toContain('mais de 200');
+  });
+
+  it('com menos de duas letras não pergunta ao IXC', async () => {
+    const { service, ixc } = montarServico({});
+
+    await expect(service.buscar(' a ')).rejects.toThrow('ao menos 2 letras');
+    expect(ixc.list).not.toHaveBeenCalled();
   });
 });

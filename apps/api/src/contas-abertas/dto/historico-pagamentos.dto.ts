@@ -23,6 +23,15 @@ export class PeriodoPagamentosDto {
 
   /** "1" = o botão Atualizar: lê o IXC agora, sem a leitura guardada. */
   @IsOptional() @IsIn(['1', 'true']) atualizar?: string;
+
+  /**
+   * O texto da caixa de busca. Com ele, o período é deixado de lado e a
+   * procura vai ao histórico inteiro (`HistoricoPagamentosService.buscar`).
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(80, { message: 'A busca aceita até 80 letras.' })
+  busca?: string;
 }
 
 /**

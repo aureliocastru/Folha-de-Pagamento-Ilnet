@@ -1525,6 +1525,8 @@ export interface PagamentoFeito {
   pagoEm: string;
   /** O dia em que a baixa foi registrada no IXC (a coluna `campoDaBaixa`) */
   registradoEm: string;
+  /** A hora desse registro ("11:45:31"), quando a coluna tem hora — ordena o mesmo dia */
+  horaDoRegistro?: string | null;
   /**
    * De onde `pagoEm` saiu: `debito` = o dia do débito, gravado no próprio
    * título (o que a tela do IXC mostra como "Data pagamento"); `baixa` = o dia

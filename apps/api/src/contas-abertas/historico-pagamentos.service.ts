@@ -6,6 +6,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
   Optional,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { AppConfig } from '../config/configuration';
@@ -20,6 +21,16 @@ import {
   type LeituraDeBaixas,
 } from './baixas-do-ixc.service';
 import { CategoriasService } from './categorias.service';
+import {
+  LIMITE_DA_BUSCA,
+  MINIMO_DA_BUSCA,
+  camposDaBusca,
+  casaComABusca,
+  idsQueCasam,
+  semAcento,
+  valorDaBusca,
+  variantesDoTermo,
+} from './historico-pagamentos.busca';
 import { ContasAbertasService } from './contas-abertas.service';
 import { CAMPOS_DE_BAIXA, STATUS_DE_PAGO } from './contas-abertas.mapper';
 import {
@@ -71,6 +82,19 @@ const PAGINA = 500;
 
 /** Quantas páginas da janela se pedem ao IXC ao mesmo tempo. */
 const PAGINAS_EM_PARALELO = 4;
+
+/**
+ * A busca no histórico todo (`buscar`). Cada pergunta traz os títulos mais
+ * recentes que têm o termo, com folga sobre o limite da tela para o que a
+ * peneira daqui descarta (cancelado, termo que o IXC achou e a tela não).
+ */
+const POR_PERGUNTA_DA_BUSCA = 300;
+/** Mais nomes que isto e o termo já não separa fornecedor nenhum. */
+const TETO_DE_NOMES_DA_BUSCA = 300;
+/** As colunas do título que a busca pergunta por "contém". */
+const COLUNAS_DE_TEXTO_DA_BUSCA = ['documento', 'obs', 'tipo_pagamento'] as const;
+/** "Desde sempre" para o IXC: a mesma data velha da sonda da baixa. */
+const MARCO_DA_BUSCA = new Date(Date.UTC(2000, 0, 1));
 
 /**
  * Quantas perguntas avulsas ao IXC vão ao mesmo tempo.
@@ -246,6 +270,167 @@ export class HistoricoPagamentosService implements OnModuleInit, OnModuleDestroy
       lidoEm: lido.lidoEm,
       comoFoiLido: lido.como,
       avisos: [...lido.avisos],
+    };
+  }
+
+  /**
+   * A busca da tela, no histórico inteiro: com texto digitado, o período sai
+   * da frente.
+   *
+   * Cada coluna que a tela procura vira uma pergunta ao IXC, só entre os
+   * títulos baixados e dos mais recentes para trás: documento, observação e
+   * forma por "contém"; fornecedor e conta pelo nome, achado aqui nos índices
+   * e mandado como lista de códigos (o nome do fornecedor não mora no título);
+   * e o valor, quando o termo é um número. O que volta passa pela mesma
+   * peneira da tela, e ficam os `LIMITE_DA_BUSCA` mais recentes.
+   *
+   * Nada fica guardado: cada busca é uma pergunta diferente, e a tela já
+   * espera quem digita parar antes de perguntar.
+   */
+  async buscar(digitado: string): Promise<HistoricoPagamentosResposta> {
+    const texto = digitado.trim().replace(/\s+/g, ' ');
+    if (semAcento(texto).length < MINIMO_DA_BUSCA) {
+      throw new BadRequestException(
+        `Digite ao menos ${MINIMO_DA_BUSCA} letras para procurar no histórico.`,
+      );
+    }
+    const lidoEm = new Date();
+    const avisos: string[] = [];
+
+    const [filtro, fornecedores, caixas] = await Promise.all([
+      this.filtroDeBaixa(),
+      this.contasAbertas.nomesDosFornecedores().catch((err: unknown) => {
+        this.logger.warn(
+          `Busca sem o índice de fornecedores: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return new Map<number, string>();
+      }),
+      this.nomesDosCaixas(),
+    ]);
+
+    const perguntas: Array<{ TB: string; OP: string; P: string }> = [];
+    for (const variante of variantesDoTermo(texto)) {
+      for (const coluna of COLUNAS_DE_TEXTO_DA_BUSCA) {
+        perguntas.push({ TB: `fn_apagar.${coluna}`, OP: 'L', P: variante });
+      }
+    }
+    const idsFornecedores = idsQueCasam(fornecedores, texto);
+    if (idsFornecedores.length > TETO_DE_NOMES_DA_BUSCA) {
+      // Um termo que acha centenas de fornecedores ("lt") já não separa
+      // ninguém: os títulos deles chegam pelas outras colunas, se tiverem.
+      this.logger.log(
+        `Busca "${texto}": ${idsFornecedores.length} fornecedores, só os ${TETO_DE_NOMES_DA_BUSCA} primeiros.`,
+      );
+    }
+    if (idsFornecedores.length > 0) {
+      perguntas.push({
+        TB: 'fn_apagar.id_fornecedor',
+        OP: 'IN',
+        P: idsFornecedores.slice(0, TETO_DE_NOMES_DA_BUSCA).join(','),
+      });
+    }
+    const idsCaixas = idsQueCasam(caixas, texto);
+    if (idsCaixas.length > 0) {
+      perguntas.push({ TB: 'fn_apagar.conta_pagamento', OP: 'IN', P: idsCaixas.join(',') });
+    }
+    const valor = valorDaBusca(texto);
+    if (valor !== null) {
+      for (const coluna of ['valor', 'valor_total_pago']) {
+        perguntas.push({ TB: `fn_apagar.${coluna}`, OP: '=', P: valor.toFixed(2) });
+      }
+    }
+
+    /*
+     * Só o que tem baixa: a mesma pergunta da sonda (baixa a partir de 2000),
+     * que nesta base é o que separa pago de aberto. Sem coluna de baixa que
+     * filtre, o status de pago faz esse papel.
+     */
+    const soBaixados = filtro
+      ? {
+          qtype: `fn_apagar.${filtro.campo}`,
+          query: formatarData(MARCO_DA_BUSCA, filtro.formato),
+          oper: '>=' as const,
+          sortname: `fn_apagar.${filtro.campo}`,
+        }
+      : {
+          qtype: 'fn_apagar.status',
+          query: STATUS_DE_PAGO[0],
+          oper: '=' as const,
+          sortname: 'fn_apagar.id',
+        };
+
+    const porId = new Map<number, Record<string, unknown>>();
+    let passou = false;
+    let falhas = 0;
+    await emParalelo(perguntas, PERGUNTAS_AO_MESMO_TEMPO, async (pergunta) => {
+      try {
+        const res = await this.ixc.list<Record<string, unknown>>('fn_apagar', {
+          ...soBaixados,
+          sortorder: 'desc',
+          page: 1,
+          rp: POR_PERGUNTA_DA_BUSCA,
+          gridParam: [pergunta],
+        });
+        if (res.total > res.registros.length) passou = true;
+        for (const raw of res.registros) {
+          const id = parseIxcId(raw.id);
+          if (id !== null) porId.set(id, raw);
+        }
+      } catch (err) {
+        falhas += 1;
+        this.logger.warn(
+          `Busca "${texto}" em ${pergunta.TB} falhou: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    });
+    if (falhas > 0 && falhas === perguntas.length) {
+      throw new ServiceUnavailableException(
+        'O IXC não respondeu à busca agora. Tente de novo em instantes.',
+      );
+    }
+    if (falhas > 0) {
+      avisos.push('Parte da busca não respondeu no IXC: pode faltar pagamento aqui.');
+    }
+
+    const pagamentos: PagamentoFeito[] = [];
+    for (const raw of porId.values()) {
+      if (motivoDeNaoSerPagamento(raw)) continue;
+      const pagamento = mapPagamento(raw);
+      if (pagamento) pagamentos.push(pagamento);
+    }
+
+    await Promise.all([
+      this.completarNomes(pagamentos, avisos),
+      this.completarCategoriasECaixas(pagamentos),
+    ]);
+    await Promise.all([
+      this.marcarConferidos(pagamentos),
+      this.aplicarClassificacoes(pagamentos),
+      this.marcarOrigemNaFolha(pagamentos),
+      this.marcarComprovantes(pagamentos),
+    ]);
+
+    const achados = ordenarPorPagamento(
+      pagamentos.filter((p) => casaComABusca(camposDaBusca(p), texto)),
+    );
+    const mostrados = achados.slice(0, LIMITE_DA_BUSCA);
+    if (achados.length > LIMITE_DA_BUSCA || (passou && mostrados.length >= LIMITE_DA_BUSCA)) {
+      avisos.push(
+        `Há mais de ${LIMITE_DA_BUSCA} pagamentos com "${texto}": aparecem os ` +
+          `${LIMITE_DA_BUSCA} mais recentes.`,
+      );
+    }
+
+    const hoje = diaDeHojeNoFuso(lidoEm);
+    return {
+      pagamentos: mostrados,
+      resumo: resumirPagamentos(mostrados),
+      periodo: { de: mostrados.at(-1)?.pagoEm ?? hoje, ate: hoje },
+      lidoEm,
+      comoFoiLido:
+        'Busca em todo o histórico do IXC, pelo fornecedor, documento, ' +
+        'observação, forma de pagamento, conta e valor.',
+      avisos,
     };
   }
 

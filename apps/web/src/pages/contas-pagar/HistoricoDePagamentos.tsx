@@ -6,14 +6,17 @@ import {
   CabecalhoPagina,
   CampoDinheiro,
   Carregando,
+  // `Janela` aqui é o período (ver o fim do arquivo); a do sistema muda de nome.
+  Janela as JanelaDoSistema,
   Pagina,
   Selo,
   Vazio,
 } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { abrirArquivo, motivoDoErroEmArquivo } from '../../lib/arquivo';
-import { IconeCompartilhar } from '../../components/icones';
-import { combina, semAcento } from '../../lib/busca';
+import { IconeCompartilhar, IconeFiltro } from '../../components/icones';
+import { combina, semAcento, useTermoAdiado } from '../../lib/busca';
+import { SeletorComBusca } from '../../components/SeletorComBusca';
 import { formatBRL, formatData } from '../../lib/format';
 import { TIPO_LABEL } from '../../lib/status';
 import type { HistoricoPagamentos, PagamentoFeito } from '../../lib/types';
@@ -52,8 +55,15 @@ type Recorte = 'todos' | 'ressalva' | 'parciais';
 const BOM_UTF8 = String.fromCharCode(0xfeff);
 
 /**
- * Os filtros de escolher: faixa de valor pago, de que conta saiu, a forma e a
- * categoria. Valem sobre o que já foi lido — nenhum deles relê o IXC.
+ * Com ao menos isto digitado, a busca procura no histórico todo, e não só no
+ * período. O mesmo mínimo da API (`historico-pagamentos.busca.ts`).
+ */
+const MINIMO_DA_BUSCA = 2;
+
+/**
+ * Os filtros de escolher, atrás do botão Filtrar: faixa de valor pago, de que
+ * conta saiu, a forma e a categoria. Valem sobre o que já foi lido — nenhum
+ * deles relê o IXC. O período mora na mesma janela, mas à parte: trocá-lo lê.
  */
 interface Filtros {
   /** Valor pago mínimo e máximo, como o `CampoDinheiro` os dá ("2107.03" ou ""). */
@@ -78,15 +88,80 @@ function opcoesDe(pagamentos: PagamentoFeito[], ler: (p: PagamentoFeito) => stri
   );
 }
 
+/** O que a busca procura em cada pagamento — a mesma lista que a API usa. */
+function camposDaBusca(p: PagamentoFeito) {
+  return [
+    p.fornecedor.nome,
+    p.documento,
+    p.observacao,
+    p.formaPagamento,
+    p.caixa.nome,
+    p.classificacao?.nome,
+    p.origem?.beneficiario,
+    /*
+     * O valor também se procura — é por ele que se acha o pagamento de que
+     * só se lembra o número. Escrito como a tela o mostra: a busca ignora
+     * ponto e vírgula (ver `semSeparador`), então "2330", "2.330" e
+     * "2330,00" acham a mesma linha.
+     */
+    formatBRL(p.valorPago),
+    formatBRL(p.valor),
+  ];
+}
+
+/** Do pagamento mais recente para o mais antigo, como a API ordena. */
+function ordenarPorPagamento(pagamentos: PagamentoFeito[]): PagamentoFeito[] {
+  return [...pagamentos].sort(
+    (a, b) =>
+      b.pagoEm.localeCompare(a.pagoEm) ||
+      b.registradoEm.localeCompare(a.registradoEm) ||
+      (b.horaDoRegistro ?? '').localeCompare(a.horaDoRegistro ?? '') ||
+      b.idFnApagar - a.idFnApagar,
+  );
+}
+
 export function HistoricoDePagamentos() {
   const [periodo, setPeriodo] = useState(ultimosDias(30));
   const [recorte, setRecorte] = useState<Recorte>('todos');
   const [busca, setBusca] = useState('');
   const [filtros, setFiltros] = useState<Filtros>(SEM_FILTROS);
-  const mudar = (parte: Partial<Filtros>) => setFiltros((f) => ({ ...f, ...parte }));
-  const comFiltro = Object.values(filtros).some(Boolean);
+  /** A janela do Filtrar está aberta? */
+  const [filtrando, setFiltrando] = useState(false);
   /** Pagamento cuja ficha estamos olhando. */
   const [detalhando, setDetalhando] = useState<PagamentoFeito | null>(null);
+
+  /*
+   * Quantos filtros estão ligados além do padrão, para o botão contar. O
+   * período só entra quando não é um dos atalhos: o atalho escolhido já
+   * aparece aceso na tela.
+   */
+  const periodoProprio = !atalhosDoPeriodo().some(
+    (a) => a.janela.de === periodo.de && a.janela.ate === periodo.ate,
+  );
+  const ligados =
+    (periodoProprio ? 1 : 0) +
+    (filtros.valorDe || filtros.valorAte ? 1 : 0) +
+    (filtros.conta ? 1 : 0) +
+    (filtros.forma ? 1 : 0) +
+    (filtros.categoria ? 1 : 0);
+
+  function limparTudo() {
+    setRecorte('todos');
+    setBusca('');
+    setFiltros(SEM_FILTROS);
+    if (periodoProprio) setPeriodo(ultimosDias(30));
+  }
+
+  /*
+   * A busca procura no histórico todo, e não só no período: quem procura um
+   * pagamento quase nunca sabe o mês dele. Ela espera quem digita parar, para
+   * não virar uma consulta ao IXC por tecla.
+   */
+  const termo = useTermoAdiado(busca);
+  // As duas pontas: apagando a busca, o período volta na hora, sem esperar.
+  const noHistorico =
+    semAcento(termo).length >= MINIMO_DA_BUSCA &&
+    semAcento(busca.trim()).length >= MINIMO_DA_BUSCA;
 
   /*
    * O servidor guarda a última leitura do IXC e a devolve na hora. O botão
@@ -117,21 +192,67 @@ export function HistoricoDePagamentos() {
     retry: 0,
   });
 
+  const consultaBusca = useQuery({
+    queryKey: ['pagamentos-feitos', 'busca', termo],
+    queryFn: async () =>
+      (
+        await api.get<HistoricoPagamentos>('/pagamentos-feitos', {
+          params: { busca: termo },
+        })
+      ).data,
+    enabled: noHistorico,
+    staleTime: 5 * 60 * 1000,
+    retry: 0,
+    // Enquanto a busca nova não chega, a anterior fica — peneirada pelo que
+    // já está digitado — em vez de a lista sumir a cada palavra.
+    placeholderData: (anterior) => anterior,
+  });
+
+  const daBusca = noHistorico ? consultaBusca.data : undefined;
+  /** De onde vêm a hora da leitura, os avisos e o "como foi lido". */
+  const dados = daBusca ?? consulta.data;
+  const procurando = noHistorico && (consultaBusca.isFetching || termo !== busca.trim());
+  const atualizando = noHistorico ? consultaBusca.isFetching : consulta.isFetching;
+
+  /*
+   * O que a lista mostra antes dos filtros. Com a busca, é o que ela achou no
+   * histórico, mais o que bate no período e ela não traz — o que se acha pela
+   * categoria daqui ou pelo nome na folha, que o IXC não conhece. Antes de a
+   * busca chegar, é o período: o que já está carregado aparece na hora.
+   */
+  const base = useMemo(() => {
+    const doPeriodo = consulta.data?.pagamentos ?? [];
+    if (!daBusca) return doPeriodo;
+    const vistos = new Set(daBusca.pagamentos.map((p) => p.idFnApagar));
+    const extras = doPeriodo.filter(
+      (p) => !vistos.has(p.idFnApagar) && combina(camposDaBusca(p), semAcento(termo)),
+    );
+    return extras.length ? ordenarPorPagamento([...daBusca.pagamentos, ...extras]) : daBusca.pagamentos;
+  }, [consulta.data, daBusca, termo]);
+
   const pagamentos = useMemo(
-    () => filtrar(consulta.data?.pagamentos ?? [], recorte, busca, filtros),
-    [consulta.data, recorte, busca, filtros],
+    () => filtrar(base, recorte, busca, filtros),
+    [base, recorte, busca, filtros],
   );
 
-  const opcoes = useMemo(() => {
-    const todos = consulta.data?.pagamentos ?? [];
-    return {
-      contas: opcoesDe(todos, contaDe),
-      formas: opcoesDe(todos, (p) => p.formaPagamento),
-      categorias: opcoesDe(todos, (p) => p.classificacao?.nome),
-    };
-  }, [consulta.data]);
+  const opcoes = useMemo(
+    () => ({
+      contas: opcoesDe(base, contaDe),
+      formas: opcoesDe(base, (p) => p.formaPagamento),
+      categorias: opcoesDe(base, (p) => p.classificacao?.nome),
+    }),
+    [base],
+  );
 
-  const resumo = consulta.data?.resumo;
+  /** Os números dos dois recortes, contados do que está carregado. */
+  const resumo = useMemo(
+    () => ({
+      comRessalva: base.filter((p) => !p.conferencia.fecha && !p.conferencia.conferidoPor).length,
+      parciais: base.filter((p) => p.parcial).length,
+    }),
+    [base],
+  );
+  const comFiltro = recorte !== 'todos' || !!busca || ligados > 0;
 
   return (
     <Pagina>
@@ -141,7 +262,14 @@ export function HistoricoDePagamentos() {
         acoes={
           <div className="flex flex-wrap gap-2">
             <button
-              onClick={() => baixarCsv(pagamentos, periodo)}
+              onClick={() =>
+                baixarCsv(
+                  pagamentos,
+                  noHistorico
+                    ? `pagamentos-busca-${semAcento(termo).replace(/[^a-z0-9]+/g, '-')}`
+                    : `pagamentos-${periodo.de}-a-${periodo.ate}`,
+                )
+              }
               disabled={pagamentos.length === 0}
               className="btn btn-neutro"
               title="Baixa a lista à vista, com os filtros aplicados, para conferir na planilha"
@@ -150,21 +278,25 @@ export function HistoricoDePagamentos() {
             </button>
             <button
               onClick={() => {
+                if (noHistorico) {
+                  void consultaBusca.refetch();
+                  return;
+                }
                 lerAgora.current = true;
                 void consulta.refetch();
               }}
-              disabled={consulta.isFetching}
+              disabled={atualizando}
               className="btn btn-acao"
             >
-              {consulta.isFetching ? 'Lendo o IXC…' : 'Atualizar'}
+              {atualizando ? 'Lendo o IXC…' : 'Atualizar'}
             </button>
           </div>
         }
       />
 
-      <SeletorDePeriodo periodo={periodo} onEscolher={setPeriodo} />
+      <SeletorDePeriodo periodo={periodo} onEscolher={setPeriodo} semDatas />
 
-      {consulta.error && (
+      {consulta.error && !daBusca && (
         <Aviso tom="erro">
           Não deu para ler os pagamentos do IXC: {mensagemErro(consulta.error)}
           {consulta.data
@@ -173,7 +305,13 @@ export function HistoricoDePagamentos() {
         </Aviso>
       )}
 
-      {(consulta.data?.avisos ?? []).map((aviso) => (
+      {noHistorico && consultaBusca.error && (
+        <Aviso tom="erro">
+          Não deu para procurar no histórico do IXC: {mensagemErro(consultaBusca.error)}
+        </Aviso>
+      )}
+
+      {(dados?.avisos ?? []).map((aviso) => (
         <Aviso key={aviso} tom="atencao">
           {aviso}
         </Aviso>
@@ -185,57 +323,37 @@ export function HistoricoDePagamentos() {
         o filtro de conferência e o de parciais ficaram como botões, e cada
         linha já diz na cara se foi em dia, em atraso ou se tem algo torto.
       */}
-      <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-        <label className="flex items-center gap-2 text-xs text-tinta-500">
-          Valor de
-          <CampoDinheiro
-            valor={filtros.valorDe}
-            onChange={(v) => mudar({ valorDe: v })}
-            className="campo num w-28"
-            placeholder="0,00"
-          />
-        </label>
-        <label className="flex items-center gap-2 text-xs text-tinta-500">
-          até
-          <CampoDinheiro
-            valor={filtros.valorAte}
-            onChange={(v) => mudar({ valorAte: v })}
-            className="campo num w-28"
-            placeholder="0,00"
-          />
-        </label>
-        <Escolha
-          rotulo="Saiu de"
-          todas="Todas as contas"
-          valor={filtros.conta}
-          opcoes={opcoes.contas}
-          onChange={(conta) => mudar({ conta })}
-        />
-        <Escolha
-          rotulo="Forma"
-          todas="Todas as formas"
-          valor={filtros.forma}
-          opcoes={opcoes.formas}
-          onChange={(forma) => mudar({ forma })}
-        />
-        <Escolha
-          rotulo="Categoria"
-          todas="Todas as categorias"
-          valor={filtros.categoria}
-          opcoes={opcoes.categorias}
-          onChange={(categoria) => mudar({ categoria })}
-        />
-      </div>
-
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <input
+          type="search"
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
           placeholder="Buscar por fornecedor, documento, forma de pagamento ou observação"
           className="campo max-w-md"
           autoComplete="off"
         />
-        {resumo && resumo.comRessalva.quantidade > 0 && (
+        {/*
+          Os filtros de escolher ficam atrás de um botão: à mostra, eram uma
+          faixa inteira de campos em cima da lista. O botão diz quantos estão
+          ligados, e o "Limpar filtros" ao lado desliga tudo de uma vez.
+        */}
+        <button
+          type="button"
+          onClick={() => setFiltrando(true)}
+          className={`btn btn-p inline-flex items-center gap-1.5 ${
+            ligados > 0 ? 'btn-acao' : 'btn-neutro'
+          }`}
+          aria-label={ligados > 0 ? `Filtrar — ${ligados} ligado${ligados === 1 ? '' : 's'}` : 'Filtrar'}
+        >
+          <IconeFiltro className="h-3.5 w-3.5" />
+          Filtrar
+          {ligados > 0 && (
+            <span className="num rounded-full bg-white/25 px-1.5 text-[11px] font-semibold leading-4">
+              {ligados}
+            </span>
+          )}
+        </button>
+        {resumo.comRessalva > 0 && (
           <button
             onClick={() =>
               setRecorte(recorte === 'ressalva' ? 'todos' : 'ressalva')
@@ -245,10 +363,10 @@ export function HistoricoDePagamentos() {
             }`}
             title="Pagamentos cujo registro no IXC não fecha: status parado, valor sem informação, baixa com auditoria reprovada. Os que alguém já conferiu saem desta conta."
           >
-            Só os que pedem conferência ({resumo.comRessalva.quantidade})
+            Só os que pedem conferência ({resumo.comRessalva})
           </button>
         )}
-        {resumo && resumo.parciais.quantidade > 0 && (
+        {resumo.parciais > 0 && (
           <button
             onClick={() =>
               setRecorte(recorte === 'parciais' ? 'todos' : 'parciais')
@@ -257,30 +375,29 @@ export function HistoricoDePagamentos() {
               recorte === 'parciais' ? 'btn-acao' : 'btn-sutil'
             }`}
           >
-            Só os parciais ({resumo.parciais.quantidade})
+            Só os parciais ({resumo.parciais})
           </button>
         )}
-        {(recorte !== 'todos' || busca || comFiltro) && (
-          <button
-            onClick={() => {
-              setRecorte('todos');
-              setBusca('');
-              setFiltros(SEM_FILTROS);
-            }}
-            className="btn btn-sutil btn-p"
-          >
+        {comFiltro && (
+          <button onClick={limparTudo} className="btn btn-neutro btn-p">
             Limpar filtros
           </button>
         )}
-        {consulta.data && (
+        {dados && (
           <span className="ml-auto text-right text-xs text-tinta-400">
-            {(recorte !== 'todos' || busca || comFiltro) && pagamentos.length > 0 && (
-              <span className="num mr-3 text-tinta-600">
-                {pagamentos.length} pagamento{pagamentos.length === 1 ? '' : 's'} ·{' '}
-                {formatBRL(pagamentos.reduce((soma, p) => soma + p.valorPago, 0))}
-              </span>
+            {procurando ? (
+              <span className="mr-3 text-tinta-600">Procurando em todo o histórico…</span>
+            ) : (
+              comFiltro &&
+              pagamentos.length > 0 && (
+                <span className="num mr-3 text-tinta-600">
+                  {pagamentos.length} pagamento{pagamentos.length === 1 ? '' : 's'} ·{' '}
+                  {formatBRL(pagamentos.reduce((soma, p) => soma + p.valorPago, 0))}
+                  {daBusca ? ' · em todo o histórico' : ''}
+                </span>
+              )
             )}
-            Lido do IXC às {formatHora(consulta.data.lidoEm)}
+            Lido do IXC às {formatHora(dados.lidoEm)}
           </span>
         )}
       </div>
@@ -290,9 +407,10 @@ export function HistoricoDePagamentos() {
           A ordem destes casos importa: só dá para dizer "nada foi pago" depois
           de a leitura ter chegado. Sem esse cuidado, todo instante em que o IXC
           falha ou demora viraria um "não saiu nada no período" — e quem confere
-          pagamento acreditaria.
+          pagamento acreditaria. Com a busca é igual: enquanto ela procura no
+          histórico, "nenhum" ainda não é resposta.
         */}
-        {!consulta.data ? (
+        {!dados ? (
           consulta.error ? (
             <Vazio titulo="Não deu para ler o IXC">
               Os pagamentos ficam no IXC e ele não respondeu agora, então não há
@@ -302,11 +420,17 @@ export function HistoricoDePagamentos() {
           ) : (
             <Carregando texto="Lendo os pagamentos no IXC…" />
           )
+        ) : pagamentos.length === 0 && procurando ? (
+          <Carregando texto="Procurando em todo o histórico…" />
         ) : pagamentos.length === 0 ? (
           <Vazio titulo="Nenhum pagamento aqui">
-            {consulta.data.pagamentos.length
-              ? 'Nenhum pagamento bate com o filtro. Tente "Limpar filtros".'
-              : 'O IXC não registra baixa nenhuma neste período. Se você esperava ver um pagamento aqui, amplie as datas — a data que conta é a da baixa, não a do vencimento.'}
+            {daBusca
+              ? base.length
+                ? 'Nenhum pagamento da busca bate com o filtro. Tente "Limpar filtros".'
+                : `Nada com "${termo}" em todo o histórico do IXC.`
+              : dados.pagamentos.length
+                ? 'Nenhum pagamento bate com o filtro. Tente "Limpar filtros".'
+                : 'O IXC não registra baixa nenhuma neste período. Se você esperava ver um pagamento aqui, amplie as datas — a data que conta é a da baixa, não a do vencimento.'}
           </Vazio>
         ) : (
           <div className="overflow-x-auto rolagem-fina">
@@ -334,8 +458,21 @@ export function HistoricoDePagamentos() {
         )}
       </Bloco>
 
-      {consulta.data && (
-        <p className="ajuda mt-3">{consulta.data.comoFoiLido}</p>
+      {dados && <p className="ajuda mt-3">{dados.comoFoiLido}</p>}
+
+      {filtrando && (
+        <JanelaDeFiltros
+          periodo={periodo}
+          filtros={filtros}
+          opcoes={opcoes}
+          comBusca={noHistorico}
+          onAplicar={(novoPeriodo, novosFiltros) => {
+            setPeriodo(novoPeriodo);
+            setFiltros(novosFiltros);
+            setFiltrando(false);
+          }}
+          onFechar={() => setFiltrando(false)}
+        />
       )}
 
       {detalhando && (
@@ -348,14 +485,145 @@ export function HistoricoDePagamentos() {
   );
 }
 
-/** Uma lista de escolher da barra de filtros. Some quando não há o que escolher. */
+/**
+ * A janela do Filtrar: o período e os filtros de escolher, um campo por linha.
+ *
+ * Mexe num rascunho, e a lista só muda no "Filtrar" — trocar o período relê o
+ * IXC, e não vale reler a cada dia digitado no meio do caminho. "Limpar" volta
+ * tudo ao padrão (últimos 30 dias, sem filtro) e já aplica.
+ */
+function JanelaDeFiltros({
+  periodo,
+  filtros,
+  opcoes,
+  comBusca,
+  onAplicar,
+  onFechar,
+}: {
+  periodo: Janela;
+  filtros: Filtros;
+  opcoes: { contas: string[]; formas: string[]; categorias: string[] };
+  /** A busca está procurando no histórico todo: as datas não valem para ela. */
+  comBusca: boolean;
+  onAplicar: (periodo: Janela, filtros: Filtros) => void;
+  onFechar: () => void;
+}) {
+  const [de, setDe] = useState(periodo.de);
+  const [ate, setAte] = useState(periodo.ate);
+  const [rascunho, setRascunho] = useState(filtros);
+  const mudar = (parte: Partial<Filtros>) => setRascunho((f) => ({ ...f, ...parte }));
+
+  return (
+    <JanelaDoSistema titulo="Filtrar pagamentos" onFechar={onFechar}>
+      <div className="grid grid-cols-1 gap-3">
+        <div>
+          <label className="rotulo" htmlFor="filtro-de">
+            Pago de
+          </label>
+          <CampoDeData
+            id="filtro-de"
+            valor={de}
+            max={ate}
+            onChange={(valor) => valor && setDe(valor)}
+            className="campo num"
+          />
+        </div>
+        <div>
+          <label className="rotulo" htmlFor="filtro-ate">
+            Pago até
+          </label>
+          <CampoDeData
+            id="filtro-ate"
+            valor={ate}
+            min={de}
+            onChange={(valor) => valor && setAte(valor)}
+            className="campo num"
+          />
+          {comBusca && <p className="ajuda">Com a busca preenchida, vale todo o histórico.</p>}
+        </div>
+        <div>
+          <label className="rotulo" htmlFor="filtro-valor-de">
+            Valor pago de
+          </label>
+          <CampoDinheiro
+            id="filtro-valor-de"
+            valor={rascunho.valorDe}
+            onChange={(v) => mudar({ valorDe: v })}
+            className="campo num"
+            placeholder="0,00"
+          />
+        </div>
+        <div>
+          <label className="rotulo" htmlFor="filtro-valor-ate">
+            Valor pago até
+          </label>
+          <CampoDinheiro
+            id="filtro-valor-ate"
+            valor={rascunho.valorAte}
+            onChange={(v) => mudar({ valorAte: v })}
+            className="campo num"
+            placeholder="0,00"
+          />
+        </div>
+        <Escolha
+          id="filtro-conta"
+          rotulo="Saiu de"
+          todas="Todas as contas"
+          valor={rascunho.conta}
+          opcoes={opcoes.contas}
+          onChange={(conta) => mudar({ conta })}
+        />
+        <Escolha
+          id="filtro-forma"
+          rotulo="Forma"
+          todas="Todas as formas"
+          valor={rascunho.forma}
+          opcoes={opcoes.formas}
+          onChange={(forma) => mudar({ forma })}
+        />
+        <Escolha
+          id="filtro-categoria"
+          rotulo="Categoria"
+          todas="Todas as categorias"
+          valor={rascunho.categoria}
+          opcoes={opcoes.categorias}
+          onChange={(categoria) => mudar({ categoria })}
+        />
+      </div>
+
+      <div className="mt-5 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => onAplicar(ultimosDias(30), SEM_FILTROS)}
+          className="btn btn-neutro"
+        >
+          Limpar
+        </button>
+        <button
+          type="button"
+          onClick={() => onAplicar(de <= ate ? { de, ate } : { de: ate, ate: de }, rascunho)}
+          className="btn btn-acao"
+        >
+          Filtrar
+        </button>
+      </div>
+    </JanelaDoSistema>
+  );
+}
+
+/**
+ * Uma lista de escolher da janela de filtros, com busca: a de categorias cresce
+ * com o histórico. Some quando não há o que escolher.
+ */
 function Escolha({
+  id,
   rotulo,
   todas,
   valor,
   opcoes,
   onChange,
 }: {
+  id: string;
   rotulo: string;
   todas: string;
   valor: string;
@@ -364,47 +632,51 @@ function Escolha({
 }) {
   if (opcoes.length < 2 && !valor) return null;
   return (
-    <label className="flex items-center gap-2 text-xs text-tinta-500">
-      {rotulo}
-      <select
+    <div>
+      <label className="rotulo" htmlFor={id}>
+        {rotulo}
+      </label>
+      <SeletorComBusca
+        id={id}
+        opcoes={opcoes.map((o) => ({ valor: o, rotulo: o }))}
         value={valor}
-        onChange={(e) => onChange(e.target.value)}
-        className="campo w-auto max-w-[14rem]"
-      >
-        <option value="">{todas}</option>
-        {opcoes.map((o) => (
-          <option key={o} value={o}>
-            {o}
-          </option>
-        ))}
-      </select>
-    </label>
+        onChange={onChange}
+        vazio={todas}
+        className="min-w-0"
+      />
+    </div>
   );
 }
 
-/**
- * O período, com os atalhos que respondem às perguntas de sempre: "saiu o de
- * ontem?", "quanto pagamos este mês?", "fecha o mês passado?". As datas soltas
- * ficam ao lado para quem procura um pagamento específico.
- */
-export function SeletorDePeriodo({
-  periodo,
-  onEscolher,
-}: {
-  periodo: Janela;
-  onEscolher: (janela: Janela) => void;
-}) {
-  const atalhos: Array<{ rotulo: string; janela: Janela }> = [
+/** Os atalhos do período: as perguntas de sempre, a um toque. */
+function atalhosDoPeriodo(): Array<{ rotulo: string; janela: Janela }> {
+  return [
     { rotulo: 'Últimos 30 dias', janela: ultimosDias(30) },
     { rotulo: 'Este mês', janela: mesCorrente(0) },
     { rotulo: 'Mês passado', janela: mesCorrente(-1) },
     { rotulo: 'Este ano', janela: anoCorrente() },
   ];
+}
 
+/**
+ * O período, com os atalhos que respondem às perguntas de sempre: "saiu o de
+ * ontem?", "quanto pagamos este mês?", "fecha o mês passado?". As datas soltas
+ * ficam ao lado para quem procura um pagamento específico — ou, com
+ * `semDatas`, dentro do Filtrar de quem chama.
+ */
+export function SeletorDePeriodo({
+  periodo,
+  onEscolher,
+  semDatas = false,
+}: {
+  periodo: Janela;
+  onEscolher: (janela: Janela) => void;
+  semDatas?: boolean;
+}) {
   return (
     <div className="mb-5 flex flex-wrap items-end gap-3">
       <div className="flex flex-wrap gap-2">
-        {atalhos.map(({ rotulo, janela }) => {
+        {atalhosDoPeriodo().map(({ rotulo, janela }) => {
           const ativo = janela.de === periodo.de && janela.ate === periodo.ate;
           return (
             <button
@@ -418,26 +690,28 @@ export function SeletorDePeriodo({
         })}
       </div>
 
-      <div className="flex flex-wrap items-end gap-2">
-        <label className="flex items-center gap-2 text-xs text-tinta-500">
-          De
-          <CampoDeData
-            valor={periodo.de}
-            max={periodo.ate}
-            onChange={(valorNovo) => valorNovo && onEscolher({ ...periodo, de: valorNovo })}
-            className="campo num w-[10.5rem]"
-          />
-        </label>
-        <label className="flex items-center gap-2 text-xs text-tinta-500">
-          até
-          <CampoDeData
-            valor={periodo.ate}
-            min={periodo.de}
-            onChange={(valorNovo) => valorNovo && onEscolher({ ...periodo, ate: valorNovo })}
-            className="campo num w-[10.5rem]"
-          />
-        </label>
-      </div>
+      {!semDatas && (
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="flex items-center gap-2 text-xs text-tinta-500">
+            De
+            <CampoDeData
+              valor={periodo.de}
+              max={periodo.ate}
+              onChange={(valorNovo) => valorNovo && onEscolher({ ...periodo, de: valorNovo })}
+              className="campo num w-[10.5rem]"
+            />
+          </label>
+          <label className="flex items-center gap-2 text-xs text-tinta-500">
+            até
+            <CampoDeData
+              valor={periodo.ate}
+              min={periodo.de}
+              onChange={(valorNovo) => valorNovo && onEscolher({ ...periodo, ate: valorNovo })}
+              className="campo num w-[10.5rem]"
+            />
+          </label>
+        </div>
+      )}
     </div>
   );
 }
@@ -690,26 +964,7 @@ function filtrar(
     if (filtros.forma && p.formaPagamento !== filtros.forma) return false;
     if (filtros.categoria && p.classificacao?.nome !== filtros.categoria) return false;
 
-    return combina(
-      [
-        p.fornecedor.nome,
-        p.documento,
-        p.observacao,
-        p.formaPagamento,
-        p.caixa.nome,
-        p.classificacao?.nome,
-        p.origem?.beneficiario,
-        /*
-         * O valor também se procura — é por ele que se acha o pagamento de
-         * que só se lembra o número. Escrito como a tela o mostra: a busca
-         * ignora ponto e vírgula (ver `semSeparador`), então "2330", "2.330"
-         * e "2330,00" acham a mesma linha.
-         */
-        formatBRL(p.valorPago),
-        formatBRL(p.valor),
-      ],
-      termo,
-    );
+    return combina(camposDaBusca(p), termo);
   });
 }
 
@@ -721,7 +976,7 @@ function filtrar(
  * Excel em português abre o arquivo com as colunas já separadas. Com vírgula,
  * cada valor em reais quebraria a linha em duas colunas.
  */
-function baixarCsv(pagamentos: PagamentoFeito[], periodo: Janela): void {
+function baixarCsv(pagamentos: PagamentoFeito[], nome: string): void {
   const colunas = [
     'Pago em',
     'Lancado no IXC em',
@@ -781,7 +1036,7 @@ function baixarCsv(pagamentos: PagamentoFeito[], periodo: Janela): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `pagamentos-${periodo.de}-a-${periodo.ate}.csv`;
+  link.download = `${nome}.csv`;
   link.click();
   URL.revokeObjectURL(url);
 }
