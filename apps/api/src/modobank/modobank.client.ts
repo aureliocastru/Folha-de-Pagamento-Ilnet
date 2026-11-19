@@ -361,11 +361,15 @@ export class ModobankClient {
     };
   }
 
-  /** Lê um Pix copia e cola: quem recebe e quanto ele pede. */
+  /**
+   * Lê um Pix copia e cola: quem recebe, quanto ele pede e, no QR dinâmico com
+   * vencimento (o das guias, o `cobv`), o dia em que vence — que vem em
+   * `payload.calendario.dataDeVencimento`. O estático e o imediato não têm dia.
+   */
   async lerCopiaECola(
     codigo: string,
     chave: string,
-  ): Promise<{ favorecido: string | null; valor: number | null }> {
+  ): Promise<{ favorecido: string | null; valor: number | null; vencimento: string | null }> {
     const r = await this.pedir<Record<string, unknown>>(
       'post',
       '/pix/payments/qrc/info',
@@ -374,9 +378,15 @@ export class ModobankClient {
     );
     const d = (r.data ?? r) as Record<string, unknown>;
     const valor = Number(d.transactionAmount ?? NaN);
+    const payload = (d.payload ?? {}) as {
+      calendario?: { dataDeVencimento?: unknown };
+      recebedor?: { nome?: unknown };
+    };
+    const dia = texto(payload.calendario?.dataDeVencimento)?.slice(0, 10) ?? null;
     return {
-      favorecido: texto(d.merchantName),
+      favorecido: texto(d.merchantName) ?? texto(payload.recebedor?.nome),
       valor: Number.isFinite(valor) && valor > 0 ? valor : null,
+      vencimento: dia && /^\d{4}-\d{2}-\d{2}$/.test(dia) ? dia : null,
     };
   }
 

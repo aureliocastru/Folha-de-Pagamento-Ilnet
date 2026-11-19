@@ -31,6 +31,16 @@ import { DetalheDaConta } from './DetalheDaConta';
 import { NovaDespesa } from './NovaDespesa';
 import { TornarRecorrente } from './TornarRecorrente';
 
+/** Uma conta cujo vencimento o código de barras corrigiu (ver a API). */
+interface AcertoDeVencimento {
+  idFnApagar: number;
+  fornecedor: string;
+  de: string;
+  para: string;
+  doCodigo: string;
+  porque: 'sábado' | 'domingo' | 'feriado' | null;
+}
+
 /**
  * O que a empresa deve hoje, lido do IXC na hora de abrir.
  *
@@ -70,6 +80,33 @@ export function Inicio() {
     // "lendo", sem dizer nada a quem espera. Aqui é melhor falhar rápido e
     // deixar o botão Atualizar à mão.
     retry: 0,
+  });
+
+  /*
+   * O Atualizar relê o código de barras de cada conta e põe no IXC o vencimento
+   * que ele diz — no dia útil: o boleto que cai no feriado ou no fim de semana
+   * paga-se no dia útil seguinte. A API vai em rodadas de ~20 s; aqui se chama
+   * até acabar, e a lista é lida de novo no fim.
+   */
+  const acertarVencimentos = useMutation({
+    mutationFn: async () => {
+      const feitos: AcertoDeVencimento[] = [];
+      const falhas: Array<AcertoDeVencimento & { erro: string }> = [];
+      for (let rodada = 0; rodada < 30; rodada++) {
+        const { data } = await api.post<{
+          feitos: AcertoDeVencimento[];
+          falhas: Array<AcertoDeVencimento & { erro: string }>;
+          faltam: number;
+        }>('/contas-abertas/vencimentos-pelo-codigo', {
+          pular: falhas.map((f) => f.idFnApagar),
+        });
+        feitos.push(...data.feitos);
+        falhas.push(...data.falhas);
+        if (data.faltam === 0 || data.feitos.length + data.falhas.length === 0) break;
+      }
+      return { feitos, falhas };
+    },
+    onSettled: () => void consulta.refetch(),
   });
 
   /** Os títulos que ainda esperam o banco: pagar, ou a baixa do que ele pagou. */
@@ -288,11 +325,15 @@ export function Inicio() {
               Lançar conta
             </button>
             <button
-              onClick={() => consulta.refetch()}
-              disabled={consulta.isFetching}
+              onClick={() => acertarVencimentos.mutate()}
+              disabled={consulta.isFetching || acertarVencimentos.isPending}
               className="btn btn-acao"
             >
-              {consulta.isFetching ? 'Lendo o IXC…' : 'Atualizar'}
+              {acertarVencimentos.isPending
+                ? 'Acertando vencimentos…'
+                : consulta.isFetching
+                  ? 'Lendo o IXC…'
+                  : 'Atualizar'}
             </button>
           </>
         }
@@ -304,6 +345,45 @@ export function Inicio() {
           {consulta.data
             ? ' As contas abaixo são da última leitura que deu certo.'
             : ''}
+        </Aviso>
+      )}
+
+      {acertarVencimentos.data && acertarVencimentos.data.feitos.length > 0 && (
+        <Aviso
+          tom="pago"
+          acao={
+            <button onClick={() => acertarVencimentos.reset()} className="btn btn-sutil btn-p">
+              Fechar
+            </button>
+          }
+        >
+          Vencimento acertado pelo código de barras:
+          <ul className="mt-1">
+            {acertarVencimentos.data.feitos.map((a) => (
+              <li key={a.idFnApagar}>
+                {a.fornecedor || `Título ${a.idFnApagar}`}: {a.de ? formatData(a.de) : 'sem data'} →{' '}
+                {formatData(a.para)}
+                {a.porque && ` (o ${formatData(a.doCodigo)} é ${a.porque})`}
+              </li>
+            ))}
+          </ul>
+        </Aviso>
+      )}
+      {acertarVencimentos.data && acertarVencimentos.data.falhas.length > 0 && (
+        <Aviso tom="erro">
+          Não deu para acertar o vencimento de:
+          <ul className="mt-1">
+            {acertarVencimentos.data.falhas.map((a) => (
+              <li key={a.idFnApagar}>
+                {a.fornecedor || `Título ${a.idFnApagar}`} ({formatData(a.para)}): {a.erro}
+              </li>
+            ))}
+          </ul>
+        </Aviso>
+      )}
+      {acertarVencimentos.error && (
+        <Aviso tom="erro">
+          Não deu para acertar os vencimentos: {mensagemErro(acertarVencimentos.error)}
         </Aviso>
       )}
 

@@ -91,9 +91,11 @@ export class PagamentosNoBancoService {
    *
    * O QR das guias é dinâmico: o valor não vem escrito no código, fica no
    * servidor de quem cobra, e só o banco o busca. É o que faz o "Ler código"
-   * pôr o valor da guia na conta. Não paga nada.
+   * pôr o valor da guia na conta — e, no QR com vencimento, o dia. Não paga nada.
    */
-  async lerQr(codigo: string): Promise<{ valor: number | null; favorecido: string | null }> {
+  async lerQr(
+    codigo: string,
+  ): Promise<{ valor: number | null; favorecido: string | null; vencimento: string | null }> {
     this.exigirAtivo();
     return this.banco.lerCopiaECola(codigo, novaChave(0));
   }

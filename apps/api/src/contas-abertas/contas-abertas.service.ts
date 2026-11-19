@@ -21,6 +21,7 @@ import {
   type ContaAberta,
   type ResumoContasAbertas,
 } from './contas-abertas.mapper';
+import { acertosDeVencimento, type AcertoDeVencimento } from './vencimento-pelo-codigo';
 
 /** O título do IXC por inteiro, com a leitura que o filtro daqui faz dele. */
 export interface DetalheDoTitulo {
@@ -274,10 +275,9 @@ export class ContasAbertasService {
     @Optional() private readonly noBanco?: PagamentosNoBancoService,
   ) {}
 
-  async listar(): Promise<ContasAbertasResposta> {
-    const avisos: string[] = [];
-
-    const brutos = await this.ixc.listAll<Record<string, unknown>>(
+  /** Os títulos com status aberto no IXC, crus — a lista e o acerto partem daqui. */
+  private lerTitulosAbertos(): Promise<Array<Record<string, unknown>>> {
+    return this.ixc.listAll<Record<string, unknown>>(
       'fn_apagar',
       {
         // "A" é aberto. A conferência de novo acontece no `estaEmAberto`: base
@@ -291,6 +291,42 @@ export class ContasAbertasService {
       },
       { pageSize: 500, maxPages: TETO_DE_TITULOS / 500 },
     );
+  }
+
+  /**
+   * As contas em aberto cujo vencimento não é o que o código de barras delas
+   * diz, já no dia útil (ver `acertosDeVencimento`). Só lê.
+   *
+   * Fica de fora a que está indo pelo banco agora: mexer na data no meio do
+   * pagamento só confundiria a baixa.
+   */
+  async vencimentosPeloCodigo(): Promise<Array<AcertoDeVencimento & { fornecedor: string }>> {
+    const abertos = (await this.lerTitulosAbertos()).filter((raw) => !motivoDeNaoEstarAberto(raw));
+    let acertos = acertosDeVencimento(abertos);
+    if (acertos.length === 0) return [];
+
+    if (this.noBanco) {
+      const andamento = await this.noBanco.naLista(acertos.map((a) => a.idFnApagar));
+      acertos = acertos.filter((a) => {
+        const b = andamento.get(a.idFnApagar);
+        return !b || b.situacao === 'RECUSADO';
+      });
+    }
+
+    // O nome de quem recebe, para dizer na tela qual conta mudou.
+    const ids = new Set(acertos.map((a) => a.idFnApagar));
+    const contas = abertos
+      .map((raw) => mapContaAberta(raw))
+      .filter((c): c is ContaAberta => !!c && ids.has(c.idFnApagar));
+    await this.completarNomes(contas, []);
+    const nomes = new Map(contas.map((c) => [c.idFnApagar, c.fornecedor.nome]));
+    return acertos.map((a) => ({ ...a, fornecedor: nomes.get(a.idFnApagar) ?? '' }));
+  }
+
+  async listar(): Promise<ContasAbertasResposta> {
+    const avisos: string[] = [];
+
+    const brutos = await this.lerTitulosAbertos();
 
     if (brutos.length >= TETO_DE_TITULOS) {
       avisos.push(

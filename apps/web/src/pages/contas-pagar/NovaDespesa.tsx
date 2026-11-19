@@ -16,6 +16,7 @@ import {
 import { api, mensagemErro } from '../../lib/api';
 import { useTermoAdiado } from '../../lib/busca';
 import { lerBoleto, lerPix } from '../../lib/codigo-de-pagamento';
+import { diaUtil, porQueNaoEUtil } from '../../lib/dias-uteis';
 import { ajustarAbaixo } from '../../lib/parcelas';
 import { formatBRL, numeroDigitado, soFracao } from '../../lib/format';
 import { CampoDeData } from '../../components/CampoDeData';
@@ -987,6 +988,9 @@ export function NovaDespesa({
    * próprio código e, de dentro dele, o valor e o vencimento do boleto, ou o
    * valor e o nome de quem recebe o Pix — que vai para a busca do fornecedor.
    * O valor fica de fora quando a conta é a soma de várias notas.
+   *
+   * O vencimento do código que cai em sábado, domingo ou feriado vira o dia em
+   * que dá para pagar (ver `vencimentoPagavel`).
    */
   function usarCodigoLido(alvo: 'boleto' | 'pix', codigo: string) {
     const pegaValor = !dividida;
@@ -995,12 +999,13 @@ export function NovaDespesa({
       setCodigoBarras(codigo);
       const b = lerBoleto(codigo);
       if (b?.valor && pegaValor) setValor(b.valor.toFixed(2));
-      if (b?.vencimento) setVencimento(b.vencimento);
+      const venc = b?.vencimento ? vencimentoPagavel(b.vencimento, 'depois') : null;
+      if (venc) setVencimento(venc.dia);
       setLidoDoCodigo(
         [
           'Boleto lido',
           b?.valor ? formatBRL(b.valor) : null,
-          b?.vencimento ? `vence ${formatarDia(b.vencimento)}` : null,
+          venc?.recado,
         ]
           .filter(Boolean)
           .join(' · '),
@@ -1011,33 +1016,49 @@ export function NovaDespesa({
     setChavePix(codigo);
     setTipoChavePix('Código copia e cola');
     const p = lerPix(codigo);
-    const dizer = (valorLido: number | null, nome: string | null, resto?: string) =>
+    const dizer = (
+      valorLido: number | null,
+      nome: string | null,
+      ...resto: Array<string | null | undefined>
+    ) =>
       setLidoDoCodigo(
-        ['Pix lido', valorLido ? formatBRL(valorLido) : null, nome ? `para ${nome}` : null, resto]
+        ['Pix lido', valorLido ? formatBRL(valorLido) : null, nome ? `para ${nome}` : null, ...resto]
           .filter(Boolean)
           .join(' · '),
       );
     if (p?.nome && !fornecedor) setTermo(p.nome);
-    if (p?.valor) {
-      if (pegaValor) setValor(p.valor.toFixed(2));
+    if (p?.valor && pegaValor) setValor(p.valor.toFixed(2));
+    // O estático com valor já disse tudo o que tem: não há dia para buscar.
+    if (p?.valor && !p.dinamico) {
       dizer(p.valor, p.nome);
       return;
     }
     /*
-     * O QR das guias (DAS, DARF, DARE) é dinâmico: o valor não vem no código,
-     * fica no servidor de quem cobra. Quem o busca é o banco.
+     * O QR das guias (DAS, DARF, DARE) é dinâmico: o valor e o vencimento não
+     * vêm no código, ficam no servidor de quem cobra. Quem os busca é o banco.
      */
-    dizer(null, p?.nome ?? null, 'procurando o valor no banco…');
+    dizer(p?.valor ?? null, p?.nome ?? null, 'procurando no banco…');
     void api
-      .post<{ valor: number | null; favorecido: string | null }>('/contas-abertas/banco/ler-qr', {
-        codigo,
-      })
+      .post<{ valor: number | null; favorecido: string | null; vencimento: string | null }>(
+        '/contas-abertas/banco/ler-qr',
+        { codigo },
+      )
       .then(({ data }) => {
+        const valorLido = data.valor ?? p?.valor ?? null;
         if (data.valor && pegaValor) setValor(data.valor.toFixed(2));
+        const venc = data.vencimento ? vencimentoPagavel(data.vencimento, 'antes') : null;
+        if (venc) setVencimento(venc.dia);
         if (data.favorecido && !fornecedor && !p?.nome) setTermo(data.favorecido);
-        dizer(data.valor, data.favorecido ?? p?.nome ?? null, data.valor ? undefined : 'sem valor no QR');
+        dizer(
+          valorLido,
+          data.favorecido ?? p?.nome ?? null,
+          venc?.recado,
+          valorLido ? null : 'sem valor no QR',
+        );
       })
-      .catch(() => dizer(null, p?.nome ?? null, 'o banco não disse o valor — confira'));
+      .catch(() =>
+        dizer(p?.valor ?? null, p?.nome ?? null, 'o banco não disse o valor nem o dia — confira'),
+      );
   }
 
   /**
@@ -1879,7 +1900,19 @@ export function NovaDespesa({
                       <input
                         id="codigo-barras"
                         value={codigoBarras}
-                        onChange={(e) => setCodigoBarras(e.target.value)}
+                        onChange={(e) => {
+                          const novo = e.target.value;
+                          // Fechou o código (44, 47 ou 48 números): relê e
+                          // acerta valor e vencimento, como o "Ler código".
+                          if (
+                            [44, 47, 48].includes(digitos(novo).length) &&
+                            digitos(novo) !== digitos(codigoBarras)
+                          ) {
+                            usarCodigoLido('boleto', digitos(novo));
+                          } else {
+                            setCodigoBarras(novo);
+                          }
+                        }}
                         className="campo num"
                         inputMode="numeric"
                         placeholder="Cole os números do boleto — pontos e espaços vão embora"
@@ -1906,7 +1939,9 @@ export function NovaDespesa({
                       {!codigoBarras
                         ? 'Sem o código, a conta chega ao IXC sem como ser paga por boleto.'
                         : boletoValido
-                          ? `${digitos(codigoBarras).length} dígitos — ok.`
+                          ? lidoDoCodigo?.startsWith('Boleto')
+                            ? lidoDoCodigo
+                            : `${digitos(codigoBarras).length} dígitos — ok.`
                           : `${digitos(codigoBarras).length} dígitos. O esperado é 44, 47 ou 48 — confira se copiou a linha inteira.`}
                     </p>
                   </div>
@@ -2627,6 +2662,21 @@ function mesesDepois(iso: string, meses: number): string {
 function formatarDia(iso: string): string {
   const [ano, mes, dia] = iso.slice(0, 10).split('-');
   return `${dia}/${mes}/${ano}`;
+}
+
+/**
+ * O vencimento escrito no código, num dia em que o banco abre.
+ *
+ * O boleto que vence no sábado, domingo ou feriado paga-se sem juros no
+ * próximo dia útil — então anda para frente. O Pix não tem esse prazo: depois
+ * do dia a cobrança pode vir com multa, então volta para o último dia útil
+ * antes. O recado diz o dia que ficou e, quando mudou, por quê.
+ */
+function vencimentoPagavel(dia: string, direcao: 'depois' | 'antes'): { dia: string; recado: string } {
+  const porque = porQueNaoEUtil(dia);
+  if (!porque) return { dia, recado: `vence ${formatarDia(dia)}` };
+  const certo = diaUtil(dia, direcao);
+  return { dia: certo, recado: `vence ${formatarDia(certo)} (o ${formatarDia(dia)} é ${porque})` };
 }
 
 /** Hoje em "AAAA-MM-DD", que é o formato do input de data. */

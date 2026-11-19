@@ -139,6 +139,16 @@ export class ExcluirLoteDto {
   idsFnApagar!: number[];
 }
 
+/** Acertar o vencimento pelo código de barras: as que já falharam nesta rodada ficam de fora. */
+export class AcertarVencimentosDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @IsInt({ each: true })
+  @Type(() => Number)
+  pular?: number[];
+}
+
 /** O que dá para mudar num título que ainda está em aberto no IXC. */
 export class EditarTituloDto {
   @IsOptional()

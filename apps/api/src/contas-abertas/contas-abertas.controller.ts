@@ -11,7 +11,8 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { ContasAbertasService } from './contas-abertas.service';
-import { ExcluirLoteDto } from './dto/despesa.dto';
+import { AcertarVencimentosDto, ExcluirLoteDto } from './dto/despesa.dto';
+import { PagamentosService } from './pagamentos.service';
 import { ParcelasService } from './parcelas.service';
 
 /**
@@ -27,6 +28,7 @@ export class ContasAbertasController {
   constructor(
     private readonly service: ContasAbertasService,
     private readonly parcelas: ParcelasService,
+    private readonly pagamentos: PagamentosService,
   ) {}
 
   @Get()
@@ -91,6 +93,45 @@ export class ContasAbertasController {
       (req.user as { id?: string } | undefined)?.id,
     );
     return { ok: true, ocultadas };
+  }
+
+  /**
+   * As contas cujo vencimento não é o que o código de barras diz, com o dia
+   * certo de cada uma (já no dia útil). Só lê — é a prévia do acerto.
+   */
+  @Get('vencimentos-pelo-codigo')
+  vencimentosPeloCodigo() {
+    return this.service.vencimentosPeloCodigo();
+  }
+
+  /**
+   * Põe no IXC o vencimento que o código de barras diz — o botão Atualizar da
+   * lista chama isto. Cada conta vai pela mesma edição da tela (reprova,
+   * muda a data, reaprova).
+   *
+   * Para em ~20 s e diz quantas faltam: muitas de uma vez passariam do tempo
+   * do proxy, e a tela chama de novo até zerar.
+   */
+  @Post('vencimentos-pelo-codigo')
+  @HttpCode(200)
+  async acertarVencimentos(@Body() dto: AcertarVencimentosDto) {
+    const pular = new Set(dto.pular ?? []);
+    const acertos = (await this.service.vencimentosPeloCodigo()).filter(
+      (a) => !pular.has(a.idFnApagar),
+    );
+    const feitos: typeof acertos = [];
+    const falhas: Array<(typeof acertos)[number] & { erro: string }> = [];
+    const limite = Date.now() + 20_000;
+    for (const a of acertos) {
+      if (Date.now() > limite) break;
+      try {
+        await this.pagamentos.editar(a.idFnApagar, { dataVencimento: a.para });
+        feitos.push(a);
+      } catch (err) {
+        falhas.push({ ...a, erro: err instanceof Error ? err.message : String(err) });
+      }
+    }
+    return { feitos, falhas, faltam: acertos.length - feitos.length - falhas.length };
   }
 
   /** Devolve à lista tudo o que foi ocultado. */

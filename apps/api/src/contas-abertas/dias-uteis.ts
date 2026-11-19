@@ -5,6 +5,9 @@
  * Carnaval e o Corpus Christi, que são ponto facultativo e não feriado — mas
  * em que os bancos não abrem, e boleto com vencimento neles só é liquidado
  * depois. Para o caixa da empresa, facultativo e feriado dão no mesmo.
+ *
+ * A tela tem uma cópia deste calendário em `apps/web/src/lib/dias-uteis.ts`
+ * (o build da web não enxerga a API): mexeu num, mexa no outro.
  */
 
 /** Feriados nacionais de data fixa: [mês, dia]. */

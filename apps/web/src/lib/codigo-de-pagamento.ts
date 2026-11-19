@@ -95,6 +95,12 @@ export interface DadosDoPix {
   valor: number | null;
   /** Quem recebe, como o QR escreve — em maiúsculas e cortado, às vezes. */
   nome: string | null;
+  /**
+   * QR dinâmico: traz um endereço (o subcampo 25 da conta do recebedor) onde
+   * está a cobrança de verdade — o valor final e, na cobrança com vencimento,
+   * o dia. Esse só o banco lê; o código em si não tem data nenhuma.
+   */
+  dinamico: boolean;
 }
 
 /** Valor e nome de quem recebe, do "copia e cola" de um QR do Pix. */
@@ -104,5 +110,11 @@ export function lerPix(copiaECola: string): DadosDoPix | null {
   const campos = camposEmv(texto);
   const valor = Number(campos.get('54'));
   const nome = campos.get('59')?.trim() || null;
-  return { valor: Number.isFinite(valor) && valor > 0 ? valor : null, nome };
+  // A conta do recebedor fica entre os campos 26 e 51 (o Pix usa o 26).
+  let dinamico = false;
+  for (let id = 26; id <= 51; id++) {
+    const conta = campos.get(String(id));
+    if (conta && camposEmv(conta).has('25')) dinamico = true;
+  }
+  return { valor: Number.isFinite(valor) && valor > 0 ? valor : null, nome, dinamico };
 }
