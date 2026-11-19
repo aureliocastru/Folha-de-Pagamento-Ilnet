@@ -71,7 +71,9 @@ function casa(l: Linha, campo: string, op: string, p: string): boolean {
   throw new Error(`operador ${op}`);
 }
 
-function montar(opts: { linhas?: Linha[]; somaDuasVezes?: boolean; recusaFilha?: boolean; filhaSolta?: boolean } = {}) {
+function montar(
+  opts: { linhas?: Linha[]; somaDuasVezes?: boolean; recusaFilha?: boolean; filhaSemResposta?: boolean; filhaSolta?: boolean } = {},
+) {
   const linhas: Linha[] = [...(opts.linhas ?? [])];
   let proximo = 1797100;
   const ordem: string[] = [];
@@ -98,6 +100,9 @@ function montar(opts: { linhas?: Linha[]; somaDuasVezes?: boolean; recusaFilha?:
       const ehFilha = corpo.tipo_lanc !== 'M';
       ordem.push(ehFilha ? `filha ${recurso}→${String(corpo.id_movim_finan)}` : `mae ${recurso}`);
       if (ehFilha && opts.recusaFilha) throw new Error(`IXC (/${recurso}): Conta inválida`);
+      if (ehFilha && opts.filhaSemResposta) {
+        throw new Error(`Não foi possível contatar o IXC (/${recurso}): timeout of 30000ms exceeded`);
+      }
       const id = proximo++;
       const ligada = recurso !== 'fn_movim_finan' && !opts.filhaSolta;
       const linha = comoOIxcGuarda(corpo, id, ligada);
@@ -263,6 +268,23 @@ describe('lançar', () => {
       ConflictException,
     );
     expect(ordem).toEqual(['mae fn_movim_finan', 'filha fn_movim_finan_debito→1797100', 'apaga 1797100']);
+    expect(linhas).toEqual([]);
+  });
+
+  it('sem resposta do IXC na filha, a mãe fica (sem valor) para conferir — nunca filha sem mãe', async () => {
+    const { service, ixc, linhas } = montar({ filhaSemResposta: true });
+    const r = await service.lancar({ banco: 18, dia: '2026-11-02', tipo: 'tarifa', valor: 5.2 });
+    expect(r).toMatchObject({ situacao: 'conferir', idMae: 1797100 });
+    expect(ixc.remove).not.toHaveBeenCalled();
+    expect(linhas.map((l) => [l.id, l.tipo_lanc, l.debito, l.credito])).toEqual([['1797100', 'M', '0.00', '0.00']]);
+  });
+
+  it('a mãe sem valor aparece na lista para conferir e pode sair', async () => {
+    const { service, linhas } = montar({ filhaSemResposta: true });
+    await service.lancar({ banco: 18, dia: '2026-11-02', tipo: 'tarifa', valor: 5.2 });
+    const lista = await service.lancadas('2026-11-01', '2026-11-30');
+    expect(lista).toMatchObject([{ idMae: 1797100, valor: 0, fechado: false, podeApagar: true }]);
+    expect(await service.apagar(1797100)).toEqual({ apagados: [1797100] });
     expect(linhas).toEqual([]);
   });
 

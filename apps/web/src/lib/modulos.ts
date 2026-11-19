@@ -163,6 +163,10 @@ const contabilidade: Secao = {
   papeis: ['ADMIN'],
   menu: [
     { to: 'contabilidade/meses', label: 'Meses', icone: IconeChecklist },
+    // As tarifas e a rentabilidade dos bancos, lançadas no IXC em lote para
+    // fechar a conciliação — o que se fazia uma por uma nos Lançamentos
+    // contábeis de lá.
+    { to: 'contabilidade/tarifas', label: 'Tarifas', icone: IconeEtiqueta },
     { to: 'contabilidade/ajustes', label: 'Ajustes', icone: IconeEngrenagem },
   ],
 };

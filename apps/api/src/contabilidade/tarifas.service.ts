@@ -238,7 +238,21 @@ export class TarifasDoBancoService {
       const { filhas } = await this.lerPar(mae.id);
       idFilha = filhas.length > 0 ? Number(filhas[0].id) : await this.acharFilhaSolta(mae.id);
       if (idFilha === null) {
-        // A mãe sozinha fica no razão do banco sem contrapartida: sai.
+        // Sem resposta (rede, demora — o IXC já levou mais de 30 s para
+        // apagar uma 240): ele ainda pode gravar a filha ligada à mãe, e
+        // apagar a mãe agora deixaria uma filha sem mãe (o 38114). A mãe fica,
+        // sem valor, para conferir.
+        if (falhaDaFilha && /não foi possível contatar o ixc/i.test(falhaDaFilha)) {
+          return {
+            situacao: 'conferir',
+            idMae: mae.id,
+            problemas: [
+              `o IXC não respondeu a tempo na linha da 240 (${falhaDaFilha}); ` +
+                `a linha do banco ${mae.id} ficou sem valor — confira no IXC antes de lançar de novo`,
+            ],
+          };
+        }
+        // Recusa dele (respondeu e disse não): a mãe sozinha sai.
         await this.desfazerMaeSozinha(mae.id);
         throw new ConflictException(`O IXC recusou a linha da conta 240${falhaDaFilha ? `: ${falhaDaFilha}` : '.'}`);
       }
