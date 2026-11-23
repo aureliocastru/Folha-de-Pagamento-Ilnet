@@ -111,7 +111,11 @@ const MAQUINA: ItemPadrao[] = [
   { nome: 'Bateria', medidor: null, meses: 24 },
 ];
 
-/** A lista que um veículo novo já ganha, pelo tipo. O galão não anda: não tem. */
+/**
+ * A lista que um veículo novo já ganha, pelo tipo. O galão não anda: não tem. O
+ * implemento também não — sem km nem horas, não há vida útil a medir; o que se
+ * consertou nele fica nas contas lançadas.
+ */
 export function itensPadrao(tipo: TipoVeiculo): ItemPadrao[] {
   switch (tipo) {
     case 'MOTO':
@@ -126,6 +130,7 @@ export function itensPadrao(tipo: TipoVeiculo): ItemPadrao[] {
     case 'MAQUINA':
       return MAQUINA;
     case 'GALAO':
+    case 'IMPLEMENTO':
       return [];
   }
 }

@@ -1,4 +1,23 @@
+import { semAcento } from './busca';
 import type { CategoriaDespesa, EtiquetaDaConta, FatiaDoRateio } from './types';
+
+/**
+ * A categoria escolhida é a dos implementos da fazenda?
+ *
+ * Nesse caso o "Lançar conta" oferece os implementos no lugar dos veículos
+ * (pedido do dono, 23/11/2026). Vale pelo nome — "Implementos", em qualquer
+ * caixa e com ou sem acento — e também para as filhas de um grupo com esse nome
+ * ("Implementos › Manutenção"). Categoria vazia ou desconhecida não é.
+ */
+export function ehCategoriaDeImplementos(
+  categorias: CategoriaDespesa[] | undefined,
+  id: string,
+): boolean {
+  if (!id) return false;
+  const c = categorias?.find((x) => x.id === id);
+  if (!c) return false;
+  return [c.nome, c.pai?.nome].some((n) => !!n && semAcento(n).includes('implemento'));
+}
 
 /**
  * O título já diz com o que se gastou?

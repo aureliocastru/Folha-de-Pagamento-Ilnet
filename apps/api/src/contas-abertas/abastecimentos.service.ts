@@ -400,10 +400,13 @@ export class AbastecimentosService {
     );
   }
 
-  /** A frota ligada, tirando os galões: é onde o combustível de fato acaba. */
+  /**
+   * A frota ligada, tirando os galões e os implementos: é onde o combustível de
+   * fato acaba, e implemento não bebe.
+   */
   private async destinosPossiveis(): Promise<DestinoDoGalao[]> {
     const lista = await this.prisma.veiculo.findMany({
-      where: { ativo: true, tipo: { not: 'GALAO' } },
+      where: { ativo: true, tipo: { notIn: ['GALAO', 'IMPLEMENTO'] } },
       orderBy: [{ tipo: 'asc' }, { apelido: 'asc' }],
       select: { id: true, apelido: true, tipo: true, placa: true },
     });

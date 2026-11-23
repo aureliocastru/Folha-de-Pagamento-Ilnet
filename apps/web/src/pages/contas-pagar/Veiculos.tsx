@@ -44,8 +44,14 @@ type TipoVeiculo =
   | 'CAMINHAO'
   | 'MAQUINA'
   | 'GALAO'
+  | 'IMPLEMENTO'
   | 'OUTRO';
 
+/**
+ * Os tipos que se escolhem no cadastro de veículo. O implemento não está aqui
+ * de propósito: ele não anda nem bebe, tem aba e formulário próprios (ver
+ * `FormularioDoImplemento`).
+ */
 const TIPOS: Array<{ valor: TipoVeiculo; rotulo: string }> = [
   { valor: 'MOTO', rotulo: 'Moto' },
   { valor: 'CARRO', rotulo: 'Carro' },
@@ -99,7 +105,8 @@ interface EstoqueDoGalao {
   litrosSemValor: number;
 }
 
-const rotuloDoTipo = (t: TipoVeiculo) => TIPOS.find((x) => x.valor === t)?.rotulo ?? t;
+const rotuloDoTipo = (t: TipoVeiculo) =>
+  t === 'IMPLEMENTO' ? 'Implemento' : (TIPOS.find((x) => x.valor === t)?.rotulo ?? t);
 
 interface VeiculoNaLista {
   id: string;
@@ -341,6 +348,13 @@ export function Veiculos() {
   const [abertoId, setAbertoId] = useState<string | null>(null);
   const [busca, setBusca] = useState('');
   /**
+   * A frota, ou os implementos da fazenda — pedido do dono (23/11/2026): "uma
+   * aba dentro de veículos". O implemento não anda nem bebe, e por isso fica
+   * fora dos números da frota: é só uma ferramenta, para acompanhar o que se
+   * gastou e se consertou nela.
+   */
+  const [aba, setAba] = useState<'frota' | 'implementos'>('frota');
+  /**
    * "AAAA-MM", ou null: o geral, desde sempre. Abre no mês de agora, e a
    * ficha de cada veículo segue o que estiver escolhido aqui.
    */
@@ -363,26 +377,65 @@ export function Veiculos() {
   const andar = (meses: number) =>
     setCompetencia((c) => (c ? somarMeses(c, meses) : mesAtual()));
 
-  const veiculos = lista.data ?? [];
+  const todos = lista.data ?? [];
+  const veiculos = todos.filter((v) => v.tipo !== 'IMPLEMENTO');
+  const implementos = todos.filter((v) => v.tipo === 'IMPLEMENTO');
   const achados = veiculos.filter((v) => combina(camposDaBusca(v), busca));
   const ativos = veiculos.filter((v) => v.ativo);
   const totalGasto = veiculos.reduce((s, v) => s + v.gasto, 0);
   const totalCombustivel = veiculos.reduce((s, v) => s + v.combustivel, 0);
+  const noImplementos = aba === 'implementos';
 
   return (
     <Pagina>
       <CabecalhoPagina
         secao="Veículos"
-        titulo="A frota"
+        titulo={noImplementos ? 'Os implementos' : 'A frota'}
         acoes={
           <button onClick={() => setCadastrando(true)} className="btn btn-primario">
-            Cadastrar veículo
+            {noImplementos ? 'Cadastrar implemento' : 'Cadastrar veículo'}
           </button>
         }
       />
 
       {lista.isError && <Aviso tom="erro">{mensagemErro(lista.error)}</Aviso>}
 
+      {/* Duas abas, no mesmo recorte de mês: a frota e os implementos. */}
+      <div role="tablist" className="faixa-abas mb-4">
+        {(
+          [
+            { id: 'frota', rotulo: 'Frota', selo: veiculos.length },
+            { id: 'implementos', rotulo: 'Implementos', selo: implementos.length },
+          ] as const
+        ).map((a) => (
+          <button
+            key={a.id}
+            type="button"
+            role="tab"
+            aria-selected={aba === a.id}
+            onClick={() => {
+              setAba(a.id);
+              setBusca('');
+            }}
+            className="aba"
+          >
+            {a.rotulo}
+            {a.selo > 0 && <span className="aba-selo">{a.selo}</span>}
+          </button>
+        ))}
+      </div>
+
+      {noImplementos ? (
+        <ImplementosDaFazenda
+          implementos={implementos}
+          carregando={lista.isLoading}
+          competencia={competencia}
+          onAndar={andar}
+          onGeral={() => setCompetencia(null)}
+          onAbrir={setAbertoId}
+        />
+      ) : (
+      <>
       <ConferenciaDeAbastecimentos onAbrirVeiculo={setAbertoId} />
 
       {veiculos.length > 0 && (
@@ -573,8 +626,15 @@ export function Veiculos() {
           </div>
         )}
       </Bloco>
+      </>
+      )}
 
-      {cadastrando && <FormularioDoVeiculo onFechar={() => setCadastrando(false)} />}
+      {cadastrando &&
+        (noImplementos ? (
+          <FormularioDoImplemento onFechar={() => setCadastrando(false)} />
+        ) : (
+          <FormularioDoVeiculo onFechar={() => setCadastrando(false)} />
+        ))}
       {abertoId && (
         <FichaDoVeiculo
           id={abertoId}
@@ -583,6 +643,174 @@ export function Veiculos() {
         />
       )}
     </Pagina>
+  );
+}
+
+/**
+ * A aba dos implementos: a grade, a roçadeira, a carreta — e o que já se gastou
+ * e se consertou em cada um.
+ *
+ * Implemento é só uma ferramenta (pedido do dono, 23/11/2026): não tem km,
+ * horímetro, combustível nem média. O que se acompanha são as contas lançadas
+ * com ele marcado — o "Lançar conta" mostra os implementos quando a categoria
+ * escolhida é Implementos — e é dessa soma que sai cada número daqui.
+ */
+function ImplementosDaFazenda({
+  implementos,
+  carregando,
+  competencia,
+  onAndar,
+  onGeral,
+  onAbrir,
+}: {
+  implementos: VeiculoNaLista[];
+  carregando: boolean;
+  competencia: string | null;
+  onAndar: (meses: number) => void;
+  onGeral: () => void;
+  onAbrir: (id: string) => void;
+}) {
+  const [busca, setBusca] = useState('');
+  const achados = implementos.filter((i) =>
+    combina([i.apelido, i.modelo, i.ano, i.observacao], busca),
+  );
+  const ativos = implementos.filter((i) => i.ativo);
+  const totalGasto = implementos.reduce((s, i) => s + i.gasto, 0);
+
+  return (
+    <>
+      {implementos.length > 0 && (
+        <div className="mb-3 flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => onAndar(-1)}
+            className="btn btn-neutro btn-p"
+            aria-label="Mês anterior"
+          >
+            ‹
+          </button>
+          <span className="inline-block min-w-[128px] text-center text-sm font-semibold text-tinta-800 first-letter:uppercase">
+            {competencia ? mesPorExtenso(competencia) : 'Geral'}
+          </span>
+          <button
+            type="button"
+            onClick={() => onAndar(1)}
+            className="btn btn-neutro btn-p"
+            aria-label="Próximo mês"
+          >
+            ›
+          </button>
+          {competencia && (
+            <button type="button" onClick={onGeral} className="btn btn-neutro btn-p ml-1">
+              Geral
+            </button>
+          )}
+        </div>
+      )}
+
+      {implementos.length > 0 && (
+        <div className="mb-4 grid grid-cols-2 gap-2.5 sm:gap-4 xl:grid-cols-3">
+          <Indicador
+            rotulo="Implementos"
+            valor={ativos.length}
+            detalhe={
+              implementos.length > ativos.length
+                ? `${implementos.length - ativos.length} desligado(s)`
+                : 'na fazenda'
+            }
+          />
+          <Indicador
+            rotulo="Peças e serviços"
+            valor={formatBRL(totalGasto)}
+            detalhe="contas lançadas com o implemento marcado"
+            acento
+          />
+        </div>
+      )}
+
+      {implementos.length > 0 && (
+        <input
+          type="search"
+          className="campo mb-3 max-w-xs"
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          placeholder="Procurar pelo nome ou modelo"
+          aria-label="Procurar implemento"
+          autoComplete="off"
+        />
+      )}
+
+      <Bloco semPadding>
+        {carregando ? (
+          <Carregando />
+        ) : implementos.length === 0 ? (
+          <Vazio titulo="Nenhum implemento cadastrado">
+            Cadastre a grade, a roçadeira, a carreta. Depois, no "Lançar conta",
+            escolha a categoria Implementos e marque em qual deles foi o gasto.
+          </Vazio>
+        ) : achados.length === 0 ? (
+          <Vazio titulo="Nenhum implemento com essa busca">
+            Nada com "{busca.trim()}" no nome ou no modelo.
+          </Vazio>
+        ) : (
+          <div className="overflow-x-auto rolagem-fina">
+            <table className="w-full text-sm">
+              <thead>
+                <tr>
+                  <th className="th">Implemento</th>
+                  <th className="th text-right">Peças e serviços</th>
+                </tr>
+              </thead>
+              <tbody>
+                {achados.map((i) => (
+                  <tr
+                    key={i.id}
+                    onClick={() => onAbrir(i.id)}
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onAbrir(i.id);
+                      }
+                    }}
+                    title={`Abrir a ficha de ${i.apelido}`}
+                    className={`linha cursor-pointer focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-500 ${
+                      i.ativo ? '' : 'opacity-50'
+                    }`}
+                  >
+                    <td className="td">
+                      <span className="block font-display text-base font-semibold leading-tight text-tinta-900">
+                        {i.apelido}
+                        <span className="ml-1.5 font-sans font-normal text-tinta-300">&rsaquo;</span>
+                      </span>
+                      {[i.modelo, i.ano].filter(Boolean).length > 0 && (
+                        <span className="mt-0.5 block text-xs text-tinta-400">
+                          {[i.modelo, i.ano].filter(Boolean).join(' · ')}
+                        </span>
+                      )}
+                      {!i.ativo && (
+                        <span className="mt-1 inline-block">
+                          <Selo pequeno tom="neutro">
+                            desligado
+                          </Selo>
+                        </span>
+                      )}
+                    </td>
+                    <td className="td whitespace-nowrap text-right">
+                      <span className="valor">{formatBRL(i.gasto)}</span>
+                      <span className="block text-xs text-tinta-400">
+                        {i.quantidade} lançamento(s)
+                        {i.emAberto > 0 && ` · ${formatBRL(i.emAberto)} em aberto`}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Bloco>
+    </>
   );
 }
 
@@ -1102,7 +1330,8 @@ function FichaDoVeiculo({
           `/veiculos/${id}/manutencao`,
         )
       ).data,
-    enabled: !!ficha.data && ficha.data.veiculo.tipo !== 'GALAO',
+    enabled:
+      !!ficha.data && ficha.data.veiculo.tipo !== 'GALAO' && ficha.data.veiculo.tipo !== 'IMPLEMENTO',
   });
 
   const apagarAbastecimento = useMutation({
@@ -1133,8 +1362,10 @@ function FichaDoVeiculo({
     return <ManutencaoDoVeiculo veiculoId={id} onFechar={() => setManutencao(false)} />;
   }
   if (editando && ficha.data) {
+    const Formulario =
+      ficha.data.veiculo.tipo === 'IMPLEMENTO' ? FormularioDoImplemento : FormularioDoVeiculo;
     return (
-      <FormularioDoVeiculo
+      <Formulario
         veiculo={ficha.data.veiculo}
         onFechar={() => setEditando(false)}
         onApagado={onFechar}
@@ -1143,6 +1374,9 @@ function FichaDoVeiculo({
   }
 
   const d = ficha.data;
+  // O implemento não anda nem bebe: sem abastecimento, km, média nem troca por
+  // medidor. Só as contas lançadas com ele marcado.
+  const ehImplemento = d?.veiculo.tipo === 'IMPLEMENTO';
   // Os abastecimentos vêm todos (o lançamento precisa dos vizinhos pelo
   // painel); a tela mostra só os do mês escolhido.
   const doMes = <T extends { data: string }>(lista: T[]) =>
@@ -1171,9 +1405,9 @@ function FichaDoVeiculo({
 
           <div className="mb-4 flex flex-wrap gap-2">
             <button onClick={() => setLancando(true)} className="btn btn-primario">
-              Lançar conta neste veículo
+              {ehImplemento ? 'Lançar conta neste implemento' : 'Lançar conta neste veículo'}
             </button>
-            {d?.veiculo.ativo && (
+            {d?.veiculo.ativo && !ehImplemento && (
               <button onClick={() => setAbastecendo(true)} className="btn btn-neutro">
                 Lançar abastecimento
               </button>
@@ -1181,8 +1415,8 @@ function FichaDoVeiculo({
             <button onClick={() => setEditando(true)} className="btn btn-neutro">
               Editar
             </button>
-            {/* O galão não anda: não tem óleo, pneu nem correia. */}
-            {d.veiculo.tipo !== 'GALAO' && (
+            {/* O galão não anda: não tem óleo, pneu nem correia. Nem o implemento. */}
+            {d.veiculo.tipo !== 'GALAO' && !ehImplemento && (
               <button
                 onClick={() => setManutencao(true)}
                 className="btn btn-neutro"
@@ -1216,7 +1450,7 @@ function FichaDoVeiculo({
              * ainda há dentro dele e por quanto saiu o litro — o gasto só
              * acontece quando o combustível entra numa máquina.
              */}
-            {d.veiculo.estoque ? (
+            {ehImplemento ? null : d.veiculo.estoque ? (
               <div className="rounded-2xl bg-realce p-4">
                 <p className="eyebrow">No galão</p>
                 <p className="valor mt-1 text-2xl">{litros(d.veiculo.estoque.litros)}</p>
@@ -1265,7 +1499,7 @@ function FichaDoVeiculo({
              * nenhuma: cada abastecimento novo o refaz. O galão não entra —
              * ele não anda, e o que sai dele vira consumo de quem o bebeu.
              */}
-            {d.veiculo.tipo !== 'GALAO' && (
+            {d.veiculo.tipo !== 'GALAO' && !ehImplemento && (
               <div className="rounded-2xl bg-realce p-4 sm:col-span-2">
                 <p className="eyebrow">Média de consumo</p>
                 {d.combustivel.consumo.medio != null ? (
@@ -1367,7 +1601,11 @@ function FichaDoVeiculo({
               formatBRL(g.valor),
             ]}
             procurar="Procurar pela descrição, fornecedor, data, categoria ou valor"
-            vazio='Nenhuma conta ainda. Use "Lançar conta neste veículo", ou marque o veículo no "Lançar conta" da tela Em aberto.'
+            vazio={
+              ehImplemento
+                ? 'Nenhuma conta ainda. Use "Lançar conta neste implemento", ou escolha a categoria Implementos no "Lançar conta" da tela Em aberto e marque o implemento.'
+                : 'Nenhuma conta ainda. Use "Lançar conta neste veículo", ou marque o veículo no "Lançar conta" da tela Em aberto.'
+            }
           >
             {(lista) =>
               lista.map((g) => (
@@ -1426,6 +1664,7 @@ function FichaDoVeiculo({
             }
           </Segmento>
 
+          {!ehImplemento && (
           <Segmento
             titulo="Abastecimentos"
             resumo={`${abastecimentosDoMes.length} abastecimento(s) · ${formatBRL(d.combustivel.total)}`}
@@ -1487,6 +1726,7 @@ function FichaDoVeiculo({
               ))
             }
           </Segmento>
+          )}
           {apagarAbastecimento.isError && (
             <Aviso tom="erro">{mensagemErro(apagarAbastecimento.error)}</Aviso>
           )}
@@ -2117,6 +2357,210 @@ function FormularioDoVeiculo({
           {salvar.isPending ? 'Salvando…' : veiculo ? 'Salvar' : 'Cadastrar'}
         </button>
       </div>
+      )}
+    </Janela>
+  );
+}
+
+/**
+ * O cadastro de um implemento: a grade, a roçadeira, a carreta.
+ *
+ * Bem mais curto que o do veículo, de propósito (pedido do dono, 23/11/2026:
+ * "é só uma ferramenta, não tem km nem combustível, é só pra acompanhar as
+ * despesas e manutenções"). Sem placa, combustível, média nem responsáveis —
+ * só o nome, e o modelo e o ano para distinguir dois iguais.
+ */
+function FormularioDoImplemento({
+  veiculo,
+  onFechar,
+  onApagado,
+}: {
+  veiculo?: VeiculoNaLista;
+  onFechar: () => void;
+  onApagado?: () => void;
+}) {
+  const qc = useQueryClient();
+  const [apelido, setApelido] = useState(veiculo?.apelido ?? '');
+  const [modelo, setModelo] = useState(veiculo?.modelo ?? '');
+  const [ano, setAno] = useState(veiculo?.ano ? String(veiculo.ano) : '');
+  const [observacao, setObservacao] = useState(veiculo?.observacao ?? '');
+
+  const recarregar = () => void qc.invalidateQueries({ queryKey: ['veiculos'] });
+
+  const salvar = useMutation({
+    mutationFn: async () => {
+      const dados = {
+        apelido: apelido.trim(),
+        tipo: 'IMPLEMENTO' as const,
+        modelo: modelo.trim() || (veiculo ? null : undefined),
+        ano: ano ? Number(ano) : veiculo ? null : undefined,
+        observacao: observacao.trim() || (veiculo ? null : undefined),
+      };
+      if (veiculo) await api.patch(`/veiculos/${veiculo.id}`, dados);
+      else await api.post('/veiculos', dados);
+    },
+    onSuccess: () => {
+      recarregar();
+      onFechar();
+    },
+  });
+
+  const ligar = useMutation({
+    mutationFn: async (ativo: boolean) => {
+      await api.patch(`/veiculos/${veiculo!.id}`, { ativo });
+    },
+    onSuccess: () => {
+      recarregar();
+      onFechar();
+    },
+  });
+
+  const apagar = useMutation({
+    mutationFn: async () => {
+      await api.delete(`/veiculos/${veiculo!.id}`);
+    },
+    onSuccess: () => {
+      recarregar();
+      onFechar();
+      onApagado?.();
+    },
+  });
+
+  const valido = apelido.trim().length >= 2 && (!ano || /^\d{4}$/.test(ano));
+  const erro = salvar.error ?? ligar.error ?? apagar.error;
+
+  /* No celular, uma pergunta por vez; no computador, a ficha inteira. */
+  const a = useAssistente([
+    {
+      rotulo: 'Nome',
+      resumo: apelido.trim() || undefined,
+      falta: apelido.trim().length >= 2 ? undefined : 'Diga como vocês chamam este implemento.',
+    },
+    {
+      rotulo: 'Modelo e ano',
+      resumo: [modelo.trim() || null, ano || null].filter(Boolean).join(' · '),
+    },
+    { rotulo: 'Observação', resumo: observacao.trim() || undefined },
+  ]);
+
+  return (
+    <Janela
+      titulo={veiculo ? `Editar — ${veiculo.apelido}` : 'Cadastrar implemento'}
+      onFechar={onFechar}
+    >
+      {a.cabecalho}
+      <div className="grid max-w-2xl grid-cols-1 gap-3">
+        {a.mostrar(0) && (
+          <div>
+            <label className="rotulo" htmlFor="imp-apelido">
+              Como vocês chamam
+            </label>
+            <input
+              id="imp-apelido"
+              value={apelido}
+              onChange={(e) => setApelido(e.target.value)}
+              className="campo"
+              placeholder="Grade aradora, Roçadeira, Carreta"
+              autoComplete="off"
+              autoFocus
+            />
+          </div>
+        )}
+        {a.mostrar(1) && (
+          <>
+            <div>
+              <label className="rotulo" htmlFor="imp-modelo">
+                Marca e modelo
+              </label>
+              <input
+                id="imp-modelo"
+                value={modelo}
+                onChange={(e) => setModelo(e.target.value)}
+                className="campo"
+                placeholder="opcional"
+                autoComplete="off"
+              />
+            </div>
+            <div>
+              <label className="rotulo" htmlFor="imp-ano">
+                Ano
+              </label>
+              <input
+                id="imp-ano"
+                value={ano}
+                onChange={(e) => setAno(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                className="campo num"
+                inputMode="numeric"
+                placeholder="opcional"
+                autoComplete="off"
+              />
+            </div>
+          </>
+        )}
+        {a.mostrar(2) && (
+          <div>
+            <label className="rotulo" htmlFor="imp-obs">
+              Observação
+            </label>
+            <input
+              id="imp-obs"
+              value={observacao}
+              onChange={(e) => setObservacao(e.target.value)}
+              className="campo"
+              placeholder="opcional"
+              autoComplete="off"
+            />
+          </div>
+        )}
+      </div>
+
+      {a.resumo}
+      {a.barra}
+
+      {erro && <Aviso tom="erro">{mensagemErro(erro)}</Aviso>}
+
+      {a.mostrarAcao && (
+        <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+          {veiculo && (
+            <span className="mr-auto flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => ligar.mutate(!veiculo.ativo)}
+                disabled={ligar.isPending}
+                className="btn btn-sutil btn-p"
+                title={
+                  veiculo.ativo
+                    ? 'Vendido ou parado: sai da escolha no lançamento, o histórico fica'
+                    : 'Volta para a escolha no lançamento'
+                }
+              >
+                {veiculo.ativo ? 'Desligar' : 'Religar'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm(`Apagar ${veiculo.apelido}? Só dá se ele não tiver nenhum gasto.`)) {
+                    apagar.mutate();
+                  }
+                }}
+                disabled={apagar.isPending}
+                className="btn btn-sutil btn-p text-rose-600"
+              >
+                Apagar
+              </button>
+            </span>
+          )}
+          <button onClick={onFechar} className="btn btn-neutro">
+            Cancelar
+          </button>
+          <button
+            onClick={() => salvar.mutate()}
+            disabled={!valido || salvar.isPending}
+            className="btn btn-primario"
+          >
+            {salvar.isPending ? 'Salvando…' : veiculo ? 'Salvar' : 'Cadastrar'}
+          </button>
+        </div>
       )}
     </Janela>
   );

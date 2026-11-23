@@ -1556,6 +1556,10 @@ enum TipoVeiculo {
   /// O galão de 200 litros que abastece as máquinas. Não anda: enche-se no
   /// posto e leva-se até onde a máquina está.
   GALAO
+  /// Ferramenta da fazenda — grade, roçadeira, carreta. Não anda nem bebe: sem
+  /// km, horímetro, combustível ou abastecimento. Só acompanha o que se gastou
+  /// e se consertou nela, pelas contas lançadas com ela marcada.
+  IMPLEMENTO
   OUTRO
 }
 

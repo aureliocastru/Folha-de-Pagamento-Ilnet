@@ -104,8 +104,10 @@ describe('somarMeses', () => {
 });
 
 describe('itensPadrao', () => {
-  it('cada tipo tem a sua lista, e o galão não tem nenhuma', () => {
+  it('cada tipo tem a sua lista, e o galão e o implemento não têm nenhuma', () => {
     expect(itensPadrao('GALAO')).toHaveLength(0);
+    // Sem km nem horas não há vida útil a medir: o implemento só tem as contas.
+    expect(itensPadrao('IMPLEMENTO')).toHaveLength(0);
     expect(itensPadrao('MOTO').map((i) => i.nome)).toContain('Relação (corrente, coroa e pinhão)');
     expect(itensPadrao('CAMINHAO').find((i) => i.nome === 'Óleo do motor')).toMatchObject({
       medidor: 10000,

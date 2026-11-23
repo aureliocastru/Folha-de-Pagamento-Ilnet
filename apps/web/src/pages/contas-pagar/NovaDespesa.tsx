@@ -6,6 +6,7 @@ import {
 } from '../../components/LeitorDeCodigo';
 import { useAssistente } from '../../components/Assistente';
 import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
+import { ehCategoriaDeImplementos } from '../../lib/categorias';
 import { SeletorDeConta } from '../../components/SeletorDeConta';
 import { SeletorDeVeiculo } from '../../components/SeletorDeVeiculo';
 import {
@@ -380,12 +381,31 @@ export function NovaDespesa({
     queryKey: ['veiculos', 'ativos'],
     queryFn: async () =>
       (
-        await api.get<Array<{ id: string; apelido: string; placa: string | null }>>(
+        await api.get<Array<{ id: string; apelido: string; placa: string | null; tipo: string }>>(
           '/veiculos',
           { params: { ativos: true } },
         )
       ).data,
   });
+
+  /*
+   * A frota e os implementos da fazenda vêm da mesma lista, e a categoria
+   * decide qual deles o campo oferece: escolhida a categoria Implementos,
+   * aparecem só os implementos, no lugar dos veículos.
+   */
+  const frota = (veiculos.data ?? []).filter((v) => v.tipo !== 'IMPLEMENTO');
+  const implementos = (veiculos.data ?? []).filter((v) => v.tipo === 'IMPLEMENTO');
+  const categoriaDeImplementos = ehCategoriaDeImplementos(categorias.data, categoriaId);
+  const opcoesDoVeiculo = categoriaDeImplementos ? implementos : frota;
+
+  /** Trocar a categoria para o outro lado larga o que estava marcado — um veículo não é implemento. */
+  function mudarCategoria(novo: string) {
+    setCategoriaId(novo);
+    const marcado = veiculos.data?.find((v) => v.id === veiculoId);
+    if (marcado && (marcado.tipo === 'IMPLEMENTO') !== ehCategoriaDeImplementos(categorias.data, novo)) {
+      setVeiculoId('');
+    }
+  }
 
   // O tipo de pagamento começa no padrão das Configurações e fica editável: a
   // folha sai por PIX, mas a conta de energia costuma ser boleto, e mandar o
@@ -1261,7 +1281,8 @@ export function NovaDespesa({
         <TelaDasNotas
           notas={divisao}
           onMudar={setDivisao}
-          veiculos={veiculos.data ?? []}
+          veiculos={frota}
+          implementos={implementos}
           carregandoVeiculos={veiculos.isLoading}
           categorias={categorias.data}
           carregandoCategorias={categorias.isLoading}
@@ -2017,7 +2038,7 @@ export function NovaDespesa({
                     value={categoriaId}
                     vazio="Sem classificação"
                     carregando={categorias.isLoading}
-                    onChange={setCategoriaId}
+                    onChange={mudarCategoria}
                     title="É por esta escolha que o dashboard separa os gastos. Fica guardada aqui — o IXC não tem onde recebê-la."
                   />
                 </div>
@@ -2058,20 +2079,25 @@ export function NovaDespesa({
                        nasceu dentro de um veículo, e aí ele já vem marcado. */
                 (edicao
                   ? edicao.lancadaAqui
-                  : veiculoInicial || (veiculos.data?.length ?? 0) > 0) && (
+                  : veiculoInicial || categoriaDeImplementos || frota.length > 0) && (
                   <div>
                     <label className="rotulo" htmlFor="veiculo">
-                      Veículo da frota
+                      {categoriaDeImplementos ? 'Implemento' : 'Veículo da frota'}
                     </label>
                     <SeletorDeVeiculo
                       id="veiculo"
                       value={veiculoId}
                       onChange={setVeiculoId}
                       carregando={veiculos.isLoading}
+                      vazio={
+                        categoriaDeImplementos && implementos.length === 0
+                          ? 'Nenhum implemento cadastrado'
+                          : 'Nenhum'
+                      }
                       veiculos={[
-                        ...(veiculos.data ?? []),
-                        // O veículo de onde a conta nasceu, mesmo fora da lista de ativos.
-                        ...(veiculoInicial && !veiculos.data?.some((v) => v.id === veiculoInicial.id)
+                        ...opcoesDoVeiculo,
+                        // O veículo (ou implemento) de onde a conta nasceu, mesmo fora da lista.
+                        ...(veiculoInicial && !opcoesDoVeiculo.some((v) => v.id === veiculoInicial.id)
                           ? [{ ...veiculoInicial, placa: null }]
                           : []),
                       ]}
@@ -2749,6 +2775,7 @@ function TelaDasNotas({
   notas,
   onMudar,
   veiculos,
+  implementos,
   carregandoVeiculos,
   categorias,
   carregandoCategorias,
@@ -2760,6 +2787,8 @@ function TelaDasNotas({
   notas: NotaDaConta[];
   onMudar: (notas: NotaDaConta[]) => void;
   veiculos: Array<{ id: string; apelido: string; placa: string | null }>;
+  /** Os implementos da fazenda: no lugar dos veículos, nas notas de categoria Implementos. */
+  implementos: Array<{ id: string; apelido: string; placa: string | null }>;
   carregandoVeiculos: boolean;
   categorias: CategoriaDespesa[] | undefined;
   carregandoCategorias: boolean;
@@ -2771,9 +2800,24 @@ function TelaDasNotas({
 }) {
   const soma = somarNotas(notas);
   const completas = notasCompletas(notas);
-  const temFrota = veiculos.length > 0;
+  const temFrota = veiculos.length > 0 || implementos.length > 0;
   const mudar = (chave: string, parte: Partial<NotaDaConta>) =>
     onMudar(notas.map((n) => (n.chave === chave ? { ...n, ...parte } : n)));
+  /** A categoria que vale para a nota: a dela, ou a da conta quando ela não tem. */
+  const doImplemento = (n: NotaDaConta, categoriaId = n.categoriaId) =>
+    ehCategoriaDeImplementos(categorias, categoriaId || categoriaDaConta);
+  /**
+   * Trocar a categoria da nota. Se ela passa para o outro lado (de veículo para
+   * implemento, ou o contrário), o que estava marcado sai: a lista é outra.
+   */
+  const mudarCategoria = (n: NotaDaConta, categoriaId: string) => {
+    const eraImplemento = implementos.some((i) => i.id === n.veiculoId);
+    const marcado = eraImplemento || veiculos.some((v) => v.id === n.veiculoId);
+    mudar(n.chave, {
+      categoriaId,
+      ...(marcado && eraImplemento !== doImplemento(n, categoriaId) ? { veiculoId: '' } : {}),
+    });
+  };
 
   /*
    * O print colado vai para a nota em que se está mexendo — a última tocada,
@@ -2815,21 +2859,25 @@ function TelaDasNotas({
                 value={n.categoriaId}
                 vazio="A da conta"
                 carregando={carregandoCategorias}
-                onChange={(categoriaId) => mudar(n.chave, { categoriaId })}
+                onChange={(categoriaId) => mudarCategoria(n, categoriaId)}
               />
             </div>
             {temFrota && (
               <div>
                 <label className="rotulo" htmlFor={`veiculo-${n.chave}`}>
-                  Veículo
+                  {doImplemento(n) ? 'Implemento' : 'Veículo'}
                 </label>
                 <SeletorDeVeiculo
                   id={`veiculo-${n.chave}`}
                   value={n.veiculoId}
                   onChange={(veiculoId) => mudar(n.chave, { veiculoId })}
                   carregando={carregandoVeiculos}
-                  veiculos={veiculos}
-                  vazio="Nenhum"
+                  veiculos={doImplemento(n) ? implementos : veiculos}
+                  vazio={
+                    doImplemento(n) && implementos.length === 0
+                      ? 'Nenhum implemento cadastrado'
+                      : 'Nenhum'
+                  }
                 />
               </div>
             )}
