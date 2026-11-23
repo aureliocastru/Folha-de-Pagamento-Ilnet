@@ -55,6 +55,12 @@ export function Inicio() {
   const [busca, setBusca] = useState('');
   /** Mostrar só o que ninguém etiquetou ainda — a fila de trabalho. */
   const [soSemCategoria, setSoSemCategoria] = useState(false);
+  /**
+   * Trazer para a lista o que o banco está pagando. Fora, por padrão: quem já
+   * pagou e espera o banco não quer a conta na frente — se ele recusar, ela
+   * volta sozinha.
+   */
+  const [verNoBanco, setVerNoBanco] = useState(false);
   /** Título cujos campos crus do IXC estamos olhando. */
   const [detalhando, setDetalhando] = useState<ContaAberta | null>(null);
   const [lancando, setLancando] = useState(false);
@@ -163,9 +169,32 @@ export function Inicio() {
   });
 
   const contas = useMemo(
-    () => filtrar(consulta.data?.contas ?? [], busca, soSemCategoria),
-    [consulta.data, busca, soSemCategoria],
+    () => filtrar(consulta.data?.contas ?? [], busca, soSemCategoria, verNoBanco),
+    [consulta.data, busca, soSemCategoria, verNoBanco],
   );
+
+  /*
+   * As que o banco está pagando e que a lista esconde. Não deixam de ser
+   * acompanhadas: o `esperandoBanco` acima continua perguntando por elas, e é
+   * a resposta do banco que as traz de volta (recusou) ou as tira de vez (pagou).
+   */
+  const noBancoPagando = (consulta.data?.contas ?? []).filter(
+    (c) => !c.oculta && pagandoNoBanco(c),
+  );
+
+  // Uma conta marcada que o banco passou a pagar sai da lista: sai da marcação
+  // também, para o Pagar e o Excluir da barra não alcançarem o que não se vê.
+  useEffect(() => {
+    if (verNoBanco) return;
+    const andando = new Set(
+      (consulta.data?.contas ?? []).filter(pagandoNoBanco).map((c) => c.idFnApagar),
+    );
+    if (andando.size === 0) return;
+    setMarcados((atuais) => {
+      const resto = [...atuais].filter((id) => !andando.has(id));
+      return resto.length === atuais.size ? atuais : new Set(resto);
+    });
+  }, [consulta.data, verNoBanco]);
 
   /**
    * Etiqueta tudo que está marcado de uma vez. A lista inteira é recarregada
@@ -308,8 +337,29 @@ export function Inicio() {
   }
 
   const semCategoria = (consulta.data?.contas ?? []).filter(
-    (c) => !c.oculta && !estaClassificado(c),
+    (c) => !c.oculta && (verNoBanco || !pagandoNoBanco(c)) && !estaClassificado(c),
   ).length;
+
+  /** O aviso de que o banco está pagando contas que a lista esconde — e o botão de vê-las. */
+  const botaoNoBanco =
+    noBancoPagando.length > 0 ? (
+      <button
+        onClick={() => setVerNoBanco((v) => !v)}
+        aria-pressed={verNoBanco}
+        title={
+          verNoBanco
+            ? 'Esconder de novo as contas que o banco está pagando'
+            : 'Mostrar as contas que o banco está pagando'
+        }
+        className="btn btn-neutro btn-p max-w-full whitespace-normal text-left normal-case tracking-normal"
+      >
+        {verNoBanco
+          ? `Esconder as ${noBancoPagando.length} no banco`
+          : `${noBancoPagando.length} pagando no banco · ${formatBRL(
+              noBancoPagando.reduce((s, c) => s + c.valorAberto, 0),
+            )}`}
+      </button>
+    ) : null;
 
   return (
     <Pagina>
@@ -585,12 +635,20 @@ export function Inicio() {
           )
         ) : contas.length === 0 ? (
           <Vazio titulo="Nenhuma conta aqui">
-            {consulta.data.contas.length > ocultas.length
+            {consulta.data.contas.length >
+            ocultas.length + (verNoBanco ? 0 : noBancoPagando.length)
               ? 'Nenhuma conta bate com o filtro. Tente "Ver todas".'
               : ocultas.length
                 ? 'As contas que sobraram estão ocultas.'
-                : 'Não há conta em aberto no IXC neste momento.'}
-            {botaoOcultas && <div className="mt-3">{botaoOcultas}</div>}
+                : noBancoPagando.length
+                  ? 'As contas que sobraram estão sendo pagas pelo banco.'
+                  : 'Não há conta em aberto no IXC neste momento.'}
+            {(botaoOcultas || botaoNoBanco) && (
+              <div className="mt-3 flex flex-wrap justify-center gap-2">
+                {botaoOcultas}
+                {botaoNoBanco}
+              </div>
+            )}
           </Vazio>
         ) : (
           <div className="overflow-x-auto rolagem-fina">
@@ -618,6 +676,7 @@ export function Inicio() {
                           o nome da coluna ali não rotula nada. */}
                       <span className="hidden md:inline">Fornecedor</span>
                       {botaoOcultas}
+                      {botaoNoBanco}
                     </div>
                   </th>
                   <th className="th" data-celular="esconder">Documento</th>
@@ -1052,15 +1111,28 @@ function CopiarMeioDePagamento({ conta }: { conta: ContaAberta }) {
  * Tira os acentos para comparar. Quem procura "aurelio" quer achar "Marco
  * Aurélio Castro" — e não achou, uma vez, concluindo que a conta nem existia.
  */
+/**
+ * O banco está pagando: o pagamento foi mandado e ele ainda não terminou. Quem
+ * já pagou só espera, então a conta não pede mais nada da lista. Recusado volta
+ * (e mostra o motivo); esperando aprovação continua, porque aprovar é com a
+ * pessoa; pago sai de vez, com a baixa.
+ */
+function pagandoNoBanco(c: ContaAberta): boolean {
+  const s = c.noBanco?.situacao;
+  return s === 'ENVIANDO' || s === 'NO_BANCO';
+}
+
 function filtrar(
   contas: ContaAberta[],
   busca: string,
   soSemCategoria: boolean,
+  verNoBanco: boolean,
 ): ContaAberta[] {
   const termo = semAcento(busca.trim());
 
   return contas.filter((c) => {
     if (c.oculta) return false;
+    if (!verNoBanco && pagandoNoBanco(c)) return false;
     if (soSemCategoria && estaClassificado(c)) return false;
     if (!termo) return true;
 
