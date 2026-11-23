@@ -293,6 +293,9 @@ function ListaDeCategorias({
   }, [onFechar]);
 
   const termo = semAcento(busca.trim());
+  const painel = useRef<HTMLDivElement>(null);
+  /** O resultado que o Enter escolhe — as setas do teclado o movem. */
+  const [destaque, setDestaque] = useState(0);
 
   /*
    * Procurando, a árvore some e vira uma lista só de nomes escolhíveis.
@@ -313,6 +316,32 @@ function ListaDeCategorias({
       )
     : [];
 
+  // Enter escolhe o resultado em destaque: quem escreve "acert" e dá Enter não
+  // precisa pegar o mouse (pedido do dono, 23/11/2026, em todas as listas de
+  // categoria). Sem busca não há resultado, e o Enter não faz nada.
+  const marcado = Math.min(destaque, Math.max(0, achados.length - 1));
+
+  // O resultado em destaque acompanha as setas, sem sair da área visível.
+  useEffect(() => {
+    painel.current
+      ?.querySelector(`[data-linha="${marcado}"]`)
+      ?.scrollIntoView({ block: 'nearest' });
+  }, [marcado]);
+
+  function aoTeclar(e: React.KeyboardEvent) {
+    if (!termo) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setDestaque(Math.min(marcado + 1, achados.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setDestaque(Math.max(marcado - 1, 0));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (achados.length > 0) onEscolher(achados[marcado].c.id);
+    }
+  }
+
   /* Parada, a lista é o nível de cima: mães e soltas juntas, em ordem
      alfabética. Para quem procura, "Seguro" e "Custo com Pessoal" são a mesma
      coisa — um nome de cima —, e o negrito diz qual das duas abre mais. */
@@ -322,8 +351,8 @@ function ListaDeCategorias({
   ].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 
   return (
-    <PainelDeEscolha ancora={ancora} remedir={busca} onFechar={onFechar}>
-      <>
+    <PainelDeEscolha ancora={ancora} remedir={busca} onFechar={onFechar} onKeyDown={aoTeclar}>
+      <div ref={painel} className="contents">
         <div className="shrink-0 border-b border-tinta-200 p-2">
           {/* No computador a busca já abre com o cursor: digitar é o jeito
               mais rápido de achar. Na tela de toque, não — o foco levanta o
@@ -332,7 +361,10 @@ function ListaDeCategorias({
           <input
             autoFocus={!TELA_DE_TOQUE}
             value={busca}
-            onChange={(e) => onBusca(e.target.value)}
+            onChange={(e) => {
+              onBusca(e.target.value);
+              setDestaque(0);
+            }}
             placeholder="Procurar categoria…"
             className="campo"
             autoComplete="off"
@@ -346,11 +378,14 @@ function ListaDeCategorias({
                 Nenhuma categoria com esse nome.
               </p>
             ) : (
-              achados.map(({ c }) => (
+              achados.map(({ c }, i) => (
                 <Linha
                   key={c.id}
+                  indice={i}
+                  destacada={i === marcado}
                   marcada={c.id === value}
                   onClick={() => onEscolher(c.id)}
+                  onPassar={() => setDestaque(i)}
                 >
                   {c.nome}
                 </Linha>
@@ -451,7 +486,7 @@ function ListaDeCategorias({
         >
           + Criar nova categoria…
         </button>
-      </>
+      </div>
     </PainelDeEscolha>
   );
 }
@@ -462,14 +497,22 @@ function Linha({
   filha = false,
   aberto = false,
   marcada,
+  destacada = false,
+  indice,
   onClick,
+  onPassar,
   children,
 }: {
   grupo?: boolean;
   filha?: boolean;
   aberto?: boolean;
   marcada: boolean;
+  /** É a que o Enter escolhe (só na busca). */
+  destacada?: boolean;
+  /** O lugar na lista de resultados, para as setas rolarem até ela. */
+  indice?: number;
   onClick: () => void;
+  onPassar?: () => void;
   children: React.ReactNode;
 }) {
   return (
@@ -477,13 +520,17 @@ function Linha({
       type="button"
       role="option"
       aria-selected={marcada}
+      data-linha={indice}
       onClick={onClick}
+      onMouseEnter={onPassar}
       className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition ${
         filha ? 'linha-filha pl-8' : ''
       } ${grupo ? 'linha-grupo font-bold text-tinta-800' : 'text-tinta-700'} ${
         marcada
           ? 'bg-brand-500/10 text-brand-800 dark:text-brand-200'
-          : 'hover:bg-tinta-100'
+          : destacada
+            ? 'bg-tinta-100'
+            : 'hover:bg-tinta-100'
       }`}
     >
       <span className="min-w-0 flex-1 truncate">{children}</span>
