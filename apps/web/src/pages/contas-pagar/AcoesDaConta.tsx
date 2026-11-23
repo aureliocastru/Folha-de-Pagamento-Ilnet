@@ -6,6 +6,7 @@ import {
 } from '@tanstack/react-query';
 import axios from 'axios';
 import { useState } from 'react';
+import { SeletorDeConta } from '../../components/SeletorDeConta';
 import { Aviso, CampoDinheiro, Carregando, Janela, Selo } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { abrirArquivo } from '../../lib/arquivo';
@@ -623,28 +624,22 @@ export function PagarEmMaos({
             <label className="rotulo" htmlFor="conta-do-pagamento">
               Conta de Pagamento
             </label>
-            <select
+            {/* Só as cinco de sempre na lista; as outras ativas, pela busca. */}
+            <SeletorDeConta
               id="conta-do-pagamento"
+              contas={contasIxc.data ?? []}
               value={contaEscolhida}
-              onChange={(e) => setContaEscolhida(e.target.value)}
-              className="campo"
-              disabled={contasIxc.isLoading}
-            >
-              <option value="">
-                {contaDosTitulos
+              onChange={setContaEscolhida}
+              padrao={
+                contaDosTitulos
                   ? `${contas.length === 1 ? 'Do título' : 'Dos títulos'} — ${nomeDaConta(contaDosTitulos)}`
                   : contasDosTitulos.length > 1
                     ? `A de cada título (${contasDosTitulos.length} contas)`
-                    : 'Padrão das Configurações'}
-              </option>
-              {(contasIxc.data ?? [])
-                .filter((c) => c.usual || c.ativa)
-                .map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.nome}
-                  </option>
-                ))}
-            </select>
+                    : 'Padrão das Configurações'
+              }
+              carregando={contasIxc.isLoading}
+              incluirInativas={false}
+            />
           </div>
         </div>
 

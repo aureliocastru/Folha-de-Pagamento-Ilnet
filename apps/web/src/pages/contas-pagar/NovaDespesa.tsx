@@ -6,6 +6,7 @@ import {
 } from '../../components/LeitorDeCodigo';
 import { useAssistente } from '../../components/Assistente';
 import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
+import { SeletorDeConta } from '../../components/SeletorDeConta';
 import { SeletorDeVeiculo } from '../../components/SeletorDeVeiculo';
 import {
   CampoDinheiro,
@@ -814,8 +815,6 @@ export function NovaDespesa({
       ).data,
   });
 
-  const usuais = (contasPagamento.data ?? []).filter((c) => c.usual);
-  const demais = (contasPagamento.data ?? []).filter((c) => !c.usual);
   const nomeDaContaPadrao = contasPagamento.data?.find(
     (c) => c.id === config.data?.contaPagamentoId,
   )?.nome;
@@ -1833,38 +1832,19 @@ export function NovaDespesa({
                         computador ele mora no alto da tela. */}
                     {!edicao && a.celular && caixaJaPaga}
                   </div>
-                  <select
+                  {/* Só as cinco de sempre na lista; as outras, pela busca. */}
+                  <SeletorDeConta
                     id="conta-pagamento"
+                    contas={contasPagamento.data ?? []}
                     value={contaPagamento}
-                    onChange={(e) => setContaPagamento(e.target.value)}
-                    className="campo"
-                    disabled={contasPagamento.isLoading}
-                  >
-                    <option value="">
-                      {config.data
+                    onChange={setContaPagamento}
+                    padrao={
+                      config.data
                         ? `Padrão — ${nomeDaContaPadrao ?? config.data.contaPagamentoId}`
-                        : 'Padrão das Configurações'}
-                    </option>
-                    {usuais.length > 0 && (
-                      <optgroup label="As que costumam pagar">
-                        {usuais.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.nome}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                    {demais.length > 0 && (
-                      <optgroup label="Outras contas do IXC">
-                        {demais.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.nome}
-                            {c.ativa ? '' : ' (inativa)'}
-                          </option>
-                        ))}
-                      </optgroup>
-                    )}
-                  </select>
+                        : 'Padrão das Configurações'
+                    }
+                    carregando={contasPagamento.isLoading}
+                  />
                   {contasPagamento.error && (
                     <p className="ajuda text-amber-700">
                       Não deu para ler as contas do IXC — a padrão vale.
