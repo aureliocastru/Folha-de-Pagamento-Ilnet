@@ -13,6 +13,13 @@ sistema escrevendo no IXC ao mesmo tempo.
 >
 > O EasyPanel do 170.0.124.8 já está no ar (painel em `http://170.0.124.8:3000`)
 > e os dois aceitam SSH, que é o que o passo 9 precisa.
+>
+> **Conferido em 23/11/2026, com nada ainda mudado:** o domínio responde
+> `170.0.124.7`, o TTL continua em 14400 (o passo 2 está por fazer), o
+> certificado atual vale até 31/01/2027 e o site está no ar. De 29/10 para cá o
+> sistema ganhou o módulo **Mapa de Serviço**, o botão **Backup** e seis tabelas
+> novas (88 no total); o que isso mexe no plano são as variáveis do passo 3 e o
+> caminho do dump do passo 9, já atualizados aqui.
 
 ### Um atalho, se o IP puder se mudar junto
 
@@ -97,7 +104,9 @@ contra esta lista:
 | `IXC_HOST`, `IXC_TOKEN`         | Iguais.                                                            |
 | `IXC_TIMEOUT_MS`                | Igual.                                                             |
 | `SYNC_PAGAMENTOS_INTERVALO_MIN` | **`0` até a virada** (passo 6), depois o valor do antigo (`10`).   |
-| `MODOBANK_*` (as nove)          | Iguais, inclusive os certificados em base64. **Vazias até a virada.** |
+| `MODOBANK_*` (são doze)         | Iguais, inclusive os certificados em base64 e as cinco de receber. **Vazias até a virada.** |
+| `RASTREIO_*` (são seis)         | Iguais — é a frota no Mapa de Serviço. Podem ir já no passo 5.      |
+| `MAPA_*` (são seis)             | Iguais, se existirem no antigo; sem elas o código usa os padrões.  |
 | `ADMIN_EMAIL`, `ADMIN_SENHA`    | Iguais, por completude — não serão usadas (passo 10).              |
 | `IXC_SOMENTE_LEITURA`           | **`1` até a virada** (passo 6), depois vazia.                      |
 
@@ -109,7 +118,10 @@ contra esta lista:
 > que se gere uma nova para cada login. Copie o valor exato.
 
 Os certificados do ModoBank são blocos longos de base64. Copie-os por inteiro,
-sem quebra de linha no meio.
+sem quebra de linha no meio. O `RASTREIO_API_HASH` (ou o e-mail e a senha da
+conta do rastreador, que o servidor usa para gerar o hash) é segredo igual: sem
+ele o Mapa de Serviço continua abrindo, mas só com as OS — a frota desaparece,
+e é o tipo de falta que ninguém nota no dia da virada.
 
 ### 4. Confira a versão e o tamanho do banco
 
@@ -171,13 +183,21 @@ faria de novo: baixa duplicada, conta duplicada. Então, no serviço `api` novo:
 ```
 IXC_SOMENTE_LEITURA=1
 SYNC_PAGAMENTOS_INTERVALO_MIN=0
+# e todas as MODOBANK_* em branco — as da conta e as de receber:
 MODOBANK_CLIENT_ID=
 MODOBANK_CLIENT_SECRET=
 MODOBANK_CERTIFICADO=
 MODOBANK_CERTIFICADO_SENHA=
+MODOBANK_RECEBER_CLIENT_ID=
+MODOBANK_RECEBER_CLIENT_SECRET=
 MODOBANK_RECEBER_CERTIFICADO=
+MODOBANK_RECEBER_CERTIFICADO_SENHA=
 MODOBANK_RECEBER_API_URL=
 ```
+
+As `RASTREIO_*` e as `MAPA_*` podem ir preenchidas desde já: o Mapa de Serviço
+só lê — as OS no IXC e os carros no rastreador —, e duas telas abertas ao mesmo
+tempo não escrevem nada em lugar nenhum.
 
 `IXC_SOMENTE_LEITURA=1` existe exatamente para isto: toda gravação no IXC é
 recusada antes de sair daqui. Sem credencial do ModoBank, os pollers do banco
@@ -223,6 +243,11 @@ apagaria o que você veio buscar.
 Confira que o arquivo tem tamanho de gente (`ls -lh /root/folha.dump`) antes de
 seguir. Em dois passos de propósito: se o restore falhar, você repete o restore
 sem tirar o dump de novo.
+
+Note que o arquivo nasce no **servidor novo**, e isso é de propósito: o disco do
+antigo já ficou cheio uma vez (é a história de como o cliente do Postgres entrou
+na imagem da api). Nem este caminho nem o botão do passo seguinte gravam nada
+lá.
 
 Sem acesso SSH ao antigo, use o botão **Backup** do próprio sistema (na tela de
 módulos, ao lado de Usuários, só para administrador). Ele roda o mesmo `pg_dump
@@ -283,7 +308,8 @@ No serviço `api` novo, agora sim:
 
 - apague `IXC_SOMENTE_LEITURA`;
 - `SYNC_PAGAMENTOS_INTERVALO_MIN=10`;
-- preencha as nove `MODOBANK_*` com os valores do antigo;
+- preencha as doze `MODOBANK_*` com os valores do antigo, as cinco de receber
+  inclusive (é o que faz a cobrança Pix voltar a funcionar);
 - `CORS_ORIGINS=https://telecom.ilnet.com.br` (tire o endereço de teste).
 
 Deploy. **Confirme que a api antiga continua parada** — é o ponto em que duas
@@ -309,6 +335,10 @@ Cada item prova uma peça diferente:
 - [ ] Converter um Word em PDF no RH → o LibreOffice da imagem da api.
 - [ ] Uma consulta ao ModoBank (saldo/extrato) → certificado e **IP liberado no
       banco**. Se der erro de autenticação, é o passo 1 faltando.
+- [ ] **Mapa de Serviço** com os carros aparecendo → `RASTREIO_API_HASH` (ou o
+      e-mail e a senha). Só as OS no mapa = a chave não veio.
+- [ ] O botão **Backup** gerando um zip no servidor novo → o cliente do Postgres
+      da imagem achou a versão do banco de lá.
 - [ ] `/campo` num celular → o PWA e o upload (24 MB de teto no nginx e na api).
 - [ ] Nos logs da api, uma volta do poller de pagamentos sem erro.
 
