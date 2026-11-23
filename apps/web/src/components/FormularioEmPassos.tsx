@@ -28,6 +28,8 @@ import { useCelular } from '../lib/celular';
  *   mesma pergunta.
  * - **`data-passo-falta="…"`** num passo segura o "Continuar" e diz o porquê.
  *   Campo com `required` vazio também segura.
+ * - **`data-passo-valor="…"`** num passo escreve, ele mesmo, o que aparece na
+ *   conferência — para o passo que é uma lista de linhas de campos.
  */
 export function FormularioEmPassos({
   children,
@@ -121,6 +123,10 @@ function textoVisivel(el: Node): string {
 
 /** O que foi preenchido num passo, escrito como se lê. */
 function valorDoPasso(p: PedacosDoPasso): string {
+  // Um passo com várias linhas de campos (os itens de uma revisão) diz sozinho
+  // como se lê na conferência: juntar todos os campos num fio só não se entende.
+  const dito = p.find((el) => el.dataset.passoValor !== undefined)?.dataset.passoValor;
+  if (dito !== undefined) return dito;
   return p.map(valorDoPedaco).filter(Boolean).join(' · ');
 }
 

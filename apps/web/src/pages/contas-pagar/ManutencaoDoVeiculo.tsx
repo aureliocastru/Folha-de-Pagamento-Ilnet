@@ -6,6 +6,7 @@ import { FormularioEmPassos } from '../../components/FormularioEmPassos';
 import { Aviso, Carregando, Janela, Selo, type Tom } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
 import { formatData, formatMedidor, medidorLimpo, medidorNumero } from '../../lib/format';
+import { AbaDasRevisoes, chaveDasRevisoes, JanelaDaRevisao, type Revisao } from './RevisoesDoVeiculo';
 
 type Estado = 'VENCIDO' | 'PERTO' | 'EM_DIA' | 'SEM_REGISTRO' | 'SEM_MEDIDOR';
 
@@ -74,10 +75,18 @@ export function ManutencaoDoVeiculo({ veiculoId, onFechar }: { veiculoId: string
   const [editando, setEditando] = useState<Item | 'novo' | null>(null);
   const [historico, setHistorico] = useState<string | null>(null);
   const [feito, setFeito] = useState<string | null>(null);
+  /** As duas abas da janela: o que se troca e as revisões já feitas. */
+  const [aba, setAba] = useState<'itens' | 'revisoes'>('itens');
+  const [revisando, setRevisando] = useState<Revisao | 'nova' | null>(null);
 
   const dados = useQuery({
     queryKey: chave(veiculoId),
     queryFn: async () => (await api.get<Manutencao>(`/veiculos/${veiculoId}/manutencao`)).data,
+  });
+
+  const revisoes = useQuery({
+    queryKey: chaveDasRevisoes(veiculoId),
+    queryFn: async () => (await api.get<Revisao[]>(`/veiculos/${veiculoId}/revisoes`)).data,
   });
 
   const atualizar = () => {
@@ -163,6 +172,22 @@ export function ManutencaoDoVeiculo({ veiculoId, onFechar }: { veiculoId: string
     );
   }
 
+  if (revisando && d) {
+    return (
+      <JanelaDaRevisao
+        veiculoId={veiculoId}
+        revisao={revisando === 'nova' ? null : revisando}
+        unidade={unidade}
+        medidorAtual={d.medidorAtual}
+        onFechar={() => setRevisando(null)}
+        onPronto={(msg) => {
+          setRevisando(null);
+          setFeito(msg);
+        }}
+      />
+    );
+  }
+
   return (
     <Janela media titulo={`Manutenção — ${d?.veiculo.apelido ?? ''}`} onFechar={onFechar}>
       {dados.isLoading ? (
@@ -200,6 +225,27 @@ export function ManutencaoDoVeiculo({ veiculoId, onFechar }: { veiculoId: string
             </div>
           </div>
 
+          <div role="tablist" className="faixa-abas mb-4">
+            {(
+              [
+                { id: 'itens', rotulo: 'Itens', selo: 0 },
+                { id: 'revisoes', rotulo: 'Revisões', selo: revisoes.data?.length ?? 0 },
+              ] as const
+            ).map((a) => (
+              <button
+                key={a.id}
+                type="button"
+                role="tab"
+                aria-selected={aba === a.id}
+                onClick={() => setAba(a.id)}
+                className="aba"
+              >
+                {a.rotulo}
+                {a.selo > 0 && <span className="aba-selo">{a.selo}</span>}
+              </button>
+            ))}
+          </div>
+
           {feito && (
             <Aviso tom="pago" acao={<button className="btn btn-sutil btn-p" onClick={() => setFeito(null)}>ok</button>}>
               {feito}
@@ -211,6 +257,19 @@ export function ManutencaoDoVeiculo({ veiculoId, onFechar }: { veiculoId: string
             </Aviso>
           )}
 
+          {aba === 'revisoes' ? (
+            <>
+              {revisoes.isError && <Aviso tom="erro">{mensagemErro(revisoes.error)}</Aviso>}
+              <AbaDasRevisoes
+                revisoes={revisoes.data ?? []}
+                carregando={revisoes.isLoading}
+                med={med}
+                onNova={() => setRevisando('nova')}
+                onEditar={(r) => setRevisando(r)}
+              />
+            </>
+          ) : (
+            <>
           {d.resumo.semRegistro > 0 && (
             <p className="mb-4 rounded-xl border border-dashed border-tinta-200 p-3 text-[13px] text-tinta-600">
               <strong className="text-tinta-800">Para começar:</strong> em cada item, diga quando foi a
@@ -260,6 +319,8 @@ export function ManutencaoDoVeiculo({ veiculoId, onFechar }: { veiculoId: string
               {completar.isPending ? 'Trazendo…' : 'Trazer a lista padrão'}
             </button>
           </div>
+            </>
+          )}
         </>
       )}
     </Janela>

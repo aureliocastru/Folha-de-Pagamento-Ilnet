@@ -16,8 +16,10 @@ import {
   AtualizarItemDeManutencaoDto,
   CriarItemDeManutencaoDto,
   RegistrarTrocaDto,
+  SalvarRevisaoDto,
 } from './dto/manutencao.dto';
 import { ManutencaoService } from './manutencao.service';
+import { RevisoesService } from './revisoes.service';
 import {
   AtualizarVeiculoDto,
   ConferirAbastecimentoDto,
@@ -41,6 +43,7 @@ export class VeiculosController {
     private readonly service: VeiculosService,
     private readonly abastecimentos: AbastecimentosService,
     private readonly manutencao: ManutencaoService,
+    private readonly revisoes: RevisoesService,
   ) {}
 
   /**
@@ -91,6 +94,19 @@ export class VeiculosController {
   @HttpCode(200)
   async desfazerTroca(@Param('trocaId') trocaId: string) {
     await this.manutencao.desfazerTroca(trocaId);
+    return { ok: true };
+  }
+
+  /** Uma revisão trocada por inteiro: cabeçalho e linhas. Antes do `:id`. */
+  @Patch('revisoes/:revisaoId')
+  atualizarRevisao(@Param('revisaoId') revisaoId: string, @Body() dto: SalvarRevisaoDto) {
+    return this.revisoes.atualizar(revisaoId, dto);
+  }
+
+  @Delete('revisoes/:revisaoId')
+  @HttpCode(200)
+  async apagarRevisao(@Param('revisaoId') revisaoId: string) {
+    await this.revisoes.apagar(revisaoId);
     return { ok: true };
   }
 
@@ -160,6 +176,18 @@ export class VeiculosController {
   @HttpCode(200)
   async completarManutencao(@Param('id') id: string) {
     return { adicionados: await this.manutencao.completarComPadrao(id) };
+  }
+
+  /** As revisões do veículo, com o que se trocou em cada uma. */
+  @Get(':id/revisoes')
+  revisoesDoVeiculo(@Param('id') id: string) {
+    return this.revisoes.doVeiculo(id);
+  }
+
+  @Post(':id/revisoes')
+  @HttpCode(201)
+  criarRevisao(@Param('id') id: string, @Body() dto: SalvarRevisaoDto, @Req() req: Request) {
+    return this.revisoes.criar(id, dto, usuarioId(req));
   }
 
   /** O veículo com cada gasto, a soma por categoria e os abastecimentos. */

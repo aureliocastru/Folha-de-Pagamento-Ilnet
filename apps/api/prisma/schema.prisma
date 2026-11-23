@@ -1625,6 +1625,8 @@ model Veiculo {
   /// A lista padrão do tipo já foi posta uma vez. Sem esta marca, apagar
   /// todos os itens faria a lista padrão voltar sozinha na próxima abertura.
   manutencaoIniciada Boolean @default(false) @map("manutencao_iniciada")
+  /// As revisões feitas, com o que se trocou em cada uma: só o registro.
+  revisoes RevisaoDoVeiculo[]
 
   criadoPor String?  @map("criado_por")
   createdAt DateTime @default(now()) @map("created_at")
@@ -1687,6 +1689,55 @@ model TrocaDeManutencao {
 
   @@index([itemId, data])
   @@map("trocas_de_manutencao")
+}
+
+/// Uma revisão feita no veículo — a dos 70 mil km da Hilux: quando, com quanto
+/// no painel, onde, e o que se trocou ou se pôs, com quantidade e preço.
+///
+/// É só o registro, para consultar depois. Não é conta a pagar (o que se pagou
+/// à oficina está nas contas) e não mexe na lista de itens da manutenção.
+model RevisaoDoVeiculo {
+  id String @id @default(uuid())
+
+  veiculo   Veiculo @relation(fields: [veiculoId], references: [id], onDelete: Cascade)
+  veiculoId String  @map("veiculo_id")
+
+  /// "Revisão dos 70 mil km"
+  titulo     String
+  data       DateTime @db.Date
+  /// Km no painel (horas, na máquina).
+  medidor    Decimal? @db.Decimal(10, 1)
+  oficina    String?
+  observacao String?
+
+  itens ItemDaRevisao[]
+
+  criadoPor String?  @map("criado_por")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([veiculoId, data])
+  @@map("revisoes_do_veiculo")
+}
+
+/// Uma linha da revisão: o que foi trocado ou posto. O preço é de cada
+/// unidade; o total da linha é a quantidade vezes ele.
+model ItemDaRevisao {
+  id String @id @default(uuid())
+
+  revisao   RevisaoDoVeiculo @relation(fields: [revisaoId], references: [id], onDelete: Cascade)
+  revisaoId String           @map("revisao_id")
+
+  /// "Óleo 5W30", "Filtro de ar", "Mão de obra"
+  descricao  String
+  /// Peças inteiras ou litros: 4, 6,5.
+  quantidade Decimal  @default(1) @db.Decimal(10, 3)
+  /// De cada uma. Nulo quando não se sabe (veio no pacote da revisão).
+  preco      Decimal? @db.Decimal(12, 2)
+  ordem      Int      @default(0)
+
+  @@index([revisaoId])
+  @@map("itens_da_revisao")
 }
 
 /// Um responsável de um veículo. Um veículo pode ter vários; uma pessoa,

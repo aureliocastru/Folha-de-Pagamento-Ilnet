@@ -1,5 +1,7 @@
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsInt,
   IsISO8601,
   IsNumber,
@@ -10,6 +12,7 @@ import {
   Min,
   MinLength,
   ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 
 /** Vazio vira nulo: apagar o campo é tirar aquele intervalo. */
@@ -77,6 +80,58 @@ export class AtualizarItemDeManutencaoDto {
   @IsString()
   @MaxLength(300)
   observacao?: string | null;
+}
+
+/** Uma linha da revisão: o que foi trocado ou posto, quantas e a que preço. */
+export class ItemDaRevisaoDto {
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @MinLength(1)
+  @MaxLength(120)
+  descricao!: string;
+
+  /** Peças ou litros: 4, 6,5. */
+  @Transform(medidorDaTela)
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0.001)
+  @Max(99_999)
+  quantidade!: number;
+
+  /** De cada unidade; vazio quando não se sabe. */
+  @IsOptional()
+  @Transform(medidorDaTela)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(9_999_999)
+  preco?: number | null;
+}
+
+/** Uma revisão inteira: o cabeçalho e as linhas. Vale para criar e para trocar. */
+export class SalvarRevisaoDto {
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @MinLength(2)
+  @MaxLength(120)
+  titulo!: string;
+
+  @IsISO8601() data!: string;
+
+  @IsOptional()
+  @Transform(medidorDaTela)
+  @IsNumber({ maxDecimalPlaces: 1 })
+  @Min(0)
+  @Max(9_999_999)
+  medidor?: number | null;
+
+  @IsOptional() @IsString() @MaxLength(120) oficina?: string | null;
+
+  @IsOptional() @IsString() @MaxLength(500) observacao?: string | null;
+
+  @IsArray()
+  @ArrayMaxSize(80)
+  @ValidateNested({ each: true })
+  @Type(() => ItemDaRevisaoDto)
+  itens!: ItemDaRevisaoDto[];
 }
 
 /** Uma troca feita. Sem km, vale o de agora; sem data, hoje. */
