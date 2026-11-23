@@ -182,8 +182,13 @@ export function ehRetirada(nome: string | null): boolean {
  * Fibra", "Finalização Pós Venda" e "Auditoria Técnica Pós Venda" são outros
  * assuntos no IXC, e continuam na conferência — o retorno é visita de
  * técnico, e pode trocar aparelho.
+ *
+ * Pedido de 23/11/2026: a "Conferencia de contrato e Gerar financeiro"
+ * (assunto 115) também fica de fora (27 fecharam de 16 a 23/11, todas do
+ * mesmo técnico). A "CONFERENCIA PRODUTO RETIRADO" é outro assunto, e
+ * continua.
  */
-export const ASSUNTOS_FORA_DA_CONFERENCIA = ['pos venda'];
+export const ASSUNTOS_FORA_DA_CONFERENCIA = ['pos venda', 'conferencia de contrato e gerar financeiro'];
 
 /** A OS deste assunto fica fora da conferência? */
 export function assuntoForaDaConferencia(nome: string | null | undefined): boolean {

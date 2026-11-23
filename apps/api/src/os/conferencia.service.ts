@@ -625,7 +625,8 @@ export class ConferenciaService {
 
 /**
  * As OS fechadas que a conferência mostra: de técnico de campo (com van), e
- * fora dos assuntos que não se conferem (a pós-venda, ver
+ * fora dos assuntos que não se conferem (a pós-venda e a "Conferencia de
+ * contrato e Gerar financeiro", ver
  * `assuntoForaDaConferencia`). A fila e a lista do dia passam as duas por
  * aqui, para o "faltam" de um dia bater com a lista dele.
  */

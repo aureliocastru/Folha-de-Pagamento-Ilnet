@@ -127,6 +127,16 @@ describe('o tipo de serviço, pelo nome do assunto da base', () => {
       expect(assuntoForaDaConferencia(nome)).toBe(false);
     }
   });
+
+  /* Pedido de 23/11/2026: a conferência de contrato e gerar financeiro também não. */
+  it('a "Conferencia de contrato e Gerar financeiro" fica de fora, e a conferência de produto retirado não', () => {
+    for (const nome of ['Conferencia de contrato e Gerar financeiro', 'CONFERÊNCIA DE CONTRATO E GERAR FINANCEIRO']) {
+      expect(assuntoForaDaConferencia(nome)).toBe(true);
+    }
+    for (const nome of ['CONFERENCIA PRODUTO RETIRADO', 'Financeiro', 'Atualização Contratual']) {
+      expect(assuntoForaDaConferencia(nome)).toBe(false);
+    }
+  });
 });
 
 describe('sinaisDaOs', () => {

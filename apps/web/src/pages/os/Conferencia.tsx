@@ -28,7 +28,8 @@ import { ehAssinatura, type ArquivoDaOs } from '../../lib/os';
  * sistema olha antes e põe no topo as que têm aviso (sem foto, instalação sem
  * aparelho, aparelho em outro contrato, retirada não baixada). O chefe abre, vê as fotos, os aparelhos da OS e o comodato do
  * contrato lado a lado, e diz: conferida, ou com problema (com o motivo).
- * A OS de pós-venda não entra na fila.
+ * A OS de pós-venda e a de "Conferencia de contrato e Gerar financeiro" não
+ * entram na fila.
  *
  * O aparelho que sobrou no comodato do contrato (a ONU velha, depois da troca)
  * sai dali mesmo, com o botão ao lado dele: baixa no IXC, e a peça volta para o
