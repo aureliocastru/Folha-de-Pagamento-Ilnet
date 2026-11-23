@@ -89,3 +89,27 @@ export function diaUtil(iso: string, direcao: 'depois' | 'antes'): string {
   for (let i = 0; i < 10 && porQueNaoEUtil(paraIso(d)); i++) d = new Date(d.getTime() + passo);
   return paraIso(d);
 }
+
+/** "AAAA-MM-DD" → "15/08/2026", sem passar por Date (que escorrega de fuso). */
+function umDia(iso: string): string {
+  const [ano, mes, dia] = iso.slice(0, 10).split('-');
+  return `${dia}/${mes}/${ano}`;
+}
+
+/**
+ * O vencimento escrito no código, num dia em que o banco abre.
+ *
+ * O boleto que vence no sábado, domingo ou feriado paga-se sem juros no
+ * próximo dia útil — então anda para frente. O Pix não tem esse prazo: depois
+ * do dia a cobrança pode vir com multa, então volta para o último dia útil
+ * antes. O recado diz o dia que ficou e, quando mudou, por quê.
+ */
+export function vencimentoPagavel(
+  dia: string,
+  direcao: 'depois' | 'antes',
+): { dia: string; recado: string } {
+  const porque = porQueNaoEUtil(dia);
+  if (!porque) return { dia, recado: `vence ${umDia(dia)}` };
+  const certo = diaUtil(dia, direcao);
+  return { dia: certo, recado: `vence ${umDia(certo)} (o ${umDia(dia)} é ${porque})` };
+}

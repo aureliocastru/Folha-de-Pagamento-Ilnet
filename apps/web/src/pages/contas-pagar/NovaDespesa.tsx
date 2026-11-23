@@ -16,7 +16,7 @@ import {
 import { api, mensagemErro } from '../../lib/api';
 import { useTermoAdiado } from '../../lib/busca';
 import { lerBoleto, lerPix } from '../../lib/codigo-de-pagamento';
-import { diaUtil, porQueNaoEUtil } from '../../lib/dias-uteis';
+import { vencimentoPagavel } from '../../lib/dias-uteis';
 import { ajustarAbaixo } from '../../lib/parcelas';
 import { formatBRL, numeroDigitado, soFracao } from '../../lib/format';
 import { CampoDeData } from '../../components/CampoDeData';
@@ -2662,21 +2662,6 @@ function mesesDepois(iso: string, meses: number): string {
 function formatarDia(iso: string): string {
   const [ano, mes, dia] = iso.slice(0, 10).split('-');
   return `${dia}/${mes}/${ano}`;
-}
-
-/**
- * O vencimento escrito no código, num dia em que o banco abre.
- *
- * O boleto que vence no sábado, domingo ou feriado paga-se sem juros no
- * próximo dia útil — então anda para frente. O Pix não tem esse prazo: depois
- * do dia a cobrança pode vir com multa, então volta para o último dia útil
- * antes. O recado diz o dia que ficou e, quando mudou, por quê.
- */
-function vencimentoPagavel(dia: string, direcao: 'depois' | 'antes'): { dia: string; recado: string } {
-  const porque = porQueNaoEUtil(dia);
-  if (!porque) return { dia, recado: `vence ${formatarDia(dia)}` };
-  const certo = diaUtil(dia, direcao);
-  return { dia: certo, recado: `vence ${formatarDia(certo)} (o ${formatarDia(dia)} é ${porque})` };
 }
 
 /** Hoje em "AAAA-MM-DD", que é o formato do input de data. */

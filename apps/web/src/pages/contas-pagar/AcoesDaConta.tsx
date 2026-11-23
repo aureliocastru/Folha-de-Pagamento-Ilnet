@@ -12,6 +12,7 @@ import { abrirArquivo } from '../../lib/arquivo';
 import { formatBRL, formatData, formatNumeroBR } from '../../lib/format';
 import type { ContaAberta, NoBancoDaConta } from '../../lib/types';
 import { CampoDeData } from '../../components/CampoDeData';
+import { LerCodigoDoPagamento } from '../../components/LerCodigoDoPagamento';
 import { PixDaGuia } from '../../components/PixDaGuia';
 import { NovaDespesa, type EdicaoDaConta } from './NovaDespesa';
 
@@ -170,7 +171,7 @@ function hojeISO(): string {
  * que não deu seria tirar dinheiro do caixa duas vezes.
  */
 export function PagarEmMaos({
-  contas,
+  contas: contasDaLista,
   onFechar,
   onPagas,
 }: {
@@ -180,6 +181,17 @@ export function PagarEmMaos({
   onPagas?: () => void;
 }) {
   const queryClient = useQueryClient();
+  /**
+   * O que o código lido aqui mudou no título (valor, vencimento). A janela
+   * guarda as contas como a lista as entregou, e a lista só se atualiza depois
+   * de reler o IXC: sem isto o valor mostrado seguiria o antigo.
+   */
+  const [corrigidas, setCorrigidas] = useState<
+    Record<number, Pick<Partial<ContaAberta>, 'valor' | 'valorAberto' | 'vencimento'>>
+  >({});
+  const contas = contasDaLista.map((c) =>
+    corrigidas[c.idFnApagar] ? { ...c, ...corrigidas[c.idFnApagar] } : c,
+  );
   const [data, setData] = useState(hojeISO);
   const [contaEscolhida, setContaEscolhida] = useState('');
   /**
@@ -316,8 +328,9 @@ export function PagarEmMaos({
   const recusadas = contas.filter((c) => vaiAoBanco(c) && previaDe(c)?.isError);
   /** As que vão de fato: todas, menos as que o banco recusou. */
   const aMandar = contas.filter((c) => !recusadas.includes(c));
+  // Refazer a consulta (depois de ler um código novo) também é consultar.
   const consultandoBanco = contas.some(
-    (c) => vaiAoBanco(c) && previaDe(c)?.isLoading,
+    (c) => vaiAoBanco(c) && (previaDe(c)?.isLoading || previaDe(c)?.isFetching),
   );
   /** Com algum título indo ao banco, a lista diz para quem vai cada um. */
   const mostrarBancoNaLista =
@@ -707,6 +720,36 @@ export function PagarEmMaos({
         ) : (
           <Aviso tom="erro">{mensagemErro(previa.error)}</Aviso>
         ))}
+
+      {/* Título sem o código, ou com o errado: lê-se aqui, grava-se no título e
+          a consulta ao banco se refaz — sem fechar a janela para editar. A guia
+          sem Pix tem o aviso dela, acima. */}
+      {contas.length === 1 && peloBanco && !guiaSemPix && (
+        <LerCodigoDoPagamento
+          conta={contas[0]}
+          onAtualizada={(m) => {
+            const c = contas[0];
+            setCorrigidas((atual) => ({
+              ...atual,
+              [c.idFnApagar]: {
+                ...atual[c.idFnApagar],
+                ...(m.valor !== undefined
+                  ? {
+                      valor: m.valor,
+                      // Com pagamento parcial o que falta não é o valor novo.
+                      ...(c.valorAberto === c.valor ? { valorAberto: m.valor } : {}),
+                    }
+                  : {}),
+                ...(m.vencimento ? { vencimento: m.vencimento } : {}),
+              },
+            }));
+            // A lista lê o IXC de novo, e a prévia do banco se refaz agora: com
+            // o código novo ela passa a dizer para quem vai e quanto sai.
+            void queryClient.invalidateQueries({ queryKey: ['contas-abertas'] });
+            void previa.refetch();
+          }}
+        />
+      )}
 
       {/* A conta do título é onde o pagamento foi combinado. Trocar pode ser o
           certo, mas é o engano que baixa num banco o que saiu de outro. */}

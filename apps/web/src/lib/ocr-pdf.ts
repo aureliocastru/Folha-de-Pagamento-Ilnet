@@ -339,8 +339,25 @@ function bemEscrito(pedaco: string): boolean {
  * aqui). Null = não há QR Pix no arquivo.
  */
 export async function lerPixDoArquivo(arquivo: File): Promise<string | null> {
-  const ehPix = (c: string) => /^000201/.test(c.trim()) && /br\.gov\.bcb\.pix/i.test(c);
+  const achados = await lerCodigosDoArquivo(arquivo, (c) => c.some(ehPix));
+  return achados.find(ehPix)?.trim() ?? null;
+}
 
+const ehPix = (c: string) => /^000201/.test(c.trim()) && /br\.gov\.bcb\.pix/i.test(c);
+
+/**
+ * Os códigos de pagamento de um arquivo — PDF, print ou foto: o código de
+ * barras (44 dígitos) e o QR Code. É o que se cola ou se envia na janela de
+ * pagar, sem apontar câmera nenhuma.
+ *
+ * Num PDF de várias páginas segue página a página até `bastam` dizer que já
+ * achou o que servia; o que se achou nas páginas anteriores continua valendo.
+ * Lista vazia = não há código no arquivo.
+ */
+export async function lerCodigosDoArquivo(
+  arquivo: File,
+  bastam: (achados: string[]) => boolean = (achados) => achados.length > 0,
+): Promise<string[]> {
   if (arquivo.type.startsWith('image/')) {
     const imagem = await createImageBitmap(arquivo);
     const desenhar = async (largura: number) => {
@@ -354,8 +371,7 @@ export async function lerPixDoArquivo(arquivo: File): Promise<string | null> {
       ctx.drawImage(imagem, 0, 0, canvas.width, canvas.height);
       return canvas;
     };
-    const achados = await lerCodigos(await desenhar(LARGURA_DO_OCR), desenhar);
-    return achados.find(ehPix)?.trim() ?? null;
+    return lerCodigos(await desenhar(LARGURA_DO_OCR), desenhar);
   }
 
   const pdfjs = await import('pdfjs-dist');
@@ -364,6 +380,7 @@ export async function lerPixDoArquivo(arquivo: File): Promise<string | null> {
   pdfjs.GlobalWorkerOptions.workerPort = worker;
   const documento = await pdfjs.getDocument({ data: await arquivo.arrayBuffer() }).promise;
   try {
+    const todos: string[] = [];
     for (let n = 1; n <= documento.numPages; n++) {
       const pagina = await documento.getPage(n);
       const largura = pagina.getViewport({ scale: 1 }).width;
@@ -379,11 +396,12 @@ export async function lerPixDoArquivo(arquivo: File): Promise<string | null> {
         await pagina.render({ canvas, canvasContext: ctx, viewport, intent: 'print' }).promise;
         return canvas;
       };
-      const achado = (await lerCodigos(await desenhar(LARGURA_DO_OCR), desenhar)).find(ehPix);
+      const daPagina = await lerCodigos(await desenhar(LARGURA_DO_OCR), desenhar);
       pagina.cleanup();
-      if (achado) return achado.trim();
+      todos.push(...daPagina.filter((c) => !todos.includes(c)));
+      if (bastam(todos)) break;
     }
-    return null;
+    return todos;
   } finally {
     await documento.destroy();
     pdfjs.GlobalWorkerOptions.workerPort = null;
