@@ -97,6 +97,19 @@ export function ManutencaoDoVeiculo({ veiculoId, onFechar }: { veiculoId: string
     },
   });
 
+  // Na revisão se troca o óleo e quase tudo junto: a troca do óleo do motor vira
+  // a data (e o km) dos outros itens, num toque.
+  const mesmaDoOleo = useMutation({
+    mutationFn: async ({ item, data, medidor }: { item: Item; data: string; medidor: number | null }) => {
+      await api.post(`/veiculos/manutencao/${item.id}/trocas`, { medidor, data });
+      return { item, data };
+    },
+    onSuccess: ({ item, data }) => {
+      setFeito(`${item.nome}: troca de ${formatData(data)} registrada, a mesma do óleo.`);
+      atualizar();
+    },
+  });
+
   const desfazer = useMutation({
     mutationFn: async (trocaId: string) => api.delete(`/veiculos/manutencao/trocas/${trocaId}`),
     onSuccess: atualizar,
@@ -116,6 +129,7 @@ export function ManutencaoDoVeiculo({ veiculoId, onFechar }: { veiculoId: string
   });
 
   const d = dados.data;
+  const oleo = d ? itemDoOleo(d.itens) : null;
   const unidade = d?.unidade ?? 'km';
   const med = (n: number) => `${formatMedidor(n, unidade === 'h')} ${unidade}`;
 
@@ -191,9 +205,9 @@ export function ManutencaoDoVeiculo({ veiculoId, onFechar }: { veiculoId: string
               {feito}
             </Aviso>
           )}
-          {(troqueiAgora.isError || desfazer.isError || completar.isError) && (
+          {(troqueiAgora.isError || mesmaDoOleo.isError || desfazer.isError || completar.isError) && (
             <Aviso tom="erro">
-              {mensagemErro(troqueiAgora.error ?? desfazer.error ?? completar.error)}
+              {mensagemErro(troqueiAgora.error ?? mesmaDoOleo.error ?? desfazer.error ?? completar.error)}
             </Aviso>
           )}
 
@@ -217,6 +231,13 @@ export function ManutencaoDoVeiculo({ veiculoId, onFechar }: { veiculoId: string
                   onHistorico={() => setHistorico((h) => (h === i.id ? null : i.id))}
                   onTroqueiAgora={() => troqueiAgora.mutate(i)}
                   ocupado={troqueiAgora.isPending && troqueiAgora.variables?.id === i.id}
+                  oleo={oleo && oleo.id !== i.id ? oleo : null}
+                  onMesmaDoOleo={() => {
+                    if (oleo?.ultimaTrocaEm) {
+                      mesmaDoOleo.mutate({ item: i, data: oleo.ultimaTrocaEm, medidor: oleo.ultimaTrocaMedidor });
+                    }
+                  }}
+                  ocupadoOleo={mesmaDoOleo.isPending && mesmaDoOleo.variables?.item.id === i.id}
                   onOutraData={() => setTrocando(i)}
                   onEditar={() => setEditando(i)}
                   onDesfazer={(t) => desfazer.mutate(t)}
@@ -252,6 +273,9 @@ function LinhaDoItem({
   onHistorico,
   onTroqueiAgora,
   ocupado,
+  oleo,
+  onMesmaDoOleo,
+  ocupadoOleo,
   onOutraData,
   onEditar,
   onDesfazer,
@@ -262,6 +286,10 @@ function LinhaDoItem({
   onHistorico: () => void;
   onTroqueiAgora: () => void;
   ocupado: boolean;
+  /** O óleo do motor, para este item copiar a troca dele; nulo no próprio óleo. */
+  oleo: Item | null;
+  onMesmaDoOleo: () => void;
+  ocupadoOleo: boolean;
   onOutraData: () => void;
   onEditar: () => void;
   onDesfazer: (trocaId: string) => void;
@@ -321,6 +349,24 @@ function LinhaDoItem({
         <button type="button" onClick={onOutraData} className="btn btn-neutro btn-p">
           Outra data
         </button>
+        {/* Já tem a troca do dia do óleo? Então não há o que copiar. */}
+        {oleo && !(oleo.ultimaTrocaEm && i.ultimaTrocaEm === oleo.ultimaTrocaEm) && (
+          <button
+            type="button"
+            onClick={onMesmaDoOleo}
+            disabled={!oleo.ultimaTrocaEm || ocupadoOleo}
+            className="btn btn-neutro btn-p"
+            title={
+              oleo.ultimaTrocaEm
+                ? `Troca de óleo de ${formatData(oleo.ultimaTrocaEm)}${
+                    oleo.ultimaTrocaMedidor != null ? ` com ${med(oleo.ultimaTrocaMedidor)}` : ''
+                  }`
+                : 'Registre antes a troca do óleo do motor'
+            }
+          >
+            {ocupadoOleo ? 'Registrando…' : 'Mesma do óleo'}
+          </button>
+        )}
         <button type="button" onClick={onEditar} className="btn btn-sutil btn-p">
           Editar
         </button>
@@ -363,6 +409,17 @@ function LinhaDoItem({
       )}
     </li>
   );
+}
+
+/** O item do óleo do motor — a troca dele é a da revisão. Não confunde com "Filtro de óleo". */
+function itemDoOleo(itens: Item[]): Item | null {
+  const semAcento = (s: string) =>
+    s
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .toLowerCase()
+      .trim();
+  return itens.find((i) => /^oleo( do motor\b.*)?$/.test(semAcento(i.nome))) ?? null;
 }
 
 /** "A cada 10.000 km ou 12 meses". */
