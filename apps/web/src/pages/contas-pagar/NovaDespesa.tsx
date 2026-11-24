@@ -943,6 +943,29 @@ export function NovaDespesa({
   const boletoValido = [44, 47, 48].includes(digitos(codigoBarras).length);
   const ehCopiaECola = /^0002/.test(chavePix.trim());
 
+  /**
+   * Com a linha do boleto ou a chave Pix preenchida, a conta paga pelo ModoBank
+   * — a padrão das Configurações, a que manda boleto e Pix direto ao banco
+   * (pedido do dono, 24/11/2026). Vale ao digitar, colar, ler o código e ao
+   * abrir uma conta do IXC que já tem código: a conta escolhida muda na tela, e
+   * só vai ao IXC quando se salva.
+   *
+   * Depois, escolher outra conta à mão vale: isto só roda quando o código muda.
+   * A conta já paga fora daqui fica de fora — a conta dela é de onde o dinheiro
+   * saiu de verdade, e não a que paga sozinha.
+   */
+  const contaDoBanco = config.data?.contaPagamentoId;
+  const codigoDoBoleto = digitos(codigoBarras);
+  const temCodigoDePagamento =
+    (ehBoleto && boletoValido) || (ehPix && chavePix.trim() !== '');
+  useEffect(() => {
+    if (!contaDoBanco || !temCodigoDePagamento || jaPaga) return;
+    setContaPagamento(String(contaDoBanco));
+    // `jaPaga` fica de fora das dependências de propósito: desmarcá-lo não pode
+    // desfazer a conta que se escolheu enquanto ele estava marcado.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contaDoBanco, temCodigoDePagamento, codigoDoBoleto, chavePix]);
+
   /** O valor da conta: o digitado, ou a soma das notas quando ela tem várias. */
   const valorDaConta = dividida ? somaDasNotas : Number(valor) || 0;
 
