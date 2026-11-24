@@ -105,9 +105,22 @@ export class ContasAbertasController {
   }
 
   /**
-   * Põe no IXC o vencimento que o código de barras diz — o botão Atualizar da
-   * lista chama isto. Cada conta vai pela mesma edição da tela (reprova,
-   * muda a data, reaprova).
+   * O que o Atualizar vai mexer, sem mexer: o vencimento pelo código de barras e
+   * a conta de pagamento que passa a ser a do banco. É a prévia do POST abaixo.
+   */
+  @Get('acertos-pelo-codigo')
+  acertosPeloCodigo() {
+    return this.service.acertosPeloCodigo();
+  }
+
+  /**
+   * Põe no IXC o que o código de pagamento de cada conta diz — o botão Atualizar
+   * da lista chama isto:
+   *  - o vencimento do código de barras, no dia útil;
+   *  - a conta de pagamento do banco (ModoBank), onde há linha de boleto ou
+   *    chave Pix preenchida.
+   * Cada conta vai pela mesma edição da tela (reprova, muda, reaprova), uma vez
+   * só mesmo quando precisa dos dois acertos.
    *
    * Para em ~20 s e diz quantas faltam: muitas de uma vez passariam do tempo
    * do proxy, e a tela chama de novo até zerar.
@@ -116,22 +129,46 @@ export class ContasAbertasController {
   @HttpCode(200)
   async acertarVencimentos(@Body() dto: AcertarVencimentosDto) {
     const pular = new Set(dto.pular ?? []);
-    const acertos = (await this.service.vencimentosPeloCodigo()).filter(
-      (a) => !pular.has(a.idFnApagar),
+    const { vencimentos, contas } = await this.service.acertosPeloCodigo();
+    const doVencimento = new Map(
+      vencimentos.filter((a) => !pular.has(a.idFnApagar)).map((a) => [a.idFnApagar, a]),
     );
-    const feitos: typeof acertos = [];
-    const falhas: Array<(typeof acertos)[number] & { erro: string }> = [];
+    const daConta = new Map(
+      contas.filter((a) => !pular.has(a.idFnApagar)).map((a) => [a.idFnApagar, a]),
+    );
+    const ids = [...new Set([...doVencimento.keys(), ...daConta.keys()])];
+
+    const feitos: typeof vencimentos = [];
+    const contasFeitas: typeof contas = [];
+    const falhas: Array<{ idFnApagar: number; fornecedor: string; para: string; erro: string }> = [];
     const limite = Date.now() + 20_000;
-    for (const a of acertos) {
+    for (const id of ids) {
       if (Date.now() > limite) break;
+      const v = doVencimento.get(id);
+      const c = daConta.get(id);
       try {
-        await this.pagamentos.editar(a.idFnApagar, { dataVencimento: a.para });
-        feitos.push(a);
+        await this.pagamentos.editar(id, {
+          ...(v ? { dataVencimento: v.para } : {}),
+          ...(c ? { contaPagamento: c.para } : {}),
+        });
+        if (v) feitos.push(v);
+        if (c) contasFeitas.push(c);
       } catch (err) {
-        falhas.push({ ...a, erro: err instanceof Error ? err.message : String(err) });
+        falhas.push({
+          idFnApagar: id,
+          fornecedor: (v ?? c)?.fornecedor ?? '',
+          para: v?.para ?? '',
+          erro: err instanceof Error ? err.message : String(err),
+        });
       }
     }
-    return { feitos, falhas, faltam: acertos.length - feitos.length - falhas.length };
+    const feitosIds = new Set([...feitos, ...contasFeitas].map((a) => a.idFnApagar));
+    return {
+      feitos,
+      contas: contasFeitas,
+      falhas,
+      faltam: ids.length - feitosIds.size - falhas.length,
+    };
   }
 
   /** Devolve à lista tudo o que foi ocultado. */

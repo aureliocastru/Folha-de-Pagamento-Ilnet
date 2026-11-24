@@ -41,6 +41,16 @@ interface AcertoDeVencimento {
   porque: 'sábado' | 'domingo' | 'feriado' | null;
 }
 
+/** Uma conta que passou a pagar pela conta do banco, por ter boleto com linha ou Pix com chave. */
+interface AcertoDeConta {
+  idFnApagar: number;
+  fornecedor: string;
+  de: number;
+  para: number;
+  deNome: string | null;
+  paraNome: string | null;
+}
+
 /**
  * O que a empresa deve hoje, lido do IXC na hora de abrir.
  *
@@ -89,28 +99,39 @@ export function Inicio() {
   });
 
   /*
-   * O Atualizar relê o código de barras de cada conta e põe no IXC o vencimento
-   * que ele diz — no dia útil: o boleto que cai no feriado ou no fim de semana
-   * paga-se no dia útil seguinte. A API vai em rodadas de ~20 s; aqui se chama
-   * até acabar, e a lista é lida de novo no fim.
+   * O Atualizar relê o código de cada conta e põe no IXC o que ele diz:
+   *  - o vencimento do código de barras, no dia útil — o boleto que cai no
+   *    feriado ou no fim de semana paga-se no dia útil seguinte;
+   *  - a conta de pagamento do banco (ModoBank), onde há linha de boleto ou
+   *    chave Pix preenchida.
+   * A API vai em rodadas de ~20 s; aqui se chama até acabar, e a lista é lida
+   * de novo no fim.
    */
   const acertarVencimentos = useMutation({
     mutationFn: async () => {
       const feitos: AcertoDeVencimento[] = [];
-      const falhas: Array<AcertoDeVencimento & { erro: string }> = [];
+      const contas: AcertoDeConta[] = [];
+      const falhas: Array<{ idFnApagar: number; fornecedor: string; para: string; erro: string }> = [];
       for (let rodada = 0; rodada < 30; rodada++) {
         const { data } = await api.post<{
           feitos: AcertoDeVencimento[];
-          falhas: Array<AcertoDeVencimento & { erro: string }>;
+          contas: AcertoDeConta[];
+          falhas: Array<{ idFnApagar: number; fornecedor: string; para: string; erro: string }>;
           faltam: number;
         }>('/contas-abertas/vencimentos-pelo-codigo', {
           pular: falhas.map((f) => f.idFnApagar),
         });
         feitos.push(...data.feitos);
+        contas.push(...(data.contas ?? []));
         falhas.push(...data.falhas);
-        if (data.faltam === 0 || data.feitos.length + data.falhas.length === 0) break;
+        if (
+          data.faltam === 0 ||
+          data.feitos.length + (data.contas?.length ?? 0) + data.falhas.length === 0
+        ) {
+          break;
+        }
       }
-      return { feitos, falhas };
+      return { feitos, contas, falhas };
     },
     onSettled: () => void consulta.refetch(),
   });
@@ -380,7 +401,7 @@ export function Inicio() {
               className="btn btn-acao"
             >
               {acertarVencimentos.isPending
-                ? 'Acertando vencimentos…'
+                ? 'Acertando as contas…'
                 : consulta.isFetching
                   ? 'Lendo o IXC…'
                   : 'Atualizar'}
@@ -419,13 +440,34 @@ export function Inicio() {
           </ul>
         </Aviso>
       )}
+      {acertarVencimentos.data && acertarVencimentos.data.contas.length > 0 && (
+        <Aviso
+          tom="pago"
+          acao={
+            <button onClick={() => acertarVencimentos.reset()} className="btn btn-sutil btn-p">
+              Fechar
+            </button>
+          }
+        >
+          Conta de pagamento trocada para {acertarVencimentos.data.contas[0].paraNome ?? 'o banco'}:
+          <ul className="mt-1">
+            {acertarVencimentos.data.contas.map((a) => (
+              <li key={a.idFnApagar}>
+                {a.fornecedor || `Título ${a.idFnApagar}`}: {a.deNome ?? `conta ${a.de}`} →{' '}
+                {a.paraNome ?? `conta ${a.para}`}
+              </li>
+            ))}
+          </ul>
+        </Aviso>
+      )}
       {acertarVencimentos.data && acertarVencimentos.data.falhas.length > 0 && (
         <Aviso tom="erro">
-          Não deu para acertar o vencimento de:
+          Não deu para acertar:
           <ul className="mt-1">
             {acertarVencimentos.data.falhas.map((a) => (
               <li key={a.idFnApagar}>
-                {a.fornecedor || `Título ${a.idFnApagar}`} ({formatData(a.para)}): {a.erro}
+                {a.fornecedor || `Título ${a.idFnApagar}`}
+                {a.para ? ` (${formatData(a.para)})` : ''}: {a.erro}
               </li>
             ))}
           </ul>
@@ -433,7 +475,7 @@ export function Inicio() {
       )}
       {acertarVencimentos.error && (
         <Aviso tom="erro">
-          Não deu para acertar os vencimentos: {mensagemErro(acertarVencimentos.error)}
+          Não deu para acertar as contas: {mensagemErro(acertarVencimentos.error)}
         </Aviso>
       )}
 

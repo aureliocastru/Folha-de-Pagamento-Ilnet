@@ -21,6 +21,7 @@ import {
   type ContaAberta,
   type ResumoContasAbertas,
 } from './contas-abertas.mapper';
+import { acertosDeConta, type AcertoDeConta } from './conta-pelo-codigo';
 import { acertosDeVencimento, type AcertoDeVencimento } from './vencimento-pelo-codigo';
 
 /** O título do IXC por inteiro, com a leitura que o filtro daqui faz dele. */
@@ -293,34 +294,85 @@ export class ContasAbertasService {
     );
   }
 
+  /** A conta do IXC que é a da ModoBank: a de pagamento da configuração. */
+  private async contaDoBanco(): Promise<number> {
+    const cfg = await this.prisma.configuracaoFinanceira.findUnique({
+      where: { id: 1 },
+      select: { contaPagamentoId: true },
+    });
+    return cfg?.contaPagamentoId ?? 18;
+  }
+
   /**
    * As contas em aberto cujo vencimento não é o que o código de barras delas
    * diz, já no dia útil (ver `acertosDeVencimento`). Só lê.
-   *
-   * Fica de fora a que está indo pelo banco agora: mexer na data no meio do
-   * pagamento só confundiria a baixa.
    */
   async vencimentosPeloCodigo(): Promise<Array<AcertoDeVencimento & { fornecedor: string }>> {
+    return (await this.acertosPeloCodigo()).vencimentos;
+  }
+
+  /**
+   * O que o Atualizar da lista acerta no IXC, lido de uma vez só:
+   *  - o vencimento que o código de barras diz, já no dia útil;
+   *  - a conta de pagamento, que com boleto de linha preenchida ou Pix com
+   *    chave passa a ser a do banco (ver `acertosDeConta`).
+   *
+   * Fica de fora a que está indo pelo banco agora: mexer na data ou na conta no
+   * meio do pagamento só confundiria a baixa.
+   */
+  async acertosPeloCodigo(): Promise<{
+    vencimentos: Array<AcertoDeVencimento & { fornecedor: string }>;
+    contas: Array<AcertoDeConta & { fornecedor: string; deNome: string | null; paraNome: string | null }>;
+  }> {
     const abertos = (await this.lerTitulosAbertos()).filter((raw) => !motivoDeNaoEstarAberto(raw));
-    let acertos = acertosDeVencimento(abertos);
-    if (acertos.length === 0) return [];
+    let vencimentos = acertosDeVencimento(abertos);
+    let contasAcertadas = acertosDeConta(abertos, await this.contaDoBanco());
+    if (vencimentos.length === 0 && contasAcertadas.length === 0) {
+      return { vencimentos: [], contas: [] };
+    }
 
     if (this.noBanco) {
-      const andamento = await this.noBanco.naLista(acertos.map((a) => a.idFnApagar));
-      acertos = acertos.filter((a) => {
+      const andamento = await this.noBanco.naLista([
+        ...new Set([...vencimentos, ...contasAcertadas].map((a) => a.idFnApagar)),
+      ]);
+      const livre = (a: { idFnApagar: number }) => {
         const b = andamento.get(a.idFnApagar);
         return !b || b.situacao === 'RECUSADO';
-      });
+      };
+      vencimentos = vencimentos.filter(livre);
+      contasAcertadas = contasAcertadas.filter(livre);
     }
 
     // O nome de quem recebe, para dizer na tela qual conta mudou.
-    const ids = new Set(acertos.map((a) => a.idFnApagar));
+    const ids = new Set([...vencimentos, ...contasAcertadas].map((a) => a.idFnApagar));
     const contas = abertos
       .map((raw) => mapContaAberta(raw))
       .filter((c): c is ContaAberta => !!c && ids.has(c.idFnApagar));
     await this.completarNomes(contas, []);
     const nomes = new Map(contas.map((c) => [c.idFnApagar, c.fornecedor.nome]));
-    return acertos.map((a) => ({ ...a, fornecedor: nomes.get(a.idFnApagar) ?? '' }));
+
+    // O nome das contas de pagamento. Falhar aqui não impede o acerto: a tela
+    // diz o número no lugar do nome.
+    const nomesDasContas = new Map<number, string>();
+    if (contasAcertadas.length > 0) {
+      try {
+        for (const c of await this.contasDePagamento()) nomesDasContas.set(c.id, c.nome);
+      } catch (err) {
+        this.logger.warn(
+          `Nome das contas de pagamento não lido: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    return {
+      vencimentos: vencimentos.map((a) => ({ ...a, fornecedor: nomes.get(a.idFnApagar) ?? '' })),
+      contas: contasAcertadas.map((a) => ({
+        ...a,
+        fornecedor: nomes.get(a.idFnApagar) ?? '',
+        deNome: nomesDasContas.get(a.de) ?? null,
+        paraNome: nomesDasContas.get(a.para) ?? null,
+      })),
+    };
   }
 
   async listar(): Promise<ContasAbertasResposta> {
