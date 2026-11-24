@@ -18,6 +18,7 @@ import {
   GravidadeApr,
   ModoAssinatura,
   RespostaRelato,
+  StatusApr,
 } from '@prisma/client';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -62,7 +63,12 @@ export interface DadosDaApr {
   supervisorNome: string | null;
   supervisorAssinatura: string | null;
   supervisorEm: Date | null;
-  cancelada: boolean;
+  /**
+   * A situação, que o papel diz em voz alta. O rascunho sai com tarja porque é
+   * o PDF que o técnico é obrigado a abrir antes de liberar — e sem ela ele é
+   * igual, à vista, a uma APR valendo.
+   */
+  status: StatusApr;
   motivoCancelamento: string | null;
   respostas: RespostaDoPdf[];
   executantes: ExecutanteDoPdf[];
@@ -75,6 +81,14 @@ const LINHA = '#cbd5e1';
 const MARCA = '#0a72c4';
 const FAIXA = '#eef4fb';
 const ALERTA = '#b91c1c';
+const ATENCAO = '#92400e';
+
+/**
+ * O título de uma seção de texto corrido e as primeiras linhas dele. Conferido
+ * antes do título, e não depois: depois, o título ficava sozinho no pé de uma
+ * folha e o texto começava na seguinte.
+ */
+const TITULO_COM_TEXTO = 60;
 
 /** O caminho da logo. Ao lado do arquivo compilado — ver o `nest-cli.json`. */
 export const LOGO = path.join(__dirname, 'logo-ilnet.png');
@@ -108,8 +122,22 @@ export function gerarAprPdf(d: DadosDaApr): Promise<Buffer> {
 function desenhar(doc: PDFKit.PDFDocument, d: DadosDaApr): void {
   timbre(doc, d);
 
-  if (d.cancelada) {
-    tarjaDeCancelamento(doc, d);
+  if (d.status === StatusApr.RASCUNHO) {
+    tarja(
+      doc,
+      'RASCUNHO — APR AINDA NÃO LIBERADA. Este papel não autoriza o início ' +
+        'do serviço.',
+      '#fef3c7',
+      ATENCAO,
+    );
+  }
+  if (d.status === StatusApr.CANCELADA) {
+    tarja(
+      doc,
+      `APR CANCELADA — ${d.motivoCancelamento ?? 'sem motivo registrado'}`,
+      '#fee2e2',
+      ALERTA,
+    );
   }
 
   identificacao(doc, d);
@@ -185,23 +213,36 @@ function timbre(doc: PDFKit.PDFDocument, d: DadosDaApr): void {
   doc.y = baixo + 10;
 }
 
-function tarjaDeCancelamento(doc: PDFKit.PDFDocument, d: DadosDaApr): void {
+/**
+ * A faixa colorida no alto da primeira folha: rascunho ou cancelada.
+ *
+ * A altura vem do texto, e não é fixa: o motivo do cancelamento tem até 500
+ * letras, e numa faixa de altura fixa ele vazava para fora do fundo.
+ */
+function tarja(
+  doc: PDFKit.PDFDocument,
+  texto: string,
+  fundo: string,
+  tinta: string,
+): void {
   const largura = doc.page.width - MARGEM * 2;
-  const altura = 30;
-
-  doc.rect(MARGEM, doc.y, largura, altura).fillColor('#fee2e2').fill();
-  doc
-    .fillColor(ALERTA)
+  const alturaTexto = doc
     .font('Helvetica-Bold')
     .fontSize(9)
-    .text(
-      `APR CANCELADA — ${d.motivoCancelamento ?? 'sem motivo registrado'}`,
-      MARGEM + 8,
-      doc.y + 10,
-      { width: largura - 16 },
-    );
+    .heightOfString(texto, { width: largura - 16 });
+  const altura = alturaTexto + 16;
 
-  doc.y += 12;
+  garantirEspaco(doc, altura);
+  const topo = doc.y;
+
+  doc.rect(MARGEM, topo, largura, altura).fillColor(fundo).fill();
+  doc
+    .fillColor(tinta)
+    .font('Helvetica-Bold')
+    .fontSize(9)
+    .text(texto, MARGEM + 8, topo + 8, { width: largura - 16 });
+
+  doc.y = topo + altura + 10;
 }
 
 // --- As seções --------------------------------------------------------------
@@ -222,7 +263,7 @@ function identificacao(doc: PDFKit.PDFDocument, d: DadosDaApr): void {
         : '—',
     ],
     ['Início', dataHora(d.inicioEm)],
-    ['Fim', d.fimEm ? dataHora(d.fimEm) : 'em andamento'],
+    ['Fim', fim(d)],
   ];
 
   if (d.prorrogacoes > 0) {
@@ -237,8 +278,8 @@ function identificacao(doc: PDFKit.PDFDocument, d: DadosDaApr): void {
 }
 
 function etapas(doc: PDFKit.PDFDocument, d: DadosDaApr): void {
+  garantirEspaco(doc, TITULO_COM_TEXTO);
   tituloDaSecao(doc, 'A atividade, por etapas');
-  garantirEspaco(doc, 40);
 
   doc
     .fillColor(TINTA)
@@ -259,6 +300,11 @@ function etapas(doc: PDFKit.PDFDocument, d: DadosDaApr): void {
  * O que não foi marcado não entra. No papel a grade inteira era impressa e a
  * pessoa riscava; aqui, o que se lê é o que vale — e a diferença, na grade de
  * riscos, é entre meia página e três.
+ *
+ * O que não cabe inteiro na coluna sai depois da grade, em linha própria e
+ * quebrando o texto. É o caso do "Outros, quais?" preenchido: cortado com
+ * reticências na coluna, o risco que o técnico descreveu — o mais específico
+ * do documento — sumia do papel e das cópias do RH.
  */
 function marcados(
   doc: PDFKit.PDFDocument,
@@ -275,34 +321,71 @@ function marcados(
   const largura = doc.page.width - MARGEM * 2;
   const larguraColuna = largura / colunas;
   const alturaLinha = 13;
-  const linhas = Math.ceil(itens.length / colunas);
 
-  garantirEspaco(doc, linhas * alturaLinha + 6);
-  const topo = doc.y;
+  doc.font('Helvetica').fontSize(8.5);
+  const cabe = (item: RespostaDoPdf) =>
+    doc.widthOfString(rotulo(item)) <= larguraColuna - 16;
+  const naGrade = itens.filter(cabe);
+  const porExtenso = itens.filter((item) => !cabe(item));
 
-  itens.forEach((item, indice) => {
-    const coluna = indice % colunas;
-    const linha = Math.floor(indice / colunas);
-    const x = MARGEM + coluna * larguraColuna;
-    const y = topo + linha * alturaLinha;
+  if (naGrade.length > 0) {
+    const linhas = Math.ceil(naGrade.length / colunas);
+    garantirEspaco(doc, linhas * alturaLinha);
+    const topo = doc.y;
 
-    // Quadradinho desenhado, e não um caractere: as fontes embutidas do pdfkit
-    // são WinAnsi, e o "■" não existe nessa tabela — ele saía impresso como
-    // "%" em toda marcação do documento.
-    doc.rect(x + 0.5, y + 1.5, 6, 6).fillColor(MARCA).fill();
+    naGrade.forEach((item, indice) => {
+      const coluna = indice % colunas;
+      const linha = Math.floor(indice / colunas);
+      const x = MARGEM + coluna * larguraColuna;
+      const y = topo + linha * alturaLinha;
 
+      quadradinho(doc, x, y);
+      doc
+        .fillColor(TINTA)
+        .font('Helvetica')
+        .fontSize(8.5)
+        .text(rotulo(item), x + 11, y + 0.5, {
+          width: larguraColuna - 16,
+          lineBreak: false,
+          // Só de reserva: o que chega aqui já foi medido e cabe.
+          ellipsis: true,
+        });
+    });
+
+    doc.y = topo + linhas * alturaLinha;
+  }
+
+  for (const item of porExtenso) {
+    const texto = rotulo(item);
+    const alturaTexto = doc
+      .font('Helvetica')
+      .fontSize(8.5)
+      .heightOfString(texto, { width: largura - 16 });
+    const altura = Math.max(alturaTexto, alturaLinha - 2) + 2;
+
+    garantirEspaco(doc, altura);
+    const topo = doc.y;
+
+    quadradinho(doc, MARGEM, topo);
     doc
       .fillColor(TINTA)
       .font('Helvetica')
       .fontSize(8.5)
-      .text(rotulo(item), x + 11, y + 0.5, {
-        width: larguraColuna - 16,
-        lineBreak: false,
-        ellipsis: true,
-      });
-  });
+      .text(texto, MARGEM + 11, topo + 0.5, { width: largura - 16 });
 
-  doc.y = topo + linhas * alturaLinha + 6;
+    doc.y = topo + altura;
+  }
+
+  doc.y += 6;
+}
+
+/**
+ * O quadradinho marcado. Desenhado, e não um caractere: as fontes embutidas do
+ * pdfkit são WinAnsi, e o "■" não existe nessa tabela — ele saía impresso como
+ * "%" em toda marcação do documento.
+ */
+function quadradinho(doc: PDFKit.PDFDocument, x: number, y: number): void {
+  doc.rect(x + 0.5, y + 1.5, 6, 6).fillColor(MARCA).fill();
 }
 
 /** O texto do item, com o "quais?" junto quando ele foi preenchido. */
@@ -589,8 +672,8 @@ function textoLongo(
 ): void {
   if (!texto.trim()) return;
 
+  garantirEspaco(doc, TITULO_COM_TEXTO);
   tituloDaSecao(doc, titulo);
-  garantirEspaco(doc, 40);
 
   doc
     .fillColor(TINTA)
@@ -707,6 +790,19 @@ function numerarPaginas(doc: PDFKit.PDFDocument, d: DadosDaApr): void {
       .strokeColor(LINHA)
       .stroke();
 
+    // A tarja do alto só está na primeira folha; a situação vai no rodapé
+    // de todas, para a folha solta continuar dizendo o que ela é.
+    let x = MARGEM;
+    const marca = marcaDoRodape(d.status);
+    if (marca) {
+      doc
+        .fillColor(ALERTA)
+        .font('Helvetica-Bold')
+        .fontSize(6.5)
+        .text(marca, x, y, { lineBreak: false });
+      x += doc.widthOfString(marca) + 6;
+    }
+
     doc
       .fillColor(TINTA_FRACA)
       .font('Helvetica')
@@ -714,9 +810,9 @@ function numerarPaginas(doc: PDFKit.PDFDocument, d: DadosDaApr): void {
       .text(
         `APR nº ${d.numero} · ${d.local} · ${dia(d.inicioEm)}` +
           (d.telefonesEmergencia ? `  |  ${d.telefonesEmergencia}` : ''),
-        MARGEM,
+        x,
         y,
-        { width: doc.page.width - MARGEM * 2 - 60, lineBreak: false },
+        { width: doc.page.width - MARGEM - 60 - x, lineBreak: false },
       );
 
     doc.text(
@@ -740,6 +836,20 @@ function pngDaDataUrl(url: string | null): Buffer | null {
   } catch {
     return null;
   }
+}
+
+/** O que a linha "Fim" diz enquanto o serviço não foi encerrado. */
+function fim(d: DadosDaApr): string {
+  if (d.fimEm) return dataHora(d.fimEm);
+  if (d.status === StatusApr.RASCUNHO) return 'APR ainda não liberada';
+  if (d.status === StatusApr.CANCELADA) return 'cancelada sem encerramento';
+  return 'em andamento';
+}
+
+function marcaDoRodape(status: StatusApr): string | null {
+  if (status === StatusApr.RASCUNHO) return 'RASCUNHO';
+  if (status === StatusApr.CANCELADA) return 'CANCELADA';
+  return null;
 }
 
 function textosMarcados(d: DadosDaApr, categoria: CategoriaItemApr): string[] {

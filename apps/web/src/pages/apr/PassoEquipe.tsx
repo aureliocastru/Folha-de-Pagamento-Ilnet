@@ -36,6 +36,7 @@ export function PassoEquipe({
   setEquipe,
   pessoas,
   executantes,
+  gravando,
   onSalvarEquipe,
   onErro,
 }: {
@@ -44,7 +45,14 @@ export function PassoEquipe({
   setEquipe: React.Dispatch<React.SetStateAction<PessoaEscolhida[]>>;
   pessoas: PessoaDaEquipe[];
   executantes: Apr['executantes'];
-  onSalvarEquipe: () => Promise<Apr>;
+  /** A equipe está indo para o servidor agora. */
+  gravando: boolean;
+  /**
+   * Grava a equipe dada. Recebe a lista, e não lê do estado: logo depois de
+   * `setEquipe` o estado ainda é o de antes — e gravar o de antes deixava quem
+   * acabou de entrar sem o botão de assinar.
+   */
+  onSalvarEquipe: (equipe: PessoaEscolhida[]) => Promise<Apr>;
   onErro: (mensagem: string) => void;
 }) {
   const [adicionando, setAdicionando] = useState(false);
@@ -61,6 +69,16 @@ export function PassoEquipe({
   const assinadoPor = new Map(
     executantes.map((e) => [e.funcionarioId ?? e.nome.toLowerCase(), e]),
   );
+
+  /** Troca a equipe na tela e grava a mesma lista na hora. */
+  async function gravar(nova: PessoaEscolhida[]) {
+    setEquipe(nova);
+    try {
+      await onSalvarEquipe(nova);
+    } catch (e) {
+      onErro(mensagemErro(e));
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -95,9 +113,23 @@ export function PassoEquipe({
                   ? `Assinou ${formatHora(salvo!.assinadoEm!)}`
                   : salvo
                     ? 'Falta assinar'
-                    : 'Salve para coletar a assinatura'}
+                    : gravando
+                      ? 'Gravando…'
+                      : 'Não foi gravado na equipe'}
               </p>
             </div>
+
+            {/* A gravação que falhou (o sinal caiu) se tenta de novo daqui:
+                sem o executante no servidor não há o que assinar. */}
+            {!salvo && !gravando && (
+              <button
+                type="button"
+                onClick={() => void gravar(equipe)}
+                className="btn btn-acao btn-p shrink-0"
+              >
+                Gravar
+              </button>
+            )}
 
             {salvo &&
               (assinou ? (
@@ -122,12 +154,13 @@ export function PassoEquipe({
               <button
                 type="button"
                 onClick={() =>
-                  setEquipe((atual) =>
-                    atual.filter(
+                  void gravar(
+                    equipe.filter(
                       (e) => (e.funcionarioId ?? e.nome.toLowerCase()) !== chave,
                     ),
                   )
                 }
+                disabled={gravando}
                 aria-label={`Remover ${pessoa.nome}`}
                 className="btn btn-perigo btn-p shrink-0"
               >
@@ -150,15 +183,10 @@ export function PassoEquipe({
       {adicionando && (
         <EscolherPessoa
           disponiveis={disponiveis}
-          onEscolher={async (nova) => {
-            setEquipe((atual) => [...atual, nova]);
+          onEscolher={(nova) => {
             setAdicionando(false);
-            // Salva na hora: sem o executante gravado não há o que assinar.
-            try {
-              await onSalvarEquipe();
-            } catch (e) {
-              onErro(mensagemErro(e));
-            }
+            // Grava na hora: sem o executante gravado não há o que assinar.
+            void gravar([...equipe, nova]);
           }}
           onFechar={() => setAdicionando(false)}
         />

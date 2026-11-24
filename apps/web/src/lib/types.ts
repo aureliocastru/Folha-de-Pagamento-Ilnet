@@ -2175,6 +2175,11 @@ export interface Apr {
   alertas: { pergunta: string; providencia: string | null }[];
   /** O que falta para liberar. Vazio quando já foi liberada. */
   pendencias: string[];
+  /**
+   * Só na resposta de uma gravação do rascunho: quantas assinaturas ela
+   * desfez, porque a análise mudou depois de assinada.
+   */
+  assinaturasDesfeitas?: number;
 }
 
 /** A APR na listagem: só o que se lê de relance. */

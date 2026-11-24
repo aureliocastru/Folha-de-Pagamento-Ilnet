@@ -17,6 +17,7 @@ import type {
   FormularioApr as FormularioAprDados,
   GravidadeApr,
   ItemApr,
+  ModeloApr,
   PessoaDaEquipe,
   RespostaRelato,
 } from '../../lib/types';
@@ -88,7 +89,11 @@ export function FormularioApr({
   const [passo, setPasso] = useState(0);
   const [id, setId] = useState<string | undefined>(aprId);
   const [erro, setErro] = useState<string | null>(null);
+  /** Recado que não é erro: as assinaturas que a última gravação desfez. */
+  const [aviso, setAviso] = useState<string | null>(null);
   const [pendencias, setPendencias] = useState<string[]>([]);
+  /** O formulário escolhido para a APR nova. Vazio = o padrão. */
+  const [modeloEscolhido, setModeloEscolhido] = useState<string | undefined>();
 
   // --- O que se preenche ---
   const [local, setLocal] = useState('');
@@ -102,10 +107,44 @@ export function FormularioApr({
   const [conferencias, setConferencias] = useState<Record<string, Conferencia>>({});
   const [equipe, setEquipe] = useState<PessoaEscolhida[]>([]);
 
+  const rascunho = useQuery({
+    queryKey: ['apr', id],
+    queryFn: async () => (await api.get<Apr>(`/apr/${id}`)).data,
+    enabled: !!id,
+  });
+
+  /*
+   * O formulário em branco é o do modelo da APR, e não o padrão de hoje.
+   *
+   * Abrir sempre o padrão desenhava, num rascunho de outro modelo, itens que
+   * não são dele — e o servidor recusava cada gravação com "o formulário
+   * mudou", sem saída: recarregar abria o mesmo padrão de novo. Bastava alguém
+   * trocar o formulário padrão com rascunhos abertos.
+   *
+   * Na APR nova, o modelo é o escolhido no primeiro passo (ou o padrão); a
+   * partir da primeira gravação, é o dela.
+   */
+  const modeloDoFormulario =
+    rascunho.data?.modeloId ?? (aprId ? undefined : modeloEscolhido);
+
   const formulario = useQuery({
-    queryKey: ['apr-formulario'],
+    queryKey: ['apr-formulario', modeloDoFormulario ?? 'padrao'],
     queryFn: async () =>
-      (await api.get<FormularioAprDados>('/apr/formulario')).data,
+      (
+        await api.get<FormularioAprDados>('/apr/formulario', {
+          params: { modeloId: modeloDoFormulario },
+        })
+      ).data,
+    // O rascunho diz qual é o modelo; sem ele, não há o que pedir.
+    enabled: !aprId || !!rascunho.data,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  /** Os formulários ativos, para escolher na APR nova quando há mais de um. */
+  const modelos = useQuery({
+    queryKey: ['apr-modelos', 'ativos'],
+    queryFn: async () => (await api.get<ModeloApr[]>('/apr/modelos')).data,
+    enabled: !aprId,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -113,12 +152,6 @@ export function FormularioApr({
     queryKey: ['apr-equipe'],
     queryFn: async () => (await api.get<PessoaDaEquipe[]>('/apr/equipe')).data,
     staleTime: 5 * 60 * 1000,
-  });
-
-  const rascunho = useQuery({
-    queryKey: ['apr', id],
-    queryFn: async () => (await api.get<Apr>(`/apr/${id}`)).data,
-    enabled: !!id,
   });
 
   /*
@@ -201,17 +234,23 @@ export function FormularioApr({
    * Marcação de partida, e não resposta dada: sai no toque, e quem manda em
    * quais são é o cadastro do formulário, não esta tela.
    *
-   * Só na APR nova, e uma vez só. `aprId` em vez de `id` porque `id` aparece no
-   * primeiro salvamento, e o rascunho recarregado é o dono das marcações daí em
-   * diante. O que já está em `atual` vence: quem tocou, decidiu.
+   * Só na APR nova, e uma vez por formulário. `aprId` em vez de `id` porque
+   * `id` aparece no primeiro salvamento, e o rascunho recarregado é o dono das
+   * marcações daí em diante. O que já está em `atual` vence: quem tocou,
+   * decidiu.
+   *
+   * Trocar de formulário antes da primeira gravação recomeça do zero, com a
+   * partida do novo: o que se marcou no outro são itens que este não tem.
    */
-  const partidaMarcada = useRef(false);
+  const partidaDe = useRef<string | null>(null);
   useEffect(() => {
-    if (aprId || partidaMarcada.current || !formulario.data) return;
-    partidaMarcada.current = true;
+    const form = formulario.data;
+    if (aprId || !form || partidaDe.current === form.modelo.id) return;
+    const trocouDeFormulario = partidaDe.current !== null;
+    partidaDe.current = form.modelo.id;
 
     const partida: Record<string, Marcacao> = {};
-    for (const bloco of formulario.data.blocos) {
+    for (const bloco of form.blocos) {
       if (bloco.categoria === 'RELATO') continue;
       for (const item of bloco.itens) {
         if (item.marcadoPorPadrao) {
@@ -220,8 +259,12 @@ export function FormularioApr({
       }
     }
 
-    if (Object.keys(partida).length === 0) return;
-    setMarcacoes((atual) => ({ ...partida, ...atual }));
+    if (trocouDeFormulario) {
+      setMarcacoes(partida);
+      setConferencias({});
+    } else {
+      setMarcacoes((atual) => ({ ...partida, ...atual }));
+    }
   }, [aprId, formulario.data]);
 
   const blocos = formulario.data?.blocos ?? [];
@@ -256,20 +299,50 @@ export function FormularioApr({
   }
 
   const salvar = useMutation({
-    mutationFn: async () => {
-      const dados = corpo();
-      const apr = id
+    /*
+     * A equipe pode vir de fora. O passo da equipe grava a lista nova logo
+     * depois de `setEquipe`, e nesse instante o `corpo()` deste render ainda
+     * tem a lista de antes: quem acabou de entrar ficava sem o botão de assinar
+     * até a gravação seguinte.
+     */
+    mutationFn: async (equipeNova?: PessoaEscolhida[]) => {
+      const dados = {
+        ...corpo(),
+        ...(equipeNova ? { executantes: equipeNova } : {}),
+      };
+      // O modelo vai só na criação, e é o que está na tela — não o padrão do
+      // servidor, que pode ter mudado enquanto se preenchia.
+      return id
         ? (await api.patch<Apr>(`/apr/${id}`, dados)).data
-        : (await api.post<Apr>('/apr', dados)).data;
-      return apr;
+        : (
+            await api.post<Apr>('/apr', {
+              ...dados,
+              modeloId: formulario.data?.modelo.id,
+            })
+          ).data;
     },
     onSuccess: (apr) => {
       setErro(null);
+      // Daqui em diante o formulário é pedido pelo modelo da APR. É o mesmo
+      // que está na tela: guardado com o nome novo, não se busca de novo.
+      if (formulario.data?.modelo.id === apr.modeloId) {
+        qc.setQueryData(['apr-formulario', apr.modeloId], formulario.data);
+      }
       setId(apr.id);
       // O rascunho recarregado é o dono das assinaturas e das pendências: o
       // passo da equipe lê dele quem já assinou, e o rodapé, o que falta.
       carregado.current = apr.id;
       qc.setQueryData(['apr', apr.id], apr);
+      if (apr.assinaturasDesfeitas) {
+        setAviso(
+          apr.assinaturasDesfeitas === 1
+            ? 'A análise mudou depois de assinada, e a assinatura foi ' +
+                'desfeita. Colha de novo no passo Executantes.'
+            : `A análise mudou depois de assinada, e as ` +
+                `${apr.assinaturasDesfeitas} assinaturas foram desfeitas. ` +
+                'Todos assinam de novo no passo Executantes.',
+        );
+      }
       void qc.invalidateQueries({ queryKey: ['aprs'] });
     },
     onError: (e) => setErro(mensagemErro(e)),
@@ -299,6 +372,7 @@ export function FormularioApr({
 
   async function avancar() {
     setErro(null);
+    setAviso(null);
     try {
       await salvar.mutateAsync();
       setPasso((p) => Math.min(p + 1, PASSOS.length - 1));
@@ -310,6 +384,7 @@ export function FormularioApr({
 
   function voltar() {
     setErro(null);
+    setAviso(null);
     if (passo === 0) return onSair();
     setPasso((p) => p - 1);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -318,16 +393,19 @@ export function FormularioApr({
   const podeAvancar =
     passo > 0 || (local.trim().length >= 3 && coordenador.trim().length >= 3);
   const ultimo = passo === PASSOS.length - 1;
+  const assinadas =
+    rascunho.data?.executantes.filter((e) => e.assinadoEm).length ?? 0;
 
-  if (formulario.isLoading || (id && rascunho.isLoading)) {
-    return <Carregando texto="Abrindo o formulário…" />;
-  }
-  if (formulario.isError) {
+  const falha = rascunho.error ?? formulario.error;
+  if (falha) {
     return (
       <p className="rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700">
-        {mensagemErro(formulario.error)}
+        {mensagemErro(falha)}
       </p>
     );
+  }
+  if (!formulario.data || (id && !rascunho.data)) {
+    return <Carregando texto="Abrindo o formulário…" />;
   }
 
   return (
@@ -338,8 +416,20 @@ export function FormularioApr({
         onVoltar={voltar}
       />
 
+      {/* Antes de mexer, e não depois: a assinatura cobre o que está marcado,
+          e mudar a análise faz a equipe inteira assinar de novo. */}
+      {!ultimo && assinadas > 0 && (
+        <p className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[13px] leading-snug text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+          A equipe já assinou esta análise. Mudar o que está marcado aqui
+          desfaz as assinaturas, e todos assinam de novo.
+        </p>
+      )}
+
       {passo === 0 && (
         <PassoServico
+          modelos={id ? [] : (modelos.data ?? [])}
+          modeloAtual={formulario.data.modelo.id}
+          onTrocarModelo={setModeloEscolhido}
           local={local}
           setLocal={setLocal}
           coordenador={coordenador}
@@ -402,7 +492,8 @@ export function FormularioApr({
             setEquipe={setEquipe}
             pessoas={pessoas.data ?? []}
             executantes={rascunho.data?.executantes ?? []}
-            onSalvarEquipe={() => salvar.mutateAsync()}
+            gravando={salvar.isPending}
+            onSalvarEquipe={(nova) => salvar.mutateAsync(nova)}
             onErro={setErro}
           />
           {id && (
@@ -420,6 +511,7 @@ export function FormularioApr({
 
       <Rodape
         erro={erro}
+        aviso={aviso}
         pendencias={ultimo ? pendencias : []}
         passo={passo}
         salvando={salvar.isPending}
@@ -491,6 +583,7 @@ function Cabecalho({
  */
 function Rodape({
   erro,
+  aviso,
   pendencias,
   passo,
   salvando,
@@ -501,6 +594,7 @@ function Rodape({
   onLiberar,
 }: {
   erro: string | null;
+  aviso: string | null;
   pendencias: string[];
   passo: number;
   salvando: boolean;
@@ -521,6 +615,12 @@ function Rodape({
         {erro && (
           <p className="mb-2.5 rounded-xl bg-rose-50 px-3.5 py-2.5 text-[13px] text-rose-700 dark:bg-rose-500/15 dark:text-rose-200">
             {erro}
+          </p>
+        )}
+
+        {aviso && (
+          <p className="mb-2.5 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-[13px] leading-snug text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+            {aviso}
           </p>
         )}
 
@@ -574,6 +674,10 @@ function Rodape({
 // --- Passo 1: o serviço -----------------------------------------------------
 
 function PassoServico(p: {
+  /** Os formulários a escolher — vazio quando a APR já existe. */
+  modelos: ModeloApr[];
+  modeloAtual: string;
+  onTrocarModelo: (id: string) => void;
   local: string;
   setLocal: (v: string) => void;
   coordenador: string;
@@ -595,6 +699,37 @@ function PassoServico(p: {
 }) {
   return (
     <div className="space-y-6">
+      {/*
+        A escolha só existe antes da primeira gravação. Depois a APR é daquele
+        formulário: trocar no meio invalidaria tudo o que já foi marcado, e o
+        servidor não aceita — quem errou cancela e abre outra.
+      */}
+      {p.modelos.length > 1 && (
+        <div>
+          <span className="rotulo">Formulário</span>
+          <div className="flex flex-wrap gap-2">
+            {p.modelos.map((m) => {
+              const escolhido = m.id === p.modeloAtual;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => p.onTrocarModelo(m.id)}
+                  aria-pressed={escolhido}
+                  className={`rounded-xl border px-3.5 py-2.5 text-sm font-semibold transition ${
+                    escolhido
+                      ? 'border-brand-500 bg-brand-500/10 text-brand-800 dark:text-brand-200'
+                      : 'border-tinta-200 bg-papel text-tinta-600 hover:border-tinta-300'
+                  }`}
+                >
+                  {m.nome}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div>
         <label className="rotulo" htmlFor="local">
           Local da atividade

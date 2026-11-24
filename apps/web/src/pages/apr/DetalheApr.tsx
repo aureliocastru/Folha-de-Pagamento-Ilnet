@@ -111,6 +111,12 @@ export function DetalheApr({
   const apr = consulta.data!;
   const rascunho = apr.status === 'RASCUNHO';
   const liberada = apr.status === 'LIBERADA';
+  /**
+   * O serviço acabou. A APR encerrada registra um serviço que aconteceu: não
+   * se prorroga (não há o que esticar) nem se cancela (diria que ele não
+   * existiu).
+   */
+  const encerrada = !!apr.fimEm;
   const supervisiona = usuario?.role === 'ADMIN' || usuario?.role === 'RH';
   const admin = usuario?.role === 'ADMIN';
   const comCopia = apr.executantes.filter((e) => e.documentoRhId);
@@ -213,7 +219,7 @@ export function DetalheApr({
           </button>
         )}
 
-        {liberada && !apr.fimEm && (
+        {liberada && !encerrada && (
           <button
             type="button"
             onClick={() => acao.mutate({ rota: 'encerrar' })}
@@ -224,7 +230,7 @@ export function DetalheApr({
           </button>
         )}
 
-        {liberada && apr.prorrogacoes < 2 && (
+        {liberada && !encerrada && apr.prorrogacoes < 2 && (
           <button
             type="button"
             onClick={() => setJanela('prorrogar')}
@@ -244,7 +250,7 @@ export function DetalheApr({
           </button>
         )}
 
-        {apr.status !== 'CANCELADA' && (
+        {apr.status !== 'CANCELADA' && !encerrada && (
           <button
             type="button"
             onClick={() => setJanela('cancelar')}

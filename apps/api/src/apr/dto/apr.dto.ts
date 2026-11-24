@@ -208,10 +208,16 @@ export class ProrrogarAprDto {
   @MaxLength(500)
   motivo!: string;
 
-  /** O novo fim previsto, quando se sabe. */
+  /**
+   * A nova previsão de término, "AAAA-MM-DD", quando se sabe.
+   *
+   * É a previsão que a prorrogação estica, e não o fim de verdade: `fimEm` é o
+   * encerramento, e gravá-lo aqui encerraria o serviço que acabou de ser
+   * prorrogado.
+   */
   @IsOptional()
-  @IsISO8601()
-  fimEm?: string;
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Data no formato AAAA-MM-DD' })
+  previsaoFim?: string;
 }
 
 export class QueryAprDto {

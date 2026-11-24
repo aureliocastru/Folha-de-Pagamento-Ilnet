@@ -3,9 +3,11 @@ import {
   GravidadeApr,
   ModoAssinatura,
   RespostaRelato,
+  StatusApr,
 } from '@prisma/client';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import * as zlib from 'node:zlib';
 import { gerarAprPdf, type DadosDaApr } from './apr.pdf';
 
 /**
@@ -46,7 +48,7 @@ function dados(extra: Partial<DadosDaApr> = {}): DadosDaApr {
     supervisorNome: null,
     supervisorAssinatura: null,
     supervisorEm: null,
-    cancelada: false,
+    status: StatusApr.LIBERADA,
     motivoCancelamento: null,
     respostas: [
       {
@@ -140,6 +142,39 @@ function contarPaginas(buffer: Buffer): number {
   return (buffer.toString('latin1').match(/\/Type\s*\/Page[^s]/g) ?? []).length;
 }
 
+/**
+ * O texto impresso, uma linha por trecho desenhado.
+ *
+ * O pdfkit comprime cada página e escreve o texto em hexadecimal, dentro de
+ * operadores `[...] TJ` — os pedaços entre colchetes são a mesma linha partida
+ * pelo ajuste entre letras. As fontes embutidas são WinAnsi, que coincide com
+ * latin1 nas letras acentuadas do português (o travessão não: fica de fora das
+ * comparações).
+ */
+function textoDoPdf(pdf: Buffer): string {
+  const linhas: string[] = [];
+  const bruto = pdf.toString('latin1');
+
+  for (const stream of bruto.matchAll(/stream\r?\n([\s\S]*?)\r?\nendstream/g)) {
+    let conteudo: string;
+    try {
+      conteudo = zlib
+        .inflateSync(Buffer.from(stream[1], 'latin1'))
+        .toString('latin1');
+    } catch {
+      continue;
+    }
+    for (const tj of conteudo.matchAll(/\[([^\]]*)\]\s*TJ/g)) {
+      linhas.push(
+        [...tj[1].matchAll(/<([0-9a-fA-F]*)>/g)]
+          .map((h) => Buffer.from(h[1], 'hex').toString('latin1'))
+          .join(''),
+      );
+    }
+  }
+  return linhas.join('\n');
+}
+
 describe('gerarAprPdf', () => {
   it('desenha a APR inteira', async () => {
     const pdf = await gerarAprPdf(dados());
@@ -165,7 +200,7 @@ describe('gerarAprPdf', () => {
 
   it('imprime a tarja da APR cancelada', async () => {
     const pdf = await gerarAprPdf(
-      dados({ cancelada: true, motivoCancelamento: 'Chuva forte, sem subida' }),
+      dados({ status: StatusApr.CANCELADA, motivoCancelamento: 'Chuva forte, sem subida' }),
     );
 
     expect(pareceUmPdf(pdf)).toBe(true);
@@ -236,6 +271,76 @@ describe('gerarAprPdf', () => {
     // E nenhuma sobrando: dez páginas de texto corrido dão sete folhas, não
     // vinte.
     expect(paginas).toBeLessThan(10);
+  });
+
+  it('imprime inteiro o "quais?" que não cabe na coluna', async () => {
+    // Na grade de três colunas cabem uns 35 caracteres; isto passa do dobro.
+    const descricao =
+      'Galho de mangueira encostado na rede de media tensao, lado da calcada';
+    const pdf = await gerarAprPdf(
+      dados({
+        respostas: [
+          {
+            categoria: CategoriaItemApr.RISCO,
+            texto: 'Outros, quais?',
+            marcado: true,
+            resposta: null,
+            detalhe: descricao,
+          },
+          {
+            categoria: CategoriaItemApr.RISCO,
+            texto: 'Quedas de altura',
+            marcado: true,
+            resposta: null,
+            detalhe: null,
+          },
+        ],
+      }),
+    );
+
+    const texto = textoDoPdf(pdf);
+    expect(texto).toContain(`Outros, quais: ${descricao}`);
+    // E o que cabe continua na grade, do jeito de antes.
+    expect(texto).toMatch(/^Quedas de altura$/m);
+  });
+
+  it('o rascunho sai marcado: tarja no alto e rodapé em toda folha', async () => {
+    const pdf = await gerarAprPdf(
+      dados({
+        status: StatusApr.RASCUNHO,
+        orientacoes: 'Isolamento da área, obrigatório. '.repeat(120),
+      }),
+    );
+
+    const texto = textoDoPdf(pdf);
+    expect(texto).toContain('Este papel não autoriza');
+    expect(texto).toContain('APR ainda não liberada');
+    expect(texto).not.toContain('em andamento');
+
+    const paginas = contarPaginas(pdf);
+    expect(paginas).toBeGreaterThan(1);
+    expect(texto.match(/^RASCUNHO$/gm)).toHaveLength(paginas);
+  });
+
+  it('a cancelada não diz que o serviço está em andamento', async () => {
+    const pdf = await gerarAprPdf(
+      dados({
+        status: StatusApr.CANCELADA,
+        motivoCancelamento: 'Chuva forte o dia inteiro. '.repeat(18),
+      }),
+    );
+
+    const texto = textoDoPdf(pdf);
+    expect(texto).toContain('cancelada sem encerramento');
+    expect(texto).not.toContain('em andamento');
+    expect(texto).toMatch(/^CANCELADA$/m);
+  });
+
+  it('a liberada sem encerramento está em andamento, e sem marca', async () => {
+    const texto = textoDoPdf(await gerarAprPdf(dados()));
+
+    expect(texto).toContain('em andamento');
+    expect(texto).not.toMatch(/RASCUNHO|CANCELADA/);
   });
 
   it('a logo está onde o desenho a procura', () => {

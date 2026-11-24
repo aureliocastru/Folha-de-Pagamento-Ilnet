@@ -200,6 +200,57 @@ export function relatosNegativos(
     .map((r) => ({ pergunta: r.texto, providencia: r.detalhe?.trim() || null }));
 }
 
+/** O que a equipe tem na frente quando assina: a análise, sem a equipe. */
+export interface ConteudoDaAnalise {
+  local: string;
+  coordenador: string;
+  descricaoEtapas: string;
+  gravidade: GravidadeApr | null;
+  respostas: {
+    itemId: string | null;
+    texto: string;
+    marcado: boolean;
+    resposta: RespostaRelato | null;
+    detalhe: string | null;
+  }[];
+}
+
+/**
+ * A análise reduzida a um texto comparável — o que a assinatura cobre.
+ *
+ * Quem assina declara conhecer os riscos marcados e estar com os EPIs da
+ * lista. Se depois disso alguém desmarca um risco ou troca um "Não" do relato
+ * por "Sim", a assinatura passa a cobrir um papel que a pessoa não viu. Duas
+ * impressões diferentes, com alguém já assinado, desfazem as assinaturas.
+ *
+ * Ficam de fora, de propósito:
+ * - a equipe — entrar o quarto executante não muda o que os três primeiros
+ *   leram, e é o passo em que se está assinando;
+ * - as datas — acertar a hora de início não é mudar a análise de risco;
+ * - a ordem dos itens — reordenar o catálogo não muda o que foi marcado.
+ */
+export function impressaoDaAnalise(c: ConteudoDaAnalise): string {
+  const respostas = c.respostas
+    .map((r) =>
+      JSON.stringify([
+        r.itemId ?? '',
+        r.texto,
+        r.marcado,
+        r.resposta ?? '',
+        r.detalhe?.trim() ?? '',
+      ]),
+    )
+    .sort();
+
+  return JSON.stringify([
+    c.local.trim(),
+    c.coordenador.trim(),
+    c.descricaoEtapas.trim(),
+    c.gravidade ?? '',
+    respostas,
+  ]);
+}
+
 function primeiroNome(nome: string): string {
   return nome.trim().split(/\s+/)[0] ?? nome;
 }

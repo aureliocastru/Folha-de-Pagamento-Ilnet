@@ -1,9 +1,11 @@
 import { CategoriaItemApr, GravidadeApr, RespostaRelato } from '@prisma/client';
 import {
+  impressaoDaAnalise,
   pendenciasParaLiberar,
   relatosNegativos,
   riscosMarcados,
   type AprParaConferir,
+  type ConteudoDaAnalise,
   type RespostaParaConferir,
 } from './apr.regras';
 
@@ -296,5 +298,72 @@ describe('relatosNegativos', () => {
     ];
 
     expect(relatosNegativos(respostas)[0].providencia).toBeNull();
+  });
+});
+
+/**
+ * A assinatura cobre o papel que estava na frente de quem assinou. O que se
+ * prova aqui é a régua que decide se uma edição muda esse papel — mudar demais
+ * faria a equipe reassinar a cada "Continuar"; mudar de menos deixaria um risco
+ * ser desmarcado debaixo de assinaturas já colhidas.
+ */
+describe('impressaoDaAnalise', () => {
+  function analise(extra: Partial<ConteudoDaAnalise> = {}): ConteudoDaAnalise {
+    return {
+      local: 'Rua das Palmeiras, poste 42',
+      coordenador: 'Werick Castro',
+      descricaoEtapas: 'Isolar a área, amarrar a escada e subir.',
+      gravidade: GravidadeApr.ALTA,
+      respostas: [
+        {
+          itemId: 'risco-quedas',
+          texto: 'Quedas de altura',
+          marcado: true,
+          resposta: null,
+          detalhe: null,
+        },
+        {
+          itemId: 'relato-clima',
+          texto: 'As condições atmosféricas são favoráveis?',
+          marcado: false,
+          resposta: RespostaRelato.SIM,
+          detalhe: null,
+        },
+      ],
+      ...extra,
+    };
+  }
+
+  it('é a mesma quando nada muda, mesmo com as respostas em outra ordem', () => {
+    const invertida = analise();
+    invertida.respostas.reverse();
+
+    expect(impressaoDaAnalise(invertida)).toBe(impressaoDaAnalise(analise()));
+  });
+
+  it('ignora espaço sobrando nas pontas, que o servidor já apara', () => {
+    expect(
+      impressaoDaAnalise(analise({ local: '  Rua das Palmeiras, poste 42 ' })),
+    ).toBe(impressaoDaAnalise(analise()));
+  });
+
+  it('muda quando um risco é desmarcado', () => {
+    const sem = analise({ respostas: analise().respostas.slice(1) });
+    expect(impressaoDaAnalise(sem)).not.toBe(impressaoDaAnalise(analise()));
+  });
+
+  it('muda quando uma resposta do relato troca', () => {
+    const [risco, clima] = analise().respostas;
+    const trocada = analise({
+      respostas: [risco, { ...clima, resposta: RespostaRelato.NAO }],
+    });
+    expect(impressaoDaAnalise(trocada)).not.toBe(impressaoDaAnalise(analise()));
+  });
+
+  it('muda com a descrição, o local e a gravidade', () => {
+    const base = impressaoDaAnalise(analise());
+    expect(impressaoDaAnalise(analise({ descricaoEtapas: 'Outra coisa.' }))).not.toBe(base);
+    expect(impressaoDaAnalise(analise({ local: 'Outro poste' }))).not.toBe(base);
+    expect(impressaoDaAnalise(analise({ gravidade: GravidadeApr.BAIXA }))).not.toBe(base);
   });
 });

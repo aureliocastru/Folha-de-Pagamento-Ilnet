@@ -25,6 +25,7 @@ import {
   type RespostaDoPdf,
 } from './apr.pdf';
 import {
+  impressaoDaAnalise,
   pendenciasParaLiberar,
   relatosNegativos,
   riscosMarcados,
@@ -282,6 +283,11 @@ export class AprService {
    * Só enquanto é rascunho: depois de liberada, a APR é o papel que a equipe
    * assinou, e mexer no que está escrito nele é assinar por eles. O que muda
    * depois tem porta própria — prorrogar, encerrar, supervisionar, cancelar.
+   *
+   * A mesma regra vale dentro do rascunho, a partir da primeira assinatura:
+   * mudar a análise depois que alguém assinou desfaz as assinaturas, e todos
+   * assinam de novo o papel como ficou. Ver `impressaoDaAnalise` — acrescentar
+   * gente à equipe e acertar a hora não contam como mudar a análise.
    */
   async atualizar(id: string, dto: AtualizarAprDto, autor: AutorApr) {
     const apr = await this.exigir(id, autor);
@@ -291,6 +297,26 @@ export class AprService {
       dto.respostas === undefined
         ? null
         : await this.montarRespostas(apr.modeloId, dto.respostas);
+
+    const assinadas = apr.executantes.filter((e) => e.assinadoEm).length;
+    const desfazAssinaturas =
+      assinadas > 0 &&
+      impressaoDaAnalise(analiseDe(apr)) !==
+        impressaoDaAnalise({
+          local: dto.local ?? apr.local,
+          coordenador: dto.coordenador ?? apr.coordenador,
+          descricaoEtapas: dto.descricaoEtapas ?? apr.descricaoEtapas,
+          gravidade: dto.gravidade ?? apr.gravidade,
+          respostas: respostas
+            ? respostas.map((r) => ({
+                itemId: r.itemId ?? null,
+                texto: r.texto,
+                marcado: r.marcado ?? false,
+                resposta: r.resposta ?? null,
+                detalhe: r.detalhe ?? null,
+              }))
+            : apr.respostas,
+        });
 
     await this.prisma.$transaction(async (tx) => {
       if (respostas) {
@@ -304,6 +330,19 @@ export class AprService {
 
       if (dto.executantes !== undefined) {
         await this.sincronizarEquipe(tx, apr, dto.executantes);
+      }
+
+      if (desfazAssinaturas) {
+        await tx.executanteApr.updateMany({
+          where: { aprId: id, assinadoEm: { not: null } },
+          data: {
+            assinaturaPng: null,
+            assinadoEm: null,
+            modo: ModoAssinatura.DESENHADA,
+            ip: null,
+            userAgent: null,
+          },
+        });
       }
 
       await tx.apr.update({
@@ -333,7 +372,18 @@ export class AprService {
       });
     });
 
-    return this.paraTela(await this.exigir(id, autor));
+    if (desfazAssinaturas) {
+      this.logger.log(
+        `APR nº ${apr.numero}: a análise mudou depois de assinada por ` +
+          `${autor.nome}; ${assinadas} assinatura(s) desfeita(s).`,
+      );
+    }
+
+    return {
+      ...(await this.paraTela(await this.exigir(id, autor))),
+      /** Para a tela avisar por que a equipe voltou a "falta assinar". */
+      assinaturasDesfeitas: desfazAssinaturas ? assinadas : 0,
+    };
   }
 
   /**
@@ -370,8 +420,14 @@ export class AprService {
         'Só dá para encerrar uma APR que está liberada.',
       );
     }
+    if (apr.fimEm) {
+      throw new BadRequestException('Esta APR já foi encerrada.');
+    }
 
     const fim = fimEm ? new Date(fimEm) : new Date();
+    if (Number.isNaN(fim.getTime())) {
+      throw new BadRequestException('A hora do encerramento não é uma data.');
+    }
     if (fim < apr.inicioEm) {
       throw new BadRequestException(
         'O fim do serviço não pode ser antes do início.',
@@ -389,12 +445,20 @@ export class AprService {
    * São duas, no máximo — é o que o formulário impresso prevê —, e cada uma
    * pede o motivo. Os motivos se somam em vez de se substituírem: a segunda
    * prorrogação não apaga o que justificou a primeira.
+   *
+   * O que ela estica é a previsão de término. O fim de verdade é o
+   * encerramento — e depois dele não há o que prorrogar: o serviço acabou.
    */
   async prorrogar(id: string, dto: ProrrogarAprDto, autor: AutorApr) {
     const apr = await this.exigir(id, autor);
     if (apr.status !== StatusApr.LIBERADA) {
       throw new BadRequestException(
         'Só dá para prorrogar uma APR que está liberada.',
+      );
+    }
+    if (apr.fimEm) {
+      throw new BadRequestException(
+        'Esta APR já foi encerrada — o serviço acabou, não há o que prorrogar.',
       );
     }
     if (apr.prorrogacoes >= MAXIMO_DE_PRORROGACOES) {
@@ -412,7 +476,9 @@ export class AprService {
       data: {
         prorrogacoes: numero,
         motivoProrrogacao: `${anterior}${numero}ª: ${dto.motivo}`,
-        ...(dto.fimEm ? { fimEm: new Date(dto.fimEm) } : {}),
+        ...(dto.previsaoFim
+          ? { previsaoFim: diaOuNulo(dto.previsaoFim) }
+          : {}),
       },
     });
 
@@ -420,11 +486,23 @@ export class AprService {
     return this.paraTela(await this.exigir(id, autor));
   }
 
-  /** Aberta por engano, ou o serviço não aconteceu. */
+  /**
+   * Aberta por engano, ou o serviço não aconteceu.
+   *
+   * Por isso não vale para a encerrada: ela registra um serviço que começou e
+   * terminou, e cancelá-la diria que ele não existiu. A APR que não devia
+   * existir (a duplicada, a de teste) o administrador exclui.
+   */
   async cancelar(id: string, dto: CancelarAprDto, autor: AutorApr) {
     const apr = await this.exigir(id, autor);
     if (apr.status === StatusApr.CANCELADA) {
       throw new BadRequestException('Esta APR já está cancelada.');
+    }
+    if (apr.fimEm) {
+      throw new BadRequestException(
+        'Esta APR já foi encerrada: o serviço aconteceu, e cancelá-la diria ' +
+          'que não.',
+      );
     }
 
     await this.prisma.apr.update({
@@ -956,6 +1034,17 @@ export class AprService {
   }
 }
 
+/** A análise como está gravada, no formato que `impressaoDaAnalise` compara. */
+function analiseDe(apr: AprComTudo) {
+  return {
+    local: apr.local,
+    coordenador: apr.coordenador,
+    descricaoEtapas: apr.descricaoEtapas,
+    gravidade: apr.gravidade,
+    respostas: apr.respostas,
+  };
+}
+
 /** Perfil que só enxerga o que ele mesmo abriu. */
 function soAsSuas(autor: AutorApr): boolean {
   return autor.role === UserRole.TECNICO;
@@ -1043,7 +1132,7 @@ function paraOPdf(apr: AprComTudo): DadosDaApr {
     supervisorNome: apr.supervisorNome,
     supervisorAssinatura: apr.supervisorAssinatura,
     supervisorEm: apr.supervisorEm,
-    cancelada: apr.status === StatusApr.CANCELADA,
+    status: apr.status,
     motivoCancelamento: apr.motivoCancelamento,
     respostas,
     executantes: apr.executantes.map((e) => ({
