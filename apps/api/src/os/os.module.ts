@@ -39,6 +39,7 @@ import { TecnicosService } from './tecnicos.service';
     RelatorioOsService,
   ],
   // O mapa de serviço lê os assuntos e as cidades das OS pelas mesmas leituras.
-  exports: [OsDoIxcService],
+  // A análise de risco confere por `OsService.contexto` que a OS é do técnico.
+  exports: [OsDoIxcService, OsService],
 })
 export class OsModule {}

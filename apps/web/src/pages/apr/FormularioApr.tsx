@@ -75,11 +75,17 @@ interface Conferencia {
 
 export function FormularioApr({
   aprId,
+  os,
   onSair,
   onPronta,
 }: {
   /** Preenchido = continuar um rascunho; vazio = APR nova. */
   aprId?: string;
+  /**
+   * A OS do IXC de que a APR nova é — o caminho do técnico, que não abre APR
+   * solta. O local já vem dela; a API confere que a OS é dele.
+   */
+  os?: { id: number; local: string };
   onSair: () => void;
   /** Chamada quando a APR é liberada, com o id dela. */
   onPronta: (id: string) => void;
@@ -223,6 +229,11 @@ export function FormularioApr({
     if (!id && usuario?.nome) setCoordenador((atual) => atual || usuario.nome);
   }, [id, usuario?.nome]);
 
+  // Na APR da OS, o local é o da OS: o cliente e o endereço, como o IXC tem.
+  useEffect(() => {
+    if (!id && os?.local) setLocal((atual) => atual || os.local);
+  }, [id, os?.local]);
+
   /*
    * Numa APR nova, o que é verdade em todo serviço já vem marcado.
    *
@@ -318,6 +329,7 @@ export function FormularioApr({
             await api.post<Apr>('/apr', {
               ...dados,
               modeloId: formulario.data?.modelo.id,
+              osIxcId: os?.id,
             })
           ).data;
     },
@@ -413,6 +425,7 @@ export function FormularioApr({
       <Cabecalho
         passo={passo}
         numero={rascunho.data?.numero}
+        osIxcId={rascunho.data?.osIxcId ?? os?.id}
         onVoltar={voltar}
       />
 
@@ -530,10 +543,12 @@ export function FormularioApr({
 function Cabecalho({
   passo,
   numero,
+  osIxcId,
   onVoltar,
 }: {
   passo: number;
   numero?: number;
+  osIxcId?: number | null;
   onVoltar: () => void;
 }) {
   return (
@@ -551,6 +566,7 @@ function Cabecalho({
           <p className="eyebrow">
             Passo {passo + 1} de {PASSOS.length}
             {numero ? ` · APR nº ${numero}` : ''}
+            {osIxcId ? ` · OS ${osIxcId}` : ''}
           </p>
           <h1 className="font-display text-[22px] font-semibold leading-tight tracking-[-0.02em] text-tinta-900">
             {PASSOS[passo]}

@@ -67,6 +67,31 @@ export interface OsNaLista {
   problemas: number;
   /** A finalização pelo celular, quando houve. */
   finalizacao: SituacaoItemDeOs | null;
+  /**
+   * A análise de risco que vem com a OS. Null quando o assunto não pede (as
+   * OS de escritório) ou a OS já fechou sem ela.
+   */
+  apr: AprDaOs | null;
+}
+
+/**
+ * A APR da OS (pedido de 24/11/2026): o técnico não abre APR solta — ela vem
+ * com a OS, vai para os arquivos dela no IXC ao liberar, e a OS só finaliza
+ * com ela lá.
+ */
+export interface AprDaOs {
+  /** FALTA: ninguém começou. RASCUNHO: em preenchimento. LIBERADA: valendo. */
+  situacao: 'FALTA' | 'RASCUNHO' | 'LIBERADA';
+  id: string | null;
+  numero: number | null;
+  /** O PDF já está na aba "Arquivos" da OS no IXC. */
+  naOs: boolean;
+  /** Por que o último envio do PDF à OS não foi. */
+  erro: string | null;
+  /** Quem a abriu, quando não foi quem está olhando — a OS mudou de mãos. */
+  deOutro: string | null;
+  /** Por que a OS ainda não finaliza por causa da APR. Null: pode. */
+  trava: string | null;
 }
 
 /** A OS finalizada pelo celular — e a fila de levar isso ao IXC. */
@@ -114,6 +139,11 @@ export function ehAssinatura(a: ArquivoDaOs): boolean {
     a.classificacao === 'A' ||
     a.descricao.trim().toLowerCase().startsWith(DESCRICAO_DA_ASSINATURA.toLowerCase())
   );
+}
+
+/** O PDF da APR, que vai daqui para os arquivos da OS ao liberar ("Análise de Risco (APR) nº 12"). Não é foto. */
+export function ehAprDaOs(a: ArquivoDaOs): boolean {
+  return a.descricao.trim().toLowerCase().startsWith('análise de risco (apr)');
 }
 
 /** Quem assinou, pela descrição "Assinatura do Cliente — Fulano". Null na do IXC, que não diz. */

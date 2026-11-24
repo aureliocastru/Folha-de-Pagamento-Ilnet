@@ -11,6 +11,7 @@ import {
   SITUACAO_TOM,
   TIPO_LABEL,
   TIPO_TOM,
+  ehAprDaOs,
   ehAssinatura,
   identificacaoDaPeca,
   quantidadeComUnidade,
@@ -325,8 +326,10 @@ function PassoDasFotos({
 
   const naOs = arquivos.data ?? [];
   // Sem a lista do IXC não dá para contar: quem decide é a API, ao finalizar.
-  // A assinatura fica na mesma aba, mas não é foto.
-  const faltam = arquivos.data ? Math.max(0, exigidas - naOs.filter((a) => !ehAssinatura(a)).length) : 0;
+  // A assinatura e o PDF da APR ficam na mesma aba, mas não são foto.
+  const faltam = arquivos.data
+    ? Math.max(0, exigidas - naOs.filter((a) => !ehAssinatura(a) && !ehAprDaOs(a)).length)
+    : 0;
   const ocupado = anexando !== null;
 
   /** Muda uma foto da lista (ou a tira, com null). */

@@ -18,7 +18,7 @@ import {
   type ProblemaNaTela,
   type Sinal,
 } from '../../lib/conferencia';
-import { ehAssinatura, type ArquivoDaOs } from '../../lib/os';
+import { ehAprDaOs, ehAssinatura, type ArquivoDaOs } from '../../lib/os';
 
 /**
  * A conferência das OS fechadas, pelo chefe do almoxarifado.
@@ -421,8 +421,10 @@ function DetalheDaOs({
   }
 
   const o = os.data;
-  const fotos = o.arquivos.filter((a) => a.classificacao !== 'O');
-  const pdfs = o.arquivos.filter((a) => a.classificacao === 'O');
+  // O PDF da APR vai como P (a classificação padrão), e se reconhece pela descrição.
+  const ehPdf = (a: ArquivoDaOs) => a.classificacao === 'O' || ehAprDaOs(a);
+  const fotos = o.arquivos.filter((a) => !ehPdf(a));
+  const pdfs = o.arquivos.filter(ehPdf);
   const contratoDoAparelho = (contratoId: number) => contratoId > 0 && contratoId !== o.contratoId;
 
   return (
@@ -484,7 +486,9 @@ function DetalheDaOs({
           <button
             key={a.id}
             type="button"
-            onClick={() => void abrirArquivo(`/os/conferencia/arquivos/${a.id}`, `os-${o.id}.pdf`)}
+            onClick={() =>
+              void abrirArquivo(`/os/conferencia/arquivos/${a.id}`, `os-${o.id}${ehAprDaOs(a) ? '-apr' : ''}.pdf`)
+            }
             className="mt-2 text-[13px] font-medium text-brand-700 underline dark:text-brand-300"
           >
             {a.descricao} (PDF)

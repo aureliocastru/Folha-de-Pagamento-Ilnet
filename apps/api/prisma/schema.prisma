@@ -2933,6 +2933,26 @@ model Apr {
   documentoRh   DocumentoRh? @relation(fields: [documentoRhId], references: [id], onDelete: SetNull)
   documentoRhId String?      @unique @map("documento_rh_id")
 
+  // --- A ordem de serviço do IXC ---
+  /// A OS de que esta APR é (`su_oss_chamado.id`).
+  ///
+  /// Pedido de 24/11/2026: o técnico não abre APR solta — ela vem com a OS
+  /// que o IXC encaminhou a ele, e a OS só se finaliza pelo celular com a APR
+  /// liberada e anexada nela. Vazio é a APR avulsa, que só a Segurança do
+  /// Trabalho abre, pelo módulo.
+  ///
+  /// Uma APR valendo por OS: quem garante é um índice único parcial (fora as
+  /// canceladas), que o Prisma não sabe declarar — ver a migração
+  /// `20261124120000_apr_da_os`.
+  osIxcId Int? @map("os_ixc_id")
+
+  /// O PDF desta APR na aba "Arquivos" da OS no IXC
+  /// (`su_oss_chamado_arquivos.id`). Vai uma vez, ao liberar.
+  arquivoNaOsIxcId Int?      @map("arquivo_na_os_ixc_id")
+  arquivoNaOsEm    DateTime? @map("arquivo_na_os_em")
+  /// Por que o último envio do PDF à OS não foi. Some quando ele vai.
+  arquivoNaOsErro  String?   @map("arquivo_na_os_erro")
+
   respostas   RespostaApr[]
   executantes ExecutanteApr[]
 
@@ -2943,6 +2963,7 @@ model Apr {
   @@index([inicioEm])
   @@index([criadoPorId])
   @@index([modeloId])
+  @@index([osIxcId])
   @@map("aprs")
 }
 

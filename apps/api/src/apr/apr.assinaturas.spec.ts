@@ -156,6 +156,9 @@ function montar(
     {} as never,
     {} as never,
     {} as never,
+    {} as never,
+    {} as never,
+    {} as never,
   );
   // O aviso de "não consegui arquivar" é esperado aqui, e só sujaria a saída.
   (service as unknown as { logger: { log: jest.Mock; warn: jest.Mock } }).logger =

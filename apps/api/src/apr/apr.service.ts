@@ -14,7 +14,19 @@ import {
   StatusApr,
   UserRole,
 } from '@prisma/client';
+import { numeroDoIxc } from '../almoxarifado/estoque.mapper';
 import { ConfigFinanceiraService } from '../financeiro/config-financeira.service';
+import { IxcClient } from '../ixc/ixc.client';
+import { osPedeApr } from '../os/apr-da-os';
+import { OsDoIxcService } from '../os/os-do-ixc.service';
+import {
+  CAMPO_DO_ARQUIVO_DA_OS,
+  CLASSIFICACAO_DO_ARQUIVO,
+  descricaoDaAprNaOs,
+  montarArquivoNaOs,
+  type OsDoIxc,
+} from '../os/os-ixc';
+import { OsService } from '../os/os.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { DocumentosRhService } from '../rh/documentos.service';
 import { quemTemLogin } from '../usuarios/login-de-campo';
@@ -89,6 +101,9 @@ export class AprService {
     private readonly catalogo: CatalogoAprService,
     private readonly config: ConfigFinanceiraService,
     private readonly documentos: DocumentosRhService,
+    private readonly ixc: IxcClient,
+    private readonly os: OsService,
+    private readonly doIxc: OsDoIxcService,
   ) {}
 
   // --- Ler ------------------------------------------------------------------
@@ -161,6 +176,9 @@ export class AprService {
       criadoPorNome: apr.criadoPorNome,
       supervisionada: !!apr.supervisorEm,
       arquivadaNoRh: !!apr.documentoRhId,
+      osIxcId: apr.osIxcId,
+      /** O PDF já está na aba "Arquivos" da OS no IXC. */
+      naOs: !!apr.arquivoNaOsIxcId,
       executantes: apr.executantes.map((e) => e.nome),
       assinaturasFaltando: apr.executantes.filter((e) => !e.assinadoEm).length,
       riscos: apr.respostas
@@ -232,8 +250,20 @@ export class AprService {
    *
    * Nasce em rascunho. O que a torna documento é a liberação, que confere o que
    * falta e exige a assinatura de todo mundo.
+   *
+   * O técnico não abre APR solta: ela vem com a OS que o IXC encaminhou a ele
+   * (pedido de 24/11/2026), e é a OS que diz que ela existe. A avulsa, sem OS,
+   * é de quem cuida da Segurança do Trabalho, pelo módulo.
    */
   async criar(dto: CriarAprDto, autor: AutorApr) {
+    const os = dto.osIxcId ? await this.osDaNovaApr(dto.osIxcId, autor) : null;
+    if (!os && soAsSuas(autor)) {
+      throw new ForbiddenException(
+        'A análise de risco vem com a ordem de serviço: abra a OS em "Ordens de serviço" ' +
+          'e preencha a APR por lá.',
+      );
+    }
+
     const { modelo } = await this.catalogo.formulario(dto.modeloId);
     const cfg = await this.config.obter();
 
@@ -244,6 +274,7 @@ export class AprService {
       data: {
         numero,
         modeloId: modelo.id,
+        osIxcId: os?.id ?? null,
         // O retrato do papel, congelado agora. Ver o comentário do modelo.
         empresaNome: cfg.empresaNome.trim() || EMPRESA_DO_PAPEL.nome,
         empresaCnpj: cfg.empresaCnpj.trim() || EMPRESA_DO_PAPEL.cnpj,
@@ -271,10 +302,57 @@ export class AprService {
         },
       },
       include: COM_TUDO,
-    });
+    }).catch((erro: unknown) => recusarSegundaAprDaOs(erro, os));
 
-    this.logger.log(`APR nº ${apr.numero} aberta por ${autor.nome}.`);
+    this.logger.log(
+      `APR nº ${apr.numero} aberta por ${autor.nome}${os ? ` para a OS ${os.id}` : ''}.`,
+    );
     return this.paraTela(apr);
+  }
+
+  /**
+   * A OS de uma APR nova: tem de ser do técnico que entrou, estar aberta, ter
+   * assunto que pede APR (ver `osPedeApr`) e não ter outra APR valendo.
+   *
+   * O rascunho de outro técnico não segura a OS: se ela passou para quem está
+   * pedindo, a análise de quem a tinha não é a da equipe que vai ao poste — sai
+   * cancelada, dizendo por quê, e a nova entra no lugar.
+   */
+  private async osDaNovaApr(osId: number, autor: AutorApr): Promise<OsDoIxc> {
+    if (!autor.id) throw new ForbiddenException('Entre de novo para abrir a APR da OS.');
+    const { os } = await this.os.contexto({ id: autor.id, nome: autor.nome }, osId);
+    if (os.status === 'F') {
+      throw new BadRequestException(`A OS ${os.id} já está finalizada no IXC.`);
+    }
+    const assuntos = await this.doIxc.nomesDosAssuntos();
+    if (!osPedeApr(assuntos.get(os.assuntoId))) {
+      throw new BadRequestException(`O assunto da OS ${os.id} não pede análise de risco.`);
+    }
+
+    const atual = await this.prisma.apr.findFirst({
+      where: { osIxcId: os.id, status: { not: StatusApr.CANCELADA } },
+      select: { id: true, numero: true, status: true, criadoPorId: true, criadoPorNome: true },
+    });
+    if (!atual) return os;
+
+    if (atual.status === StatusApr.RASCUNHO && atual.criadoPorId !== autor.id) {
+      await this.prisma.apr.update({
+        where: { id: atual.id },
+        data: {
+          status: StatusApr.CANCELADA,
+          motivoCancelamento: `A OS ${os.id} passou para ${autor.nome} no IXC antes de a APR ser liberada.`,
+          canceladaEm: new Date(),
+        },
+      });
+      this.logger.log(
+        `APR nº ${atual.numero} de ${atual.criadoPorNome} cancelada: a OS ${os.id} passou para ${autor.nome}.`,
+      );
+      return os;
+    }
+
+    throw new BadRequestException(
+      `A OS ${os.id} já tem a APR nº ${atual.numero}. Volte à OS e abra a APR por lá.`,
+    );
   }
 
   /**
@@ -409,6 +487,24 @@ export class AprService {
 
     this.logger.log(`APR nº ${apr.numero} liberada por ${autor.nome}.`);
     await this.arquivarNoRh(id);
+    await this.anexarNaOs(id);
+    return this.paraTela(await this.exigir(id, autor));
+  }
+
+  /**
+   * Manda de novo o PDF à OS, quando a liberação não conseguiu (o IXC fora do
+   * ar, o sinal que caiu). A OS não se finaliza sem ele — é o botão "Enviar à
+   * OS" da tela do técnico.
+   */
+  async reenviarParaAOs(id: string, autor: AutorApr) {
+    const apr = await this.exigir(id, autor);
+    if (!apr.osIxcId) {
+      throw new BadRequestException('Esta APR não é de uma ordem de serviço.');
+    }
+    if (apr.status !== StatusApr.LIBERADA) {
+      throw new BadRequestException('A APR vai para a OS quando é liberada.');
+    }
+    await this.anexarNaOs(id);
     return this.paraTela(await this.exigir(id, autor));
   }
 
@@ -707,6 +803,72 @@ export class AprService {
         `Não consegui arquivar a APR ${id} na pasta do RH: ${String(erro)}`,
       );
     }
+  }
+
+  /**
+   * Leva o PDF da APR liberada à aba "Arquivos" da OS no IXC (pedido de
+   * 24/11/2026) — uma vez: a que já foi não vai de novo.
+   *
+   * Nunca derruba quem chamou, como o arquivo do RH: a equipe que liberou não
+   * fica parada na rua porque o IXC não respondeu. O que não foi fica anotado
+   * (`arquivoNaOsErro`), a tela mostra o botão de mandar de novo, e a OS não se
+   * finaliza até ele ir (ver `travaDaApr`).
+   *
+   * Antes de mandar de novo, procura na OS: o IXC já respondeu erro tendo
+   * guardado (ver `docs/ixc/README.md`), e a segunda tentativa às cegas deixaria
+   * a mesma APR duas vezes nos arquivos.
+   */
+  private async anexarNaOs(id: string): Promise<void> {
+    const apr = await this.prisma.apr
+      .findUnique({ where: { id }, include: COM_TUDO })
+      .catch((erro: unknown) => {
+        this.logger.warn(`Não consegui reler a APR ${id} para anexá-la na OS: ${String(erro)}`);
+        return null;
+      });
+    if (!apr?.osIxcId || apr.status !== StatusApr.LIBERADA || apr.arquivoNaOsIxcId) return;
+    const osId = apr.osIxcId;
+    const descricao = descricaoDaAprNaOs(apr.numero);
+
+    try {
+      if (apr.arquivoNaOsErro) {
+        const jaFoi = (await this.doIxc.arquivosDaOs(osId)).find(
+          (a) => comparavel(a.descricao) === comparavel(descricao),
+        );
+        if (jaFoi) {
+          await this.marcarNaOs(id, jaFoi.id);
+          this.logger.log(`APR nº ${apr.numero}: o PDF já estava na OS ${osId} (arquivo ${jaFoi.id}).`);
+          return;
+        }
+      }
+
+      const pdf = await gerarAprPdf(paraOPdf(apr));
+      const resposta = await this.ixc.upload(
+        'su_oss_chamado_arquivos',
+        CAMPO_DO_ARQUIVO_DA_OS,
+        { nome: nomeDoArquivo(apr), tipo: 'application/pdf', conteudo: pdf },
+        // P é a classificação padrão da rota; a APR se reconhece pela descrição.
+        montarArquivoNaOs(osId, descricao, CLASSIFICACAO_DO_ARQUIVO.FOTO),
+      );
+      const arquivoId = numeroDoIxc(resposta.id);
+      if (arquivoId <= 0) {
+        throw new Error('o IXC respondeu sem o número do arquivo — confira a aba "Arquivos" da OS');
+      }
+      await this.marcarNaOs(id, arquivoId);
+      this.logger.log(`APR nº ${apr.numero} anexada na OS ${osId} do IXC (arquivo ${arquivoId}).`);
+    } catch (erro) {
+      const motivo = (erro instanceof Error ? erro.message : String(erro)).slice(0, 500);
+      this.logger.warn(`APR nº ${apr.numero}: não consegui anexar o PDF na OS ${osId} do IXC: ${motivo}`);
+      await this.prisma.apr
+        .update({ where: { id }, data: { arquivoNaOsErro: motivo } })
+        .catch(() => undefined);
+    }
+  }
+
+  private async marcarNaOs(id: string, arquivoId: number): Promise<void> {
+    await this.prisma.apr.update({
+      where: { id },
+      data: { arquivoNaOsIxcId: arquivoId, arquivoNaOsEm: new Date(), arquivoNaOsErro: null },
+    });
   }
 
   /** A cópia do arquivo geral: "Empresa / Análises de Risco (APR) / 2026-08". */
@@ -1048,6 +1210,29 @@ function analiseDe(apr: AprComTudo) {
 /** Perfil que só enxerga o que ele mesmo abriu. */
 function soAsSuas(autor: AutorApr): boolean {
   return autor.role === UserRole.TECNICO;
+}
+
+/**
+ * O índice parcial de uma APR por OS recusou a criação — o segundo toque em
+ * "Continuar", ou dois celulares na mesma OS. Diz isso, em vez do erro do banco.
+ */
+function recusarSegundaAprDaOs(erro: unknown, os: { id: number } | null): never {
+  if (os && erro instanceof Prisma.PrismaClientKnownRequestError && erro.code === 'P2002') {
+    throw new BadRequestException(
+      `A OS ${os.id} já tem a análise de risco dela. Volte à OS e abra a APR por lá.`,
+    );
+  }
+  throw erro;
+}
+
+/** Sem acento, sem caixa e sem espaço sobrando — para achar a descrição como o IXC a devolve. */
+function comparavel(texto: string): string {
+  return texto
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 /** "AAAA-MM-DD" vira o dia à meia-noite UTC, sem o fuso de quem digitou. */

@@ -640,6 +640,26 @@ export const CLASSIFICACAO_DO_ARQUIVO = { FOTO: 'P', ASSINATURA: 'A' } as const;
 export const DESCRICAO_DA_ASSINATURA = 'Assinatura do Cliente';
 
 /**
+ * O começo da descrição do PDF da APR na aba "Arquivos" da OS
+ * ("Análise de Risco (APR) nº 12").
+ *
+ * Vai com a classificação P, a padrão da rota — o IXC só tem P, A e O na base
+ * (lido em 24/11/2026), e O é o PDF que ele mesmo gera ao finalizar. É por
+ * esta descrição que a APR não conta como foto (`ehAprDaOs`).
+ */
+export const DESCRICAO_DA_APR = 'Análise de Risco (APR)';
+
+/** A descrição do PDF da APR nº `numero` na OS. */
+export function descricaoDaAprNaOs(numero: number): string {
+  return `${DESCRICAO_DA_APR} nº ${numero}`;
+}
+
+/** O PDF da APR, anexado daqui na liberação. Não é foto do serviço. */
+export function ehAprDaOs(a: Pick<ArquivoDaOs, 'descricao'>): boolean {
+  return a.descricao.trim().toLowerCase().startsWith(DESCRICAO_DA_APR.toLowerCase());
+}
+
+/**
  * Os campos de texto de um arquivo anexado à OS (`POST /su_oss_chamado_arquivos`,
  * "Arquivos › Arquivos (inserir)"). O arquivo vai ao lado, no multipart do
  * `IxcClient.upload`. A descrição é o que a aba de arquivos da OS lista; a

@@ -167,6 +167,9 @@ function montarServico(
     {} as never,
     {} as never,
     documentos as never,
+    {} as never,
+    {} as never,
+    {} as never,
   );
 
   /** Privado de propósito: quem arquiva é o próprio fluxo da APR. */
@@ -302,6 +305,9 @@ describe('a APR apagada pelo admin', () => {
 
     const service = new AprService(
       prisma as never,
+      {} as never,
+      {} as never,
+      {} as never,
       {} as never,
       {} as never,
       {} as never,

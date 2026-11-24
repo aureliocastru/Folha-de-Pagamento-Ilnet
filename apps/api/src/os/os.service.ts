@@ -9,6 +9,7 @@ import {
   CondicaoDoRetirado,
   Prisma,
   SituacaoItemDeOs,
+  StatusApr,
   TipoItemDeOs,
   type FinalizacaoDeOs,
   type ItemDeOs,
@@ -23,6 +24,13 @@ import { ProdutosService } from '../almoxarifado/produtos.service';
 import { TransferenciasService, type PecaAchada } from '../almoxarifado/transferencias.service';
 import { IxcClient } from '../ixc/ixc.client';
 import { PrismaService } from '../prisma/prisma.service';
+import {
+  aprDaOs,
+  COLUNAS_DA_APR_DA_OS,
+  osPedeApr,
+  type AprDaOs,
+  type AprGuardada,
+} from './apr-da-os';
 import { OsDoIxcService, type AparelhoNoAlmox } from './os-do-ixc.service';
 import {
   montarBaixaDeComodato,
@@ -106,6 +114,11 @@ export interface OsNaLista {
   problemas: number;
   /** A finalização pelo celular, quando houve. */
   finalizacao: SituacaoItemDeOs | null;
+  /**
+   * A análise de risco que vem com a OS. Null quando o assunto não pede
+   * (`osPedeApr`) ou a OS já fechou sem ela.
+   */
+  apr: AprDaOs | null;
 }
 
 /** A finalização como as telas a mostram. */
@@ -242,14 +255,24 @@ export class OsService {
   }> {
     const tecnico = await this.tecnicos.doLogin(login.id);
     const lista = await this.doIxc.doTecnico(tecnico.ixcId);
-    const [assuntos, clientes, contagens] = await Promise.all([
+    const [assuntos, clientes, contagens, aprs] = await Promise.all([
       this.doIxc.nomesDosAssuntos(),
       this.doIxc.nomesDosClientes(lista.map((o) => o.clienteId)),
       this.contagens(lista.map((o) => o.id)),
+      this.aprsDasOs(lista.map((o) => o.id)),
     ]);
     const agora = new Date();
     const os = lista
-      .map((o) => naLista(o, assuntos, clientes, contagens.get(o.id), agora))
+      .map((o) =>
+        naLista(
+          o,
+          assuntos,
+          clientes,
+          contagens.get(o.id),
+          agora,
+          aprNaLista(o, assuntos, aprs.get(o.id) ?? null, login.id),
+        ),
+      )
       .sort(naOrdemDoTecnico);
     return { tecnico: { nome: tecnico.nome, almox: tecnico.almox }, os };
   }
@@ -259,7 +282,7 @@ export class OsService {
     const { tecnico, os } = await this.contexto(login, osId);
     await this.esquecerInterrompidos();
 
-    const [assuntos, clientes, comodatos, naVan, saldos, lista, registro] =
+    const [assuntos, clientes, comodatos, naVan, saldos, lista, registro, aprs] =
       await Promise.all([
         this.doIxc.nomesDosAssuntos(),
         this.doIxc.nomesDosClientes([os.clienteId]),
@@ -277,6 +300,7 @@ export class OsService {
             ...FINALIZACAO_NA_TELA,
           },
         }),
+        this.aprsDasOs([os.id]),
       ]);
     const itens = registro?.itens ?? [];
     const finalizacao = registro?.finalizacao ?? null;
@@ -302,6 +326,7 @@ export class OsService {
           clientes,
           { ...contar(itens), finalizacao: finalizacao?.situacao ?? null },
           new Date(),
+          aprNaLista(os, assuntos, aprs.get(os.id) ?? null, login.id),
         ),
         mensagem: os.mensagem,
         contratoId: os.contratoId,
@@ -1244,6 +1269,19 @@ export class OsService {
     return { tecnico, os };
   }
 
+  /**
+   * A APR valendo de cada OS — a cancelada não conta: a OS que perdeu a dela
+   * volta a "falta preencher". O índice parcial garante uma só por OS.
+   */
+  async aprsDasOs(osIds: number[]): Promise<Map<number, AprGuardada>> {
+    if (osIds.length === 0) return new Map();
+    const linhas = await this.prisma.apr.findMany({
+      where: { osIxcId: { in: osIds }, status: { not: StatusApr.CANCELADA } },
+      select: COLUNAS_DA_APR_DA_OS,
+    });
+    return new Map(linhas.map(({ osIxcId, ...apr }) => [osIxcId ?? 0, apr]));
+  }
+
   /** Quantos itens cada OS tem aqui, quantos ainda esperam, e a finalização. */
   private async contagens(osIds: number[]): Promise<Map<number, Contagem>> {
     if (osIds.length === 0) return new Map();
@@ -1363,6 +1401,7 @@ function naLista(
   clientes: Map<number, string>,
   contagem: Contagem | undefined,
   agora: Date,
+  apr: AprDaOs | null,
 ): OsNaLista {
   const assunto = assuntos.get(os.assuntoId) ?? (os.assuntoId ? `Assunto ${os.assuntoId}` : null);
   return {
@@ -1382,7 +1421,23 @@ function naLista(
     pendentes: contagem?.pendentes ?? 0,
     problemas: contagem?.problemas ?? 0,
     finalizacao: contagem?.finalizacao ?? null,
+    apr,
   };
+}
+
+/**
+ * A APR da OS na lista: a que já existe, sempre; a que falta, só na OS aberta
+ * cujo assunto pede (ver `osPedeApr`) — a OS que já fechou sem ela não tem
+ * mais o que preencher.
+ */
+function aprNaLista(
+  os: OsDoIxc,
+  assuntos: Map<number, string>,
+  guardada: AprGuardada | null,
+  loginId: string,
+): AprDaOs | null {
+  if (!guardada && (os.status === 'F' || !osPedeApr(assuntos.get(os.assuntoId)))) return null;
+  return aprDaOs(guardada, loginId);
 }
 
 function contar(itens: Array<{ situacao: SituacaoItemDeOs }>) {

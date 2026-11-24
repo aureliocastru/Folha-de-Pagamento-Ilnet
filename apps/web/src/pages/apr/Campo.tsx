@@ -1,6 +1,6 @@
-import { useQuery } from '@tanstack/react-query';
-import { Suspense, useState, type ReactNode } from 'react';
-import { Link, NavLink, Outlet, useNavigate, useParams } from 'react-router-dom';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Suspense, useEffect, useState, type ReactNode } from 'react';
+import { Link, Navigate, NavLink, Outlet, useNavigate, useParams } from 'react-router-dom';
 import {
   IconeBomba,
   IconeOs,
@@ -24,6 +24,7 @@ import {
   STATUS_APR_LABEL,
   STATUS_APR_TOM,
 } from '../../lib/status';
+import type { MinhasOs, OsAberta } from '../../lib/os';
 import type { AprResumo } from '../../lib/types';
 import {
   FormularioDeAbastecimento,
@@ -209,7 +210,7 @@ export function CampoInicio() {
               icone={IconeCapacete}
               tom="bg-rose-500/15 text-rose-600 dark:text-rose-300"
               titulo="Análise de risco"
-              descricao="A APR do serviço: abrir, colher as assinaturas e encerrar"
+              descricao="A APR que vem com cada OS: preencher, colher as assinaturas e encerrar"
             />
           )}
         </div>
@@ -333,6 +334,9 @@ export function CampoAbastecimento() {
  */
 export function CampoAprs() {
   const navigate = useNavigate();
+  const { usuario } = useAuth();
+  // O técnico não abre APR solta: ela vem com a OS (pedido de 24/11/2026).
+  const tecnico = usuario?.role === 'TECNICO';
 
   const lista = useQuery({
     queryKey: ['aprs', 'minhas'],
@@ -347,14 +351,18 @@ export function CampoAprs() {
   return (
     <div className="space-y-6">
       <VoltarAoInicio />
-      <button
-        type="button"
-        onClick={() => navigate('/campo/nova')}
-        className="btn btn-primario w-full justify-center gap-2.5 py-5 text-base"
-      >
-        <IconeCapacete className="h-5 w-5" />
-        Nova análise de risco
-      </button>
+      {tecnico ? (
+        <AprsDasMinhasOs />
+      ) : (
+        <button
+          type="button"
+          onClick={() => navigate('/campo/nova')}
+          className="btn btn-primario w-full justify-center gap-2.5 py-5 text-base"
+        >
+          <IconeCapacete className="h-5 w-5" />
+          Nova análise de risco
+        </button>
+      )}
 
       {lista.isLoading && <Carregando texto="Carregando…" />}
 
@@ -397,6 +405,58 @@ export function CampoAprs() {
   );
 }
 
+/**
+ * As APRs que o sistema encaminhou ao técnico: uma por OS aberta com ele no
+ * IXC que ainda não tem a sua. Tocar abre o formulário já com a OS — é o
+ * único caminho do técnico para uma APR nova.
+ */
+function AprsDasMinhasOs() {
+  const navigate = useNavigate();
+  const minhas = useQuery({
+    queryKey: ['minhas-os'],
+    queryFn: async () => (await api.get<MinhasOs>('/minhas-os')).data,
+    retry: 0,
+  });
+  const aPreencher = (minhas.data?.os ?? []).filter(
+    (o) => o.status !== 'F' && o.apr && (o.apr.situacao === 'FALTA' || o.apr.deOutro),
+  );
+
+  return (
+    <section>
+      <h2 className="eyebrow mb-2">A preencher, das suas OS</h2>
+      {minhas.isLoading && <Carregando texto="Lendo suas OS no IXC…" />}
+      {minhas.isError && <Aviso tom="erro">{mensagemErro(minhas.error)}</Aviso>}
+      {minhas.isSuccess && aPreencher.length === 0 && (
+        <p className="rounded-xl border border-dashed border-tinta-300 px-4 py-5 text-center text-[13px] text-tinta-500">
+          Nenhuma OS sua esperando a análise de risco. Quando o IXC passar uma OS para você, a APR dela aparece
+          aqui e na própria OS.
+        </p>
+      )}
+      <div className="space-y-2">
+        {aPreencher.map((o) => (
+          <button
+            key={o.id}
+            type="button"
+            onClick={() => navigate(`/campo/os/${o.id}/apr`)}
+            className="card card-hover w-full p-4 text-left"
+          >
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Selo tom="atencao" ponto>
+                A preencher
+              </Selo>
+              <span className="ml-auto text-[11px] text-tinta-400">OS {o.id}</span>
+            </div>
+            <p className="mt-2 text-[15px] font-semibold leading-snug text-tinta-900">
+              {o.assunto ?? 'OS'} {o.cliente ? `— ${o.cliente}` : ''}
+            </p>
+            {o.endereco && <p className="mt-0.5 text-[13px] text-tinta-500">{o.endereco}</p>}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 /** Uma APR na lista do técnico: só o que ele precisa para reconhecê-la. */
 function CartaoApr({ apr }: { apr: AprResumo }) {
   const navigate = useNavigate();
@@ -425,7 +485,8 @@ function CartaoApr({ apr }: { apr: AprResumo }) {
         {apr.local}
       </p>
       <p className="mt-0.5 text-[12px] text-tinta-500">
-        APR nº {apr.numero} · {formatDataHora(apr.inicioEm)}
+        APR nº {apr.numero}
+        {apr.osIxcId ? ` · OS ${apr.osIxcId}` : ''} · {formatDataHora(apr.inicioEm)}
         {apr.fimEm ? ' · encerrada' : ''}
       </p>
       {apr.riscos.length > 0 && (
@@ -437,9 +498,11 @@ function CartaoApr({ apr }: { apr: AprResumo }) {
   );
 }
 
-/** O formulário, abrindo em branco. */
+/** O formulário, abrindo em branco. O técnico não chega aqui: a APR dele vem com a OS. */
 export function CampoNova() {
   const navigate = useNavigate();
+  const { usuario } = useAuth();
+  if (usuario?.role === 'TECNICO') return <Navigate to="/campo/aprs" replace />;
   return (
     <FormularioApr
       onSair={() => navigate('/campo/aprs')}
@@ -473,6 +536,74 @@ export function CampoApr() {
       onSair={() => navigate('/campo/aprs')}
     />
   );
+}
+
+/**
+ * A APR de uma OS, aberta pela OS: a que já existe (o rascunho direto no
+ * formulário, a liberada no papel), ou a nova, com o local da OS. Ao sair ou
+ * liberar, volta para a OS.
+ *
+ * O que abrir é decidido uma vez, na chegada. A lista da OS se relê quando o
+ * técnico volta à aba (de ver o PDF, por exemplo), e a APR nova ganha um id no
+ * primeiro "Continuar": decidir de novo a cada leitura remontaria o formulário
+ * no primeiro passo, no meio do preenchimento.
+ */
+export function CampoAprDaOs() {
+  const { osId } = useParams<{ osId: string }>();
+  const id = Number(osId);
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const [abrir, setAbrir] = useState<{ aprId: string | null; local: string } | null>(null);
+  const [continuando, setContinuando] = useState(false);
+
+  const aberta = useQuery({
+    queryKey: ['minhas-os', id],
+    queryFn: async () => (await api.get<OsAberta>(`/minhas-os/${id}`)).data,
+    enabled: id > 0,
+    retry: 0,
+  });
+
+  const dados = aberta.data;
+  useEffect(() => {
+    if (abrir || !dados?.os.apr) return;
+    const apr = dados.os.apr;
+    const dele = apr.id && !apr.deOutro ? apr.id : null;
+    setAbrir({
+      aprId: dele,
+      local: [dados.os.cliente, dados.os.endereco].filter(Boolean).join(' — '),
+    });
+    setContinuando(!!dele && apr.situacao === 'RASCUNHO');
+  }, [abrir, dados]);
+
+  function voltar() {
+    void qc.invalidateQueries({ queryKey: ['minhas-os'] });
+    void qc.invalidateQueries({ queryKey: ['aprs'] });
+    navigate(`/campo/os/${id}`);
+  }
+
+  if (!(id > 0)) return null;
+  if (aberta.isLoading) return <Carregando texto="Lendo a OS no IXC…" />;
+  if (aberta.isError) return <Aviso tom="erro">{mensagemErro(aberta.error)}</Aviso>;
+  if (dados && !dados.os.apr) {
+    return (
+      <>
+        <Link to={`/campo/os/${id}`} className="mb-4 inline-flex text-sm font-medium text-tinta-500">
+          ‹ Voltar à OS
+        </Link>
+        <Aviso tom="info">O assunto desta OS não pede análise de risco.</Aviso>
+      </>
+    );
+  }
+  if (!abrir) return <Carregando texto="Abrindo a análise de risco…" />;
+
+  if (abrir.aprId) {
+    return continuando ? (
+      <FormularioApr aprId={abrir.aprId} onSair={() => setContinuando(false)} onPronta={voltar} />
+    ) : (
+      <DetalheApr id={abrir.aprId} onContinuar={() => setContinuando(true)} onSair={voltar} />
+    );
+  }
+  return <FormularioApr os={{ id, local: abrir.local }} onSair={voltar} onPronta={voltar} />;
 }
 
 function formatDataHora(iso: string): string {

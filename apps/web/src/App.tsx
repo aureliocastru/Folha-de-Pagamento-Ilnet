@@ -28,6 +28,7 @@ const AprNova = telaSobDemanda(() => import('./pages/apr/Aprs').then((m) => m.Ap
 const Campo = telaSobDemanda(() => import('./pages/apr/Campo').then((m) => m.Campo));
 const CampoAbastecimento = telaSobDemanda(() => import('./pages/apr/Campo').then((m) => m.CampoAbastecimento));
 const CampoApr = telaSobDemanda(() => import('./pages/apr/Campo').then((m) => m.CampoApr));
+const CampoAprDaOs = telaSobDemanda(() => import('./pages/apr/Campo').then((m) => m.CampoAprDaOs));
 const CampoAprs = telaSobDemanda(() => import('./pages/apr/Campo').then((m) => m.CampoAprs));
 const CampoInicio = telaSobDemanda(() => import('./pages/apr/Campo').then((m) => m.CampoInicio));
 const CampoNova = telaSobDemanda(() => import('./pages/apr/Campo').then((m) => m.CampoNova));
@@ -537,6 +538,7 @@ export default function App() {
         <Route path="os/:osId" element={<CampoOs />} />
         <Route path="os/:osId/ficha" element={<CampoFichaDaOs />} />
         <Route path="os/:osId/finalizar" element={<CampoFinalizar />} />
+        <Route path="os/:osId/apr" element={<CampoAprDaOs />} />
         <Route path="aprs" element={<CampoAprs />} />
         <Route path="nova" element={<CampoNova />} />
         <Route path="minha-conta" element={<MinhaConta />} />

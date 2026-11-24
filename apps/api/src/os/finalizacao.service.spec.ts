@@ -1,4 +1,5 @@
 import { BadRequestException, ServiceUnavailableException } from '@nestjs/common';
+import type { AprGuardada } from './apr-da-os';
 import { FinalizacaoService } from './finalizacao.service';
 import type { AssuntoDoIxc, OsDoIxc } from './os-ixc';
 
@@ -71,7 +72,19 @@ const login = { id: 'u1', nome: 'cleyson' };
 
 const FOTO = 'data:image/jpeg;base64,' + Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1]).toString('base64');
 
-function montar(opcoes: { assunto?: AssuntoDoIxc } = {}) {
+/** A APR da OS, liberada e já nos arquivos do IXC — a que deixa finalizar. */
+const APR_PRONTA: AprGuardada = {
+  id: 'apr1',
+  numero: 31,
+  status: 'LIBERADA',
+  criadoPorId: 'u1',
+  criadoPorNome: 'cleyson',
+  arquivoNaOsIxcId: 4401,
+  arquivoNaOsErro: null,
+};
+
+function montar(opcoes: { assunto?: AssuntoDoIxc; apr?: AprGuardada | null } = {}) {
+  const apr = opcoes.apr === undefined ? APR_PRONTA : opcoes.apr;
   const registro = { id: 'r1', osIxcId: OS.id };
   const finalizacoes: Linha[] = [];
   /** A situação dos itens da OS depois de `executar`. */
@@ -189,6 +202,7 @@ function montar(opcoes: { assunto?: AssuntoDoIxc } = {}) {
   const osService = {
     contexto: jest.fn(async () => ({ tecnico: TECNICO, os: { ...OS, status: ixcOs.status } })),
     registroDaOs: jest.fn(async () => registro),
+    aprsDasOs: jest.fn(async () => new Map(apr ? [[OS.id, apr]] : [])),
     executar: jest.fn(async () => {
       ordem.push('itens');
       return { gravados: 2, falharam: 0, conferir: 0, avisos: 0 };
@@ -473,5 +487,43 @@ describe('FinalizacaoService.paraFinalizar', () => {
     const t = montar({ assunto: { ...ASSUNTO, equipeObrigatoria: true } });
     const para = await t.service.paraFinalizar(login, OS.id);
     expect(para.recusa).toMatch(/exige a equipe.*pelo IXC/);
+  });
+
+  it('diz que falta a APR antes de o técnico preencher o resto', async () => {
+    const t = montar({ apr: null });
+    const para = await t.service.paraFinalizar(login, OS.id);
+    expect(para.recusa).toMatch(/Falta a análise de risco/);
+  });
+});
+
+/* Pedido de 24/11/2026: a APR vem com a OS, e a OS só fecha com ela liberada e nos arquivos do IXC. */
+describe('a análise de risco da OS', () => {
+  it('sem APR, a OS não fecha, e nada vai ao IXC', async () => {
+    const t = montar({ apr: null });
+    await expect(t.service.finalizar(login, OS.id, PEDIDO)).rejects.toThrow(/Falta a análise de risco/);
+    expect(t.finalizacoes).toHaveLength(0);
+    expect(t.ordem).toEqual([]);
+  });
+
+  it('com a APR em preenchimento, não fecha', async () => {
+    const t = montar({ apr: { ...APR_PRONTA, status: 'RASCUNHO', arquivoNaOsIxcId: null } });
+    await expect(t.service.finalizar(login, OS.id, PEDIDO)).rejects.toThrow(/APR nº 31.*não foi liberada/);
+  });
+
+  it('liberada, mas ainda fora dos arquivos da OS, não fecha', async () => {
+    const t = montar({ apr: { ...APR_PRONTA, arquivoNaOsIxcId: null, arquivoNaOsErro: 'IXC fora do ar' } });
+    await expect(t.service.finalizar(login, OS.id, PEDIDO)).rejects.toThrow(/não chegou aos arquivos da OS/);
+  });
+
+  it('o assunto de escritório não pede APR', async () => {
+    const t = montar({ apr: null, assunto: { ...ASSUNTO, nome: 'Conferencia de contrato e Gerar financeiro' } });
+    const r = await t.service.finalizar(login, OS.id, PEDIDO);
+    expect(r.finalizacao.situacao).toBe('GRAVADO');
+  });
+
+  it('o PDF da APR nos arquivos não conta como foto', async () => {
+    const t = montar({ assunto: { ...ASSUNTO, fotosExigidas: 1 } });
+    t.arquivosNoIxc.push({ id: 4401, osId: OS.id, descricao: 'Análise de Risco (APR) nº 31', classificacao: 'P' });
+    await expect(t.service.finalizar(login, OS.id, PEDIDO)).rejects.toThrow(/exige 1 foto.*tem nenhuma/);
   });
 });

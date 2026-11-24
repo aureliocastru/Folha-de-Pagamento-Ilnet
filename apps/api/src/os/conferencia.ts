@@ -24,6 +24,7 @@
 import { numeroDoIxc } from '../almoxarifado/estoque.mapper';
 import {
   coordenada,
+  ehAprDaOs,
   ehAssinatura,
   lerOs,
   type ArquivoDaOs,
@@ -228,9 +229,12 @@ export interface DadosParaSinais {
   itensForaDoIxc: number;
 }
 
-/** As fotos da OS: tudo na aba "Arquivos", menos a assinatura e o PDF que o IXC gera ao finalizar (O). */
+/**
+ * As fotos da OS: tudo na aba "Arquivos", menos a assinatura, o PDF que o IXC
+ * gera ao finalizar (O) e o PDF da APR que vai daqui.
+ */
 export function fotosDaOs(arquivos: ArquivoDaOs[]): ArquivoDaOs[] {
-  return arquivos.filter((a) => !ehAssinatura(a) && a.classificacao !== 'O');
+  return arquivos.filter((a) => !ehAssinatura(a) && !ehAprDaOs(a) && a.classificacao !== 'O');
 }
 
 /**

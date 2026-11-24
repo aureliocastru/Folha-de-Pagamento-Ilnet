@@ -27,6 +27,7 @@ import {
   identificacaoDaPeca,
   quantidadeComUnidade,
   type AparelhoParaInstalar,
+  type AprDaOs,
   type ComodatoParaRetirar,
   type CondicaoDoRetirado,
   type FinalizacaoDeOs,
@@ -292,6 +293,7 @@ function CartaoDaOs({ os, onAbrir }: { os: OsNaLista; onAbrir: () => void }) {
             {FINALIZACAO_LABEL[os.finalizacao]}
           </Selo>
         )}
+        {os.status !== 'F' && os.apr && <SeloDaApr apr={os.apr} />}
         <span className="ml-auto text-[11px] text-tinta-400">OS {os.id}</span>
       </div>
       <p className="mt-2 text-[15px] font-semibold leading-snug text-tinta-900">
@@ -302,6 +304,26 @@ function CartaoDaOs({ os, onAbrir }: { os: OsNaLista; onAbrir: () => void }) {
         {os.agenda ? `Agendada ${dataHoraCurta(os.agenda)}` : `Aberta ${dataHoraCurta(os.abertura) ?? ''}`}
       </p>
     </button>
+  );
+}
+
+/** Como está a análise de risco da OS, num selo da lista. */
+function SeloDaApr({ apr }: { apr: AprDaOs }) {
+  if (apr.situacao === 'LIBERADA') {
+    return apr.naOs ? (
+      <Selo tom="pago" pequeno>
+        APR liberada
+      </Selo>
+    ) : (
+      <Selo tom="erro" pequeno>
+        APR fora da OS
+      </Selo>
+    );
+  }
+  return (
+    <Selo tom="atencao" pequeno>
+      {apr.situacao === 'RASCUNHO' && !apr.deOutro ? 'APR sem liberar' : 'APR a preencher'}
+    </Selo>
   );
 }
 
@@ -435,6 +457,11 @@ export function CampoOs() {
             </Link>
           </div>
 
+          {/* Antes dos botões: a análise de risco é antes do serviço. */}
+          {dados.os.apr && (
+            <SecaoDaApr osId={id} apr={dados.os.apr} aberta={dados.os.status !== 'F'} onMudou={recarregar} />
+          )}
+
           {recusa && <Aviso tom="atencao">{recusa}</Aviso>}
           {resultado && <Aviso tom={resultado.tom}>{resultado.texto}</Aviso>}
 
@@ -487,7 +514,12 @@ export function CampoOs() {
             )}
           </section>
 
-          <SecaoDeFinalizar osId={id} status={dados.os.status} finalizacao={dados.finalizacao} />
+          <SecaoDeFinalizar
+            osId={id}
+            status={dados.os.status}
+            finalizacao={dados.finalizacao}
+            travaDaApr={dados.os.apr?.trava ?? null}
+          />
 
           {/* Digitando, a barra sai da frente do campo — ver `useTecladoAberto`. */}
           {aEnviar > 0 && !recusa && !teclado && (
@@ -559,13 +591,26 @@ function SecaoDeFinalizar({
   osId,
   status,
   finalizacao: f,
+  travaDaApr,
 }: {
   osId: number;
   status: string;
   finalizacao: FinalizacaoDeOs | null;
+  /** Por que a análise de risco ainda segura a OS. A API recusa igual. */
+  travaDaApr: string | null;
 }) {
   const podeFinalizar = status !== 'F' && (!f || f.situacao === 'PENDENTE' || f.situacao === 'FALHOU');
   if (!f && !podeFinalizar) return null;
+  if (podeFinalizar && travaDaApr) {
+    return (
+      <section className="space-y-2">
+        <h2 className="eyebrow">Finalizar</h2>
+        <p className="rounded-xl border border-dashed border-tinta-300 px-4 py-3 text-[13px] text-tinta-500">
+          {travaDaApr}
+        </p>
+      </section>
+    );
+  }
   return (
     <section className="space-y-2">
       <h2 className="eyebrow">Finalizar</h2>
@@ -594,6 +639,111 @@ function SecaoDeFinalizar({
           {f ? 'Finalizar de novo' : 'Finalizar OS'}
         </Link>
       )}
+    </section>
+  );
+}
+
+/**
+ * A análise de risco da OS (pedido de 24/11/2026): o técnico não abre APR
+ * solta — ela vem com a OS. Ao liberar, o PDF vai para os arquivos da OS no
+ * IXC, e a OS só finaliza com ele lá.
+ */
+function SecaoDaApr({
+  osId,
+  apr,
+  aberta,
+  onMudou,
+}: {
+  osId: number;
+  apr: AprDaOs;
+  /** A OS ainda não fechou no IXC. */
+  aberta: boolean;
+  onMudou: () => void;
+}) {
+  const enviar = useMutation({
+    mutationFn: async () => {
+      await api.post(`/apr/${apr.id}/anexar-na-os`);
+    },
+    onSettled: onMudou,
+  });
+  const para = `/campo/os/${osId}/apr`;
+  const numero = apr.numero ? `APR nº ${apr.numero}` : 'APR';
+
+  if (apr.situacao === 'LIBERADA' && apr.naOs) {
+    return (
+      <Aviso
+        tom="pago"
+        acao={
+          !apr.deOutro && (
+            <Link to={para} className="text-[13px] font-semibold underline">
+              Ver a APR
+            </Link>
+          )
+        }
+      >
+        {numero} liberada{apr.deOutro ? ` por ${apr.deOutro}` : ''}, e o PDF está nos arquivos da OS no IXC.
+      </Aviso>
+    );
+  }
+
+  if (apr.situacao === 'LIBERADA') {
+    return (
+      <section className="space-y-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 dark:border-rose-500/30 dark:bg-rose-500/10">
+        <p className="text-sm font-semibold text-rose-800 dark:text-rose-200">
+          {numero} liberada, mas o PDF ainda não chegou aos arquivos da OS no IXC.
+        </p>
+        {apr.erro && <p className="text-[12px] text-rose-700 dark:text-rose-300">{apr.erro}</p>}
+        {enviar.error && (
+          <p className="text-[12px] text-rose-700 dark:text-rose-300">{mensagemErro(enviar.error)}</p>
+        )}
+        {apr.deOutro ? (
+          <p className="text-[13px] text-rose-800 dark:text-rose-200">
+            Quem liberou foi {apr.deOutro}. Peça para enviar à OS, ou fale com a base.
+          </p>
+        ) : (
+          <button
+            type="button"
+            onClick={() => enviar.mutate()}
+            disabled={enviar.isPending}
+            className="btn btn-primario w-full justify-center py-3"
+          >
+            {enviar.isPending ? 'Enviando ao IXC…' : 'Enviar à OS'}
+          </button>
+        )}
+      </section>
+    );
+  }
+
+  if (apr.situacao === 'RASCUNHO' && !apr.deOutro) {
+    return (
+      <section className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-500/30 dark:bg-amber-500/10">
+        <p className="text-sm text-amber-900 dark:text-amber-200">
+          <strong>{numero} em preenchimento.</strong> Termine, colha as assinaturas da equipe e libere antes de
+          começar o serviço.
+        </p>
+        <Link to={para} className="btn btn-primario w-full justify-center py-3">
+          Continuar a APR
+        </Link>
+      </section>
+    );
+  }
+
+  // Falta — ou o rascunho é de quem tinha a OS antes.
+  if (!aberta) return null;
+  return (
+    <section className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-500/30 dark:bg-amber-500/10">
+      <p className="text-sm text-amber-900 dark:text-amber-200">
+        <strong>Análise de risco.</strong> Antes de começar o serviço, preencha a APR desta OS e colha as assinaturas
+        da equipe. A OS só finaliza com ela liberada.
+      </p>
+      {apr.deOutro && (
+        <p className="text-[13px] text-amber-900 dark:text-amber-200">
+          {apr.deOutro} tinha começado a APR desta OS. Ela será cancelada quando você começar a sua: a OS agora é sua.
+        </p>
+      )}
+      <Link to={para} className="btn btn-primario w-full justify-center py-3">
+        Preencher a APR
+      </Link>
     </section>
   );
 }

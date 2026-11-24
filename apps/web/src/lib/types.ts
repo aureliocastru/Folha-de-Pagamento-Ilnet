@@ -2166,6 +2166,14 @@ export interface Apr {
    */
   documentoRhId: string | null;
 
+  /** A OS do IXC de que esta APR é. Null na avulsa, que só a Segurança do Trabalho abre. */
+  osIxcId: number | null;
+  /** O PDF na aba "Arquivos" da OS no IXC — vai ao liberar. */
+  arquivoNaOsIxcId: number | null;
+  arquivoNaOsEm: string | null;
+  /** Por que o último envio do PDF à OS não foi. */
+  arquivoNaOsErro: string | null;
+
   respostas: RespostaApr[];
   executantes: ExecutanteApr[];
 
@@ -2197,6 +2205,10 @@ export interface AprResumo {
   criadoPorNome: string;
   supervisionada: boolean;
   arquivadaNoRh: boolean;
+  /** A OS do IXC de que ela é. Null na avulsa. */
+  osIxcId: number | null;
+  /** O PDF já está na aba "Arquivos" da OS no IXC. */
+  naOs: boolean;
   executantes: string[];
   assinaturasFaltando: number;
   riscos: string[];

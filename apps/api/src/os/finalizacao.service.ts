@@ -4,11 +4,13 @@ import { numeroDoIxc } from '../almoxarifado/estoque.mapper';
 import { conferirArquivo, emMegabytes, extensaoDoTipo, lerDataUrl } from '../arquivos/data-url';
 import { IxcClient } from '../ixc/ixc.client';
 import { PrismaService } from '../prisma/prisma.service';
+import { osPedeApr, travaDaApr } from './apr-da-os';
 import { OsDoIxcService } from './os-do-ixc.service';
 import {
   CAMPO_DO_ARQUIVO_DA_OS,
   CLASSIFICACAO_DO_ARQUIVO,
   DESCRICAO_DA_ASSINATURA,
+  ehAprDaOs,
   ehAssinatura,
   mensagemDoFechamento,
   montarArquivoNaOs,
@@ -138,14 +140,16 @@ export class FinalizacaoService {
   /** O que o assunto pede — o que o passo a passo mostra. */
   async paraFinalizar(login: Login, osId: number): Promise<ParaFinalizar> {
     const { os } = await this.os.contexto(login, osId);
-    const [assunto, registro] = await Promise.all([
+    const [assunto, registro, aprs] = await Promise.all([
       this.doIxc.assunto(os.assuntoId),
       this.prisma.registroDeOs.findUnique({
         where: { osIxcId: os.id },
         include: { finalizacao: { include: COM_TECNICO } },
       }),
+      this.os.aprsDasOs([os.id]),
     ]);
     const finalizacao = registro?.finalizacao ?? null;
+    const travaDaAnalise = osPedeApr(assunto.nome) ? travaDaApr(aprs.get(os.id) ?? null) : null;
     return {
       assunto: {
         nome: assunto.nome,
@@ -157,7 +161,7 @@ export class FinalizacaoService {
       recusa:
         os.status === 'F'
           ? 'A OS já está finalizada no IXC.'
-          : (motivoDaSituacao(finalizacao) ?? motivoDoAssunto(assunto)),
+          : (motivoDaSituacao(finalizacao) ?? motivoDoAssunto(assunto) ?? travaDaAnalise),
       finalizacao: finalizacao ? finalizacaoNaTela(finalizacao) : null,
     };
   }
@@ -259,6 +263,13 @@ export class FinalizacaoService {
     const jaComecada = existente?.finalizacao ?? null;
     const naSituacao = motivoDaSituacao(jaComecada);
     if (naSituacao) throw new BadRequestException(naSituacao);
+
+    // A análise de risco vem com a OS, e a OS só fecha com ela liberada e nos
+    // arquivos do IXC (pedido de 24/11/2026).
+    if (osPedeApr(assunto.nome)) {
+      const trava = travaDaApr((await this.os.aprsDasOs([os.id])).get(os.id) ?? null);
+      if (trava) throw new BadRequestException(trava);
+    }
 
     const agora = new Date();
     const inicioDito = pedido.inicio ? new Date(pedido.inicio) : null;
@@ -566,7 +577,8 @@ export class FinalizacaoService {
     return {
       aparelhos: aparelhos + aindaVao('INSTALADO'),
       produtos: produtos + aindaVao('MATERIAL'),
-      fotos: arquivos.filter((a) => !ehAssinatura(a)).length,
+      // O PDF da APR também está nos arquivos, e não é foto do serviço.
+      fotos: arquivos.filter((a) => !ehAssinatura(a) && !ehAprDaOs(a)).length,
       assinaturaNaOs: arquivos.some(ehAssinatura),
     };
   }

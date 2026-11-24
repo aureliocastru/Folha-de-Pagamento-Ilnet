@@ -84,6 +84,16 @@ export class CriarAprDto {
   @IsString()
   modeloId?: string;
 
+  /**
+   * A OS do IXC de que esta APR é — o caminho do técnico, que não abre APR
+   * solta. Só vale na criação: a APR não muda de OS (a atualização ignora).
+   */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  osIxcId?: number;
+
   @Transform(texto)
   @IsString()
   @MinLength(3, { message: 'Diga onde é o serviço' })

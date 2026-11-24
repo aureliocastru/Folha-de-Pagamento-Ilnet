@@ -212,6 +212,13 @@ export class AprController {
     return this.apr.liberar(id, autor(req));
   }
 
+  /** Manda de novo o PDF da APR liberada à aba "Arquivos" da OS no IXC. */
+  @Post(':id/anexar-na-os')
+  @HttpCode(200)
+  anexarNaOs(@Param('id') id: string, @Req() req: Request) {
+    return this.apr.reenviarParaAOs(id, autor(req));
+  }
+
   @Post(':id/encerrar')
   @HttpCode(200)
   encerrar(

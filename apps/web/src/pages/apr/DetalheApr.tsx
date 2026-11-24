@@ -150,7 +150,36 @@ export function DetalheApr({
           {formatDataHora(apr.inicioEm)}
           {apr.fimEm ? ` até ${formatDataHora(apr.fimEm)}` : ''}
         </p>
+        {apr.osIxcId && (
+          <p className="mt-1 text-[13px] text-tinta-500">Da OS {apr.osIxcId} do IXC</p>
+        )}
       </header>
+
+      {/* A APR da OS vai para os arquivos dela no IXC ao liberar, e a OS só
+          finaliza com ela lá. O que não foi tem o botão de mandar de novo. */}
+      {apr.osIxcId && liberada && apr.arquivoNaOsIxcId && (
+        <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-[13px] text-emerald-900 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
+          O PDF está nos arquivos da OS {apr.osIxcId} no IXC.
+        </p>
+      )}
+      {apr.osIxcId && liberada && !apr.arquivoNaOsIxcId && (
+        <section className="rounded-2xl border border-rose-200 bg-rose-50 p-4 dark:border-rose-500/30 dark:bg-rose-500/10">
+          <p className="text-[13px] font-semibold text-rose-800 dark:text-rose-200">
+            O PDF ainda não chegou aos arquivos da OS {apr.osIxcId} no IXC, e a OS não finaliza sem ele.
+          </p>
+          {apr.arquivoNaOsErro && (
+            <p className="mt-1 text-[12px] text-rose-700 dark:text-rose-300">{apr.arquivoNaOsErro}</p>
+          )}
+          <button
+            type="button"
+            onClick={() => acao.mutate({ rota: 'anexar-na-os' })}
+            disabled={acao.isPending}
+            className="btn btn-primario mt-3"
+          >
+            {acao.isPending ? 'Enviando…' : 'Enviar à OS'}
+          </button>
+        </section>
+      )}
 
       {apr.status === 'CANCELADA' && (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 dark:bg-rose-500/10">
