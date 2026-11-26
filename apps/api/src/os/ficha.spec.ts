@@ -99,10 +99,11 @@ const CIDADE = { nome: 'São Mateus do Maranhão', uf: 'MA' };
 function ficha(mudancas: Partial<Parameters<typeof montarFicha>[1]> = {}, os: OsDoIxc = OS) {
   return montarFicha(os, {
     assunto: 'Suporte Técnico',
-    filial: 'ILNET',
     cliente: CLIENTE,
     contrato: CONTRATO,
     login: LOGIN,
+    // `rad_caixa_ftth` 45, como o IXC de produção a devolveu em 26/11/2026.
+    caixa: 'R17A_CTO07',
     cidade: CIDADE,
     ...mudancas,
   });
@@ -173,7 +174,6 @@ describe('montarFicha', () => {
       id: 93634,
       statusNome: 'aberta',
       assunto: 'Suporte Técnico',
-      filial: 'ILNET',
       mensagem: OS.mensagem,
     });
     expect(f.cliente).toMatchObject({
@@ -186,17 +186,41 @@ describe('montarFicha', () => {
     expect(f.login).toMatchObject({
       usuario: 'natanael.lucena@ilnet.net.br',
       online: true,
-      caixa: '45',
+      caixaId: 45,
+      caixa: 'R17A_CTO07',
       porta: '8',
     });
+  });
+
+  it('o protocolo e a filial não vão para a ficha', () => {
+    const f = ficha();
+    expect(f.os).not.toHaveProperty('protocolo');
+    expect(f.os).not.toHaveProperty('filial');
+    expect(JSON.stringify(f)).not.toContain('20261029083609988989');
   });
 
   it('a senha do cliente na central não sai na ficha', () => {
     expect(JSON.stringify(ficha())).not.toContain('05666778307');
   });
 
-  it('o e-mail da central serve quando o campo do e-mail está vazio', () => {
-    expect(ficha().cliente?.email).toBe('natanael.lucena@ilnet.net.br');
+  it('o login do cliente é o da central, mesmo com o e-mail do cadastro preenchido', () => {
+    expect(ficha().cliente?.login).toBe('natanael.lucena@ilnet.net.br');
+    const comEmail = { ...CLIENTE, email: 'natanael@gmail.com' };
+    expect(ficha({ cliente: comEmail }).cliente?.login).toBe('natanael.lucena@ilnet.net.br');
+  });
+
+  it('sem o login da central, o e-mail do cadastro serve de reserva', () => {
+    const semCentral = { ...CLIENTE, hotsite_email: '', email: 'natanael@gmail.com' };
+    expect(ficha({ cliente: semCentral }).cliente?.login).toBe('natanael@gmail.com');
+  });
+
+  it('sem o nome da caixa no IXC, fica o número dela', () => {
+    expect(ficha({ caixa: null }).login).toMatchObject({ caixaId: 45, caixa: null, porta: '8' });
+  });
+
+  it('login sem caixa não ganha o nome de caixa nenhuma', () => {
+    const semCaixa = { ...LOGIN, id_caixa_ftth: '0', ftth_porta: '' };
+    expect(ficha({ login: semCaixa }).login).toMatchObject({ caixaId: null, caixa: null, porta: null });
   });
 
   it('não repete embaixo a cidade e o CEP que já estão na linha do endereço', () => {

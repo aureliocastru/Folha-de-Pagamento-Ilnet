@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { Aviso, Carregando, Selo } from '../../components/ui';
 import { api, mensagemErro } from '../../lib/api';
@@ -8,6 +8,7 @@ import {
   PRIORIDADE_TOM,
   dataHoraDoIxc,
   type FichaDaOs,
+  type LoginDaFicha,
   type TelefoneDoCliente,
 } from '../../lib/os';
 
@@ -95,8 +96,6 @@ export function CampoFichaDaOs() {
             />
             <Linha rotulo="Aberta em" valor={dataHoraDoIxc(f.os.abertura)} />
             {f.os.agenda && <Linha rotulo="Agendada" valor={dataHoraDoIxc(f.os.agenda)} />}
-            <Linha rotulo="Protocolo" valor={f.os.protocolo} num />
-            <Linha rotulo="Filial" valor={f.os.filial} />
             {f.os.mensagem && (
               <div className="pt-1">
                 <p className="eyebrow mb-1">O que o atendimento escreveu</p>
@@ -113,12 +112,11 @@ export function CampoFichaDaOs() {
                 <Linha rotulo="Nome" valor={cliente.nome} />
                 <Linha
                   rotulo={cliente.tipoPessoa === 'J' ? 'CNPJ' : 'CPF'}
-                  valor={cliente.documento}
-                  num
+                  valor={cliente.documento && <DocumentoComCopiar documento={cliente.documento} />}
                 />
-                <Linha rotulo="Código no IXC" valor={String(cliente.id)} num />
+                <Linha rotulo="ID do cliente" valor={String(cliente.id)} num />
                 {cliente.contato && <Linha rotulo="Falar com" valor={cliente.contato} />}
-                {cliente.email && <Linha rotulo="E-mail" valor={cliente.email} />}
+                {cliente.login && <Linha rotulo="Login" valor={cliente.login} />}
                 {cliente.telefones.length === 0 ? (
                   <Linha rotulo="Telefone" valor={null} />
                 ) : (
@@ -143,17 +141,6 @@ export function CampoFichaDaOs() {
             )}
             {f.endereco.cep && <Linha rotulo="CEP" valor={f.endereco.cep} num />}
             {f.endereco.referencia && <Linha rotulo="Referência" valor={f.endereco.referencia} />}
-            {f.endereco.coordenada && (
-              <Linha
-                rotulo="No mapa"
-                valor={
-                  <span className="num">
-                    {f.endereco.coordenada.latitude.toFixed(6)},{' '}
-                    {f.endereco.coordenada.longitude.toFixed(6)}
-                  </span>
-                }
-              />
-            )}
             <BotoesDoMapa ficha={f} />
           </Bloco>
 
@@ -192,16 +179,10 @@ export function CampoFichaDaOs() {
                   </span>
                 }
               />
-              {(f.login.caixa || f.login.porta) && (
+              {(f.login.caixaId !== null || f.login.porta) && (
                 <Linha
                   rotulo="Caixa e porta"
-                  valor={
-                    <span className="num">
-                      {[f.login.caixa && `caixa ${f.login.caixa}`, f.login.porta && `porta ${f.login.porta}`]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </span>
-                  }
+                  valor={<span className="num">{caixaEPorta(f.login)}</span>}
                 />
               )}
               {f.login.onu && <Linha rotulo="ONU" valor={f.login.onu} num />}
@@ -329,6 +310,111 @@ function LinhaDoTelefone({ telefone: t }: { telefone: TelefoneDoCliente }) {
       </dd>
     </div>
   );
+}
+
+/**
+ * O CPF ou o CNPJ como está no cadastro, e ao lado o atalho que copia só os
+ * dígitos, sem pontos, barra nem traço — é como os campos onde o técnico cola
+ * o documento costumam pedi-lo (pedido de 26/11/2026).
+ *
+ * Quando o navegador recusa a área de transferência (fora de HTTPS, dentro de
+ * um visualizador embutido), tenta o jeito antigo; se nem esse copiar, os
+ * dígitos aparecem ao lado, já selecionados, para o técnico segurar e copiar.
+ * Dizer "copiado" sem ter copiado faria ele colar outra coisa.
+ */
+function DocumentoComCopiar({ documento }: { documento: string }) {
+  const digitos = documento.replace(/\D/g, '');
+  const [estado, setEstado] = useState<'parado' | 'copiado' | 'selecionado'>('parado');
+  const digitosRef = useRef<HTMLSpanElement>(null);
+  const relogio = useRef<number | undefined>(undefined);
+
+  useEffect(() => () => window.clearTimeout(relogio.current), []);
+
+  useEffect(() => {
+    const alvo = digitosRef.current;
+    if (estado !== 'selecionado' || !alvo) return;
+    const faixa = document.createRange();
+    faixa.selectNodeContents(alvo);
+    const selecao = window.getSelection();
+    selecao?.removeAllRanges();
+    selecao?.addRange(faixa);
+  }, [estado]);
+
+  async function copiar() {
+    let copiou = false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(digitos);
+        copiou = true;
+      }
+    } catch {
+      copiou = false;
+    }
+    if (!copiou) copiou = copiarSemAreaDeTransferencia(digitos);
+    setEstado(copiou ? 'copiado' : 'selecionado');
+    window.clearTimeout(relogio.current);
+    relogio.current = window.setTimeout(() => setEstado('parado'), copiou ? 2000 : 8000);
+  }
+
+  return (
+    <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <span className="num">{documento}</span>
+      {digitos && (
+        // Os 36px do alvo de toque (index.css) ficam, mas sem empurrar a linha
+        // para baixo do rótulo "CPF": a margem negativa devolve o que sobra.
+        <button
+          type="button"
+          onClick={() => void copiar()}
+          className="-my-2 text-[12px] font-semibold text-brand-700 underline dark:text-brand-300"
+        >
+          Copiar
+        </button>
+      )}
+      <span aria-live="polite" className="text-[12px] font-semibold">
+        {estado === 'copiado' && (
+          <span className="text-emerald-700 dark:text-emerald-300">copiado, sem pontos</span>
+        )}
+        {estado === 'selecionado' && (
+          <span className="text-amber-700 dark:text-amber-300">
+            segure para copiar:{' '}
+            <span ref={digitosRef} className="num select-all text-tinta-800">
+              {digitos}
+            </span>
+          </span>
+        )}
+      </span>
+    </span>
+  );
+}
+
+/** O jeito antigo de copiar, que vale fora de HTTPS: um campo escondido e o "copiar" do navegador. */
+function copiarSemAreaDeTransferencia(texto: string): boolean {
+  const campo = document.createElement('textarea');
+  campo.value = texto;
+  campo.setAttribute('readonly', '');
+  campo.style.position = 'fixed';
+  campo.style.top = '0';
+  campo.style.opacity = '0';
+  document.body.appendChild(campo);
+  campo.select();
+  campo.setSelectionRange(0, texto.length);
+  let copiou = false;
+  try {
+    copiou = document.execCommand('copy');
+  } catch {
+    copiou = false;
+  }
+  campo.remove();
+  return copiou;
+}
+
+/**
+ * A caixa e a porta como estão escritas no poste: "R17A_CTO07 porta 8". Sem o
+ * nome da caixa (o IXC não o devolveu), vai o número dela.
+ */
+function caixaEPorta(login: LoginDaFicha): string {
+  const caixa = login.caixa ?? (login.caixaId !== null ? `caixa ${login.caixaId}` : null);
+  return [caixa, login.porta && `porta ${login.porta}`].filter(Boolean).join(' ');
 }
 
 /** Os dígitos com o 55 do Brasil na frente — é o que `tel:` e `wa.me` querem. */

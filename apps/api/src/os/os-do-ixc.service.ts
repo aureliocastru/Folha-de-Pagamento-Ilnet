@@ -61,6 +61,7 @@ export class OsDoIxcService {
     number,
     { em: number; cidade: { nome: string; uf: string | null } }
   >();
+  private readonly caixas = new Map<number, { em: number; nome: string }>();
 
   constructor(
     private readonly ixc: IxcClient,
@@ -263,6 +264,33 @@ export class OsDoIxcService {
       return cidade;
     } catch (e) {
       this.logger.warn(`Sem a cidade ${cidadeId} do IXC (${motivo(e)}).`);
+      return null;
+    }
+  }
+
+  /**
+   * O nome de uma caixa de atendimento da fibra (`rad_caixa_ftth.descricao`,
+   * "R17A_CTO07") — é o que está escrito na caixa no poste, e o número do IXC
+   * não diz nada a quem está procurando por ela. Fica guardado como a cidade.
+   *
+   * A falha não sobe: sem o nome, a ficha mostra o número da caixa.
+   */
+  async nomeDaCaixa(caixaId: number): Promise<string | null> {
+    if (!(caixaId > 0)) return null;
+    const guardada = this.caixas.get(caixaId);
+    if (guardada && Date.now() - guardada.em < CADASTRO_VALE_MS) return guardada.nome;
+    try {
+      const linha = await this.ixc.getById<Record<string, unknown>>(
+        'rad_caixa_ftth',
+        'rad_caixa_ftth.id',
+        caixaId,
+      );
+      const nome = String(linha?.descricao ?? '').trim();
+      if (!nome) return null;
+      this.caixas.set(caixaId, { em: Date.now(), nome });
+      return nome;
+    } catch (e) {
+      this.logger.warn(`Sem a caixa ${caixaId} do IXC (${motivo(e)}).`);
       return null;
     }
   }

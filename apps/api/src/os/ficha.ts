@@ -11,7 +11,8 @@
  *    atendimento deixou no cadastro, e o endereço quando a OS não tem o seu;
  *  - `cliente_contrato` (`id_contrato_kit`) — o plano e a situação dele;
  *  - `radusuarios` (`id_login`) — o login do cliente, se está no ar, a caixa
- *    e a porta onde a fibra dele termina;
+ *    e a porta onde a fibra dele termina, com o nome da caixa lido de
+ *    `rad_caixa_ftth` ("R17A_CTO07", que é o que está escrito nela no poste);
  *  - `cidade` (`id_cidade`) com a `uf` — o nome da cidade e a sigla.
  *
  * **Nada daqui se escreve.** A ficha é leitura: o que o técnico faz na OS
@@ -26,7 +27,12 @@
  *    base, todas estão em "Q" (conferido em 29/10/2026): o campo não separa
  *    nada aqui;
  *  - **a senha do cliente na central** (`cliente.senha`) — não é dado de
- *    serviço, e ninguém precisa dela no portão.
+ *    serviço, e ninguém precisa dela no portão;
+ *  - **o protocolo e a filial** — o técnico não usa nenhum dos dois no
+ *    serviço, e eles empurravam para baixo o que ele usa (pedido de
+ *    26/11/2026);
+ *  - **a coordenada escrita** — ninguém no portão lê latitude e longitude; o
+ *    ponto continua na ficha, mas só para os botões do mapa e da rota.
  */
 
 import {
@@ -66,7 +72,12 @@ export interface ClienteDaFicha {
   tipoPessoa: string | null;
   documento: string | null;
   telefones: TelefoneDoCliente[];
-  email: string | null;
+  /**
+   * O login do cliente na central (`hotsite_email`), com o e-mail do cadastro
+   * de reserva. Nesta base é o mesmo login do PPPoE em 36 de 40 clientes
+   * (amostra de 26/11/2026), e o `email` próprio fica vazio em 33 de 40.
+   */
+  login: string | null;
   /** O nome de quem atende, quando o cadastro diz. */
   contato: string | null;
   /** O aviso que pisca no IXC ao abrir o cliente — o técnico tem de saber. */
@@ -105,7 +116,9 @@ export interface LoginDaFicha {
   mac: string | null;
   /** O MAC da ONU, quando é fibra. */
   onu: string | null;
-  /** A caixa de atendimento e a porta onde a fibra do cliente termina. */
+  /** A caixa de atendimento onde a fibra do cliente termina: o número no IXC… */
+  caixaId: number | null;
+  /** …e o nome dela ("R17A_CTO07"), quando o IXC o devolveu. */
   caixa: string | null;
   porta: string | null;
   /** Quando o login subiu pela última vez. */
@@ -118,7 +131,6 @@ export interface LoginDaFicha {
 export interface FichaDaOs {
   os: {
     id: number;
-    protocolo: string | null;
     status: string;
     statusNome: string;
     prioridade: PrioridadeDaOs | null;
@@ -127,7 +139,6 @@ export interface FichaDaOs {
     agenda: string | null;
     /** O que o atendimento escreveu ao abrir — a queixa do cliente. */
     mensagem: string | null;
-    filial: string | null;
   };
   cliente: ClienteDaFicha | null;
   endereco: EnderecoDaFicha;
@@ -248,9 +259,9 @@ export function lerClienteDaFicha(
     tipoPessoa: texto(bruto?.tipo_pessoa)?.toUpperCase() ?? null,
     documento: texto(bruto?.cnpj_cpf),
     telefones: telefonesDoCliente(bruto, mensagemDaOs),
-    // `hotsite_email` é o e-mail de acesso à central, e nesta base é onde o
-    // e-mail do cliente costuma estar quando o campo próprio ficou vazio.
-    email: texto(bruto?.email) ?? texto(bruto?.hotsite_email),
+    // `hotsite_email` é o login de acesso à central, e nesta base é o mesmo
+    // login do PPPoE; o e-mail do cadastro só entra quando ele falta.
+    login: texto(bruto?.hotsite_email) ?? texto(bruto?.email),
     contato: texto(bruto?.contato),
     alerta: texto(bruto?.alerta),
     observacao: texto(bruto?.obs),
@@ -273,11 +284,18 @@ export function lerContratoDaFicha(
   };
 }
 
+/**
+ * O login do cliente, do cadastro cru do IXC. A caixa vem pelo número que o
+ * login guarda (`id_caixa_ftth`), e o nome dela é lido à parte — sem ele a
+ * ficha mostra o número, como mostrava antes.
+ */
 export function lerLoginDaFicha(
   loginId: number,
   bruto: Record<string, unknown> | null,
+  nomeDaCaixa: string | null = null,
 ): LoginDaFicha | null {
   if (loginId <= 0) return null;
+  const caixaId = Number(texto(bruto?.id_caixa_ftth) ?? 0);
   return {
     id: loginId,
     usuario: texto(bruto?.login),
@@ -286,7 +304,8 @@ export function lerLoginDaFicha(
     ip: texto(bruto?.ip),
     mac: texto(bruto?.mac),
     onu: texto(bruto?.onu_mac),
-    caixa: texto(bruto?.id_caixa_ftth),
+    caixaId: caixaId > 0 ? caixaId : null,
+    caixa: caixaId > 0 ? texto(nomeDaCaixa) : null,
     porta: texto(bruto?.ftth_porta),
     ultimaConexao: data(bruto?.ultima_conexao_inicial),
     sinal: texto(bruto?.sinal_ultimo_atendimento),
@@ -316,10 +335,11 @@ export function montarFicha(
   os: OsDoIxc,
   dados: {
     assunto: string | null;
-    filial: string | null;
     cliente: Record<string, unknown> | null;
     contrato: Record<string, unknown> | null;
     login: Record<string, unknown> | null;
+    /** O nome da caixa do login, de `rad_caixa_ftth`. */
+    caixa: string | null;
     cidade: { nome: string; uf: string | null } | null;
   },
 ): FichaDaOs {
@@ -328,7 +348,6 @@ export function montarFicha(
   return {
     os: {
       id: os.id,
-      protocolo: os.protocolo,
       status: os.status,
       statusNome: STATUS_DA_OS[os.status] ?? os.status,
       prioridade: os.prioridade,
@@ -336,7 +355,6 @@ export function montarFicha(
       abertura: os.abertura,
       agenda: os.agenda,
       mensagem: os.mensagem,
-      filial: dados.filial,
     },
     cliente: lerClienteDaFicha(os.clienteId, cliente, os.mensagem),
     endereco: {
@@ -348,7 +366,7 @@ export function montarFicha(
       coordenada: os.coordenada ?? pontoDe(cliente) ?? pontoDe(contrato) ?? pontoDe(login),
     },
     contrato: lerContratoDaFicha(os.contratoId, contrato),
-    login: lerLoginDaFicha(os.loginId, login),
+    login: lerLoginDaFicha(os.loginId, login, dados.caixa),
   };
 }
 

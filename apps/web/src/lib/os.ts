@@ -240,7 +240,8 @@ export interface ClienteDaFicha {
   tipoPessoa: string | null;
   documento: string | null;
   telefones: TelefoneDoCliente[];
-  email: string | null;
+  /** O login do cliente na central (o mesmo do PPPoE, nesta base), ou o e-mail de reserva. */
+  login: string | null;
   contato: string | null;
   /** O aviso que pisca no IXC ao abrir o cliente. */
   alerta: string | null;
@@ -275,7 +276,9 @@ export interface LoginDaFicha {
   ip: string | null;
   mac: string | null;
   onu: string | null;
-  /** A caixa de atendimento e a porta onde a fibra do cliente termina. */
+  /** A caixa de atendimento onde a fibra do cliente termina: o número no IXC… */
+  caixaId: number | null;
+  /** …e o nome dela ("R17A_CTO07"), quando o IXC o devolveu. */
   caixa: string | null;
   porta: string | null;
   ultimaConexao: string | null;
@@ -289,7 +292,6 @@ export interface LoginDaFicha {
 export interface FichaDaOs {
   os: {
     id: number;
-    protocolo: string | null;
     status: string;
     statusNome: string;
     prioridade: PrioridadeDaOs | null;
@@ -297,7 +299,6 @@ export interface FichaDaOs {
     abertura: string | null;
     agenda: string | null;
     mensagem: string | null;
-    filial: string | null;
   };
   cliente: ClienteDaFicha | null;
   endereco: EnderecoDaFicha;
