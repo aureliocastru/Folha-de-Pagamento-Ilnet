@@ -246,6 +246,7 @@ const seguranca: Modulo = {
   menu: [
     { to: 'aprs', label: 'Análises de Risco', icone: IconeChecklist },
     { to: 'formularios', label: 'Formulários', icone: IconeDocumento },
+    { to: 'executantes', label: 'Executantes', icone: IconePessoas },
   ],
 };
 

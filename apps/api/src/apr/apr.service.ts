@@ -209,8 +209,42 @@ export class AprService {
    * quem não entra no sistema é gaveta que ninguém abre — o documento fica
    * guardado onde ele nunca vai ser lido. Quem apareceu no serviço sem estar no
    * cadastro continua entrando pelo nome digitado, na tela.
+   *
+   * Quem a Segurança do Trabalho tirou da lista (`foraDasAprs`: o escritório,
+   * a diretoria) não aparece — e, não aparecendo, também não entra sozinho na
+   * equipe da APR que abre (ver o formulário).
    */
   async equipe() {
+    const pessoas = await this.pessoasComLogin();
+    return pessoas
+      .filter((p) => !p.foraDasAprs)
+      .map(({ foraDasAprs: _fora, ...p }) => p);
+  }
+
+  /**
+   * Todos que poderiam ser executantes, dizendo quem foi tirado da lista. É a
+   * tela onde a Segurança do Trabalho escolhe quem não aparece.
+   */
+  async quemPodeExecutar() {
+    return this.pessoasComLogin();
+  }
+
+  /** Tira alguém da lista de executantes, ou o devolve a ela. */
+  async marcarForaDasAprs(funcionarioId: string, foraDasAprs: boolean) {
+    const achado = await this.prisma.funcionario.findUnique({
+      where: { id: funcionarioId },
+      select: { id: true },
+    });
+    if (!achado) throw new NotFoundException('Funcionário não encontrado.');
+    await this.prisma.funcionario.update({
+      where: { id: funcionarioId },
+      data: { foraDasAprs },
+    });
+    return (await this.pessoasComLogin()).find((p) => p.id === funcionarioId) ?? null;
+  }
+
+  /** Os funcionários ativos com login, como a lista de executantes os mostra. */
+  private async pessoasComLogin() {
     const [pessoas, logins] = await Promise.all([
       this.prisma.funcionario.findMany({
         where: { ativo: true, isentoIcms: true },
@@ -221,6 +255,7 @@ export class AprService {
           apelido: true,
           cpfCnpj: true,
           funcao: true,
+          foraDasAprs: true,
         },
       }),
       this.prisma.user.findMany({ select: { nome: true, email: true, funcionarioId: true } }),
@@ -236,6 +271,7 @@ export class AprService {
         apelido: p.apelido,
         cpf: p.cpfCnpj,
         funcao: p.funcao,
+        foraDasAprs: p.foraDasAprs,
       }));
   }
 

@@ -78,6 +78,12 @@ export class ExecutanteAprDto {
   cpf?: string;
 }
 
+/** Tira alguém da lista de executantes, ou o devolve a ela. */
+export class ForaDasAprsDto {
+  @IsBoolean()
+  foraDasAprs!: boolean;
+}
+
 export class CriarAprDto {
   /** Vazio = o modelo padrão (o de trabalho em altura). */
   @IsOptional()

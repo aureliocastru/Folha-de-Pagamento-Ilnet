@@ -35,6 +35,7 @@ const CampoNova = telaSobDemanda(() => import('./pages/apr/Campo').then((m) => m
 const CampoPontuacao = telaSobDemanda(() => import('./pages/apr/Campo').then((m) => m.CampoPontuacao));
 const CampoPontuar = telaSobDemanda(() => import('./pages/apr/Campo').then((m) => m.CampoPontuar));
 const Formularios = telaSobDemanda(() => import('./pages/apr/Formularios').then((m) => m.Formularios));
+const Executantes = telaSobDemanda(() => import('./pages/apr/Executantes').then((m) => m.Executantes));
 const Assinar = telaSobDemanda(() => import('./pages/Assinar').then((m) => m.Assinar));
 const AssinarContrato = telaSobDemanda(() => import('./pages/AssinarContrato').then((m) => m.AssinarContrato));
 const AssinarNota = telaSobDemanda(() => import('./pages/AssinarNota').then((m) => m.AssinarNota));
@@ -218,7 +219,7 @@ const TELAS_DO_MODULO: Record<string, Array<{ preCarregar: () => void }>> = {
   os: [RegistrosDeOs, ConferenciaDeOs, Recolhidos, TecnicosDeOs, MateriaisDeOs, RelatorioDeOs, MinhaConta],
   mapa: [MapaAoVivo, Rastreadores, MinhaConta],
   rh: [PastasRh, PastaDaEmpresa, RecibosDaFolha, Licitacoes, NotasFiscais, MinhaConta],
-  seguranca: [Aprs, Formularios, MinhaConta],
+  seguranca: [Aprs, Formularios, Executantes, MinhaConta],
   campo: [CampoMinhasOs, MinhaConta],
   pontuacao: [Pontuar, Motivos, Coordenadores, MinhaConta],
   patrocinio: [Patrocinados, PatrocinadoAberto, ContratoPadrao, PagamentosDoPatrocinio, NotasDoPatrocinio, MinhaConta],
@@ -514,6 +515,7 @@ export default function App() {
         <Route path="aprs/nova" element={<AprNova />} />
         <Route path="aprs/:id" element={<AprAberta />} />
         <Route path="formularios" element={<Formularios />} />
+        <Route path="executantes" element={<Executantes />} />
         <Route path="minha-conta" element={<MinhaConta />} />
       </Route>
 

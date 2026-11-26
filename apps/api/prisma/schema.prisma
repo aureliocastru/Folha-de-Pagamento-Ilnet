@@ -210,6 +210,11 @@ model Funcionario {
   ferias        FeriasMarcada[]
   pastaRh       PastaRh?
   aprsAssinadas ExecutanteApr[]
+  /// Fora da lista de executantes da análise de risco: quem tem login mas não
+  /// vai ao serviço (o escritório, a diretoria). Não aparece para escolher e
+  /// não entra sozinho na equipe da APR que abre. Marcado pela Segurança do
+  /// Trabalho; o sync do IXC não mexe nele.
+  foraDasAprs   Boolean @default(false) @map("fora_das_aprs")
   /// As ferramentas que esta pessoa pegou no almoxarifado.
   ferramentas   EmprestimoDeFerramenta[]
   /// Os pontos que os coordenadores deram a esta pessoa.

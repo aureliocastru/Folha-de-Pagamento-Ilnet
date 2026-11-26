@@ -25,6 +25,7 @@ import {
   CancelarAprDto,
   CriarAprDto,
   CriarModeloAprDto,
+  ForaDasAprsDto,
   ItemAprDto,
   ProrrogarAprDto,
   QueryAprDto,
@@ -82,6 +83,26 @@ export class AprController {
   @Get('equipe')
   equipe() {
     return this.apr.equipe();
+  }
+
+  /**
+   * Todos que poderiam ser executantes, com quem foi tirado da lista. Fora do
+   * alcance do técnico: é a tela de quem cuida da Segurança do Trabalho.
+   */
+  @Roles(UserRole.ADMIN, UserRole.RH, UserRole.VISUALIZADOR)
+  @Get('equipe/todos')
+  quemPodeExecutar() {
+    return this.apr.quemPodeExecutar();
+  }
+
+  /** Tira alguém da lista de executantes (o escritório, a diretoria), ou o devolve. */
+  @Roles(UserRole.ADMIN, UserRole.RH)
+  @Patch('equipe/:funcionarioId')
+  marcarForaDasAprs(
+    @Param('funcionarioId') funcionarioId: string,
+    @Body() dto: ForaDasAprsDto,
+  ) {
+    return this.apr.marcarForaDasAprs(funcionarioId, dto.foraDasAprs);
   }
 
   @Get('modelos')

@@ -2225,6 +2225,11 @@ export interface PessoaDaEquipe {
   funcao: string | null;
 }
 
+/** Na tela da Segurança do Trabalho: a pessoa, e se foi tirada da lista de executantes. */
+export interface PessoaQuePodeExecutar extends PessoaDaEquipe {
+  foraDasAprs: boolean;
+}
+
 /** O bloco de notas de quem está logado. */
 export interface Agenda {
   texto: string;

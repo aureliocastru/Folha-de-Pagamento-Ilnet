@@ -6,6 +6,7 @@ import { api, mensagemErro } from '../../lib/api';
 import { abrirArquivo } from '../../lib/arquivo';
 import { useAuth } from '../../lib/auth';
 import { combina, semAcento } from '../../lib/busca';
+import { useInicioDoColaborador } from '../../lib/colaborador';
 import {
   CATEGORIA_APR_LABEL,
   GRAVIDADE_LABEL,
@@ -228,6 +229,31 @@ export function FormularioApr({
   useEffect(() => {
     if (!id && usuario?.nome) setCoordenador((atual) => atual || usuario.nome);
   }, [id, usuario?.nome]);
+
+  /*
+   * E quem está preenchendo já entra na equipe (pedido de 26/11/2026).
+   *
+   * Pelo mesmo motivo: quem abre a APR é, quase sempre, um dos que vão ao
+   * serviço. Entra uma vez só, quando a APR nova abre — quem se retira pelo
+   * "Remover" não volta a entrar sozinho. Só entra quem está na lista de
+   * executantes: o login que não está ligado a um cadastro, e quem a
+   * Segurança do Trabalho tirou da lista (o escritório, a diretoria), começam
+   * com a equipe vazia.
+   */
+  const colaborador = useInicioDoColaborador(!aprId);
+  const quemAbreJaEntrou = useRef(false);
+  useEffect(() => {
+    if (aprId || id || quemAbreJaEntrou.current) return;
+    if (!pessoas.data || !colaborador.isFetched) return;
+    quemAbreJaEntrou.current = true;
+    const eu = pessoas.data.find((p) => p.id === colaborador.data?.colaborador?.id);
+    if (!eu) return;
+    setEquipe((atual) =>
+      atual.length > 0
+        ? atual
+        : [{ funcionarioId: eu.id, nome: eu.nome, cpf: eu.cpf ?? undefined }],
+    );
+  }, [aprId, id, pessoas.data, colaborador.isFetched, colaborador.data]);
 
   // Na APR da OS, o local é o da OS: o cliente e o endereço, como o IXC tem.
   useEffect(() => {
