@@ -849,7 +849,7 @@ export class PacoteContabilService {
       // O mesmo id de lançamento pode existir em outro caixa: só vale o da conta do pagamento.
       if (!p || (p.contaId !== null && conf.caixaId !== p.contaId)) continue;
       for (const f of conf.fotos) {
-        if (f.foto) de(p.idFnApagar).comprovantes.push({ origem: 'caixa', id: f.id, nome: 'Foto da nota (fechamento de caixa)' });
+        if (f.foto) de(p.idFnApagar).comprovantes.push({ origem: 'caixa', id: f.id, nome: 'Nota do fechamento de caixa' });
         else if (f.diariaId && !de(p.idFnApagar).comprovantes.some((x) => x.origem === 'recibo')) {
           de(p.idFnApagar).comprovantes.push({ origem: 'recibo', id: f.diariaId, nome: 'Recibo assinado da diária' });
         }

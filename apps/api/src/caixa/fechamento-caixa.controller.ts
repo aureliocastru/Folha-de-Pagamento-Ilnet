@@ -108,8 +108,8 @@ export class FechamentoCaixaController {
   }
 
   /**
-   * Anexa mais uma foto à nota. Fotografar não é conferir: quem opera o caixa
-   * documenta o que pagou, e é isso que o ADMIN vai olhar depois.
+   * Anexa mais uma nota — foto ou PDF. Anexar não é conferir: quem opera o
+   * caixa documenta o que pagou, e é isso que o ADMIN vai olhar depois.
    */
   @Post(':caixaId/lancamentos/:idLancamento/notas')
   @HttpCode(201)
@@ -128,7 +128,7 @@ export class FechamentoCaixaController {
     );
   }
 
-  /** As fotos de um lançamento — os números, não as imagens. */
+  /** As notas de um lançamento — os números, não os arquivos. */
   @Get(':caixaId/lancamentos/:idLancamento/notas')
   notas(
     @Param('caixaId', ParseIntPipe) caixaId: number,
@@ -187,8 +187,9 @@ export class FechamentoCaixaController {
   }
 
   /**
-   * Uma foto, sob demanda. É aqui que a imagem trafega, e em lugar nenhum
-   * mais: antes das rotas com `:caixaId`, para não ser lida como um id.
+   * Uma nota (foto ou PDF, em data URL), sob demanda. É aqui que o arquivo
+   * trafega, e em lugar nenhum mais: antes das rotas com `:caixaId`, para não
+   * ser lida como um id.
    */
   @Get('notas/:fotoId')
   foto(@Param('fotoId') fotoId: string) {

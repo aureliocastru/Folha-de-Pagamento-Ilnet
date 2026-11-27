@@ -67,6 +67,45 @@ export async function abrirNumaAba(
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
+/** O tipo que um data URL declara: "application/pdf", "image/jpeg". */
+export function tipoDaDataUrl(dados: string): string {
+  return /^data:([^;,]*)/.exec(dados)?.[1].toLowerCase() ?? '';
+}
+
+export function ehPdfDataUrl(dados: string): boolean {
+  return tipoDaDataUrl(dados) === 'application/pdf';
+}
+
+/** Quantos bytes de arquivo há num data URL em base64. */
+export function bytesDaDataUrl(dados: string): number {
+  const base64 = dados.slice(dados.indexOf(',') + 1);
+  const sobra = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((base64.length * 3) / 4) - sobra);
+}
+
+/** "312 KB", "2,4 MB" — o tamanho como quem anexou o reconhece. */
+export function tamanhoLegivel(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1).replace('.', ',')} MB`;
+}
+
+/**
+ * Abre numa aba um arquivo que já está na memória, em data URL.
+ *
+ * É o PDF da nota que acabou de ser escolhido, ou que a API já mandou: não há
+ * o que buscar, mas a aba passa pelo mesmo `abrirNumaAba` para cair no
+ * download quando o celular a recusar. Um `<a href="data:...">` não serve: o
+ * navegador bloqueia abrir data URL numa aba nova.
+ */
+export function abrirDataUrl(dados: string, nomeParaBaixar: string): Promise<void> {
+  return abrirNumaAba(async () => {
+    const binario = atob(dados.slice(dados.indexOf(',') + 1));
+    const bytes = new Uint8Array(binario.length);
+    for (let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
+    return new Blob([bytes], { type: tipoDaDataUrl(dados) || 'application/octet-stream' });
+  }, nomeParaBaixar);
+}
+
 /**
  * Abre o Blob de erro para achar a mensagem que a API escreveu lá dentro.
  *

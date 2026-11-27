@@ -1,6 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { IconeCalculo } from '../../components/icones';
+import { IconeCalculo, IconeDocumento } from '../../components/icones';
 import { SeletorDeCategoria } from '../../components/SeletorDeCategoria';
 import {
   Aviso,
@@ -16,11 +21,23 @@ import {
 } from '../../components/ui';
 import { CalculadoraDaGaveta } from './CalculadoraDaGaveta';
 import { api, mensagemErro } from '../../lib/api';
-import { abrirArquivo } from '../../lib/arquivo';
+import {
+  abrirArquivo,
+  abrirDataUrl,
+  bytesDaDataUrl,
+  ehPdfDataUrl,
+  tamanhoLegivel,
+} from '../../lib/arquivo';
 import { useTermoAdiado } from '../../lib/busca';
 import { useAuth } from '../../lib/auth';
 import { useCelular } from '../../lib/celular';
-import { reduzirFoto, useColarFoto } from '../../lib/foto';
+import {
+  ehImagem,
+  lerComoDataUrl,
+  reduzirFoto,
+  useColarFoto,
+} from '../../lib/foto';
+import { useSegurarArquivoSolto, useSoltarAqui } from '../../lib/soltar';
 import { formatBRL, formatData } from '../../lib/format';
 import { CampoDeData } from '../../components/CampoDeData';
 import type {
@@ -36,7 +53,10 @@ import type {
   TipoMovimentoDaRua,
 } from '../../lib/types';
 
-/** Uma nota de lançamento: a foto tirada, ou o recibo que o diarista assinou. */
+/**
+ * Uma nota de lançamento: a foto tirada ou o PDF anexado (os dois são `FOTO`
+ * para a API, e o conteúdo diz qual é), ou o recibo que o diarista assinou.
+ */
 interface NotaDoLancamento {
   id: string;
   createdAt: string;
@@ -113,6 +133,9 @@ function hojeAteHoje(): { de: string; ate: string } {
 export function FechamentoCaixa() {
   const [caixaId, setCaixaId] = useState<number | null>(null);
   const [periodo, setPeriodo] = useState(hojeAteHoje);
+  // As notas entram arrastando para a linha; o PDF que errar a linha por um
+  // palmo não pode tomar o lugar da tela.
+  useSegurarArquivoSolto();
 
   const caixas = useQuery({
     queryKey: ['caixa', 'caixas'],
@@ -1262,25 +1285,30 @@ function LinhaDoLancamento({
     onError: (e) => onErro(mensagemErro(e)),
   });
 
-  const anexar = useMutation({
-    mutationFn: async (notaFoto: string) =>
-      (
-        await api.post<{ qtdNotas: number }>(
-          `/caixa/${caixaId}/lancamentos/${l.id}/notas`,
-          { notaFoto, ...retrato },
-        )
-      ).data,
-    onSuccess: (r) => {
-      onMudouNota(l.id, r.qtdNotas);
+  const anexar = useAnexarNotas({
+    caminho: `/caixa/${caixaId}/lancamentos/${l.id}/notas`,
+    corpo: retrato,
+    onAnexou: (qtdNotas) => {
+      onMudouNota(l.id, qtdNotas);
       onVerNotas(true);
     },
-    onError: (e) => onErro(mensagemErro(e)),
+    onErro,
   });
+
+  /*
+   * A nota arrastada até a linha é desta linha.
+   *
+   * A linha inteira recebe, e não só o botão: quem arrasta o PDF do e-mail
+   * mira o lançamento, não um alvo de oitenta pixels. A tira de notas aberta
+   * embaixo é o mesmo alvo — é a continuação da linha.
+   */
+  const { sobre, alvo } = useSoltarAqui((arquivos) => anexar.mutate(arquivos));
 
   return (
     <>
       <tr
-        className="linha"
+        className={`linha ${sobre ? 'linha-marcada' : ''}`}
+        {...alvo}
         onClick={(e) => {
           /*
            * O clique num controle da linha é dele: "Ver notas" alterna, "+
@@ -1347,14 +1375,15 @@ function LinhaDoLancamento({
                     : `Ver ${l.qtdNotas} notas`}
               </button>
             )}
-            {/* Anexar continua aparecendo com foto já anexada: uma nota nem
+            {/* Anexar continua aparecendo com nota já anexada: uma nota nem
                 sempre cabe numa foto só — cupom comprido, verso escrito, a
-                foto tremida que pede a segunda. */}
-            <EscolherFoto
-              rotulo={l.qtdNotas > 0 ? '+ foto' : 'Anexar nota'}
+                foto tremida que pede a segunda, o PDF e o comprovante. */}
+            <EscolherNota
+              rotulo={
+                sobre ? 'Solte aqui' : l.qtdNotas > 0 ? '+ nota' : 'Anexar nota'
+              }
               pendente={anexar.isPending}
-              onEscolher={(dataUrl) => anexar.mutate(dataUrl)}
-              onErro={onErro}
+              onArquivos={(arquivos) => anexar.mutate(arquivos)}
             />
             {/*
               Aqui ficava o botão de tirar um lançamento da conta da gaveta.
@@ -1401,8 +1430,11 @@ function LinhaDoLancamento({
         </td>
       </tr>
       {vendoNotas && (
-        <tr>
-          <td colSpan={5} className="bg-tinta-50/80 px-4 pb-4">
+        <tr {...alvo}>
+          <td
+            colSpan={5}
+            className={`px-4 pb-4 ${sobre ? 'bg-brand-500/10' : 'bg-tinta-50/80'}`}
+          >
             <NotasDoLancamento
               caixaId={caixaId}
               idLancamento={l.id}
@@ -1415,47 +1447,206 @@ function LinhaDoLancamento({
   );
 }
 
-/** O botão de escolher uma foto, com a redução feita antes do envio. */
-function EscolherFoto({
+/**
+ * O que o seletor de arquivo oferece para a nota: foto ou PDF.
+ *
+ * O `.pdf` vai junto do tipo porque há navegador que filtra pela extensão, e o
+ * PDF baixado do e-mail aparecia apagado na janela de escolher.
+ */
+const TIPOS_DA_NOTA = 'image/*,application/pdf,.pdf';
+
+/** O teto do PDF da nota — o mesmo da API (`MEGAS_DO_PDF` em `nota-do-caixa`). */
+const MEGAS_DO_PDF = 8;
+
+/**
+ * Quanto cabe num envio só, em caracteres de data URL.
+ *
+ * O corpo do pedido tem teto de 24 MB no nginx e na API, e o acerto da rua
+ * leva todas as notas de uma vez. A foto reduzida não chega perto; três PDFs
+ * digitalizados chegam, e passando dali o envio morria com um 413 sem
+ * explicação.
+ */
+const CABE_NUM_ENVIO = 23_000_000;
+
+function ehPdf(arquivo: File): boolean {
+  return arquivo.type === 'application/pdf' || /\.pdf$/i.test(arquivo.name);
+}
+
+/**
+ * O arquivo escolhido ou solto, pronto para subir como nota: um data URL.
+ *
+ * A foto passa pela redução de sempre (ver `reduzirFoto`). O PDF vai como
+ * veio — não há como encolhê-lo aqui sem estragar, e a nota fiscal em PDF já
+ * nasce pequena. Quem confere se ele é PDF de verdade é a API, pelos primeiros
+ * bytes; aqui só se garante que ele chegue lá dizendo que é.
+ */
+async function prepararNota(arquivo: File): Promise<string> {
+  if (ehPdf(arquivo)) {
+    if (arquivo.size > MEGAS_DO_PDF * 1024 * 1024) {
+      throw new Error(
+        `Este PDF tem ${tamanhoLegivel(arquivo.size)} e o da nota ` +
+          `vai até ${MEGAS_DO_PDF} MB. Salve de novo em resolução menor ou em ` +
+          'preto e branco, que costuma resolver.',
+      );
+    }
+    const dados = await lerComoDataUrl(arquivo);
+    // O tipo do data URL é o que o navegador deduziu, e às vezes ele não deduz
+    // nada ("data:;base64,", octet-stream): a API recusaria pelo tipo um PDF
+    // que é PDF.
+    return dados.replace(/^data:[^,]*?;base64,/, 'data:application/pdf;base64,');
+  }
+  if (!ehImagem(arquivo)) {
+    throw new Error('Este arquivo não é foto nem PDF — a nota entra como um dos dois.');
+  }
+  return reduzirFoto(arquivo);
+}
+
+/** Com vários arquivos de uma vez, o motivo diz de qual deles é. */
+function comONome(todos: File[], arquivo: File, motivo: string): string {
+  return todos.length > 1 ? `${arquivo.name}: ${motivo}` : motivo;
+}
+
+/** O motivo, sem o "Error:" na frente que o `String(erro)` põe. */
+function motivoDoErro(erro: unknown): string {
+  const deRede = (erro as { isAxiosError?: boolean } | null)?.isAxiosError;
+  return erro instanceof Error && !deRede ? erro.message : mensagemErro(erro);
+}
+
+/**
+ * Prepara e manda as notas escolhidas ou soltas, uma a uma.
+ *
+ * Uma a uma porque a rota recebe uma nota por vez; e a que falha não leva as
+ * outras junto: o PDF recusado volta dito pelo nome, e as que subiram ficam —
+ * a contagem da linha anda com elas.
+ */
+function useAnexarNotas({
+  caminho,
+  corpo,
+  onAnexou,
+  onErro,
+}: {
+  caminho: string;
+  /** O que vai junto de cada nota — o retrato do lançamento. */
+  corpo?: Record<string, unknown>;
+  onAnexou: (qtdNotas: number) => void;
+  onErro: (mensagem: string) => void;
+}) {
+  return useMutation({
+    mutationFn: async (arquivos: File[]) => {
+      let qtdNotas: number | null = null;
+      const falhas: string[] = [];
+      for (const arquivo of arquivos) {
+        try {
+          const notaFoto = await prepararNota(arquivo);
+          qtdNotas = (
+            await api.post<{ qtdNotas: number }>(caminho, { notaFoto, ...corpo })
+          ).data.qtdNotas;
+        } catch (err) {
+          falhas.push(comONome(arquivos, arquivo, motivoDoErro(err)));
+        }
+      }
+      return { qtdNotas, falhas };
+    },
+    onSuccess: ({ qtdNotas, falhas }) => {
+      if (qtdNotas !== null) onAnexou(qtdNotas);
+      if (falhas.length > 0) onErro(falhas.join(' '));
+    },
+    onError: (e) => onErro(motivoDoErro(e)),
+  });
+}
+
+/**
+ * O botão de anexar a nota: a foto (da câmera ou da galeria) ou o PDF.
+ *
+ * Entrega os arquivos como vieram — quem os prepara é `prepararNota`. Vários
+ * de uma vez: a nota e o comprovante, as duas páginas do cupom.
+ */
+function EscolherNota({
   rotulo,
   pendente,
-  onEscolher,
-  onErro,
+  textoPendente = 'Enviando…',
+  onArquivos,
 }: {
   rotulo: string;
   pendente: boolean;
-  onEscolher: (dataUrl: string) => void;
-  onErro: (m: string) => void;
+  textoPendente?: string;
+  onArquivos: (arquivos: File[]) => void;
 }) {
-  async function aoEscolher(e: React.ChangeEvent<HTMLInputElement>) {
-    const arquivo = e.target.files?.[0];
-    // O input é limpo sempre: sem isso, escolher a mesma foto de novo depois de
-    // um erro não dispara evento nenhum.
-    e.target.value = '';
-    if (!arquivo) return;
-    try {
-      onEscolher(await reduzirFoto(arquivo));
-    } catch (err) {
-      onErro(err instanceof Error ? err.message : String(err));
-    }
-  }
-
   return (
     <label
       className="btn btn-p btn-neutro w-fit cursor-pointer"
-      title="Fotografe a nota ou escolha uma imagem já salva"
+      title="Fotografe a nota, ou escolha a foto ou o PDF já salvo. Também dá para arrastar o arquivo até aqui."
     >
-      {pendente ? 'Enviando…' : rotulo}
+      {pendente ? textoPendente : rotulo}
       {/* Sem `capture`: com ele o celular só abria a câmera, e a foto que já
           estava na galeria — a que chegou pelo WhatsApp — não tinha como
-          entrar. Sem ele o aparelho pergunta: câmera ou galeria. */}
+          entrar. Sem ele o aparelho pergunta: câmera, galeria ou arquivos. */}
       <input
         type="file"
-        accept="image/*"
+        accept={TIPOS_DA_NOTA}
+        multiple
         className="hidden"
-        onChange={aoEscolher}
+        onChange={(e) => {
+          // A cópia sai antes de limpar: `files` é uma lista viva.
+          const arquivos = [...(e.target.files ?? [])];
+          // O input é limpo sempre: sem isso, escolher o mesmo arquivo de novo
+          // depois de um erro não dispara evento nenhum.
+          e.target.value = '';
+          if (arquivos.length > 0) onArquivos(arquivos);
+        }}
       />
     </label>
+  );
+}
+
+/**
+ * O PDF de uma nota, no lugar da miniatura que ele não tem.
+ *
+ * Um cartão com o ícone e o tamanho, que abre o PDF numa aba ao clicar — o
+ * leitor de PDF do navegador é melhor para ler a nota do que qualquer
+ * miniatura que se desenhasse aqui.
+ */
+function CartaoDoPdf({
+  dados,
+  nome,
+  pequeno = false,
+}: {
+  dados: string;
+  /** O nome do arquivo, quando se sabe (antes de subir); depois, "Nota em PDF". */
+  nome?: string;
+  pequeno?: boolean;
+}) {
+  const [erro, setErro] = useState<string | null>(null);
+  const abrir = () => {
+    setErro(null);
+    abrirDataUrl(dados, nome || 'nota.pdf').catch((e: unknown) =>
+      setErro(motivoDoErro(e)),
+    );
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={abrir}
+      title={`Abrir ${nome ? `"${nome}"` : 'o PDF'} numa aba`}
+      className={`flex items-center gap-2 rounded-xl border border-tinta-200 bg-papel text-left transition hover:border-brand-300 hover:text-brand-700 ${
+        pequeno ? 'h-[42px] max-w-[200px] px-2' : 'w-40 flex-col justify-center gap-1 p-3 text-center'
+      }`}
+    >
+      <IconeDocumento
+        className={`shrink-0 text-rose-500 ${pequeno ? 'h-5 w-5' : 'h-9 w-9'}`}
+      />
+      <span className={`min-w-0 ${pequeno ? '' : 'w-full'}`}>
+        <span className="block truncate text-xs font-semibold text-tinta-700">
+          {nome || 'Nota em PDF'}
+        </span>
+        <span className="block text-[11px] text-tinta-400">
+          PDF · {tamanhoLegivel(bytesDaDataUrl(dados))}
+          {!pequeno && ' · abrir'}
+        </span>
+        {erro && <span className="block text-[11px] text-rose-600">{erro}</span>}
+      </span>
+    </button>
   );
 }
 
@@ -1496,6 +1687,18 @@ function NotasDoLancamento({
     queryFn: async () => (await api.get<NotaDoLancamento[]>(caminho)).data,
   });
 
+  /*
+   * O conteúdo de cada nota, para saber quais são PDF.
+   *
+   * A lista não diz — foto e PDF moram na mesma coluna, e lê-la para responder
+   * seria trazer os arquivos que a lista existe para não trazer. São as mesmas
+   * consultas das miniaturas, que já estão pedindo cada uma: nada sai duas vezes.
+   */
+  const naoRecibos = (notas.data ?? []).filter((n) => n.tipo !== 'RECIBO');
+  const conteudos = useQueries({
+    queries: naoRecibos.map((n) => consultaDaNota(n.id)),
+  });
+
   const apagar = useMutation({
     mutationFn: async (fotoId: string) => api.delete(`/caixa/notas/${fotoId}`),
     onSuccess: async () => {
@@ -1505,11 +1708,11 @@ function NotasDoLancamento({
     },
   });
 
-  if (notas.isLoading) return <Carregando texto="Abrindo as fotos…" />;
+  if (notas.isLoading) return <Carregando texto="Abrindo as notas…" />;
   if (notas.isError) {
     return (
       <p className="pt-3 text-sm text-rose-600">
-        Não deu para abrir as fotos: {mensagemErro(notas.error)}{' '}
+        Não deu para abrir as notas: {mensagemErro(notas.error)}{' '}
         <button
           type="button"
           onClick={() => void notas.refetch()}
@@ -1521,7 +1724,7 @@ function NotasDoLancamento({
     );
   }
   if (!notas.data?.length) {
-    return <p className="ajuda pt-3">Nenhuma foto anexada.</p>;
+    return <p className="ajuda pt-3">Nenhuma nota anexada.</p>;
   }
 
   /*
@@ -1529,9 +1732,13 @@ function NotasDoLancamento({
    *
    * O recibo assinado do diarista também é nota desta saída, mas é um PDF
    * montado na hora — não há imagem para pôr no lugar da anterior. Ele fica
-   * de fora da caminhada e continua na tira, com o botão dele.
+   * de fora da caminhada e continua na tira, com o botão dele. O PDF anexado
+   * também: ele abre no leitor de PDF, numa aba.
    */
-  const fotos = notas.data.filter((n) => n.tipo !== 'RECIBO');
+  const fotos = naoRecibos.filter((_, i) => {
+    const dados = conteudos[i]?.data?.foto;
+    return !dados || !ehPdfDataUrl(dados);
+  });
   const naSequencia = fotos.findIndex((n) => n.id === aberta);
 
   return (
@@ -1582,13 +1789,18 @@ function NotasDoLancamento({
   );
 }
 
-/** A imagem de uma nota. A miniatura e a tela cheia leem a mesma consulta. */
-function useFotoDaNota(fotoId: string) {
-  return useQuery({
+/** O arquivo de uma nota (foto ou PDF, em data URL), sob demanda. */
+function consultaDaNota(fotoId: string) {
+  return {
     queryKey: ['caixa', 'foto', fotoId],
     queryFn: async () =>
       (await api.get<{ foto: string | null }>(`/caixa/notas/${fotoId}`)).data,
-  });
+  };
+}
+
+/** A miniatura, a tela cheia e a tira leem a mesma consulta. */
+function useFotoDaNota(fotoId: string) {
+  return useQuery(consultaDaNota(fotoId));
 }
 
 /**
@@ -1612,7 +1824,8 @@ function NotaEmTelaCheia({
   onProxima?: () => void;
 }) {
   const foto = useFotoDaNota(fotoId);
-  if (!foto.data?.foto) return null;
+  // O PDF não tem imagem para ampliar: ele abre pelo cartão, numa aba.
+  if (!foto.data?.foto || ehPdfDataUrl(foto.data.foto)) return null;
 
   return (
     <FotoAmpliada
@@ -1747,6 +1960,8 @@ function UmaFoto({
             Tentar de novo
           </button>
         </p>
+      ) : foto.data?.foto && ehPdfDataUrl(foto.data.foto) ? (
+        <CartaoDoPdf dados={foto.data.foto} />
       ) : foto.data?.foto ? (
         /* A miniatura é o atalho; o que vale é o que ela abre. */
         <button
@@ -1762,7 +1977,7 @@ function UmaFoto({
           />
         </button>
       ) : (
-        <p className="ajuda">A foto não está mais aqui.</p>
+        <p className="ajuda">A nota não está mais aqui.</p>
       )}
     </div>
   );
@@ -1786,10 +2001,9 @@ function FotosDoAcerto({
   const [aberto, setAberto] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
-  const anexar = useMutation({
-    mutationFn: async (notaFoto: string) =>
-      api.post(`/caixa/movimentos-da-rua/${movimento.id}/notas`, { notaFoto }),
-    onSuccess: () => {
+  const anexar = useAnexarNotas({
+    caminho: `/caixa/movimentos-da-rua/${movimento.id}/notas`,
+    onAnexou: () => {
       setErro(null);
       setAberto(true);
       void qc.invalidateQueries({
@@ -1797,11 +2011,18 @@ function FotosDoAcerto({
       });
       onMudou();
     },
-    onError: (e) => setErro(mensagemErro(e)),
+    onErro: setErro,
   });
+  // A nota arrastada até este acerto é deste acerto.
+  const { sobre, alvo } = useSoltarAqui((arquivos) => anexar.mutate(arquivos));
 
   return (
-    <div className="mt-1">
+    <div
+      {...alvo}
+      className={`mt-1 rounded-lg transition ${
+        sobre ? 'bg-brand-500/10 ring-2 ring-brand-400' : ''
+      }`}
+    >
       <div className="flex flex-wrap items-center gap-2">
         {movimento.qtdNotas > 0 && (
           <button
@@ -1816,11 +2037,12 @@ function FotosDoAcerto({
                 : `Ver ${movimento.qtdNotas} notas`}
           </button>
         )}
-        <EscolherFoto
-          rotulo={movimento.qtdNotas > 0 ? '+ foto' : 'Anexar foto'}
+        <EscolherNota
+          rotulo={
+            sobre ? 'Solte aqui' : movimento.qtdNotas > 0 ? '+ nota' : 'Anexar nota'
+          }
           pendente={anexar.isPending}
-          onEscolher={(dataUrl) => anexar.mutate(dataUrl)}
-          onErro={setErro}
+          onArquivos={(arquivos) => anexar.mutate(arquivos)}
         />
       </div>
       {erro && <p className="mt-1 text-xs text-rose-600">{erro}</p>}
@@ -2107,10 +2329,13 @@ function AcertarConta({
    */
   const [data, setData] = useState(diaDeHoje);
   /* Várias: uma nota nem sempre cabe numa foto só — cupom comprido, verso
-     escrito, a foto tremida que pede a segunda tentativa. */
-  const [fotos, setFotos] = useState<string[]>([]);
+     escrito, a foto tremida que pede a segunda tentativa, o PDF da nota e o
+     do comprovante. O nome só serve à tela, para o PDF se reconhecer antes de
+     subir; à API vai o data URL. */
+  const [fotos, setFotos] = useState<Array<{ dados: string; nome: string }>>([]);
   /** Qual das fotos recém-tiradas está aberta em tela cheia. */
   const [ampliada, setAmpliada] = useState<number | null>(null);
+  const [preparando, setPreparando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
   // A despesa que a nota vira no IXC.
@@ -2127,17 +2352,37 @@ function AcertarConta({
   const comDespesa = ehNota && lancarDespesa;
   const celular = useCelular();
 
-  async function anexarFoto(arquivo: File) {
+  /** Escolhidos, soltos ou colados: cada um vira mais uma nota do acerto. */
+  async function anexarArquivos(arquivos: File[]) {
+    setPreparando(true);
+    const falhas: string[] = [];
     try {
-      const reduzida = await reduzirFoto(arquivo);
-      setFotos((atual) => [...atual, reduzida]);
-      setErro(null);
-    } catch (err) {
-      setErro(err instanceof Error ? err.message : String(err));
+      for (const arquivo of arquivos) {
+        try {
+          const dados = await prepararNota(arquivo);
+          setFotos((atual) => [...atual, { dados, nome: arquivo.name }]);
+        } catch (err) {
+          falhas.push(comONome(arquivos, arquivo, motivoDoErro(err)));
+        }
+      }
+    } finally {
+      setPreparando(false);
     }
+    setErro(falhas.length > 0 ? falhas.join(' ') : null);
   }
   // O print da nota colado com Ctrl+V vira mais uma foto.
-  useColarFoto((arquivo) => void anexarFoto(arquivo), ehNota);
+  useColarFoto((arquivo) => void anexarArquivos([arquivo]), ehNota);
+  // E o arquivo arrastado até o quadro das notas, mais uma nota.
+  const soltar = useSoltarAqui((arquivos) => void anexarArquivos(arquivos), ehNota);
+  /** A foto vizinha na tela cheia, pulando os PDFs, que não têm imagem. */
+  function fotoVizinha(i: number, passo: 1 | -1): (() => void) | undefined {
+    for (let j = i + passo; j >= 0 && j < fotos.length; j += passo) {
+      if (!ehPdfDataUrl(fotos[j].dados)) return () => setAmpliada(j);
+    }
+    return undefined;
+  }
+  /** Fotos e PDFs juntos, que é como vão no envio. */
+  const tamanhoDoEnvio = fotos.reduce((soma, f) => soma + f.dados.length, 0);
   const quanto = Number(valor) || 0;
   /* Nota ou troco maior que o saldo deixaria a pessoa devendo negativo, e o
      negativo entraria no total da rua abatendo o saldo de quem realmente está
@@ -2147,17 +2392,20 @@ function AcertarConta({
   const falta =
     quanto <= 0
       ? 'Informe o valor deste lançamento.'
-      : passaDoSaldo
-        ? `${conta.pessoa} está com ${formatBRL(conta.saldo)}. Se saiu mais dinheiro, lance o reforço antes.`
-        : !comDespesa
-          ? null
-          : !fornecedor
-            ? 'Escolha quem recebeu o dinheiro.'
-            : descricao.trim().length < 3
-              ? 'Diga em que o dinheiro foi gasto.'
-              : !data
-                ? 'Informe o dia em que aconteceu.'
-                : null;
+      : tamanhoDoEnvio > CABE_NUM_ENVIO
+        ? 'As notas juntas passam do que cabe num envio. Tire um dos PDFs ' +
+          'maiores e anexe-o depois de lançar, pelo "+ nota" do acerto.'
+        : passaDoSaldo
+          ? `${conta.pessoa} está com ${formatBRL(conta.saldo)}. Se saiu mais dinheiro, lance o reforço antes.`
+          : !comDespesa
+            ? null
+            : !fornecedor
+              ? 'Escolha quem recebeu o dinheiro.'
+              : descricao.trim().length < 3
+                ? 'Diga em que o dinheiro foi gasto.'
+                : !data
+                  ? 'Informe o dia em que aconteceu.'
+                  : null;
 
   // A busca só sai depois que quem digita para: cada tecla aqui é uma consulta
   // ao IXC, que é lento e não é nosso.
@@ -2193,7 +2441,7 @@ function AcertarConta({
             // Só a nota tem dia escolhido; troco e reforço são de agora, e a
             // data que ficou no campo de uma nota não pode ir junto com eles.
             data: ehNota ? data : undefined,
-            notasFoto: fotos.length ? fotos : undefined,
+            notasFoto: fotos.length ? fotos.map((f) => f.dados) : undefined,
             despesa: comDespesa
               ? {
                   idFornecedorIxc: fornecedor!.idFornecedor,
@@ -2386,64 +2634,73 @@ function AcertarConta({
         )}
         {ehNota && (
           <div>
-            <label className="rotulo">Fotos da nota</label>
-            <div className="flex flex-wrap items-center gap-2">
+            <span className="rotulo">Notas</span>
+            {/* O quadro inteiro recebe o arquivo arrastado, e não só o botão:
+                quem arrasta o PDF do e-mail mira a caixa, não um alvo de
+                oitenta pixels. */}
+            <div
+              {...soltar.alvo}
+              className={`flex flex-wrap items-center gap-2 rounded-xl border border-dashed px-3 py-2.5 transition ${
+                soltar.sobre
+                  ? 'border-brand-400 bg-brand-500/10'
+                  : 'border-tinta-200'
+              }`}
+            >
               {fotos.map((f, i) => (
-                <div key={f.slice(-32) + i} className="relative">
-                  {/* Antes de anexar, ver se a foto saiu legível — a
-                      miniatura é cortada e pequena demais para dizer. */}
-                  <button
-                    type="button"
-                    onClick={() => setAmpliada(i)}
-                    title="Ver em tela cheia"
-                    className="block cursor-zoom-in"
-                  >
-                    <img
-                      src={f}
-                      alt={`Nota ${i + 1}`}
-                      className="h-[42px] w-16 rounded-lg border border-tinta-200 object-cover"
-                    />
-                  </button>
+                <div key={f.dados.slice(-32) + i} className="relative">
+                  {ehPdfDataUrl(f.dados) ? (
+                    /* O PDF se reconhece pelo nome do arquivo, e abre numa aba
+                       para conferir antes de lançar. */
+                    <CartaoDoPdf dados={f.dados} nome={f.nome} pequeno />
+                  ) : (
+                    /* Antes de anexar, ver se a foto saiu legível — a
+                       miniatura é cortada e pequena demais para dizer. */
+                    <button
+                      type="button"
+                      onClick={() => setAmpliada(i)}
+                      title="Ver em tela cheia"
+                      className="block cursor-zoom-in"
+                    >
+                      <img
+                        src={f.dados}
+                        alt={`Nota ${i + 1}`}
+                        className="h-[42px] w-16 rounded-lg border border-tinta-200 object-cover"
+                      />
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => setFotos((atual) => atual.filter((_, j) => j !== i))}
                     className="alvo-livre absolute -right-2.5 -top-2.5 flex h-8 w-8 items-center justify-center rounded-full bg-tinta-800 text-sm font-bold text-papel shadow ring-2 ring-papel"
-                    title="Tirar esta foto"
-                    aria-label="Tirar esta foto"
+                    title="Tirar esta nota"
+                    aria-label="Tirar esta nota"
                   >
                     ×
                   </button>
-                  {ampliada === i && (
+                  {ampliada === i && !ehPdfDataUrl(f.dados) && (
                     <FotoAmpliada
-                      src={f}
+                      src={f.dados}
                       titulo={`Nota ${i + 1} de ${fotos.length}`}
                       onFechar={() => setAmpliada(null)}
-                      onAnterior={i > 0 ? () => setAmpliada(i - 1) : undefined}
-                      onProxima={
-                        i < fotos.length - 1
-                          ? () => setAmpliada(i + 1)
-                          : undefined
-                      }
+                      onAnterior={fotoVizinha(i, -1)}
+                      onProxima={fotoVizinha(i, 1)}
                     />
                   )}
                 </div>
               ))}
-              <label className="btn btn-p btn-neutro w-fit cursor-pointer">
-                {fotos.length ? '+ foto' : 'Anexar foto'}
-                {/* Câmera ou galeria, à escolha do aparelho (ver `EscolherFoto`). */}
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => {
-                    const arquivo = e.target.files?.[0];
-                    e.target.value = '';
-                    if (arquivo) void anexarFoto(arquivo);
-                  }}
-                />
-              </label>
+              {/* Câmera, galeria ou arquivo, à escolha do aparelho (ver `EscolherNota`). */}
+              <EscolherNota
+                rotulo={
+                  soltar.sobre ? 'Solte aqui' : fotos.length ? '+ nota' : 'Anexar nota'
+                }
+                pendente={preparando}
+                textoPendente="Preparando…"
+                onArquivos={(arquivos) => void anexarArquivos(arquivos)}
+              />
               {!celular && (
-                <span className="text-xs text-tinta-400">ou cole o print (Ctrl+V)</span>
+                <span className="text-xs text-tinta-400">
+                  foto ou PDF — arraste para cá, ou cole o print (Ctrl+V)
+                </span>
               )}
             </div>
           </div>

@@ -16,25 +16,10 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
+import { ENotaDoCaixa } from './nota-do-caixa';
 
 const numeroOuIndefinido = ({ value }: { value: unknown }) =>
   value === '' || value == null ? undefined : Number(value);
-
-/**
- * Teto da foto da nota, em caracteres do data URL.
- *
- * Cinco milhões de caracteres são ~3,7 MB de imagem, o mesmo teto da foto dos
- * pontos e do abastecimento. Era um milhão (~750 KB), de quando a tela reduzia
- * a foto a 1600px; quando ela passou a 2400px para a caneta aparecer, a foto
- * de uma nota cheia de detalhe passou de 750 KB e o caixa a recusava como
- * "grande demais" — tirada pela câmera, pela própria tela. A tela hoje entrega
- * no máximo 1,5 MB. O limite existe para o caso de alguém mandar pela API: uma
- * tabela de fotos cruas enche o disco do servidor, que é o mesmo do banco.
- */
-const TETO_DA_FOTO = 5_000_000;
-
-const RECADO_DA_FOTO =
-  'A foto ficou grande demais. Tire de novo pela tela, que ela reduz sozinha.';
 
 export class PeriodoDoCaixaDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/, {
@@ -102,24 +87,23 @@ export class ForaDaGavetaDto extends RetratoDoLancamentoDto {
   motivo?: string;
 }
 
-/** Mais uma foto para a nota de um lançamento. */
+/**
+ * Mais uma nota para um lançamento: a foto, ou o PDF (ver `nota-do-caixa`).
+ *
+ * O campo continua `notaFoto` por ser o nome que a tela e o banco já usam; o
+ * que vem nele é o data URL de um ou de outro.
+ */
 export class AnexarNotaDto extends RetratoDoLancamentoDto {
   @IsString()
-  @MaxLength(TETO_DA_FOTO, { message: RECADO_DA_FOTO })
-  @Matches(/^data:image\/(png|jpe?g|webp);base64,/, {
-    message: 'A nota precisa ser uma imagem (PNG, JPEG ou WebP).',
-  })
+  @ENotaDoCaixa()
   notaFoto!: string;
 }
 
 export class NotaDto {
-  /** Data URL da imagem. `null` tira a foto que estava lá. */
+  /** Data URL da foto ou do PDF. `null` tira a nota que estava lá. */
   @IsOptional()
   @IsString()
-  @MaxLength(TETO_DA_FOTO, { message: RECADO_DA_FOTO })
-  @Matches(/^data:image\/(png|jpe?g|webp);base64,/, {
-    message: 'A nota precisa ser uma imagem (PNG, JPEG ou WebP).',
-  })
+  @ENotaDoCaixa()
   notaFoto?: string | null;
 }
 
@@ -237,16 +221,12 @@ export class MovimentoDaRuaDto {
   })
   data?: string;
 
-  /** As fotos da nota: uma nota nem sempre cabe numa só. */
+  /** As fotos ou PDFs da nota: uma nota nem sempre cabe num arquivo só. */
   @IsOptional()
   @IsArray()
-  @ArrayMaxSize(10, { message: 'No máximo dez fotos por nota.' })
+  @ArrayMaxSize(10, { message: 'No máximo dez arquivos por nota.' })
   @IsString({ each: true })
-  @MaxLength(TETO_DA_FOTO, { each: true, message: RECADO_DA_FOTO })
-  @Matches(/^data:image\/(png|jpe?g|webp);base64,/, {
-    each: true,
-    message: 'A nota precisa ser uma imagem (PNG, JPEG ou WebP).',
-  })
+  @ENotaDoCaixa({ each: true })
   notasFoto?: string[];
 
   @IsOptional()
