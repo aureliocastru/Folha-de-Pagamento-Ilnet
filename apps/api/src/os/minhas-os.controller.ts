@@ -19,12 +19,14 @@ import {
   AnexarFotoDto,
   AnotarItemDto,
   AnotarRetiradasDto,
+  AutorizarOnuDto,
   FinalizarDto,
   ResponderConferenciaDto,
 } from './dto/os.dto';
 import { ConferenciaService } from './conferencia.service';
 import { FichaDeOsService } from './ficha.service';
 import { FinalizacaoService } from './finalizacao.service';
+import { OnuDaOsService } from './onu.service';
 import { OsService, type Login } from './os.service';
 
 /**
@@ -50,6 +52,7 @@ export class MinhasOsController {
     private readonly finalizacao: FinalizacaoService,
     private readonly conferencia: ConferenciaService,
     private readonly ficha: FichaDeOsService,
+    private readonly onu: OnuDaOsService,
   ) {}
 
   @Get()
@@ -90,6 +93,76 @@ export class MinhasOsController {
   @Get(':osId/ficha')
   fichaDaOs(@Req() req: Request, @Param('osId', ParseIntPipe) osId: number) {
     return this.ficha.ficha(logado(req), osId);
+  }
+
+  // --- Autorizar ONU (pedido de 27/11/2026): o "Autorizar ONUs" do IXC. ---
+
+  /** O login da OS, as ONUs que o IXC tem nele, as OLTs e o que já se autorizou aqui. */
+  @Get(':osId/onu')
+  onuDaOs(@Req() req: Request, @Param('osId', ParseIntPipe) osId: number) {
+    return this.onu.abrir(logado(req), osId);
+  }
+
+  /** O "Consultar": as ONUs plugadas e não autorizadas de uma OLT, ou de todas. */
+  @Get(':osId/onu/pendentes')
+  onusPendentes(
+    @Req() req: Request,
+    @Param('osId', ParseIntPipe) osId: number,
+    @Query('olt') olt = '',
+  ) {
+    const oltId = Number(olt);
+    return this.onu.pendentes(logado(req), osId, oltId > 0 ? oltId : null);
+  }
+
+  /** O formulário da ONU escolhida, com perfil, VLAN, caixa e porta sugeridos. */
+  @Get(':osId/onu/preparar')
+  prepararOnu(
+    @Req() req: Request,
+    @Param('osId', ParseIntPipe) osId: number,
+    @Query('olt', ParseIntPipe) olt: number,
+    @Query('chave') chave = '',
+  ) {
+    return this.onu.preparar(logado(req), osId, olt, chave);
+  }
+
+  @Get(':osId/onu/caixas')
+  caixasDaFibra(
+    @Req() req: Request,
+    @Param('osId', ParseIntPipe) osId: number,
+    @Query('busca') busca = '',
+  ) {
+    return this.onu.caixas(logado(req), osId, busca);
+  }
+
+  @Get(':osId/onu/caixas/:caixaId/portas')
+  portasDaCaixa(
+    @Req() req: Request,
+    @Param('osId', ParseIntPipe) osId: number,
+    @Param('caixaId', ParseIntPipe) caixaId: number,
+  ) {
+    return this.onu.portas(logado(req), osId, caixaId);
+  }
+
+  /** Cria (ou reaproveita) o cadastro da ONU e grava na OLT. */
+  @Post(':osId/onu/autorizar')
+  @HttpCode(200)
+  autorizarOnu(
+    @Req() req: Request,
+    @Param('osId', ParseIntPipe) osId: number,
+    @Body() dto: AutorizarOnuDto,
+  ) {
+    return this.onu.autorizar(logado(req), osId, dto);
+  }
+
+  /** A potência da ONU, lida da OLT agora. */
+  @Post(':osId/onu/:fibraId/sinal')
+  @HttpCode(200)
+  sinalDaOnu(
+    @Req() req: Request,
+    @Param('osId', ParseIntPipe) osId: number,
+    @Param('fibraId', ParseIntPipe) fibraId: number,
+  ) {
+    return this.onu.sinal(logado(req), osId, fibraId);
   }
 
   /** O aparelho de um código bipado, e se ele pode ser instalado. Não anota nada. */

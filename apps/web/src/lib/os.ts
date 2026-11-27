@@ -566,3 +566,131 @@ export function dataHoraCurta(ixc: string | null): string | null {
   if (!m) return ixc;
   return `${m[3]}/${m[2]}` + (m[4] && m[4] + m[5] !== '0000' ? ` ${m[4]}:${m[5]}` : '');
 }
+
+// --- Autorizar ONU pela OS (pedido de 27/11/2026) ----------------------------
+
+/** Como terminou uma autorização de ONU. Ver `SituacaoAutorizacaoOnu` no schema. */
+export type SituacaoAutorizacaoOnu = 'GRAVANDO' | 'AUTORIZADA' | 'RECUSADA' | 'INCERTA';
+
+export const AUTORIZACAO_ONU_LABEL: Record<SituacaoAutorizacaoOnu, string> = {
+  GRAVANDO: 'Indo à OLT',
+  AUTORIZADA: 'Autorizada na OLT',
+  RECUSADA: 'Recusada',
+  INCERTA: 'Conferir no IXC',
+};
+
+export const AUTORIZACAO_ONU_TOM: Record<SituacaoAutorizacaoOnu, Tom> = {
+  GRAVANDO: 'info',
+  AUTORIZADA: 'pago',
+  RECUSADA: 'erro',
+  INCERTA: 'atencao',
+};
+
+export interface SinalDaOnu {
+  /** dBm, como o IXC escreve ("-19.62"). Null: nunca foi lido. */
+  rx: string | null;
+  tx: string | null;
+  /** "AAAA-MM-DD HH:MM:SS". */
+  em: string | null;
+}
+
+/** O cadastro de uma ONU no IXC (Clientes Fibra). */
+export interface OnuDoIxc {
+  id: number;
+  oltId: number;
+  olt: string | null;
+  loginId: number;
+  contratoId: number;
+  nome: string | null;
+  mac: string;
+  modelo: string | null;
+  ponid: string | null;
+  slot: number | null;
+  pon: number | null;
+  caixaId: number | null;
+  porta: number | null;
+  perfilId: number | null;
+  vlan: string | null;
+  sinal: SinalDaOnu;
+  /** Já foi gravada na OLT alguma vez. */
+  naOlt: boolean;
+}
+
+/** Uma ONU plugada na OLT e ainda não autorizada — uma linha do "Consultar". */
+export interface OnuPendente {
+  chave: string;
+  oltId: number;
+  olt: string;
+  chassi: number | null;
+  slot: number;
+  pon: number;
+  ponid: string;
+  mac: string;
+  modelo: string;
+}
+
+export interface CaixaDaFibra {
+  id: number;
+  nome: string;
+  oltId: number | null;
+  projetoId: number | null;
+  capacidade: number | null;
+  ativa: boolean;
+}
+
+export interface PortaDaCaixa {
+  porta: number;
+  ocupadaPor: string | null;
+  loginId: number | null;
+}
+
+export interface AutorizacaoDeOnu {
+  id: string;
+  situacao: SituacaoAutorizacaoOnu;
+  mac: string;
+  modelo: string;
+  olt: string;
+  ponid: string;
+  caixa: string | null;
+  porta: number;
+  vlan: string;
+  perfil: string | null;
+  reaproveitou: boolean;
+  macAnterior: string | null;
+  fibraId: number | null;
+  /** O que a OLT respondeu, ou por que o IXC recusou. */
+  retorno: string | null;
+  registradoPor: string;
+  criadoEm: string;
+}
+
+/** `GET /minhas-os/:id/onu`. */
+export interface OnuDaOs {
+  /** Por que esta OS não autoriza ONU. Null: autoriza. */
+  motivo: string | null;
+  login: {
+    id: number;
+    usuario: string | null;
+    contratoId: number;
+    caixaId: number | null;
+    caixa: string | null;
+    porta: number | null;
+  } | null;
+  onus: OnuDoIxc[];
+  olts: Array<{ id: number; nome: string }>;
+  oltSugerida: number | null;
+  autorizacoes: AutorizacaoDeOnu[];
+}
+
+/** `GET /minhas-os/:id/onu/preparar` — o formulário da ONU escolhida. */
+export interface PreparoDaOnu {
+  pendente: OnuPendente;
+  perfis: Array<{ id: number; nome: string }>;
+  perfilSugerido: number | null;
+  vlanSugerida: string | null;
+  caixa: CaixaDaFibra | null;
+  portas: PortaDaCaixa[];
+  portaSugerida: number | null;
+  jaCadastrada: OnuDoIxc | null;
+  doLogin: OnuDoIxc[];
+}

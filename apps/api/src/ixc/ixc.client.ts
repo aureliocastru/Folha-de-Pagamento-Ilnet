@@ -68,7 +68,7 @@ export class IxcClient {
     }
 
     const data = res.data as
-      | { total?: string | number; registros?: T[]; type?: string; message?: string }
+      | { total?: string | number; registros?: T[]; rows?: T[]; type?: string; message?: string }
       | undefined;
 
     if (res.status >= 400 || (data && data.type === 'error')) {
@@ -80,7 +80,9 @@ export class IxcClient {
     return {
       total: Number(data?.total ?? 0),
       page: params.page ?? 1,
-      registros: (data?.registros ?? []) as T[],
+      // As grades que não são tabela (as ONUs não autorizadas, lidas da OLT
+      // na hora) respondem em `rows`, cada linha com `id` e `cell`.
+      registros: (data?.registros ?? data?.rows ?? []) as T[],
     };
   }
 

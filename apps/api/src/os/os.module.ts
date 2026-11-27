@@ -8,6 +8,7 @@ import { FichaDeOsService } from './ficha.service';
 import { FinalizacaoService } from './finalizacao.service';
 import { MateriaisDeOsService } from './materiais.service';
 import { MinhasOsController } from './minhas-os.controller';
+import { OnuDaOsService } from './onu.service';
 import { OsDoIxcService } from './os-do-ixc.service';
 import { OsController } from './os.controller';
 import { OsService } from './os.service';
@@ -37,6 +38,7 @@ import { TecnicosService } from './tecnicos.service';
     RecolhidosService,
     MateriaisDeOsService,
     RelatorioOsService,
+    OnuDaOsService,
   ],
   // O mapa de serviço lê os assuntos e as cidades das OS pelas mesmas leituras.
   // A análise de risco confere por `OsService.contexto` que a OS é do técnico.

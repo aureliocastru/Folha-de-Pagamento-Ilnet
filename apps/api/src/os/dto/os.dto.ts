@@ -219,3 +219,41 @@ export class EditarMaterialDto {
   @IsOptional() @Transform(inteiro) @IsInt() @Min(0)
   ordem?: number;
 }
+
+/**
+ * A ONU escolhida no "Consultar" da OLT, com o que o técnico completou. O resto
+ * — o serial, o modelo, o PON — o servidor relê da OLT pela `chave`: não vem
+ * do celular.
+ */
+export class AutorizarOnuDto {
+  @Transform(inteiro) @IsInt() @Min(1)
+  oltId!: number;
+
+  /** O `id` da linha na grade de ONUs não autorizadas do IXC. */
+  @Transform(texto) @IsString() @MinLength(8) @MaxLength(2000)
+  chave!: string;
+
+  @Transform(inteiro) @IsInt() @Min(1)
+  caixaId!: number;
+
+  @Transform(inteiro) @IsInt() @Min(1) @Max(256)
+  porta!: number;
+
+  @Transform(inteiro) @IsInt() @Min(1)
+  perfilId!: number;
+
+  @Transform(texto) @IsString() @MaxLength(4)
+  vlan!: string;
+
+  /** O cadastro deste login que a ONU nova substitui (a troca de ONU). */
+  @IsOptional() @Transform(inteiro) @IsInt() @Min(1)
+  substituirId?: number;
+
+  /** A ONU é mais uma do login, e não substitui nenhuma. */
+  @IsOptional() @IsBoolean()
+  adicional?: boolean;
+
+  /** A ONU tem cadastro em outro login e passa para este. */
+  @IsOptional() @IsBoolean()
+  confirmarMudanca?: boolean;
+}

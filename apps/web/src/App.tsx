@@ -43,6 +43,7 @@ const CampoMinhasOs = telaSobDemanda(() => import('./pages/os/NoCampo').then((m)
 const CampoOs = telaSobDemanda(() => import('./pages/os/NoCampo').then((m) => m.CampoOs));
 const CampoFichaDaOs = telaSobDemanda(() => import('./pages/os/Ficha').then((m) => m.CampoFichaDaOs));
 const CampoFinalizar = telaSobDemanda(() => import('./pages/os/Finalizar').then((m) => m.CampoFinalizar));
+const CampoOnuDaOs = telaSobDemanda(() => import('./pages/os/Onu').then((m) => m.CampoOnuDaOs));
 const MateriaisDeOs = telaSobDemanda(() => import('./pages/os/Materiais').then((m) => m.Materiais));
 const Recolhidos = telaSobDemanda(() => import('./pages/os/Recolhidos').then((m) => m.Recolhidos));
 const RegistrosDeOs = telaSobDemanda(() => import('./pages/os/Registros').then((m) => m.Registros));
@@ -541,6 +542,7 @@ export default function App() {
         <Route path="os/:osId/ficha" element={<CampoFichaDaOs />} />
         <Route path="os/:osId/finalizar" element={<CampoFinalizar />} />
         <Route path="os/:osId/apr" element={<CampoAprDaOs />} />
+        <Route path="os/:osId/onu" element={<CampoOnuDaOs />} />
         <Route path="aprs" element={<CampoAprs />} />
         <Route path="nova" element={<CampoNova />} />
         <Route path="minha-conta" element={<MinhaConta />} />

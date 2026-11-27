@@ -223,6 +223,8 @@ model Funcionario {
   itensDeOs     ItemDeOs[]
   /// As OS que esta pessoa finalizou pelo celular.
   finalizacoesDeOs FinalizacaoDeOs[]
+  /// As ONUs que esta pessoa autorizou na OLT pela OS.
+  autorizacoesDeOnu AutorizacaoDeOnu[]
   /// O almoxarifado dela no IXC, quando o administrador o fixou à mão.
   almoxFixado   AlmoxDoTecnico?
 
@@ -3576,6 +3578,71 @@ model FinalizacaoDeOs {
   @@index([situacao])
   @@index([tecnicoId, gravadoEm])
   @@map("finalizacoes_de_os")
+}
+
+/// Como terminou uma autorização de ONU feita pela OS.
+enum SituacaoAutorizacaoOnu {
+  /// Indo ao IXC e à OLT agora.
+  GRAVANDO
+  /// A OLT respondeu que gravou ("Gravar no dispositivo" com sucesso).
+  AUTORIZADA
+  /// O IXC ou a OLT recusaram. Nada ficou valendo na OLT; pode tentar de novo.
+  RECUSADA
+  /// A resposta não deu para ler, ou não chegou. Pode ter gravado: alguém
+  /// confere a ONU no IXC antes de tentar de novo.
+  INCERTA
+}
+
+/// Uma ONU autorizada na OLT pela tela da OS (pedido de 27/11/2026).
+///
+/// O IXC registra a autorização no nome do usuário do token da API, e não de
+/// quem estava no poste. É esta linha que diz quem autorizou, por qual OS, e o
+/// que a OLT respondeu — o mesmo texto que o IXC guarda no "Gravar no
+/// dispositivo".
+model AutorizacaoDeOnu {
+  id String @id @default(uuid())
+
+  /// `su_oss_chamado.id`.
+  osIxcId    Int @map("os_ixc_id")
+  /// `radusuarios.id` — o login da OS, que a ONU passa a autenticar.
+  loginIxcId Int @map("login_ixc_id")
+
+  /// `radpop_radio_cliente_fibra.id` — o cadastro da ONU no IXC. Nulo quando
+  /// o IXC recusou antes de criar.
+  fibraIxcId   Int?    @map("fibra_ixc_id")
+  /// O cadastro já existia (a ONU trocada, ou a mesma ONU mudando de PON) e
+  /// foi reaproveitado, como o NOC faz no IXC: desautorizar, editar, gravar.
+  reaproveitou Boolean @default(false)
+  /// O MAC da ONU que estava no cadastro reaproveitado, quando era outra.
+  macAnterior  String? @map("mac_anterior")
+
+  oltIxcId    Int     @map("olt_ixc_id")
+  olt         String
+  ponid       String
+  mac         String
+  modelo      String
+  caixaIxcId  Int     @map("caixa_ixc_id")
+  caixa       String?
+  porta       Int
+  perfilIxcId Int     @map("perfil_ixc_id")
+  perfil      String?
+  vlan        String
+
+  situacao SituacaoAutorizacaoOnu @default(GRAVANDO)
+  /// O que a OLT respondeu, ou por que o IXC recusou.
+  retorno  String?
+
+  tecnico       Funcionario @relation(fields: [tecnicoId], references: [id], onDelete: Restrict)
+  tecnicoId     String      @map("tecnico_id")
+  /// O login daqui que tocou em "Autorizar".
+  registradoPor String      @map("registrado_por")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([osIxcId])
+  @@index([mac])
+  @@map("autorizacoes_de_onu")
 }
 
 /// Como ficou a conferência de uma OS fechada.

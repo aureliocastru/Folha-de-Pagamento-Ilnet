@@ -6,6 +6,7 @@ import {
   IconeDocumento,
   IconeLupa,
   IconeOs,
+  IconeRaio,
   IconeRecolhido,
 } from '../../components/icones';
 import { LeitorDeCodigo, leitorDeCodigoSuportado } from '../../components/LeitorDeCodigo';
@@ -486,6 +487,14 @@ export function CampoOs() {
                 onClick={() => abrir('material')}
               />
             </div>
+          )}
+
+          {/* O "Autorizar ONUs" do IXC, para a ONU do login desta OS. */}
+          {dados.os.status !== 'F' && (
+            <Link to={`/campo/os/${id}/onu`} className="btn btn-neutro w-full justify-center py-3">
+              <IconeRaio className="h-4 w-4" />
+              Autorizar ONU na OLT
+            </Link>
           )}
 
           <section>
